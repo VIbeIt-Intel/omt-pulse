@@ -52,7 +52,7 @@ export function loadGoogleMaps(): Promise<void> {
     const timer = setTimeout(() => fail("Google Maps load timed out"), 12000);
 
     const script = document.createElement("script");
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places,geometry,visualization&callback=${callbackName}`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${key}&v=weekly&libraries=places,geometry,visualization&callback=${callbackName}`;
     script.async = true;
     script.defer = true;
     script.onerror = () => {

@@ -567,7 +567,7 @@ export default function LiveIncidentPage() {
           if (lastHeadingRef.current != null) {
             mapInstanceRef.current.setHeading(lastHeadingRef.current);
           }
-          mapInstanceRef.current.setTilt(45);
+          mapInstanceRef.current.setOptions({ tilt: 45 });
         }
       }
       setGpsAccuracy(Math.round(accuracy));
@@ -1564,7 +1564,7 @@ export default function LiveIncidentPage() {
             if (lastPosRef.current) map.setCenter(lastPosRef.current);
             map.setZoom(17);
             // Re-apply tilt in case setDirections reset it
-            map.setTilt(45);
+            map.setOptions({ tilt: 45 });
           } else {
             const b = new google.maps.LatLngBounds();
             b.extend(originToUse);
@@ -1869,17 +1869,17 @@ export default function LiveIncidentPage() {
           }
         }
         // setTilt last — after zoom/heading/center so no subsequent camera op resets it
-        mapInstanceRef.current.setTilt(45);
+        mapInstanceRef.current.setOptions({ tilt: 45 });
       } else {
         mapInstanceRef.current.setOptions({ minZoom: undefined });
-        mapInstanceRef.current.setTilt(0);
+        mapInstanceRef.current.setOptions({ tilt: 0 });
         mapInstanceRef.current.setHeading(0);
         lastHeadingRef.current = null;
       }
       setTimeout(() => {
         google.maps.event.trigger(mapInstanceRef.current!, "resize");
         // Re-apply tilt after resize — the resize event can reset the camera on vector maps
-        if (navMode && mapInstanceRef.current) mapInstanceRef.current.setTilt(45);
+        if (navMode && mapInstanceRef.current) mapInstanceRef.current.setOptions({ tilt: 45 });
       }, 80);
     }
   }, [navMode, mapsReady]);
