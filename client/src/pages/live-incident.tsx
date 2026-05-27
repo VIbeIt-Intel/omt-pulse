@@ -1527,6 +1527,8 @@ export default function LiveIncidentPage() {
   function drawRoute(dlat: number, dlng: number, origin?: { lat: number; lng: number }, skipFitBounds = false) {
     const map = mapInstanceRef.current;
     if (!map) return;
+    // In nav mode always preserve the viewport so setTilt(45) isn't wiped by setDirections
+    const effectiveSkip = skipFitBounds || navModeRef.current;
     if (destMarkerRef.current) { destMarkerRef.current.setMap(null); destMarkerRef.current = null; }
     setRouteInfo(null);
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#ef4444" stroke="white" stroke-width="2"/><circle cx="12" cy="12" r="4" fill="white" fill-opacity="0.9"/></svg>`;
@@ -1545,7 +1547,7 @@ export default function LiveIncidentPage() {
       (result, status) => {
         if (status === google.maps.DirectionsStatus.OK && result) {
           if (directionsRendererRef.current) {
-            directionsRendererRef.current.setOptions({ preserveViewport: skipFitBounds });
+            directionsRendererRef.current.setOptions({ preserveViewport: effectiveSkip });
             directionsRendererRef.current.setDirections(result);
           }
           const leg = result.routes[0]?.legs[0];
@@ -1557,10 +1559,12 @@ export default function LiveIncidentPage() {
             setStepDist(leg.steps?.[0]?.distance?.value ?? null);
             setIsOffRoute(false);
           }
-          if (skipFitBounds) {
+          if (effectiveSkip) {
             // Nav mode already active when route was drawn (joiner flow) — stay at street level
             if (lastPosRef.current) map.setCenter(lastPosRef.current);
             map.setZoom(17);
+            // Re-apply tilt in case setDirections reset it
+            map.setTilt(45);
           } else {
             const b = new google.maps.LatLngBounds();
             b.extend(originToUse);
