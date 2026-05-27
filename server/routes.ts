@@ -132,9 +132,12 @@ function shouldSendNavigatingPush(incidentId: number, sig: string): boolean {
 
 async function dispatchLiveIncidentPush(orgId: string, triggerUserId: string, incident: Incident) {
   console.log("[PUSH] dispatchLiveIncidentPush called for incident", incident.id, "by user", triggerUserId);
-  // All active roles receive live incident notifications so reporters can join
-  // their colleagues — the creator is excluded via triggerUserId.
-  const TARGET_ROLES = ["administrator", "supervisor", "reporter"];
+  // Yellow severity is a low-priority alert — only administrators are notified.
+  // Orange and red notify all roles so reporters can join their colleagues.
+  // Creator is excluded in all cases via triggerUserId.
+  const TARGET_ROLES = incident.severity === "yellow"
+    ? ["administrator"]
+    : ["administrator", "supervisor", "reporter"];
   const subs = await storage.getPushSubscriptionsByOrg(orgId, triggerUserId, TARGET_ROLES, undefined);
   console.log(`[PUSH] Found ${subs.length} subscriptions for org ${orgId} (triggered by ${triggerUserId})`);
 
