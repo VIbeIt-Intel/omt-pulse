@@ -1167,6 +1167,7 @@ export default function LiveIncidentPage() {
     const map = new google.maps.Map(mapRef.current, {
       center: { lat: -26.2041, lng: 28.0473 },
       zoom: 6,
+      mapId: "d5b5764e0927466e62dc5e4e",
       mapTypeControl: false,
       streetViewControl: false,
       fullscreenControl: false,
@@ -1831,7 +1832,6 @@ export default function LiveIncidentPage() {
     if (mapInstanceRef.current && mapsReady) {
       if (navMode) {
         mapInstanceRef.current.setOptions({ minZoom: 15 });
-        mapInstanceRef.current.setMapTypeId("hybrid");
         mapInstanceRef.current.setTilt(45);
         mapInstanceRef.current.setZoom(17);
         // Apply any already-known heading immediately — don't wait for the next GPS tick.
@@ -1867,7 +1867,6 @@ export default function LiveIncidentPage() {
         }
       } else {
         mapInstanceRef.current.setOptions({ minZoom: undefined });
-        mapInstanceRef.current.setMapTypeId("roadmap");
         mapInstanceRef.current.setTilt(0);
         mapInstanceRef.current.setHeading(0);
         lastHeadingRef.current = null;
