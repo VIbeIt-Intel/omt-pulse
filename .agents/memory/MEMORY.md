@@ -1,1 +1,2 @@
 - [FCM Phase 2 setup](fcm-phase2.md) — Firebase Admin init requires full service account JSON in FIREBASE_SERVICE_ACCOUNT_JSON; API key alone causes JSON parse error at startup.
+- [FCM + GitHub Actions APK build](fcm-apk-build.md) — FCM native push done; APK builds green on Actions; Play Store signing next
