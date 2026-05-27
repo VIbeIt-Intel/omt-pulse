@@ -551,23 +551,22 @@ export default function LiveIncidentPage() {
       }
       originMarkerRef.current?.setPosition(p);
       if (mapInstanceRef.current) {
-        mapInstanceRef.current.setCenter(p);
         if (navModeRef.current) {
           // Navigation perspective: tilt 45° and rotate map to face direction of travel.
-          // Persist the last valid heading so the map doesn't snap back to north
-          // during the brief moment GPS heading goes null mid-turn or speed dips
-          // below the threshold when braking before a junction.
+          // Use moveCamera for an atomic update — individual setCenter/setHeading/setOptions
+          // calls can partially reset each other on vector maps.
           const hdg = pos.coords.heading;
-          // Store GPS heading whenever it's a valid number — the speed gate was removed
-          // because many Android devices only emit heading intermittently regardless of
-          // speed, and lastHeadingRef already persists the last known value across null gaps.
           if (hdg != null && !isNaN(hdg)) {
             lastHeadingRef.current = hdg;
           }
-          if (lastHeadingRef.current != null) {
-            mapInstanceRef.current.setHeading(lastHeadingRef.current);
-          }
-          mapInstanceRef.current.setOptions({ tilt: 45 });
+          (mapInstanceRef.current as any).moveCamera({
+            center: p,
+            tilt: 45,
+            zoom: 17,
+            ...(lastHeadingRef.current != null ? { heading: lastHeadingRef.current } : {}),
+          });
+        } else {
+          mapInstanceRef.current.setCenter(p);
         }
       }
       setGpsAccuracy(Math.round(accuracy));
@@ -1564,7 +1563,7 @@ export default function LiveIncidentPage() {
             if (lastPosRef.current) map.setCenter(lastPosRef.current);
             map.setZoom(17);
             // Re-apply tilt in case setDirections reset it
-            map.setOptions({ tilt: 45 });
+            (map as any).moveCamera({ tilt: 45, zoom: 17 });
           } else {
             const b = new google.maps.LatLngBounds();
             b.extend(originToUse);
@@ -1836,9 +1835,6 @@ export default function LiveIncidentPage() {
     if (mapInstanceRef.current && mapsReady) {
       if (navMode) {
         mapInstanceRef.current.setOptions({ minZoom: 15 });
-        mapInstanceRef.current.setZoom(17);
-        // Apply any already-known heading immediately — don't wait for the next GPS tick.
-        mapInstanceRef.current.setHeading(lastHeadingRef.current ?? 0);
         if (lastPosRef.current) {
           mapInstanceRef.current.setCenter(lastPosRef.current);
           // Seed step index + stepDist immediately from last known GPS fix so the
@@ -1868,18 +1864,30 @@ export default function LiveIncidentPage() {
             }
           }
         }
-        // setTilt last — after zoom/heading/center so no subsequent camera op resets it
-        mapInstanceRef.current.setOptions({ tilt: 45 });
+        // moveCamera is atomic — sets tilt, zoom, heading, center in one call so
+        // nothing can partially override any individual property.
+        (mapInstanceRef.current as any).moveCamera({
+          tilt: 45,
+          zoom: 17,
+          heading: lastHeadingRef.current ?? 0,
+          ...(lastPosRef.current ? { center: lastPosRef.current } : {}),
+        });
       } else {
         mapInstanceRef.current.setOptions({ minZoom: undefined });
-        mapInstanceRef.current.setOptions({ tilt: 0 });
         mapInstanceRef.current.setHeading(0);
         lastHeadingRef.current = null;
+        (mapInstanceRef.current as any).moveCamera({ tilt: 0 });
       }
       setTimeout(() => {
         google.maps.event.trigger(mapInstanceRef.current!, "resize");
-        // Re-apply tilt after resize — the resize event can reset the camera on vector maps
-        if (navMode && mapInstanceRef.current) mapInstanceRef.current.setOptions({ tilt: 45 });
+        // Re-apply via moveCamera after resize
+        if (navMode && mapInstanceRef.current) {
+          (mapInstanceRef.current as any).moveCamera({
+            tilt: 45,
+            zoom: 17,
+            heading: lastHeadingRef.current ?? 0,
+          });
+        }
       }, 80);
     }
   }, [navMode, mapsReady]);
