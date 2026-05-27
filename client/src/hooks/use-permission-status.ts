@@ -21,24 +21,36 @@ const isPermissionsSupported =
 
 // Probe actual geolocation access — more reliable than the Permissions API
 // in Capacitor WebView where navigator.permissions may lag or lie.
+// External safety-net timer ensures this never hangs forever (Capacitor's
+// WebView sometimes ignores the built-in `timeout` option).
 function probeGeolocation(): Promise<PermissionState> {
   return new Promise((resolve) => {
     if (!navigator.geolocation) {
       resolve("unsupported");
       return;
     }
+    let settled = false;
+    const settle = (state: PermissionState) => {
+      if (!settled) { settled = true; resolve(state); }
+    };
+
+    // External safety net: if getCurrentPosition hangs (Capacitor quirk),
+    // assume "granted" after 6 s so the banner clears rather than staying stuck.
+    const safetyTimer = setTimeout(() => settle("granted"), 6000);
+
     navigator.geolocation.getCurrentPosition(
-      () => resolve("granted"),
+      () => { clearTimeout(safetyTimer); settle("granted"); },
       (err) => {
+        clearTimeout(safetyTimer);
         if (err.code === 1 /* PERMISSION_DENIED */) {
-          resolve("denied");
+          settle("denied");
         } else {
           // POSITION_UNAVAILABLE or TIMEOUT — permission was granted but GPS
           // couldn't get a fix. Treat as granted so the banner clears.
-          resolve("granted");
+          settle("granted");
         }
       },
-      { timeout: 4000, maximumAge: Infinity, enableHighAccuracy: false }
+      { timeout: 5000, maximumAge: Infinity, enableHighAccuracy: false }
     );
   });
 }
