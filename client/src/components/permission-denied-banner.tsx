@@ -38,14 +38,20 @@ export function PermissionDeniedBanner() {
     if (!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(
       () => {
-        // Permission granted — notify the hook immediately so the banner clears
+        // Permission granted and position acquired — clear the banner.
         window.dispatchEvent(new Event("omt:location-granted"));
       },
-      () => {
-        // Denied or error — the permission change event / next visibilitychange
-        // will update the status naturally
+      (err) => {
+        // PERMISSION_DENIED (code 1) → user said No — leave banner showing.
+        // POSITION_UNAVAILABLE (code 2) or TIMEOUT (code 3) → permission WAS
+        // granted but GPS couldn't get a fix (common indoors). Clear the banner.
+        if (err.code !== 1) {
+          window.dispatchEvent(new Event("omt:location-granted"));
+        }
       },
-      { timeout: 15000, enableHighAccuracy: true }
+      // Use low-accuracy (network/WiFi) so it resolves quickly indoors.
+      // High-accuracy GPS can fail to acquire a fix and time out unnecessarily.
+      { timeout: 10000, enableHighAccuracy: false }
     );
   }
 
