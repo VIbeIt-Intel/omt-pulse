@@ -2941,9 +2941,10 @@ export async function registerRoutes(
         );
         if (nearbyNew.length === 0) return;
         // Fetch subscriptions once, outside the per-location loop
+        const proximityAdminRoles = incident.severity === "yellow" ? ["administrator"] : ["administrator", "supervisor"];
         const [reporterSubs, adminSubs, reporterName] = await Promise.all([
           storage.getPushSubscriptionsByUser(userId).catch(() => [] as Awaited<ReturnType<typeof storage.getPushSubscriptionsByUser>>),
-          storage.getPushSubscriptionsByOrg(orgId, userId, ["administrator", "supervisor"]).catch(() => [] as Awaited<ReturnType<typeof storage.getPushSubscriptionsByOrg>>),
+          storage.getPushSubscriptionsByOrg(orgId, userId, proximityAdminRoles).catch(() => [] as Awaited<ReturnType<typeof storage.getPushSubscriptionsByOrg>>),
           storage.getUserById(userId).then(u => u ? `${u.firstName} ${u.lastName}`.trim() : "Reporter").catch(() => "Reporter"),
         ]);
         for (const loc of nearbyNew) {
@@ -3099,7 +3100,8 @@ export async function registerRoutes(
       const destDisplay = resolvedName ?? "an unspecified location";
       const destTitle = "🗺️ Responder Navigating";
       const destBody = `${firstName} is navigating to ${destDisplay}.`;
-      const subs = await storage.getPushSubscriptionsByOrg(orgId, triggerUserId, ["administrator", "supervisor", "reporter"]);
+      const navRoles = incident.severity === "yellow" ? ["administrator"] : ["administrator", "supervisor", "reporter"];
+      const subs = await storage.getPushSubscriptionsByOrg(orgId, triggerUserId, navRoles);
       if (subs.length === 0) return;
       const payload = JSON.stringify({ title: destTitle, body: destBody, url: "/live-monitor" });
       await Promise.allSettled(dedupeByEndpoint(subs).map(async (sub) => {
