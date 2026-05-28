@@ -600,7 +600,10 @@ export default function LiveIncidentPage() {
       }
       originMarkerRef.current?.setPosition(p);
       if (isNative && capMapRef.current) {
-        // ── Native camera ──────────────────────────────────────────────────────
+        // ── Native camera + user marker ────────────────────────────────────────
+        // Place/update the blue "you are here" dot on the native map. The
+        // originMarkerRef above is a JS-API Marker and does nothing on native.
+        capMapRef.current.setUserLocation(p.lat, p.lng).catch(() => {});
         const hdg = pos.coords.heading;
         if (hdg != null && !isNaN(hdg)) lastHeadingRef.current = hdg;
         if (navModeRef.current) {
@@ -1623,7 +1626,9 @@ export default function LiveIncidentPage() {
         capMapRef.current.removeMarker(capDestMarkerIdRef.current).catch(() => {});
         capDestMarkerIdRef.current = '';
       }
-      capMapRef.current.addMarker({ lat: dlat, lng: dlng, title: 'Destination', tintColor: '#ef4444' })
+      // tintColor intentionally omitted — the plugin needs {r,g,b,a} (0-255) and
+      // silently drops the marker when given a hex string. Default native pin is red.
+      capMapRef.current.addMarker({ lat: dlat, lng: dlng, title: 'Destination' })
         .then(id => { capDestMarkerIdRef.current = id; }).catch(() => {});
       capMapRef.current.drawRoute(originToUse, { lat: dlat, lng: dlng }, skipFitBounds || navModeRef.current)
         .then(result => {

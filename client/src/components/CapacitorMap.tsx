@@ -55,10 +55,12 @@ export interface CapacitorMapHandle {
     lat: number;
     lng: number;
     title?: string;
-    tintColor?: string;
   }): Promise<string>;
 
   removeMarker(id: string): Promise<void>;
+
+  /** Place or update the "you are here" blue dot. Idempotent. */
+  setUserLocation(lat: number, lng: number): Promise<void>;
 }
 
 interface CapacitorMapProps {
@@ -72,38 +74,6 @@ interface CapacitorMapProps {
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
-
-/** Decode a Google encoded-polyline string into LatLng pairs */
-function decodePolyline(encoded: string): Array<{ lat: number; lng: number }> {
-  const pts: Array<{ lat: number; lng: number }> = [];
-  let i = 0, lat = 0, lng = 0;
-  while (i < encoded.length) {
-    let b: number, shift = 0, result = 0;
-    do {
-      b = encoded.charCodeAt(i++) - 63;
-      result |= (b & 0x1f) << shift;
-      shift += 5;
-    } while (b >= 0x20);
-    lat += result & 1 ? ~(result >> 1) : result >> 1;
-    shift = 0; result = 0;
-    do {
-      b = encoded.charCodeAt(i++) - 63;
-      result |= (b & 0x1f) << shift;
-      shift += 5;
-    } while (b >= 0x20);
-    lng += result & 1 ? ~(result >> 1) : result >> 1;
-    pts.push({ lat: lat / 1e5, lng: lng / 1e5 });
-  }
-  return pts;
-}
-
-/**
- * Wrap a plain {lat, lng} object so .lat()/.lng() work as methods —
- * matching the google.maps.LatLng interface used in live-incident.tsx.
- */
-function toLatLngLike(raw: { lat: number; lng: number }): LatLngLike {
-  return { lat: () => raw.lat, lng: () => raw.lng };
-}
 
 /** Rough zoom level from a lat/lng bounding box (good enough for route fit) */
 function zoomFromBounds(
@@ -127,6 +97,7 @@ const CapacitorMap = forwardRef<CapacitorMapHandle, CapacitorMapProps>(
     const elementRef = useRef<HTMLDivElement>(null);
     const mapRef     = useRef<GoogleMap | null>(null);
     const polyIdsRef = useRef<string[]>([]);
+    const userMarkerIdRef = useRef<string>('');
 
     // Create the native map once on mount; destroy on unmount.
     // Includes a 3-second readiness timeout: if GoogleMap.create() succeeds but
@@ -189,10 +160,14 @@ const CapacitorMap = forwardRef<CapacitorMapHandle, CapacitorMapProps>(
         });
       },
 
-      // Fetch route via Directions REST API, draw polyline, return typed steps
+      // Fetch route via the loaded JS API DirectionsService (NOT the REST endpoint —
+      // that one is CORS-blocked from any browser/WebView origin and silently fails).
+      // The JS API client is loaded on every page via loadGoogleMaps() and works inside
+      // Capacitor WebView. The polyline is then drawn on the NATIVE Capacitor map.
       async drawRoute(origin, destination, skipFitBounds = false) {
         const map = mapRef.current;
         if (!map) return null;
+        if (typeof window === 'undefined' || !window.google?.maps) return null;
 
         // Remove previous polylines
         if (polyIdsRef.current.length) {
@@ -200,30 +175,35 @@ const CapacitorMap = forwardRef<CapacitorMapHandle, CapacitorMapProps>(
           polyIdsRef.current = [];
         }
 
-        // Call Directions REST API
-        const url =
-          `https://maps.googleapis.com/maps/api/directions/json` +
-          `?origin=${origin.lat},${origin.lng}` +
-          `&destination=${destination.lat},${destination.lng}` +
-          `&mode=driving` +
-          `&key=${apiKey}`;
+        // Ask the JS-API DirectionsService for a driving route
+        const ds = new google.maps.DirectionsService();
+        const result = await new Promise<google.maps.DirectionsResult | null>((resolve) => {
+          ds.route(
+            {
+              origin,
+              destination,
+              travelMode: google.maps.TravelMode.DRIVING,
+            },
+            (res, status) => {
+              if (status === google.maps.DirectionsStatus.OK && res) resolve(res);
+              else resolve(null);
+            },
+          );
+        });
+        if (!result) return null;
 
-        let data: any;
-        try {
-          const res = await fetch(url);
-          data = await res.json();
-        } catch {
-          return null;
-        }
-        if (data.status !== 'OK' || !data.routes?.length) return null;
+        const route = result.routes[0];
+        const leg   = route?.legs?.[0];
+        if (!route || !leg) return null;
 
-        const route = data.routes[0];
-        const leg   = route.legs?.[0];
-        if (!leg) return null;
+        // overview_path is an array of google.maps.LatLng — convert to plain pairs
+        const path = (route.overview_path ?? []).map((ll) => ({
+          lat: ll.lat(),
+          lng: ll.lng(),
+        }));
+        if (path.length < 2) return null;
 
-        // Decode polyline and draw the route line
-        const path = decodePolyline(route.overview_polyline.points);
-        const ids  = await map.addPolylines([{
+        const ids = await map.addPolylines([{
           path,
           strokeColor:   '#4285F4',
           strokeWeight:  7,
@@ -233,7 +213,7 @@ const CapacitorMap = forwardRef<CapacitorMapHandle, CapacitorMapProps>(
         polyIdsRef.current = ids;
 
         // Fit camera to the route (only when NOT in nav mode)
-        if (!skipFitBounds && path.length >= 2) {
+        if (!skipFitBounds) {
           const lats = path.map(p => p.lat);
           const lngs = path.map(p => p.lng);
           const minLat = Math.min(...lats), maxLat = Math.max(...lats);
@@ -246,15 +226,15 @@ const CapacitorMap = forwardRef<CapacitorMapHandle, CapacitorMapProps>(
           });
         }
 
-        // Shape REST steps → NativeStep (with .lat()/.lng() methods on locations)
-        // so live-incident.tsx step-tracking code works unchanged.
-        const steps: NativeStep[] = (leg.steps ?? []).map((s: any) => ({
-          instructions:   s.html_instructions ?? '',
+        // JS-API DirectionsStep already exposes .lat()/.lng() methods on
+        // start_location/end_location — directly compatible with NativeStep.
+        const steps: NativeStep[] = (leg.steps ?? []).map((s) => ({
+          instructions:   s.instructions ?? '',
           distance:       { value: s.distance?.value ?? 0, text: s.distance?.text ?? '' },
           duration:       { value: s.duration?.value ?? 0, text: s.duration?.text ?? '' },
-          start_location: toLatLngLike(s.start_location),
-          end_location:   toLatLngLike(s.end_location),
-          maneuver:       s.maneuver,
+          start_location: s.start_location,
+          end_location:   s.end_location,
+          maneuver:       (s as any).maneuver,
         }));
 
         return {
@@ -271,13 +251,16 @@ const CapacitorMap = forwardRef<CapacitorMapHandle, CapacitorMapProps>(
         polyIdsRef.current = [];
       },
 
-      // Add a single marker, return its ID
-      async addMarker({ lat, lng, title = '', tintColor }) {
+      // Add a single marker, return its ID.
+      // NOTE: tintColor is intentionally NOT forwarded. The @capacitor/google-maps
+      // plugin requires tintColor to be {r,g,b,a} (0-255) — passing a hex string
+      // makes it silently reject the marker entirely. The default native pin is
+      // red, which is what the only caller (destination marker) needs anyway.
+      async addMarker({ lat, lng, title = '' }) {
         if (!mapRef.current) return '';
         const ids = await mapRef.current.addMarkers([{
           coordinate: { lat, lng },
           title,
-          tintColor,
         }]);
         return ids[0] ?? '';
       },
@@ -286,6 +269,26 @@ const CapacitorMap = forwardRef<CapacitorMapHandle, CapacitorMapProps>(
       async removeMarker(id) {
         if (!mapRef.current || !id) return;
         await mapRef.current.removeMarkers([id]).catch(() => {});
+      },
+
+      // Place or update the "you are here" blue dot. Idempotent — removes the
+      // previous user marker before adding the new one so the position updates
+      // visually as GPS fixes arrive.
+      async setUserLocation(lat, lng) {
+        const map = mapRef.current;
+        if (!map) return;
+        if (userMarkerIdRef.current) {
+          await map.removeMarker(userMarkerIdRef.current).catch(() => {});
+          userMarkerIdRef.current = '';
+        }
+        const ids = await map.addMarkers([{
+          coordinate: { lat, lng },
+          title: 'You',
+          // Google blue, fully opaque
+          tintColor: { r: 66, g: 133, b: 244, a: 255 },
+          zIndex: 100,
+        }]).catch(() => [] as string[]);
+        userMarkerIdRef.current = ids[0] ?? '';
       },
 
     }), [apiKey]); // eslint-disable-line react-hooks/exhaustive-deps
