@@ -21,6 +21,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Label } from "@/components/ui/label";
 import { apiRequest } from "@/lib/queryClient";
 import { loadGoogleMaps } from "@/lib/google-maps-loader";
+import { Capacitor } from '@capacitor/core';
+import CapacitorMap, { type CapacitorMapHandle } from '@/components/CapacitorMap';
 import type { Incident, Category } from "@shared/schema";
 
 const LIVE_INCIDENT_KEY = "omt_live_incident_id";
@@ -150,6 +152,11 @@ export default function LiveIncidentPage() {
 
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<google.maps.Map | null>(null);
+  // ── Native map (Capacitor Android) ──────────────────────────────────────────
+  const isNative = Capacitor.isNativePlatform();
+  const capMapRef = useRef<CapacitorMapHandle | null>(null);
+  const capDestMarkerIdRef = useRef<string>('');
+  // ────────────────────────────────────────────────────────────────────────────
   const originMarkerRef = useRef<google.maps.Marker | null>(null);
   const destMarkerRef = useRef<google.maps.Marker | null>(null);
   const directionsRendererRef = useRef<google.maps.DirectionsRenderer | null>(null);
@@ -550,7 +557,19 @@ export default function LiveIncidentPage() {
         }
       }
       originMarkerRef.current?.setPosition(p);
-      if (mapInstanceRef.current) {
+      if (isNative && capMapRef.current) {
+        // ── Native camera ──────────────────────────────────────────────────────
+        const hdg = pos.coords.heading;
+        if (hdg != null && !isNaN(hdg)) lastHeadingRef.current = hdg;
+        if (navModeRef.current) {
+          capMapRef.current.setCamera({
+            lat: p.lat, lng: p.lng, zoom: 17, tilt: 45,
+            bearing: lastHeadingRef.current ?? 0,
+          }).catch(() => {});
+        } else {
+          capMapRef.current.setCamera({ lat: p.lat, lng: p.lng, tilt: 0 }).catch(() => {});
+        }
+      } else if (mapInstanceRef.current) {
         if (navModeRef.current) {
           // Navigation perspective: tilt 45° and rotate map to face direction of travel.
           // Use moveCamera for an atomic update — individual setCenter/setHeading/setOptions
@@ -1157,12 +1176,16 @@ export default function LiveIncidentPage() {
   }, [isOnline]);
 
   useEffect(() => {
-    loadGoogleMaps().then(() => setMapsReady(true)).catch(() => setMapsError(true));
+    if (isNative) {
+      setMapsReady(true); // native map doesn't need the JS API
+    } else {
+      loadGoogleMaps().then(() => setMapsReady(true)).catch(() => setMapsError(true));
+    }
     return () => stopTracking();
   }, []);
 
   useEffect(() => {
-    if (!mapsReady || !mapRef.current || mapInstanceRef.current) return;
+    if (isNative || !mapsReady || !mapRef.current || mapInstanceRef.current) return;
     const map = new google.maps.Map(mapRef.current, {
       center: { lat: -26.2041, lng: 28.0473 },
       zoom: 6,
@@ -1524,6 +1547,30 @@ export default function LiveIncidentPage() {
   }
 
   function drawRoute(dlat: number, dlng: number, origin?: { lat: number; lng: number }, skipFitBounds = false) {
+    // ── Native path ────────────────────────────────────────────────────────────
+    if (isNative && capMapRef.current) {
+      const originToUse = origin ?? lastPosRef.current ?? userLoc;
+      if (!originToUse) return;
+      setRouteInfo(null);
+      if (capDestMarkerIdRef.current) {
+        capMapRef.current.removeMarker(capDestMarkerIdRef.current).catch(() => {});
+        capDestMarkerIdRef.current = '';
+      }
+      capMapRef.current.addMarker({ lat: dlat, lng: dlng, title: 'Destination', tintColor: '#ef4444' })
+        .then(id => { capDestMarkerIdRef.current = id; }).catch(() => {});
+      capMapRef.current.drawRoute(originToUse, { lat: dlat, lng: dlng }, skipFitBounds || navModeRef.current)
+        .then(result => {
+          if (!result) return;
+          stepsRef.current = result.steps as unknown as google.maps.DirectionsStep[];
+          setRouteInfo({ distance: result.distance, duration: result.duration });
+          setHasRoute(true);
+          setCurrentStepIndex(0);
+          setStepDist(result.steps[0]?.distance.value ?? null);
+          setIsOffRoute(false);
+        }).catch(() => {});
+      return;
+    }
+    // ── Web path (JS API) — unchanged below ────────────────────────────────────
     const map = mapInstanceRef.current;
     if (!map) return;
     // In nav mode always preserve the viewport so setTilt(45) isn't wiped by setDirections
@@ -1832,6 +1879,49 @@ export default function LiveIncidentPage() {
     if (navMode && scrollContainerRef.current) {
       scrollContainerRef.current.scrollTop = 0;
     }
+    // ── Native (Capacitor) camera + step seeding ────────────────────────────────
+    if (isNative && capMapRef.current && mapsReady) {
+      if (navMode) {
+        if (lastPosRef.current && stepsRef.current.length > 0) {
+          const pos = lastPosRef.current;
+          const navSteps = stepsRef.current;
+          let idx = currentStepIndexRef.current;
+          while (idx < navSteps.length - 1) {
+            const nextLoc = navSteps[idx + 1].start_location;
+            if (haversineM(pos, { lat: nextLoc.lat(), lng: nextLoc.lng() }) <= 60) { idx++; } else { break; }
+          }
+          if (idx === 0) {
+            let nearestIdx = 0, nearestDist = Infinity;
+            for (let i = 0; i < navSteps.length; i++) {
+              const loc = navSteps[i].start_location;
+              const d = haversineM(pos, { lat: loc.lat(), lng: loc.lng() });
+              if (d < nearestDist) { nearestDist = d; nearestIdx = i; }
+            }
+            if (nearestIdx > idx) idx = nearestIdx;
+          }
+          currentStepIndexRef.current = idx;
+          setCurrentStepIndex(idx);
+          const currStep = navSteps[idx];
+          if (currStep) setStepDist(Math.round(haversineM(pos, { lat: currStep.end_location.lat(), lng: currStep.end_location.lng() })));
+        }
+        if (lastPosRef.current) {
+          capMapRef.current.setCamera({
+            lat: lastPosRef.current.lat, lng: lastPosRef.current.lng,
+            zoom: 17, tilt: 45, bearing: lastHeadingRef.current ?? 0,
+          }).catch(() => {});
+        }
+      } else {
+        if (lastPosRef.current) {
+          capMapRef.current.setCamera({
+            lat: lastPosRef.current.lat, lng: lastPosRef.current.lng,
+            zoom: 15, tilt: 0, bearing: 0,
+          }).catch(() => {});
+        }
+        lastHeadingRef.current = null;
+      }
+      return; // skip JS API path
+    }
+    // ── Web / JS API path (unchanged) ────────────────────────────────────────
     if (mapInstanceRef.current && mapsReady) {
       if (navMode) {
         mapInstanceRef.current.setOptions({ minZoom: 15 });
@@ -2845,7 +2935,15 @@ export default function LiveIncidentPage() {
               </div>
             )}
 
-            <div ref={mapRef} className="absolute inset-0" data-testid="map-live" />
+            {isNative ? (
+              <CapacitorMap
+                ref={capMapRef}
+                apiKey={import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? ''}
+                className="absolute inset-0"
+              />
+            ) : (
+              <div ref={mapRef} className="absolute inset-0" data-testid="map-live" />
+            )}
 
             {/* Nav mode: action bar — absolute overlay at the bottom of the in-flow map */}
             {navMode && (
