@@ -1287,6 +1287,11 @@ export default function LiveIncidentPage() {
     if (!liveQueryLoaded) return;
     if (liveId !== null || joinedId !== null) return;
     if (!hadIncidentRef.current) return;
+    // Don't redirect if we're mid-flow from severity selection — autostart will
+    // create a new incident immediately after. Redirecting here would send the
+    // user home while startLive() fires in the background.
+    const autostartPending = (() => { try { return !!localStorage.getItem("omt_live_autostart"); } catch { return false; } })();
+    if (autostartPending) return;
     hadIncidentRef.current = false; // reset so a subsequent new incident on the same mount works
     navigate("/");
   // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -1,3 +1,4 @@
 - [FCM Phase 2 setup](fcm-phase2.md) — Firebase Admin init requires full service account JSON in FIREBASE_SERVICE_ACCOUNT_JSON; API key alone causes JSON parse error at startup.
 - [FCM + GitHub Actions APK build](fcm-apk-build.md) — FCM native push done; APK builds green on Actions; Play Store signing next
 - [Capacitor Android geolocation permissions](capacitor-geolocation-permissions.md) — navigator.permissions lies in Capacitor WebView; probe via getCurrentPosition instead; treat TIMEOUT as granted; safety-net setTimeout needed
+- [Capacitor Google Maps native setup](capacitor-maps-native.md) — WebView must be transparent in MainActivity.java; JS API services unavailable on native; GCP APIs needed; autostart redirect race fix
