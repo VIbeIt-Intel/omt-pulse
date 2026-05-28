@@ -1,9 +1,16 @@
-const CACHE_NAME = "omt-v58";
+const CACHE_NAME = "omt-v59";
 
 // When the page asks us to nuke everything (after a new deploy), wipe all
 // caches and tell every controlled tab to reload. The page also unregisters
 // the SW separately so the next load installs a fresh worker.
 self.addEventListener("message", (event) => {
+  // Reply to diagnostic ping with the current cache version so the in-app
+  // debug overlay can show which SW build is actually running on the device.
+  if (event.data?.type === "GET_VERSION") {
+    const port = event.ports?.[0];
+    if (port) port.postMessage({ version: CACHE_NAME });
+    return;
+  }
   if (event.data?.type === "CLEAR_ALL_CACHES_AND_RELOAD") {
     event.waitUntil((async () => {
       const keys = await caches.keys();

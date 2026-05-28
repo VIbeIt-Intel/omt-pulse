@@ -23,6 +23,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { loadGoogleMaps } from "@/lib/google-maps-loader";
 import { Capacitor } from '@capacitor/core';
 import CapacitorMap, { type CapacitorMapHandle } from '@/components/CapacitorMap';
+import MapDebugOverlay, { type MapDebugSnapshot } from '@/components/MapDebugOverlay';
 import type { Incident, Category } from "@shared/schema";
 
 const LIVE_INCIDENT_KEY = "omt_live_incident_id";
@@ -212,6 +213,44 @@ export default function LiveIncidentPage() {
 
   const [mapsReady, setMapsReady] = useState(false);
   const [mapsError, setMapsError] = useState(false);
+  // ── Diagnostic state (consumed by MapDebugOverlay) ──────────────────────────
+  const [mapsErrorMsg, setMapsErrorMsg] = useState<string | null>(null);
+  const [geocoderReady, setGeocoderReady] = useState(false);
+  const [autocompleteReady, setAutocompleteReady] = useState(false);
+  const [nativeMapStatus, setNativeMapStatus] = useState<"idle" | "creating" | "ready" | "timeout" | "error">("idle");
+  const [nativeMapErrorMsg, setNativeMapErrorMsg] = useState<string | null>(null);
+  const [nativeMapCreateAt, setNativeMapCreateAt] = useState<number | null>(null);
+  const [nativeMapReadyAt, setNativeMapReadyAt] = useState<number | null>(null);
+  const [debugErrors, setDebugErrors] = useState<string[]>([]);
+  const [debugVisible, setDebugVisible] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return new URLSearchParams(window.location.search).has("debug");
+  });
+  const titlePressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Capture window errors and unhandled rejections for the debug overlay.
+  // Kept small (last 5) to avoid memory growth.
+  useEffect(() => {
+    const push = (msg: string) => {
+      setDebugErrors((prev) => [...prev.slice(-4), `${new Date().toLocaleTimeString()} ${msg}`.slice(0, 240)]);
+    };
+    const onErr = (e: ErrorEvent) => push(`error: ${e.message}${e.filename ? ` @ ${e.filename}:${e.lineno}` : ""}`);
+    const onRej = (e: PromiseRejectionEvent) => push(`reject: ${(e.reason as any)?.message ?? String(e.reason)}`);
+    window.addEventListener("error", onErr);
+    window.addEventListener("unhandledrejection", onRej);
+    return () => {
+      window.removeEventListener("error", onErr);
+      window.removeEventListener("unhandledrejection", onRej);
+    };
+  }, []);
+
+  // Mark native map as "creating" the moment we mount <CapacitorMap>.
+  useEffect(() => {
+    if (!useWebMap && nativeMapStatus === "idle") {
+      setNativeMapStatus("creating");
+      setNativeMapCreateAt(Date.now());
+    }
+  }, [useWebMap, nativeMapStatus]);
   const [search, setSearch] = useState("");
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
   const [loadingSugg, setLoadingSugg] = useState(false);
@@ -1188,11 +1227,16 @@ export default function LiveIncidentPage() {
       // calling Google REST APIs directly via fetch().
       if (!geocoderRef.current && window.google?.maps) {
         geocoderRef.current = new google.maps.Geocoder();
+        setGeocoderReady(true);
       }
       if (!autocompleteRef.current && window.google?.maps?.places) {
         autocompleteRef.current = new google.maps.places.AutocompleteService();
+        setAutocompleteReady(true);
       }
-    }).catch(() => setMapsError(true));
+    }).catch((err) => {
+      setMapsError(true);
+      setMapsErrorMsg(err?.message ?? String(err));
+    });
     return () => stopTracking();
   }, []);
 
@@ -2449,7 +2493,20 @@ export default function LiveIncidentPage() {
         <Button variant="ghost" size="icon" onClick={() => navigate("/")} data-testid="button-back-live">
           <ArrowLeft className="h-5 w-5" />
         </Button>
-        <div className="flex items-center gap-2">
+        <div
+          className="flex items-center gap-2 select-none"
+          onPointerDown={() => {
+            if (titlePressTimerRef.current) clearTimeout(titlePressTimerRef.current);
+            titlePressTimerRef.current = setTimeout(() => setDebugVisible((v) => !v), 1200);
+          }}
+          onPointerUp={() => {
+            if (titlePressTimerRef.current) { clearTimeout(titlePressTimerRef.current); titlePressTimerRef.current = null; }
+          }}
+          onPointerLeave={() => {
+            if (titlePressTimerRef.current) { clearTimeout(titlePressTimerRef.current); titlePressTimerRef.current = null; }
+          }}
+          data-testid="title-live-incident"
+        >
           <Radio className="h-5 w-5 text-green-500" />
           <span className="font-semibold text-lg">Live Incident</span>
         </div>
@@ -2459,6 +2516,25 @@ export default function LiveIncidentPage() {
           </Badge>
         )}
       </div>
+
+      <MapDebugOverlay
+        visible={debugVisible}
+        onClose={() => setDebugVisible(false)}
+        snapshot={{
+          isNative,
+          mapsReady,
+          mapsError,
+          mapsErrorMsg,
+          geocoderReady,
+          autocompleteReady,
+          nativeMapStatus,
+          nativeMapErrorMsg,
+          nativeMapCreateAt,
+          nativeMapReadyAt,
+          useWebMap,
+          errors: debugErrors,
+        } satisfies MapDebugSnapshot}
+      />
 
       {/* Offline warning banner */}
       {!isOnline && (
@@ -2963,7 +3039,16 @@ export default function LiveIncidentPage() {
                 ref={capMapRef}
                 apiKey={import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? ''}
                 className="absolute inset-0"
-                onError={() => setNativeMapFailed(true)}
+                onReady={() => {
+                  setNativeMapStatus("ready");
+                  setNativeMapReadyAt(Date.now());
+                }}
+                onError={(err) => {
+                  const msg = (err as Error)?.message ?? String(err);
+                  setNativeMapStatus(msg.includes("timeout") ? "timeout" : "error");
+                  setNativeMapErrorMsg(msg);
+                  setNativeMapFailed(true);
+                }}
               />
             ) : (
               <div ref={mapRef} className="absolute inset-0" data-testid="map-live" />
