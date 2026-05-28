@@ -611,16 +611,20 @@ export default function LiveIncidentPage() {
         if (stepsRef.current.length === 0 && destPositionRef.current && !navModeRef.current) {
           drawRoute(destPositionRef.current.lat, destPositionRef.current.lng, p);
         }
-        if (navModeRef.current) {
-          // animate:false — the plugin's `angle` field only accepts 0 or 45
-          // (discrete, not interpolated). Animating rapid GPS updates makes the
-          // tilt visibly stutter or never reach 45° at all on Android.
+        // TEMP DIAGNOSTIC v65 — GPS-callback setCamera fully disabled to
+        // isolate whether OUR per-fix calls are responsible for tilt snap-back
+        // after pinch-tilt gesture. If pinch-tilt now HOLDS in nav mode →
+        // confirmed our setCamera is the clobberer (fix our call). If tilt
+        // STILL snaps back → something native/plugin-internal is resetting it
+        // (fix at config / map-id / plugin-version level). Restore this block
+        // once we have the answer.
+        if (false && navModeRef.current) {
           capMapRef.current.setCamera({
             lat: p.lat, lng: p.lng, zoom: 17, tilt: 45,
             bearing: lastHeadingRef.current ?? 0,
             animate: false,
           }).catch(() => {});
-        } else {
+        } else if (false) {
           capMapRef.current.setCamera({ lat: p.lat, lng: p.lng, tilt: 0 }).catch(() => {});
         }
       } else if (mapInstanceRef.current) {
