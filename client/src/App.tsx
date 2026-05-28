@@ -658,7 +658,7 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
       <div className="flex h-screen w-full">
         <AppSidebar user={user} onLogout={() => logoutMutation.mutate()} avatarPreview={avatarPreview} />
         <div className="flex flex-col flex-1 min-w-0">
-          {location === "/live-incident" && (
+          {(location === "/live-incident" || location === "/live-severity") && (
             <>
               {/* v75: global header is hidden on /live-incident to give the
                   navigation map maximum vertical space. Two floating buttons
@@ -691,7 +691,7 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
               </div>
             </>
           )}
-          {location !== "/live-incident" && (
+          {location !== "/live-incident" && location !== "/live-severity" && (
           <header className="grid grid-cols-[1fr_auto_1fr] items-center p-2 border-b shrink-0 gap-2">
             {/* Left */}
             <div className="flex items-center">

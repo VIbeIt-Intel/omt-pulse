@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, ChevronDown, ChevronRight, Loader2, Radio } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import type { Category } from "@shared/schema";
@@ -12,36 +12,48 @@ const LIVE_CAT_KEY = "omt_live_category_sel";
 
 type Severity = "red" | "orange" | "yellow";
 
-const SEVERITY_CONFIG: Record<Severity, { label: string; emoji: string; bgClass: string; borderClass: string; textClass: string; hoverClass: string; tileClass: string; description: string }> = {
+const SEVERITY_CONFIG: Record<
+  Severity,
+  {
+    label: string;
+    stripeClass: string;
+    dotClass: string;
+    tileClass: string;
+    textClass: string;
+    chevronClass: string;
+    description: string;
+    noticeText: string;
+  }
+> = {
   red: {
-    label: "Red",
-    emoji: "🔴",
-    bgClass: "bg-red-600",
-    borderClass: "border-red-600",
-    textClass: "text-red-600",
-    hoverClass: "hover:bg-red-700",
-    tileClass: "bg-red-600/10 border-red-500 dark:border-red-500/70",
-    description: "Immediate threat — all users notified",
+    label: "Red Alert",
+    stripeClass: "bg-red-600",
+    dotClass: "bg-red-600",
+    tileClass: "bg-red-500/8 border-red-500/40 dark:border-red-500/30",
+    textClass: "text-red-600 dark:text-red-400",
+    chevronClass: "text-red-500",
+    description: "Immediate threat",
+    noticeText: "All users notified with push alert",
   },
   orange: {
-    label: "Orange",
-    emoji: "🟠",
-    bgClass: "bg-orange-500",
-    borderClass: "border-orange-500",
-    textClass: "text-orange-500",
-    hoverClass: "hover:bg-orange-600",
-    tileClass: "bg-orange-500/10 border-orange-400 dark:border-orange-400/70",
-    description: "High priority — supervisors & admins notified",
+    label: "Orange Alert",
+    stripeClass: "bg-orange-500",
+    dotClass: "bg-orange-500",
+    tileClass: "bg-orange-500/8 border-orange-400/40 dark:border-orange-400/30",
+    textClass: "text-orange-600 dark:text-orange-400",
+    chevronClass: "text-orange-400",
+    description: "High priority",
+    noticeText: "Supervisors & admins notified",
   },
   yellow: {
-    label: "Yellow",
-    emoji: "🟡",
-    bgClass: "bg-yellow-400",
-    borderClass: "border-yellow-400",
-    textClass: "text-yellow-600 dark:text-yellow-400",
-    hoverClass: "hover:bg-yellow-500",
-    tileClass: "bg-yellow-400/10 border-yellow-400 dark:border-yellow-400/70",
-    description: "Monitoring — silent tracking, no push notification",
+    label: "Yellow Alert",
+    stripeClass: "bg-yellow-400",
+    dotClass: "bg-yellow-500",
+    tileClass: "bg-yellow-400/8 border-yellow-400/40 dark:border-yellow-400/30",
+    textClass: "text-yellow-700 dark:text-yellow-400",
+    chevronClass: "text-yellow-500",
+    description: "Monitoring",
+    noticeText: "Silent tracking, no push notification",
   },
 };
 
@@ -95,31 +107,26 @@ export default function LiveSeverityPage() {
 
   return (
     <div className="flex flex-col h-full bg-background">
-      <div className="px-4 py-3 border-b bg-black text-white shrink-0">
-        <div className="flex items-center justify-between gap-3">
+      {/* Header — back button + title inside the black bar */}
+      <div className="px-3 py-3 bg-black text-white shrink-0">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => navigate("/")}
+            className="flex items-center justify-center h-9 w-9 rounded-lg text-white/80 hover:text-white hover:bg-white/10 transition-colors shrink-0"
+            data-testid="button-back-severity"
+            aria-label="Back"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </button>
           <div className="min-w-0">
-            <div className="text-lg font-semibold">Select Incident Severity</div>
-            <div className="text-sm text-white/80">Choose severity before responding</div>
+            <div className="text-base font-semibold leading-tight">Select Incident Severity</div>
+            <div className="text-xs text-white/60 mt-0.5">Tap a severity, then choose a category</div>
           </div>
         </div>
       </div>
 
-      <div className="flex items-center gap-3 px-4 py-3 border-b shrink-0">
-        <Button variant="ghost" size="icon" onClick={() => navigate("/")} data-testid="button-back-severity">
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-        <div className="flex items-center gap-2">
-          <Radio className="h-5 w-5 text-red-500" />
-          <span className="font-semibold text-lg">Live Incident</span>
-        </div>
-      </div>
-
+      {/* Severity tiles */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
-        <p className="text-sm text-muted-foreground text-center mb-5">
-          Select the severity level, then tap a category to begin responding.
-          A push alert will fire immediately based on your selection.
-        </p>
-
         {(["red", "orange", "yellow"] as Severity[]).map((sev) => {
           const cfg = SEVERITY_CONFIG[sev];
           const cats = severityCategories(sev);
@@ -128,33 +135,48 @@ export default function LiveSeverityPage() {
           return (
             <div
               key={sev}
-              className={`rounded-xl border-2 overflow-hidden transition-all ${cfg.tileClass}`}
+              className={`rounded-2xl border overflow-hidden transition-all ${cfg.tileClass}`}
               data-testid={`severity-tile-${sev}`}
             >
               <button
-                className={`w-full flex items-center gap-4 px-5 py-4 text-left transition-colors ${
-                  isOpen ? "bg-black/5 dark:bg-white/5" : "hover:bg-black/5 dark:hover:bg-white/5"
-                }`}
+                className="w-full flex items-center gap-0 text-left transition-colors active:bg-black/5 dark:active:bg-white/5"
                 onClick={() => toggleExpand(sev)}
                 data-testid={`button-expand-severity-${sev}`}
               >
-                <span className="text-3xl shrink-0">{cfg.emoji}</span>
-                <div className="flex-1 min-w-0">
-                  <div className={`text-lg font-bold ${cfg.textClass}`}>{cfg.label} Alert</div>
-                  <div className="text-xs text-muted-foreground mt-0.5">{cfg.description}</div>
-                  <div className="text-xs text-muted-foreground mt-1">
-                    {isLoading ? "Loading categories…" : cats.length === 0 ? "No categories assigned" : `${cats.length} categor${cats.length === 1 ? "y" : "ies"}`}
+                {/* Left colour stripe */}
+                <span className={`self-stretch w-1.5 shrink-0 rounded-l-2xl ${cfg.stripeClass}`} />
+
+                <div className="flex items-center gap-4 px-4 py-4 flex-1 min-w-0">
+                  {/* Coloured dot */}
+                  <span className={`h-11 w-11 rounded-full shrink-0 ${cfg.dotClass} shadow-md flex items-center justify-center`}>
+                    <span className="text-white text-lg font-bold">
+                      {sev === "red" ? "R" : sev === "orange" ? "O" : "Y"}
+                    </span>
+                  </span>
+
+                  <div className="flex-1 min-w-0">
+                    <div className={`text-base font-bold ${cfg.textClass}`}>{cfg.label}</div>
+                    <div className="text-sm text-foreground/70 font-medium">{cfg.description}</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">{cfg.noticeText}</div>
+                    <div className="text-xs text-muted-foreground mt-1 font-medium">
+                      {isLoading
+                        ? "Loading…"
+                        : cats.length === 0
+                        ? "No categories assigned"
+                        : `${cats.length} categor${cats.length === 1 ? "y" : "ies"}`}
+                    </div>
                   </div>
+
+                  {isOpen ? (
+                    <ChevronDown className={`h-5 w-5 shrink-0 ${cfg.chevronClass}`} />
+                  ) : (
+                    <ChevronRight className={`h-5 w-5 shrink-0 ${cfg.chevronClass}`} />
+                  )}
                 </div>
-                {isOpen ? (
-                  <ChevronDown className={`h-5 w-5 shrink-0 ${cfg.textClass}`} />
-                ) : (
-                  <ChevronRight className={`h-5 w-5 shrink-0 ${cfg.textClass}`} />
-                )}
               </button>
 
               {isOpen && (
-                <div className="border-t border-current/10 divide-y divide-border/50">
+                <div className="border-t border-border/40 divide-y divide-border/30">
                   {isLoading ? (
                     <div className="flex items-center justify-center gap-2 py-6 text-muted-foreground">
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -173,13 +195,13 @@ export default function LiveSeverityPage() {
                     cats.map((cat) => (
                       <button
                         key={cat.id}
-                        className="w-full flex items-center gap-3 px-5 py-3.5 text-left hover:bg-black/5 dark:hover:bg-white/5 transition-colors disabled:opacity-60"
+                        className="w-full flex items-center gap-3 pl-6 pr-5 py-3.5 text-left hover:bg-black/5 dark:hover:bg-white/5 transition-colors disabled:opacity-60 active:bg-black/8"
                         onClick={() => handleSelectCategory(sev, cat)}
                         disabled={notifying}
                         data-testid={`button-select-category-${cat.id}`}
                       >
                         <span
-                          className="w-3.5 h-3.5 rounded-full shrink-0 border border-white/30 shadow-sm"
+                          className="w-3 h-3 rounded-full shrink-0 border border-white/20 shadow-sm"
                           style={{ backgroundColor: cat.color ?? "#6B7280" }}
                         />
                         <span className="font-medium text-sm flex-1">{cat.name}</span>
@@ -197,15 +219,15 @@ export default function LiveSeverityPage() {
           );
         })}
 
-        <div className="pt-2">
-          <Button
-            variant="outline"
-            className="w-full"
+        {/* Skip link — de-emphasised */}
+        <div className="pt-4 pb-2 flex justify-center">
+          <button
             onClick={() => navigate("/live-incident")}
+            className="text-sm text-muted-foreground hover:text-foreground transition-colors underline-offset-2 hover:underline"
             data-testid="button-skip-severity"
           >
             Skip — proceed without severity
-          </Button>
+          </button>
         </div>
       </div>
     </div>
