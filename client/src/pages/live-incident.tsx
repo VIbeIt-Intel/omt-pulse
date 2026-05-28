@@ -603,13 +603,17 @@ export default function LiveIncidentPage() {
         // ── Native camera + user marker ────────────────────────────────────────
         // Place/update the blue "you are here" dot on the native map. The
         // originMarkerRef above is a JS-API Marker and does nothing on native.
-        // TEMP DIAGNOSTIC v66 — setUserLocation also disabled. v65 (only
-        // setCamera disabled) still had tilt snap-back AND blue marker
-        // flashing. Removing this addMarker churn isolates whether marker
-        // remove+add mutations are what's clobbering gesture-applied tilt
-        // on the native Android map. Tilt holds → marker churn is the
-        // culprit; tilt still snaps → plugin/WebView touch-listener.
-        if (false) capMapRef.current.setUserLocation(p.lat, p.lng).catch(() => {});
+        // Skip user-marker remove+add cycle while in nav mode. v66 diagnostic
+        // confirmed that addMarker churn on every GPS fix (~1 Hz) clobbers
+        // the camera tilt on Android — every marker mutation triggers a
+        // native camera-state refresh that snaps tilt back to 0. In nav mode
+        // the camera follows the user (they're always centered on screen)
+        // so the "you are here" dot is redundant anyway. Outside nav mode
+        // (initial dispatch view) the marker updates as normal — there's no
+        // tilt to clobber so the churn is harmless visually.
+        if (!navModeRef.current) {
+          capMapRef.current.setUserLocation(p.lat, p.lng).catch(() => {});
+        }
         const hdg = pos.coords.heading;
         if (hdg != null && !isNaN(hdg)) lastHeadingRef.current = hdg;
         // Retry route draw on first GPS fix — handles the race where drawRoute was
@@ -617,22 +621,21 @@ export default function LiveIncidentPage() {
         if (stepsRef.current.length === 0 && destPositionRef.current && !navModeRef.current) {
           drawRoute(destPositionRef.current.lat, destPositionRef.current.lng, p);
         }
-        // TEMP DIAGNOSTIC v65 — GPS-callback setCamera fully disabled to
-        // isolate whether OUR per-fix calls are responsible for tilt snap-back
-        // after pinch-tilt gesture. If pinch-tilt now HOLDS in nav mode →
-        // confirmed our setCamera is the clobberer (fix our call). If tilt
-        // STILL snaps back → something native/plugin-internal is resetting it
-        // (fix at config / map-id / plugin-version level). Restore this block
-        // once we have the answer.
-        if (false && navModeRef.current) {
+        if (navModeRef.current) {
+          // Nav mode: camera follows the user with 45° tilt and bearing
+          // toward direction of travel. animate:false because the plugin's
+          // `angle` field is discrete (only 0 or 45) and animating it makes
+          // rapid GPS updates visibly stutter.
           capMapRef.current.setCamera({
             lat: p.lat, lng: p.lng, zoom: 17, tilt: 45,
             bearing: lastHeadingRef.current ?? 0,
             animate: false,
           }).catch(() => {});
-        } else if (false) {
-          capMapRef.current.setCamera({ lat: p.lat, lng: p.lng, tilt: 0 }).catch(() => {});
         }
+        // No else branch — outside nav mode we let the user pan/zoom freely
+        // and rely on the blue user-location dot (above) to indicate where
+        // they are. Forcing tilt:0 every fix would fight a pinch-zoom or
+        // gesture-rotate the user initiates on the dispatch view.
       } else if (mapInstanceRef.current) {
         if (navModeRef.current) {
           // Navigation perspective: tilt 45° and rotate map to face direction of travel.
