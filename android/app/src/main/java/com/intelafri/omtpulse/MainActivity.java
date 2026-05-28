@@ -17,9 +17,9 @@ public class MainActivity extends BridgeActivity implements OnMapsSdkInitialized
 
         // v73: Force the LATEST (vector) renderer. The Google Maps Android SDK
         // defaults to the LEGACY raster renderer, which silently IGNORES the
-        // camera tilt angle — tilt is set internally but the map renders flat.
+        // camera tilt angle - tilt is set internally but the map renders flat.
         // The LATEST vector renderer honors tilt and is required for any 3D
-        // perspective view (nav mode's 45° heading-up tilt). Must be called
+        // perspective view (nav mode 45-degree heading-up tilt). Must be called
         // before any GoogleMap is created.
         MapsInitializer.initialize(getApplicationContext(), MapsInitializer.Renderer.LATEST, this);
     }
@@ -28,10 +28,10 @@ public class MainActivity extends BridgeActivity implements OnMapsSdkInitialized
     public void onMapsSdkInitialized(MapsInitializer.Renderer renderer) {
         switch (renderer) {
             case LATEST:
-                Log.d("OMTPatch", "MapsInitializer: LATEST vector renderer active — tilt supported");
+                Log.d("OMTPatch", "MapsInitializer: LATEST vector renderer active - tilt supported");
                 break;
             case LEGACY:
-                Log.d("OMTPatch", "MapsInitializer: LEGACY raster renderer fallback — tilt will NOT render");
+                Log.d("OMTPatch", "MapsInitializer: LEGACY raster renderer fallback - tilt will NOT render");
                 break;
         }
     }
