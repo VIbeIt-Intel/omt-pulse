@@ -28,6 +28,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Plus, Pencil, Trash2, BookOpen, Eye, Paperclip, Map as MapIcon, X, CalendarRange, Download, ArrowLeft, ClipboardList, FileText, Radio, BarChart2, Siren, MessageSquare, ChevronRight } from "lucide-react";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 import { PanicBanner, type PanicAlert } from "@/components/panic-banner";
 import { HeartbeatLine } from "@/components/heartbeat-line";
 import omtLogo from "@/assets/omt-logo-v2.png";
@@ -418,6 +419,9 @@ export default function OccurrenceBook() {
     const myCount = incidents.filter((inc) => inc.userId === currentUser?.id).length;
     return (
       <div className="flex flex-col h-full">
+        <div className="flex items-center gap-1 px-3 py-2 border-b shrink-0">
+          <SidebarTrigger />
+        </div>
         <div className="p-6 flex flex-col items-center justify-center flex-1 gap-6">
           <div className="text-center max-w-sm">
             <div className="flex justify-center mb-1">
@@ -723,42 +727,23 @@ export default function OccurrenceBook() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="p-6 space-y-6 overflow-y-auto flex-1">
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-3">
-            {isReporter && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setShowMyIncidents(false)}
-                data-testid="button-back-to-dashboard"
-                className="shrink-0"
-              >
-                <ArrowLeft className="h-5 w-5" />
-              </Button>
-            )}
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight" data-testid="text-page-title">
-                {isReporter ? "My Incidents" : "Occurrence Book"}
-              </h1>
-              <p className="text-sm text-muted-foreground mt-1">
-                {isReporter ? "Incidents you have personally submitted" : "Record and manage all incident reports"}
-              </p>
-            </div>
-          </div>
-          {!isReporter && (
-            <Button
-              onClick={() => {
-                setEditingIncident(null);
-                setDialogOpen(true);
-              }}
-              data-testid="button-new-incident"
-            >
-              <Plus className="h-4 w-4 mr-1.5" />
-              Report Incident
-            </Button>
-          )}
-        </div>
+      <div className="flex items-center gap-1 px-3 py-2 border-b shrink-0">
+        <SidebarTrigger />
+        {isReporter && (
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowMyIncidents(false)} data-testid="button-back-to-dashboard">
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+        )}
+        <span className="text-sm font-semibold flex-1 truncate px-1" data-testid="text-page-title">
+          {isReporter ? "My Incidents" : "Occurrence Book"}
+        </span>
+        {!isReporter && (
+          <Button size="sm" onClick={() => { setEditingIncident(null); setDialogOpen(true); }} data-testid="button-new-incident">
+            <Plus className="h-4 w-4 mr-1" /> Report
+          </Button>
+        )}
+      </div>
+      <div className="p-4 space-y-4 overflow-y-auto flex-1">
 
         {(isAdmin || isSupervisor) && (
           <PanicBanner
@@ -805,7 +790,7 @@ export default function OccurrenceBook() {
                     value={dateFrom}
                     onChange={(e) => setDateFrom(e.target.value)}
                     max={dateTo || undefined}
-                    className="h-8 w-36 text-sm px-2"
+                    className="h-8 w-28 text-sm px-2"
                     aria-label="From date"
                     data-testid="input-date-from"
                   />
@@ -815,7 +800,7 @@ export default function OccurrenceBook() {
                     value={dateTo}
                     onChange={(e) => setDateTo(e.target.value)}
                     min={dateFrom || undefined}
-                    className="h-8 w-36 text-sm px-2"
+                    className="h-8 w-28 text-sm px-2"
                     aria-label="To date"
                     data-testid="input-date-to"
                   />
@@ -884,14 +869,14 @@ export default function OccurrenceBook() {
                 </Select>
                 <Button
                   variant="outline"
-                  size="sm"
+                  size="icon"
                   onClick={exportToCSV}
                   disabled={filteredIncidents.length === 0}
                   data-testid="button-export-csv"
-                  className="h-8 text-sm"
+                  className="h-8 w-8 shrink-0"
+                  title="Export CSV"
                 >
-                  <Download className="h-3.5 w-3.5 mr-1.5" />
-                  Export CSV
+                  <Download className="h-3.5 w-3.5" />
                 </Button>
               </div>
             </div>
