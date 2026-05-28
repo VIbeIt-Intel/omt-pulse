@@ -75,6 +75,29 @@ interface CapacitorMapProps {
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
+/**
+ * Surface a native-map failure to the diagnostic overlay.
+ *
+ * The overlay in live-incident.tsx listens on `window` for `error` events and
+ * displays the last few in its "Recent errors" panel. By dispatching a
+ * synthetic ErrorEvent here we get visibility into Capacitor plugin failures
+ * (silent marker rejections, polyline schema errors, tilt/angle rejections)
+ * that would otherwise vanish into a `.catch(() => {})` and leave us blind.
+ */
+function reportNativeError(op: string, err: unknown) {
+  const msg = `[CapacitorMap.${op}] ${err instanceof Error ? err.message : String(err)}`;
+  // Browser console for `adb logcat`
+  console.warn(msg, err);
+  if (typeof window === 'undefined') return;
+  try {
+    window.dispatchEvent(new ErrorEvent('error', { message: msg }));
+  } catch {
+    // Some WebViews don't allow constructing ErrorEvent directly — fall back
+    // to a plain Event so the listener at least fires.
+    try { window.dispatchEvent(new Event('error')); } catch { /* give up */ }
+  }
+}
+
 /** Rough zoom level from a lat/lng bounding box (good enough for route fit) */
 function zoomFromBounds(
   minLat: number, maxLat: number,
@@ -150,14 +173,19 @@ const CapacitorMap = forwardRef<CapacitorMapHandle, CapacitorMapProps>(
       // Move the camera — called on every GPS fix during nav mode
       async setCamera({ lat, lng, zoom = 17, bearing = 0, tilt = 45, animate = true }) {
         if (!mapRef.current) return;
-        await mapRef.current.setCamera({
-          coordinate: { lat, lng },
-          zoom,
-          bearing,
-          angle: tilt,          // @capacitor/google-maps uses 'angle' for tilt (degrees)
-          animate,
-          animationDuration: animate ? 500 : 0,
-        });
+        try {
+          await mapRef.current.setCamera({
+            coordinate: { lat, lng },
+            zoom,
+            bearing,
+            angle: tilt,          // @capacitor/google-maps uses 'angle' for tilt (degrees)
+            animate,
+            animationDuration: animate ? 500 : 0,
+          });
+        } catch (e) {
+          reportNativeError('setCamera', e);
+          throw e; // preserve existing caller .catch() behaviour
+        }
       },
 
       // Fetch route via the loaded JS API DirectionsService (NOT the REST endpoint —
@@ -171,7 +199,7 @@ const CapacitorMap = forwardRef<CapacitorMapHandle, CapacitorMapProps>(
 
         // Remove previous polylines
         if (polyIdsRef.current.length) {
-          await map.removePolylines(polyIdsRef.current).catch(() => {});
+          await map.removePolylines(polyIdsRef.current).catch((e) => reportNativeError('drawRoute:removePolylines', e));
           polyIdsRef.current = [];
         }
 
@@ -203,13 +231,18 @@ const CapacitorMap = forwardRef<CapacitorMapHandle, CapacitorMapProps>(
         }));
         if (path.length < 2) return null;
 
-        const ids = await map.addPolylines([{
-          path,
-          strokeColor:   '#4285F4',
-          strokeWeight:  7,
-          strokeOpacity: 0.95,
-          zIndex: 1,
-        }]);
+        let ids: string[] = [];
+        try {
+          ids = await map.addPolylines([{
+            path,
+            strokeColor:   '#4285F4',
+            strokeWeight:  7,
+            strokeOpacity: 0.95,
+            zIndex: 1,
+          }]);
+        } catch (e) {
+          reportNativeError('drawRoute:addPolylines', e);
+        }
         polyIdsRef.current = ids;
 
         // Fit camera to the route (only when NOT in nav mode)
@@ -223,7 +256,7 @@ const CapacitorMap = forwardRef<CapacitorMapHandle, CapacitorMapProps>(
             zoom: zoomFromBounds(minLat, maxLat, minLng, maxLng),
             animate: true,
             animationDuration: 800,
-          });
+          }).catch((e) => reportNativeError('drawRoute:fitCamera', e));
         }
 
         // JS-API DirectionsStep already exposes .lat()/.lng() methods on
@@ -247,7 +280,7 @@ const CapacitorMap = forwardRef<CapacitorMapHandle, CapacitorMapProps>(
       // Remove route polylines
       async clearRoute() {
         if (!mapRef.current || !polyIdsRef.current.length) return;
-        await mapRef.current.removePolylines(polyIdsRef.current).catch(() => {});
+        await mapRef.current.removePolylines(polyIdsRef.current).catch((e) => reportNativeError('clearRoute', e));
         polyIdsRef.current = [];
       },
 
@@ -258,17 +291,22 @@ const CapacitorMap = forwardRef<CapacitorMapHandle, CapacitorMapProps>(
       // red, which is what the only caller (destination marker) needs anyway.
       async addMarker({ lat, lng, title = '' }) {
         if (!mapRef.current) return '';
-        const ids = await mapRef.current.addMarkers([{
-          coordinate: { lat, lng },
-          title,
-        }]);
-        return ids[0] ?? '';
+        try {
+          const ids = await mapRef.current.addMarkers([{
+            coordinate: { lat, lng },
+            title,
+          }]);
+          return ids[0] ?? '';
+        } catch (e) {
+          reportNativeError('addMarker', e);
+          return '';
+        }
       },
 
       // Remove a marker by ID
       async removeMarker(id) {
         if (!mapRef.current || !id) return;
-        await mapRef.current.removeMarkers([id]).catch(() => {});
+        await mapRef.current.removeMarkers([id]).catch((e) => reportNativeError('removeMarker', e));
       },
 
       // Place or update the "you are here" blue dot. Idempotent — removes the
@@ -278,7 +316,7 @@ const CapacitorMap = forwardRef<CapacitorMapHandle, CapacitorMapProps>(
         const map = mapRef.current;
         if (!map) return;
         if (userMarkerIdRef.current) {
-          await map.removeMarker(userMarkerIdRef.current).catch(() => {});
+          await map.removeMarker(userMarkerIdRef.current).catch((e) => reportNativeError('setUserLocation:removeMarker', e));
           userMarkerIdRef.current = '';
         }
         const ids = await map.addMarkers([{
@@ -287,7 +325,7 @@ const CapacitorMap = forwardRef<CapacitorMapHandle, CapacitorMapProps>(
           // Google blue, fully opaque
           tintColor: { r: 66, g: 133, b: 244, a: 255 },
           zIndex: 100,
-        }]).catch(() => [] as string[]);
+        }]).catch((e) => { reportNativeError('setUserLocation:addMarkers', e); return [] as string[]; });
         userMarkerIdRef.current = ids[0] ?? '';
       },
 
