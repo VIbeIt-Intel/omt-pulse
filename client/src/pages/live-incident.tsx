@@ -279,6 +279,9 @@ export default function LiveIncidentPage() {
   const [speedKmh, setSpeedKmh] = useState<number | null>(null);
   // Mirrors navMode so interval callbacks (startStepTracking) always read the latest value.
   const navModeRef = useRef(false);
+  // Guards the one-shot nav-mode auto-resume after PWA reopen / app kill.
+  // If the user manually leaves nav mode, we must not bounce them back in.
+  const autoResumedNavRef = useRef(false);
   // Tracks responder userIds we've already announced so we only flash on genuinely new joiners.
   const knownResponderIdsRef = useRef<Set<string>>(new Set());
   // Name to flash briefly when a new responder joins while in nav mode (auto-clears after 5s).
@@ -1445,6 +1448,36 @@ export default function LiveIncidentPage() {
     if (activeId === null) { setNavStarted(false); return; }
     setNavStarted(navId === String(activeId));
   }, [liveId, joinedId]);
+
+  // Auto-resume nav mode after PWA reopen / app kill.
+  // If the user was in nav mode when they closed the app, NAV_STARTED_KEY in
+  // localStorage still matches the active incident — but navMode is React state
+  // and starts false on cold-mount, so they'd land on the static pre-nav screen.
+  // Re-enter nav mode once per session when all preconditions hold; guarded by
+  // autoResumedNavRef so a manual Leave doesn't bounce the user back in.
+  useEffect(() => {
+    if (autoResumedNavRef.current) return;
+    if (navMode) return;
+    if (!navStarted) return;
+    if (!mapsReady || !currentIncident) return;
+    const dlat = currentIncident.destinationLat != null
+      ? Number(currentIncident.destinationLat)
+      : (currentIncident.latitude ?? null);
+    const dlng = currentIncident.destinationLng != null
+      ? Number(currentIncident.destinationLng)
+      : (currentIncident.longitude ?? null);
+    if (dlat == null || dlng == null) return;
+
+    autoResumedNavRef.current = true;
+    (async () => {
+      if (stepsRef.current.length === 0) {
+        drawRoute(Number(dlat), Number(dlng), lastPosRef.current ?? undefined, true);
+        if (isNative) await new Promise((r) => setTimeout(r, 600));
+      }
+      setNavMode(true);
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navStarted, mapsReady, currentIncident?.id, navMode]);
 
   // Joiner GPS tracking — mirrors creator tracking useEffect
   useEffect(() => {

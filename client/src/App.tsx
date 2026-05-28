@@ -672,24 +672,7 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
                   right: "max(0.5rem, env(safe-area-inset-right))",
                 }}
               >
-                {hasUnreadNotif && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="relative bg-background/85 backdrop-blur border shadow-md h-9 w-9"
-                        data-testid="button-notifications-live"
-                        aria-label="Notifications"
-                        onClick={() => setNotifSheetOpen(true)}
-                      >
-                        <Bell className="h-4 w-4" />
-                        <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-red-500" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom">Notifications</TooltipContent>
-                  </Tooltip>
-                )}
+                {/* Notifications bell removed from live-incident overlay — accessible via /notifications. */}
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
