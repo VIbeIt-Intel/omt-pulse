@@ -33,7 +33,7 @@ import LandingPage from "@/pages/landing";
 import EnableAlertsPage from "@/pages/enable-alerts";
 import NotificationsPage from "@/pages/notifications";
 import ChatPage from "@/pages/chat";
-import { Bell, CreditCard, Loader2, LogOut, Download, X, Camera, CheckCheck, Radio, HelpCircle } from "lucide-react";
+import { Bell, CreditCard, Loader2, LogOut, Download, X, Camera, CheckCheck, Radio, HelpCircle, MessageCircle } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { type NotificationLog, timeAgo, formatDate, markAllRead } from "@/pages/notifications";
 import { apiRequest } from "@/lib/queryClient";
@@ -658,6 +658,57 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
       <div className="flex h-screen w-full">
         <AppSidebar user={user} onLogout={() => logoutMutation.mutate()} avatarPreview={avatarPreview} />
         <div className="flex flex-col flex-1 min-w-0">
+          {location === "/live-incident" && (
+            <>
+              {/* v75: global header is hidden on /live-incident to give the
+                  navigation map maximum vertical space. Two floating buttons
+                  replace it: a disabled Chat placeholder (per-incident chat
+                  ships in v76) and a Notifications bell that only renders
+                  when there's an unread alert. */}
+              <div
+                className="fixed z-50 flex items-center gap-1.5"
+                style={{
+                  top: "max(0.5rem, env(safe-area-inset-top))",
+                  right: "max(0.5rem, env(safe-area-inset-right))",
+                }}
+              >
+                {hasUnreadNotif && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="relative bg-background/85 backdrop-blur border shadow-md h-9 w-9"
+                        data-testid="button-notifications-live"
+                        aria-label="Notifications"
+                        onClick={() => setNotifSheetOpen(true)}
+                      >
+                        <Bell className="h-4 w-4" />
+                        <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-red-500" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">Notifications</TooltipContent>
+                  </Tooltip>
+                )}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      disabled
+                      className="bg-background/85 backdrop-blur border shadow-md h-9 w-9 opacity-60"
+                      data-testid="button-chat-live"
+                      aria-label="Chat"
+                    >
+                      <MessageCircle className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Per-incident chat — coming in v76</TooltipContent>
+                </Tooltip>
+              </div>
+            </>
+          )}
+          {location !== "/live-incident" && (
           <header className="grid grid-cols-[1fr_auto_1fr] items-center p-2 border-b shrink-0 gap-2">
             {/* Left */}
             <div className="flex items-center">
@@ -795,6 +846,7 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
               />
             </div>
           </header>
+          )}
           {pwa.showIosHint && (
             <div className="shrink-0 bg-primary text-primary-foreground px-4 py-2.5 flex items-center justify-between gap-3 text-sm border-b border-primary/80">
               <span>

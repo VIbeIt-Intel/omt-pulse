@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
-import { GoogleMap } from '@capacitor/google-maps';
+import { GoogleMap, MapType } from '@capacitor/google-maps';
 import { registerPlugin } from '@capacitor/core';
 
 // Direct handle to the native plugin so we can call OMT-patched methods
@@ -93,6 +93,13 @@ export interface CapacitorMapHandle {
     zoom?: boolean;
     scroll?: boolean;
   }): Promise<void>;
+
+  /**
+   * Set the base map tile style — "Normal" (default streets), "Hybrid"
+   * (satellite imagery + road labels), or "Satellite" (pure imagery, no
+   * labels). Works on both native and the JS fallback map.
+   */
+  setMapType(type: "Normal" | "Hybrid" | "Satellite"): Promise<void>;
 }
 
 interface CapacitorMapProps {
@@ -248,6 +255,17 @@ const CapacitorMap = forwardRef<CapacitorMapHandle, CapacitorMapProps>(
           reportNativeError('setGestures', e);
           // Swallow — pre-patch APKs (old builds without OMTPatch) will
           // reject this call. Nav mode still works, just without the lock.
+        }
+      },
+
+      // Switch base map tiles. Native + web both supported by @capacitor/google-maps.
+      async setMapType(type) {
+        if (!mapRef.current) return;
+        try {
+          const t = type === "Hybrid" ? MapType.Hybrid : type === "Satellite" ? MapType.Satellite : MapType.Normal;
+          await mapRef.current.setMapType(t);
+        } catch (e) {
+          reportNativeError('setMapType', e);
         }
       },
 

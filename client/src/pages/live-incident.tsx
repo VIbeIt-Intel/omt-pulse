@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowLeft, Navigation, MapPin, Radio, CheckCircle2, Loader2, Search, RotateCcw, RotateCw, ChevronRight, ExternalLink, Camera, ImageIcon, X, WifiOff, LogOut, Mic, Square, AlertTriangle, HelpCircle, Gauge, ArrowUp, ArrowUpRight, ArrowUpLeft, ArrowRight, CornerUpRight, CornerUpLeft, Merge, Users } from "lucide-react";
+import { ArrowLeft, Navigation, MapPin, Radio, CheckCircle2, Loader2, Search, RotateCcw, RotateCw, ChevronRight, ExternalLink, Camera, ImageIcon, X, WifiOff, LogOut, Mic, Square, AlertTriangle, HelpCircle, Gauge, ArrowUp, ArrowUpRight, ArrowUpLeft, ArrowRight, CornerUpRight, CornerUpLeft, Merge, Users, Layers } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useWakeLock } from "@/hooks/use-wake-lock";
 import { usePermissionStatus } from "@/hooks/use-permission-status";
@@ -229,6 +229,15 @@ export default function LiveIncidentPage() {
     if (typeof window === "undefined") return false;
     return new URLSearchParams(window.location.search).has("debug");
   });
+  // Mirror of debugVisible read inside the onCameraIdle callback. When the
+  // debug overlay is closed (default), the camera-idle handler skips its
+  // React state updates entirely — otherwise the ~400 ms tilt-keeper interval
+  // causes a re-render storm in nav mode that resets the step-tracking
+  // interval, watchPosition, and step voice announcements. (v75 fix.)
+  const debugVisibleRef = useRef(false);
+  useEffect(() => { debugVisibleRef.current = debugVisible; }, [debugVisible]);
+  // Current base map tile style — cycled by the floating top-right button.
+  const [mapType, setMapType] = useState<"Normal" | "Hybrid" | "Satellite">("Normal");
   const titlePressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Capture window errors and unhandled rejections for the debug overlay.
@@ -2589,12 +2598,26 @@ export default function LiveIncidentPage() {
 
   return (
     <div className="flex flex-col h-full bg-background live-page-root">
-      <div className="flex items-center gap-3 px-4 py-3 border-b shrink-0 bg-background">
+      {/* v75: merged title + GPS status row. Single LIVE pill, single NATIVE
+          badge, inline GPS info, background tinted by GPS health. The old
+          separate GPS status banner below has been removed — the fixed
+          top-0 GPS-lost banner (60 s threshold) still handles retry. */}
+      <div
+        className={`flex items-center gap-2 px-3 py-2 border-b shrink-0 transition-colors ${
+          !currentIncident || gpsStatus === "idle"
+            ? "bg-background"
+            : gpsStatus === "tracking" || gpsStatus === "stationary"
+            ? "bg-green-600/10"
+            : gpsStatus === "acquiring"
+            ? "bg-amber-500/10"
+            : "bg-red-600/10"
+        }`}
+      >
         <Button variant="ghost" size="icon" onClick={() => navigate("/")} data-testid="button-back-live">
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div
-          className="flex items-center gap-2 select-none"
+          className="flex items-center gap-2 select-none min-w-0 flex-1"
           onPointerDown={() => {
             if (titlePressTimerRef.current) clearTimeout(titlePressTimerRef.current);
             titlePressTimerRef.current = setTimeout(() => setDebugVisible((v) => !v), 1200);
@@ -2607,14 +2630,56 @@ export default function LiveIncidentPage() {
           }}
           data-testid="title-live-incident"
         >
-          <Radio className="h-5 w-5 text-green-500" />
-          <span className="font-semibold text-lg">Live Incident</span>
+          <span className="font-semibold text-base shrink-0">Live Incident</span>
+          {currentIncident && gpsStatus !== "idle" && (
+            <span className="text-xs text-muted-foreground truncate" data-testid="text-gps-inline">
+              ·{" "}
+              {gpsStatus === "tracking" || gpsStatus === "stationary"
+                ? `GPS${gpsAccuracy != null ? ` ±${gpsAccuracy}m` : ""}${
+                    gpsLastSentAt != null
+                      ? ` · ${Math.max(0, Math.round((Date.now() - gpsLastSentAt) / 1000))}s ago`
+                      : ""
+                  }`
+                : gpsStatus === "acquiring"
+                ? `Acquiring GPS…${gpsAccuracy != null ? ` ±${gpsAccuracy}m` : ""}`
+                : gpsStatus === "denied"
+                ? "Location off"
+                : gpsStatus === "unavailable"
+                ? "GPS unavailable"
+                : gpsStatus === "session_expired"
+                ? "Session expired"
+                : "GPS lost"}
+            </span>
+          )}
         </div>
-        {currentIncident && (
-          <Badge className={`ml-auto text-white ${isJoinerMode ? "bg-blue-600" : "bg-green-500"}`} data-testid="badge-live-active">
-            {isJoinerMode ? "JOINED" : "LIVE"}
-          </Badge>
-        )}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {currentIncident && isNative && (
+            <span
+              className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                useWebMap
+                  ? "bg-amber-500/20 text-amber-700 dark:text-amber-400"
+                  : nativeMapStatus === "ready"
+                  ? "bg-green-500/20 text-green-700 dark:text-green-400"
+                  : "bg-gray-500/20 text-gray-700 dark:text-gray-400"
+              }`}
+              data-testid="badge-map-mode"
+            >
+              {useWebMap
+                ? "WEB MAP"
+                : nativeMapStatus === "ready"
+                ? `NATIVE${nativeRenderer ? ` · ${nativeRenderer}` : ""}`
+                : nativeMapStatus.toUpperCase()}
+            </span>
+          )}
+          {currentIncident && (
+            <Badge
+              className={`text-white ${isJoinerMode ? "bg-blue-600" : "bg-green-500"}`}
+              data-testid="badge-live-active"
+            >
+              {isJoinerMode ? "JOINED" : "LIVE"}
+            </Badge>
+          )}
+        </div>
       </div>
 
       <MapDebugOverlay
@@ -2697,8 +2762,9 @@ export default function LiveIncidentPage() {
         </div>
       )}
 
-      {/* GPS status banner — only shown while a live incident is active */}
-      {currentIncident && gpsStatus !== "idle" && (
+      {/* v75: GPS status banner removed — info merged into title row above.
+          GPS-lost recovery still handled by the fixed top-0 banner (60 s). */}
+      {false && currentIncident && gpsStatus !== "idle" && (
         <div
           className={`flex items-center gap-2 px-4 py-2 text-sm font-medium shrink-0 ${
             gpsStatus === "tracking" || gpsStatus === "stationary"
@@ -2951,7 +3017,9 @@ export default function LiveIncidentPage() {
                   )}
                 </>
               )}
-              {!isJoinerMode && routeInfo && (
+              {/* v75: hidden in nav mode — the bottom strip on the map shows
+                  the prominent red distance/ETA in nav mode (no duplicate). */}
+              {!navMode && !isJoinerMode && routeInfo && (
                 <div className="flex gap-3 text-sm pt-0.5">
                   <div className="flex items-center gap-1.5 text-muted-foreground">
                     <Navigation className="h-3.5 w-3.5" />
@@ -3164,6 +3232,29 @@ export default function LiveIncidentPage() {
               </div>
             )}
 
+            {/* v75: floating map-type toggle (Map → Hybrid → Satellite).
+                In nav mode the step banner occupies top; we render below it
+                (bottom-right above the action bar). Otherwise top-right.
+                Hidden on web fallback — capMapRef is only set for native. */}
+            {!useWebMap ? (
+              <button
+                type="button"
+                onClick={() => {
+                  const next = mapType === "Normal" ? "Hybrid" : mapType === "Hybrid" ? "Satellite" : "Normal";
+                  setMapType(next as "Normal" | "Hybrid" | "Satellite");
+                  capMapRef.current?.setMapType(next as "Normal" | "Hybrid" | "Satellite").catch(() => {});
+                }}
+                className={`absolute right-3 z-20 h-10 w-10 rounded-full bg-background/90 backdrop-blur border shadow-lg flex items-center justify-center text-foreground hover:bg-accent active:scale-95 transition-transform ${navMode ? "bottom-24" : "top-3"}`}
+                aria-label={`Map view: ${mapType} — tap to cycle`}
+                title={`Map: ${mapType} (tap to cycle)`}
+                data-testid="button-map-type-toggle"
+              >
+                <Layers className="h-5 w-5" />
+                <span className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 text-[8px] font-bold uppercase bg-background/90 px-1 rounded leading-none">
+                  {mapType === "Normal" ? "Map" : mapType === "Hybrid" ? "Hyb" : "Sat"}
+                </span>
+              </button>
+            ) : null}
             {!useWebMap ? (
               <CapacitorMap
                 ref={capMapRef}
@@ -3180,7 +3271,10 @@ export default function LiveIncidentPage() {
                   setNativeMapFailed(true);
                 }}
                 onRendererKnown={(r) => setNativeRenderer(r)}
-                onCameraIdle={(d) => { setCameraTilt(d.tilt); setCameraZoom(d.zoom); }}
+                onCameraIdle={(d) => {
+                  // Gated on debug overlay visibility — see debugVisibleRef.
+                  if (debugVisibleRef.current) { setCameraTilt(d.tilt); setCameraZoom(d.zoom); }
+                }}
               />
             ) : (
               <div ref={mapRef} className="absolute inset-0" data-testid="map-live" />
@@ -3192,22 +3286,24 @@ export default function LiveIncidentPage() {
                 className="absolute bottom-0 left-0 right-0 z-10 bg-background border-t px-4 py-3 space-y-2"
                 style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
               >
-                {/* Route summary row + speed */}
-                <div className="flex items-center justify-between text-sm">
-                  <div className="flex items-center gap-3">
+                {/* v75: prominent red distance/ETA — speed stays right */}
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 min-w-0">
                     {routeInfo && (
                       <>
-                        <span className="font-medium">{fmtDist(routeInfo.distance)}</span>
-                        <span className="text-muted-foreground">·</span>
-                        <span className="text-muted-foreground">ETA{" "}
-                          <span className="font-medium text-foreground">{fmtDur(routeInfo.duration)}</span>
+                        <span className="text-2xl font-extrabold text-red-600 dark:text-red-400 tabular-nums" data-testid="text-nav-distance">
+                          {fmtDist(routeInfo.distance)}
+                        </span>
+                        <span className="text-base font-bold text-red-600/60 dark:text-red-400/60">·</span>
+                        <span className="text-base font-bold text-red-600 dark:text-red-400" data-testid="text-nav-eta">
+                          ETA <span className="tabular-nums">{fmtDur(routeInfo.duration)}</span>
                         </span>
                       </>
                     )}
                   </div>
-                  <div className="flex items-center gap-1.5 text-muted-foreground" data-testid="nav-speed">
-                    <Gauge className="h-4 w-4" />
-                    <span className="font-bold text-foreground text-base tabular-nums">{speedKmh ?? "--"}</span>
+                  <div className="flex items-center gap-1.5 text-muted-foreground shrink-0" data-testid="nav-speed">
+                    <Gauge className="h-5 w-5" />
+                    <span className="font-bold text-foreground text-xl tabular-nums">{speedKmh ?? "--"}</span>
                     <span className="text-xs">km/h</span>
                   </div>
                 </div>
