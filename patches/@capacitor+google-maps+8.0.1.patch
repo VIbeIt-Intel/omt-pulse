@@ -1,8 +1,8 @@
 diff --git a/node_modules/@capacitor/google-maps/android/src/main/java/com/capacitorjs/plugins/googlemaps/CapacitorGoogleMap.kt b/node_modules/@capacitor/google-maps/android/src/main/java/com/capacitorjs/plugins/googlemaps/CapacitorGoogleMap.kt
-index c0bc416..b8aa5b4 100644
+index c0bc416..d2a4c98 100644
 --- a/node_modules/@capacitor/google-maps/android/src/main/java/com/capacitorjs/plugins/googlemaps/CapacitorGoogleMap.kt
 +++ b/node_modules/@capacitor/google-maps/android/src/main/java/com/capacitorjs/plugins/googlemaps/CapacitorGoogleMap.kt
-@@ -642,7 +642,14 @@ class CapacitorGoogleMap(
+@@ -642,7 +642,15 @@ class CapacitorGoogleMap(
                                  .build()
  
                  if (animate) {
@@ -14,7 +14,85 @@ index c0bc416..b8aa5b4 100644
 +                    // reaches 45° because every call resets the animation.
 +                    // 200 ms is short enough that consecutive calls complete
 +                    // before being superseded, locking tilt at the target value.
++                    Log.d("OMTPatch", "animateCamera 200ms tilt=${angle} bearing=${bearing}")
 +                    googleMap?.animateCamera(CameraUpdateFactory.newCameraPosition(updatedPosition), 200, null)
                  } else {
                      googleMap?.moveCamera(CameraUpdateFactory.newCameraPosition(updatedPosition))
                  }
+@@ -653,6 +661,34 @@ class CapacitorGoogleMap(
+         }
+     }
+ 
++    // OMT patch: per-gesture UI lock so nav mode can disable the SDK's
++    // gesture-settle deceleration (which fights setCamera and flattens tilt).
++    // Pass null for any field to leave it unchanged.
++    fun setGestures(
++            tiltGestures: Boolean?,
++            rotateGestures: Boolean?,
++            zoomGestures: Boolean?,
++            scrollGestures: Boolean?,
++            callback: (error: GoogleMapsError?) -> Unit
++    ) {
++        try {
++            googleMap ?: throw GoogleMapNotAvailable()
++            CoroutineScope(Dispatchers.Main).launch {
++                val ui = googleMap?.uiSettings
++                if (ui != null) {
++                    if (tiltGestures != null) ui.isTiltGesturesEnabled = tiltGestures
++                    if (rotateGestures != null) ui.isRotateGesturesEnabled = rotateGestures
++                    if (zoomGestures != null) ui.isZoomGesturesEnabled = zoomGestures
++                    if (scrollGestures != null) ui.isScrollGesturesEnabled = scrollGestures
++                    Log.d("OMTPatch", "setGestures tilt=${tiltGestures} rotate=${rotateGestures} zoom=${zoomGestures} scroll=${scrollGestures}")
++                }
++                callback(null)
++            }
++        } catch (e: GoogleMapsError) {
++            callback(e)
++        }
++    }
++
+     fun getMapType(callback: (type: String, error: GoogleMapsError?) -> Unit) {
+         try {
+             googleMap ?: throw GoogleMapNotAvailable()
+diff --git a/node_modules/@capacitor/google-maps/android/src/main/java/com/capacitorjs/plugins/googlemaps/CapacitorGoogleMapsPlugin.kt b/node_modules/@capacitor/google-maps/android/src/main/java/com/capacitorjs/plugins/googlemaps/CapacitorGoogleMapsPlugin.kt
+index 06ecab2..5f1af10 100644
+--- a/node_modules/@capacitor/google-maps/android/src/main/java/com/capacitorjs/plugins/googlemaps/CapacitorGoogleMapsPlugin.kt
++++ b/node_modules/@capacitor/google-maps/android/src/main/java/com/capacitorjs/plugins/googlemaps/CapacitorGoogleMapsPlugin.kt
+@@ -210,6 +210,37 @@ class CapacitorGoogleMapsPlugin : Plugin(), OnMapsSdkInitializedCallback {
+         }
+     }
+ 
++    // OMT patch: per-gesture lock so nav mode can disable tilt+rotate gestures
++    // (which trigger the SDK's gesture-settle deceleration and flatten tilt
++    // back to 0 after every camera move). Any field may be omitted to leave
++    // the current setting untouched.
++    @PluginMethod
++    fun setGestures(call: PluginCall) {
++        try {
++            val id = call.getString("id")
++            id ?: throw InvalidMapIdError()
++            val map = maps[id]
++            map ?: throw MapNotFoundError()
++
++            val tilt = if (call.data.has("tiltGestures")) call.getBoolean("tiltGestures") else null
++            val rotate = if (call.data.has("rotateGestures")) call.getBoolean("rotateGestures") else null
++            val zoom = if (call.data.has("zoomGestures")) call.getBoolean("zoomGestures") else null
++            val scroll = if (call.data.has("scrollGestures")) call.getBoolean("scrollGestures") else null
++
++            map.setGestures(tilt, rotate, zoom, scroll) { err ->
++                if (err != null) {
++                    handleError(call, err)
++                } else {
++                    call.resolve()
++                }
++            }
++        } catch (e: GoogleMapsError) {
++            handleError(call, e)
++        } catch (e: Exception) {
++            handleError(call, e)
++        }
++    }
++
+     @PluginMethod
+     fun addTileOverlay(call: PluginCall) {
+         try {

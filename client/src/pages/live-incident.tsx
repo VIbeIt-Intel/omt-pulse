@@ -2026,6 +2026,14 @@ export default function LiveIncidentPage() {
           const currStep = navSteps[idx];
           if (currStep) setStepDist(Math.round(haversineM(pos, { lat: currStep.end_location.lat(), lng: currStep.end_location.lng() })));
         }
+        // Lock out tilt + rotate gestures in nav mode. The Android Maps SDK
+        // runs a gesture-settle deceleration when the user lifts fingers from
+        // any pinch-tilt or 2-finger rotate; that physics pipeline outranks
+        // setCamera and flattens tilt back to 0 within ~2 s. Removing the
+        // gesture itself removes the settle trigger, so the v70 200 ms
+        // animateCamera patch + v69 400 ms tilt-keeper can finally win.
+        // Pinch-zoom and pan stay enabled.
+        capMapRef.current.setGestures({ tilt: false, rotate: false, zoom: true, scroll: true }).catch(() => {});
         if (lastPosRef.current) {
           // animate:false — apply tilt instantly on nav-mode entry. With
           // animate:true the discrete 0→45 angle transition can be interrupted
@@ -2038,6 +2046,8 @@ export default function LiveIncidentPage() {
           }).catch(() => {});
         }
       } else {
+        // Restore all gestures on nav-mode exit.
+        capMapRef.current.setGestures({ tilt: true, rotate: true, zoom: true, scroll: true }).catch(() => {});
         if (lastPosRef.current) {
           capMapRef.current.setCamera({
             lat: lastPosRef.current.lat, lng: lastPosRef.current.lng,

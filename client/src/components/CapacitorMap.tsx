@@ -1,5 +1,21 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { GoogleMap } from '@capacitor/google-maps';
+import { registerPlugin } from '@capacitor/core';
+
+// Direct handle to the native plugin so we can call OMT-patched methods
+// (e.g. setGestures) that the upstream JS wrapper doesn't expose. Safe to
+// call on web too — registerPlugin returns a stub that resolves no-ops.
+const NativeMapsPlugin = registerPlugin<{
+  setGestures(opts: {
+    id: string;
+    tiltGestures?: boolean;
+    rotateGestures?: boolean;
+    zoomGestures?: boolean;
+    scrollGestures?: boolean;
+  }): Promise<void>;
+}>('CapacitorGoogleMaps');
+
+const NATIVE_MAP_ID = 'cap-live-map';
 
 // ─── Exported types ────────────────────────────────────────────────────────────
 
@@ -62,6 +78,20 @@ export interface CapacitorMapHandle {
 
   /** Place or update the "you are here" blue dot. Idempotent. */
   setUserLocation(lat: number, lng: number): Promise<void>;
+
+  /**
+   * Per-gesture lock. Pass `false` to disable a specific gesture, `true` to
+   * re-enable, omit to leave unchanged. Used by nav mode to disable tilt+rotate
+   * gestures so the Android Maps SDK's gesture-settle deceleration can't
+   * flatten the camera tilt back to 0° after each setCamera. Native-only —
+   * no-op on web (web map uses the JS API, which doesn't have this issue).
+   */
+  setGestures(opts: {
+    tilt?: boolean;
+    rotate?: boolean;
+    zoom?: boolean;
+    scroll?: boolean;
+  }): Promise<void>;
 }
 
 interface CapacitorMapProps {
@@ -144,7 +174,7 @@ const CapacitorMap = forwardRef<CapacitorMapHandle, CapacitorMapProps>(
       (async () => {
         if (!elementRef.current) return;
         const map = await GoogleMap.create({
-          id: 'cap-live-map',
+          id: NATIVE_MAP_ID,
           element: elementRef.current,
           apiKey,
           config: {
@@ -173,6 +203,25 @@ const CapacitorMap = forwardRef<CapacitorMapHandle, CapacitorMapProps>(
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     useImperativeHandle(ref, () => ({
+
+      // Per-gesture lock — used by nav mode to disable tilt+rotate gestures
+      // so the Android SDK's gesture-settle physics can't flatten our tilt.
+      async setGestures({ tilt, rotate, zoom, scroll }) {
+        if (!mapRef.current) return;
+        try {
+          await NativeMapsPlugin.setGestures({
+            id: NATIVE_MAP_ID,
+            ...(tilt !== undefined ? { tiltGestures: tilt } : {}),
+            ...(rotate !== undefined ? { rotateGestures: rotate } : {}),
+            ...(zoom !== undefined ? { zoomGestures: zoom } : {}),
+            ...(scroll !== undefined ? { scrollGestures: scroll } : {}),
+          });
+        } catch (e) {
+          reportNativeError('setGestures', e);
+          // Swallow — pre-patch APKs (old builds without OMTPatch) will
+          // reject this call. Nav mode still works, just without the lock.
+        }
+      },
 
       // Move the camera — called on every GPS fix during nav mode
       async setCamera({ lat, lng, zoom = 17, bearing = 0, tilt = 45, animate = true, animationDuration }) {
