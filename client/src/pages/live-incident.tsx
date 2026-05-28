@@ -2035,14 +2035,17 @@ export default function LiveIncidentPage() {
         // Pinch-zoom and pan stay enabled.
         capMapRef.current.setGestures({ tilt: false, rotate: false, zoom: true, scroll: true }).catch(() => {});
         if (lastPosRef.current) {
-          // animate:false — apply tilt instantly on nav-mode entry. With
-          // animate:true the discrete 0→45 angle transition can be interrupted
-          // by the next GPS-driven setCamera before it completes, leaving the
-          // map flat. See GPS callback above for the same rationale.
+          // v72: animate:true with 100 ms duration. animate:false routes through
+          // Kotlin moveCamera, which on this Android Maps SDK version silently
+          // drops the tilt component — so the initial 45° tilt never applies
+          // and the map stays flat until the 400 ms tilt-keeper recovers it
+          // (if it ever does). animate:true with a short 100 ms duration uses
+          // animateCamera (patched to 200 ms), which honors tilt and is fast
+          // enough not to fight the subsequent tilt-keeper ticks.
           capMapRef.current.setCamera({
             lat: lastPosRef.current.lat, lng: lastPosRef.current.lng,
             zoom: 17, tilt: 45, bearing: lastHeadingRef.current ?? 0,
-            animate: false,
+            animate: true, animationDuration: 100,
           }).catch(() => {});
         }
       } else {
@@ -2718,6 +2721,20 @@ export default function LiveIncidentPage() {
               {gpsLastSentAt != null && (
                 <span className="opacity-70"> · {Math.max(0, Math.round((Date.now() - gpsLastSentAt) / 1000))}s ago</span>
               )}
+              {isNative && (
+                <span
+                  className={`ml-2 px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                    useWebMap
+                      ? "bg-amber-500/20 text-amber-700 dark:text-amber-400"
+                      : nativeMapStatus === "ready"
+                      ? "bg-green-500/20 text-green-700 dark:text-green-400"
+                      : "bg-gray-500/20 text-gray-700 dark:text-gray-400"
+                  }`}
+                  data-testid="badge-map-mode"
+                >
+                  {useWebMap ? "WEB MAP" : nativeMapStatus === "ready" ? "NATIVE" : nativeMapStatus.toUpperCase()}
+                </span>
+              )}
             </span>
           )}
           {gpsStatus === "stationary" && (
@@ -2725,6 +2742,20 @@ export default function LiveIncidentPage() {
               Stationary{gpsAccuracy != null ? ` · ±${gpsAccuracy} m` : ""}
               {gpsLastSentAt != null && (
                 <span className="opacity-70"> · {Math.max(0, Math.round((Date.now() - gpsLastSentAt) / 1000))}s ago</span>
+              )}
+              {isNative && (
+                <span
+                  className={`ml-2 px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                    useWebMap
+                      ? "bg-amber-500/20 text-amber-700 dark:text-amber-400"
+                      : nativeMapStatus === "ready"
+                      ? "bg-green-500/20 text-green-700 dark:text-green-400"
+                      : "bg-gray-500/20 text-gray-700 dark:text-gray-400"
+                  }`}
+                  data-testid="badge-map-mode-stationary"
+                >
+                  {useWebMap ? "WEB MAP" : nativeMapStatus === "ready" ? "NATIVE" : nativeMapStatus.toUpperCase()}
+                </span>
               )}
             </span>
           )}

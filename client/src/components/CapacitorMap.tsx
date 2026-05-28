@@ -157,19 +157,23 @@ const CapacitorMap = forwardRef<CapacitorMapHandle, CapacitorMapProps>(
     const userMarkerBusyRef = useRef<boolean>(false);
 
     // Create the native map once on mount; destroy on unmount.
-    // Includes a 3-second readiness timeout: if GoogleMap.create() succeeds but
+    // Includes an 8-second readiness timeout: if GoogleMap.create() succeeds but
     // the native view never paints (silent failure mode), we treat it as an
-    // error so the caller can fall back to the web map.
+    // error so the caller can fall back to the web map. Bumped from 3s → 8s
+    // (v72): on slower Android devices native map creation can legitimately
+    // take 4–6 s on first run (Maps SDK warm-up + GCP API auth round-trip).
+    // A 3 s cap was tripping on real devices and falling back to the WebView
+    // JS API map — which silently ignores tilt, breaking nav-mode 3D view.
     useEffect(() => {
       let cancelled = false;
       let succeeded = false;
 
       const timeoutId = setTimeout(() => {
         if (!succeeded && !cancelled) {
-          console.warn('[CapacitorMap] native map readiness timeout (3s) — assuming failure');
+          console.warn('[CapacitorMap] native map readiness timeout (8s) — assuming failure');
           onError?.(new Error('Native map readiness timeout'));
         }
-      }, 3000);
+      }, 8000);
 
       (async () => {
         if (!elementRef.current) return;

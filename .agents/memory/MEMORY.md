@@ -2,3 +2,4 @@
 - [FCM + GitHub Actions APK build](fcm-apk-build.md) — FCM native push done; APK builds green on Actions; Play Store signing next
 - [Capacitor Android geolocation permissions](capacitor-geolocation-permissions.md) — navigator.permissions lies in Capacitor WebView; probe via getCurrentPosition instead; treat TIMEOUT as granted; safety-net setTimeout needed
 - [Capacitor Google Maps native setup](capacitor-maps-native.md) — WebView must be transparent in MainActivity.java; JS API services unavailable on native; GCP APIs needed; autostart redirect race fix
+- [Android nav-mode tilt](nav-mode-tilt-android.md) — setCamera animate:false uses Kotlin moveCamera which silently drops tilt; must use animate:true for any tilted camera position
