@@ -247,7 +247,7 @@ export default function ChatPage() {
         body: file,
       });
       if (!uploadResp.ok) throw new Error(`Upload failed: ${uploadResp.status}`);
-      const { url: objectUrl } = await uploadResp.json();
+      const { objectUrl } = await uploadResp.json();
       const recipientId = activeConvo.type === "dm" ? activeConvo.recipientId : null;
       await apiRequest("POST", "/api/chat/messages", {
         recipientId,
