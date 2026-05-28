@@ -233,6 +233,11 @@ export default function LiveMonitorPage() {
   const joinerRouteLinesRef = useRef<Map<string, google.maps.Polyline>>(new Map());
   const infoWindowRef = useRef<google.maps.InfoWindow | null>(null);
   const trafficLayerRef = useRef<google.maps.TrafficLayer | null>(null);
+  // Tracks the incident-ID signature we last called fitBounds for. We only
+  // re-fit when the *set* of active incidents changes (one ends, a new one
+  // starts) — NOT on every 5 s refetch, otherwise the admin's pan/zoom is
+  // wiped every refresh. v69 fix.
+  const lastFitSignatureRef = useRef<string>("");
 
   const [mapsReady, setMapsReady] = useState(false);
   const [mapsError, setMapsError] = useState(false);
@@ -669,13 +674,21 @@ export default function LiveMonitorPage() {
     }
 
     if (hasBounds) {
-      try {
-        map.fitBounds(bounds, 60);
-        const listener = google.maps.event.addListenerOnce(map, "bounds_changed", () => {
-          if ((map.getZoom() ?? 0) > 14) map.setZoom(14);
-        });
-        setTimeout(() => google.maps.event.removeListener(listener), 2000);
-      } catch {}
+      // Only fitBounds when the set of incident IDs has changed. The 5 s
+      // refetch re-runs this effect every poll; without this guard each
+      // refresh clobbers the admin's pinch/pan/zoom. Compare sorted IDs as
+      // a stable signature.
+      const signature = liveIncidents.map(i => i.id).sort((a, b) => a - b).join(",");
+      if (signature !== lastFitSignatureRef.current) {
+        lastFitSignatureRef.current = signature;
+        try {
+          map.fitBounds(bounds, 60);
+          const listener = google.maps.event.addListenerOnce(map, "bounds_changed", () => {
+            if ((map.getZoom() ?? 0) > 14) map.setZoom(14);
+          });
+          setTimeout(() => google.maps.event.removeListener(listener), 2000);
+        } catch {}
+      }
     }
   }, [liveIncidents, mapsReady]);
 

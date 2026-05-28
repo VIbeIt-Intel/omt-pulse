@@ -2110,6 +2110,29 @@ export default function LiveIncidentPage() {
     }
   }, [navMode, mapsReady]);
 
+  // v69: APK nav-mode tilt-keeper.
+  // The Android Google Maps SDK runs a "gesture-settle" deceleration when the
+  // user lifts fingers after a pinch-tilt. That settle can flatten the camera
+  // back to tilt:0 over 1–2 s, faster than our GPS-cadence setCamera (which
+  // only fires every ~1 s on a fix). To prevent the flatten, re-assert the
+  // nav-mode camera every 400 ms — too fast for the settle to ever complete.
+  // Native only; no-op on web (the JS API doesn't have this settle issue).
+  useEffect(() => {
+    if (!isNative || !navMode || !mapsReady || !capMapRef.current) return;
+    const id = window.setInterval(() => {
+      if (!navModeRef.current || !capMapRef.current || !lastPosRef.current) return;
+      capMapRef.current.setCamera({
+        lat: lastPosRef.current.lat,
+        lng: lastPosRef.current.lng,
+        zoom: 17,
+        tilt: 45,
+        bearing: lastHeadingRef.current ?? 0,
+        animate: true,
+      }).catch(() => {});
+    }, 400);
+    return () => window.clearInterval(id);
+  }, [isNative, navMode, mapsReady]);
+
   // Compass fallback: use deviceorientationabsolute (true-north bearing from device compass)
   // to drive heading-up when GPS heading is null — common on many Android devices.
   // Active only while nav mode is on; cleans up automatically on deactivation.
