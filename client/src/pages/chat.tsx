@@ -324,7 +324,7 @@ export default function ChatPage() {
   function renderMessageContent(content: string, isMe: boolean) {
     if (content.startsWith("[img]")) {
       const url = content.slice(5);
-      const imgSrc = (() => { try { return new URL(url).pathname; } catch { return url; } })();
+      const imgSrc = url.startsWith("data:") ? url : (() => { try { return new URL(url).pathname; } catch { return url; } })();
       return (
         <a href={imgSrc} target="_blank" rel="noopener noreferrer" data-testid="msg-image-link">
           <img
