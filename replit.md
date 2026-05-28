@@ -155,3 +155,5 @@ Rules written to prevent the class of mistake made earlier in this project, wher
 **Startup must succeed.** Workflow logs must show "serving on port 5000" after every change.
 
 **Multi-tenancy must not regress.** Any new storage method added to `storage.ts` must accept and filter by `orgId`.
+
+**Live Monitor map view preservation is frozen.** The admin's pinch / pan / zoom on `/live-monitor` must persist across the 5 s auto-refresh poll. `fitBounds` only re-fires when the set of active incident IDs changes (one starts or ends), gated by `lastFitSignatureRef` in `client/src/pages/live-monitor.tsx`. Do not call `fitBounds` / `setCenter` / `setZoom` from any code path that runs on every poll. Do not modify this gate unless the user explicitly says so in the current request.
