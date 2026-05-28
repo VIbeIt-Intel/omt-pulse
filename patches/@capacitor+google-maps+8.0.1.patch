@@ -1,0 +1,20 @@
+diff --git a/node_modules/@capacitor/google-maps/android/src/main/java/com/capacitorjs/plugins/googlemaps/CapacitorGoogleMap.kt b/node_modules/@capacitor/google-maps/android/src/main/java/com/capacitorjs/plugins/googlemaps/CapacitorGoogleMap.kt
+index c0bc416..b8aa5b4 100644
+--- a/node_modules/@capacitor/google-maps/android/src/main/java/com/capacitorjs/plugins/googlemaps/CapacitorGoogleMap.kt
++++ b/node_modules/@capacitor/google-maps/android/src/main/java/com/capacitorjs/plugins/googlemaps/CapacitorGoogleMap.kt
+@@ -642,7 +642,14 @@ class CapacitorGoogleMap(
+                                 .build()
+ 
+                 if (animate) {
+-                    googleMap?.animateCamera(CameraUpdateFactory.newCameraPosition(updatedPosition))
++                    // OMT patch: pass explicit 200ms duration. The single-arg
++                    // animateCamera uses the SDK's default 3 s, which causes
++                    // rapid setCamera calls (GPS fixes, nav-mode interval) to
++                    // cancel each other's in-flight animations — tilt never
++                    // reaches 45° because every call resets the animation.
++                    // 200 ms is short enough that consecutive calls complete
++                    // before being superseded, locking tilt at the target value.
++                    googleMap?.animateCamera(CameraUpdateFactory.newCameraPosition(updatedPosition), 200, null)
+                 } else {
+                     googleMap?.moveCamera(CameraUpdateFactory.newCameraPosition(updatedPosition))
+                 }
