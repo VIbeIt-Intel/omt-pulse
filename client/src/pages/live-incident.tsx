@@ -21,6 +21,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Label } from "@/components/ui/label";
 import { apiRequest } from "@/lib/queryClient";
 import { loadGoogleMaps } from "@/lib/google-maps-loader";
+import { speak, stopSpeaking } from "@/lib/tts";
 import { Capacitor } from '@capacitor/core';
 import CapacitorMap, { type CapacitorMapHandle } from '@/components/CapacitorMap';
 import MapDebugOverlay, { type MapDebugSnapshot } from '@/components/MapDebugOverlay';
@@ -514,12 +515,7 @@ export default function LiveIncidentPage() {
         const advancedStep = steps[idx];
         if (idx !== announcedStepRef.current) {
           announcedStepRef.current = idx;
-          try {
-            const utt = new SpeechSynthesisUtterance(stripHtml(advancedStep.instructions));
-            utt.lang = "en-US";
-            window.speechSynthesis.cancel();
-            window.speechSynthesis.speak(utt);
-          } catch { /* TTS unavailable — silently skip */ }
+          void speak(stripHtml(advancedStep.instructions));
         }
       }
       currentStepIndexRef.current = idx;
@@ -535,12 +531,7 @@ export default function LiveIncidentPage() {
         // the step-advance announcement and always fires once per step when within 200 m.
         if (dist <= 200 && idx !== approachingTurnAnnouncedRef.current) {
           approachingTurnAnnouncedRef.current = idx;
-          try {
-            const utt = new SpeechSynthesisUtterance(`In ${fmtDist(dist)}, ${stripHtml(currStep.instructions)}`);
-            utt.lang = "en-US";
-            window.speechSynthesis.cancel();
-            window.speechSynthesis.speak(utt);
-          } catch { /* TTS unavailable — silently skip */ }
+          void speak(`In ${fmtDist(dist)}, ${stripHtml(currStep.instructions)}`);
         }
       }
     }, 5000);
@@ -606,12 +597,7 @@ export default function LiveIncidentPage() {
         setIsNearDestination(nearDest);
         if (nearDest && !arrivedAnnouncedRef.current) {
           arrivedAnnouncedRef.current = true;
-          try {
-            const utt = new SpeechSynthesisUtterance("You have arrived at your destination.");
-            utt.lang = "en-US";
-            window.speechSynthesis.cancel();
-            window.speechSynthesis.speak(utt);
-          } catch { /* TTS unavailable — silently skip */ }
+          void speak("You have arrived at your destination.");
         }
       }
       originMarkerRef.current?.setPosition(p);
@@ -839,6 +825,7 @@ export default function LiveIncidentPage() {
   function resetAfterEnd() {
     trackingIncidentIdRef.current = null;
     stopTracking();
+    void stopSpeaking();
     gpsEndpointRef.current = "responder-position";
     setGpsStatus("idle");
     setGpsAccuracy(null);
@@ -880,6 +867,7 @@ export default function LiveIncidentPage() {
   function resetAfterLeave() {
     trackingIncidentIdRef.current = null;
     stopTracking();
+    void stopSpeaking();
     gpsEndpointRef.current = "responder-position";
     setGpsStatus("idle");
     setGpsAccuracy(null);
