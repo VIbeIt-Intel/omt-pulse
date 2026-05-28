@@ -729,6 +729,9 @@ export default function OccurrenceBook() {
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-1 px-3 py-2 border-b shrink-0">
         <SidebarTrigger />
+        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => window.history.back()} data-testid="button-back">
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
         {isReporter && (
           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowMyIncidents(false)} data-testid="button-back-to-dashboard">
             <ArrowLeft className="h-4 w-4" />

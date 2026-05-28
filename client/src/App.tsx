@@ -33,7 +33,7 @@ import LandingPage from "@/pages/landing";
 import EnableAlertsPage from "@/pages/enable-alerts";
 import NotificationsPage from "@/pages/notifications";
 import ChatPage from "@/pages/chat";
-import { Bell, CreditCard, Loader2, LogOut, Download, X, Camera, CheckCheck, Radio, HelpCircle, MessageCircle } from "lucide-react";
+import { Bell, CreditCard, Loader2, LogOut, Download, X, Camera, CheckCheck, Radio, HelpCircle, MessageCircle, ArrowLeft } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { type NotificationLog, timeAgo, formatDate, markAllRead } from "@/pages/notifications";
 import { apiRequest } from "@/lib/queryClient";
@@ -658,7 +658,8 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
       <div className="flex h-screen w-full">
         <AppSidebar user={user} onLogout={() => logoutMutation.mutate()} avatarPreview={avatarPreview} />
         <div className="flex flex-col flex-1 min-w-0">
-          {location !== "/live-incident" && location !== "/live-severity" && !location.startsWith("/chat") && location !== "/" && location !== "/occurrence-book" && (
+          {/* Full INTEL header — dashboard only */}
+          {location === "/dashboard" && (
           <header className="grid grid-cols-[1fr_auto_1fr] items-center p-2 border-b shrink-0 gap-2">
             {/* Left */}
             <div className="flex items-center">
@@ -795,6 +796,20 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
                 data-testid="input-avatar-upload"
               />
             </div>
+          </header>
+          )}
+
+          {/* Slim back-button header — all secondary pages */}
+          {location !== "/dashboard" && location !== "/live-incident" && location !== "/live-severity" && !location.startsWith("/chat") && location !== "/" && location !== "/occurrence-book" && (
+          <header className="flex items-center px-2 border-b shrink-0 h-14" data-testid="header-secondary">
+            <button
+              onClick={() => window.history.back()}
+              className="flex items-center justify-center h-9 w-9 rounded-md hover:bg-accent transition-colors"
+              aria-label="Go back"
+              data-testid="button-back"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </button>
           </header>
           )}
           {pwa.showIosHint && (
