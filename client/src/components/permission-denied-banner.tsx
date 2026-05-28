@@ -1,6 +1,7 @@
 import { AlertTriangle, MapPin, HelpCircle, Navigation } from "lucide-react";
 import { usePermissionStatus } from "@/hooks/use-permission-status";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Capacitor } from "@capacitor/core";
 
 type Platform = "ios" | "android" | "desktop";
 
@@ -30,6 +31,12 @@ const PLATFORM_INSTRUCTIONS: Record<Platform, { location: string }> = {
 export function PermissionDeniedBanner() {
   const status = usePermissionStatus();
   const platform = detectPlatform();
+
+  // On native Android/iOS the OS handles location permissions via its own
+  // system dialog — the web-style banner is redundant and causes repeated
+  // spurious prompts because the Capacitor WebView's navigator.permissions
+  // API returns "prompt" even after the user has already granted access.
+  if (Capacitor.isNativePlatform()) return null;
 
   const locationDenied = status.location === "denied";
   const locationPrompt = status.location === "prompt";
