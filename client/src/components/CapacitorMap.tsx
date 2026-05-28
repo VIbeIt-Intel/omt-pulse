@@ -35,6 +35,7 @@ export interface NativeRouteResult {
 /** Methods exposed to live-incident.tsx via ref */
 export interface CapacitorMapHandle {
   setCamera(opts: {
+    animationDuration?: number;
     lat: number;
     lng: number;
     zoom?: number;
@@ -174,7 +175,7 @@ const CapacitorMap = forwardRef<CapacitorMapHandle, CapacitorMapProps>(
     useImperativeHandle(ref, () => ({
 
       // Move the camera — called on every GPS fix during nav mode
-      async setCamera({ lat, lng, zoom = 17, bearing = 0, tilt = 45, animate = true }) {
+      async setCamera({ lat, lng, zoom = 17, bearing = 0, tilt = 45, animate = true, animationDuration }) {
         if (!mapRef.current) return;
         try {
           await mapRef.current.setCamera({
@@ -183,7 +184,10 @@ const CapacitorMap = forwardRef<CapacitorMapHandle, CapacitorMapProps>(
             bearing,
             angle: tilt,          // @capacitor/google-maps uses 'angle' for tilt (degrees)
             animate,
-            animationDuration: animate ? 500 : 0,
+            // Allow caller to specify duration. Important for nav mode:
+            // animate:true with duration:0 routes through animateCamera (which
+            // respects tilt on Android) while staying visually instant.
+            animationDuration: animationDuration ?? (animate ? 500 : 0),
           });
         } catch (e) {
           reportNativeError('setCamera', e);

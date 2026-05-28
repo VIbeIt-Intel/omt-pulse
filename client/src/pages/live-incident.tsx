@@ -623,13 +623,15 @@ export default function LiveIncidentPage() {
         }
         if (navModeRef.current) {
           // Nav mode: camera follows the user with 45° tilt and bearing
-          // toward direction of travel. animate:false because the plugin's
-          // `angle` field is discrete (only 0 or 45) and animating it makes
-          // rapid GPS updates visibly stutter.
+          // toward direction of travel. animate:true with duration:0 routes
+          // through animateCamera (not moveCamera); v67 testing confirmed
+          // moveCamera silently drops the tilt component on this Android
+          // Maps SDK version, while animateCamera honours all CameraPosition
+          // fields. Duration:0 keeps it visually instantaneous.
           capMapRef.current.setCamera({
             lat: p.lat, lng: p.lng, zoom: 17, tilt: 45,
             bearing: lastHeadingRef.current ?? 0,
-            animate: false,
+            animate: true,
           }).catch(() => {});
         }
         // No else branch — outside nav mode we let the user pan/zoom freely
