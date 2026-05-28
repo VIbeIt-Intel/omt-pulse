@@ -3,3 +3,4 @@
 - [Capacitor Android geolocation permissions](capacitor-geolocation-permissions.md) — navigator.permissions lies in Capacitor WebView; probe via getCurrentPosition instead; treat TIMEOUT as granted; safety-net setTimeout needed
 - [Capacitor Google Maps native setup](capacitor-maps-native.md) — WebView must be transparent in MainActivity.java; JS API services unavailable on native; GCP APIs needed; autostart redirect race fix
 - [Android nav-mode tilt](nav-mode-tilt-android.md) — setCamera animate:false uses Kotlin moveCamera which silently drops tilt; must use animate:true for any tilted camera position
+- [Android Google Maps renderer](android-maps-renderer.md) — LATEST/LEGACY renderer choice; LEGACY silently ignores tilt; Play Services can silently fall back; needs UI indicator to verify on-device
