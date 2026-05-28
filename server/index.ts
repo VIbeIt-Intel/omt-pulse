@@ -138,6 +138,8 @@ app.use((req, res, next) => {
   };
   await safeMigrate("incidents.user_id", sql`ALTER TABLE incidents ADD COLUMN IF NOT EXISTS user_id VARCHAR REFERENCES users(id) ON DELETE SET NULL`);
   await safeMigrate("incidents.is_escalated", sql`ALTER TABLE incidents ADD COLUMN IF NOT EXISTS is_escalated BOOLEAN NOT NULL DEFAULT FALSE`);
+  await safeMigrate("incident_categories.is_system", sql`ALTER TABLE incident_categories ADD COLUMN IF NOT EXISTS is_system BOOLEAN NOT NULL DEFAULT FALSE`);
+  await safeMigrate("incident_categories.is_system.backfill", sql`UPDATE incident_categories SET is_system = TRUE WHERE name IN ('Panic', 'Live Incident') AND is_system = FALSE`);
   await safeMigrate("incidents.panic_acknowledged_at", sql`ALTER TABLE incidents ADD COLUMN IF NOT EXISTS panic_acknowledged_at TIMESTAMP`);
   await safeMigrate("incidents.panic_acknowledged_by_user_id", sql`ALTER TABLE incidents ADD COLUMN IF NOT EXISTS panic_acknowledged_by_user_id VARCHAR REFERENCES users(id) ON DELETE SET NULL`);
   await safeMigrate("incidents.closed_by_user_id", sql`ALTER TABLE incidents ADD COLUMN IF NOT EXISTS closed_by_user_id VARCHAR REFERENCES users(id) ON DELETE SET NULL`);

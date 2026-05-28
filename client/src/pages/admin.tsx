@@ -493,16 +493,25 @@ function PredefinedTypesManager() {
                             Other
                           </span>
                         )}
+                        {(cat as any).isSystem && (
+                          <span className="text-xs px-1.5 py-0.5 rounded-full bg-primary/10 text-primary dark:bg-primary/20" data-testid={`badge-system-${cat.id}`}>
+                            System
+                          </span>
+                        )}
                       </span>
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
-                        <Button size="icon" variant="ghost" onClick={() => openEdit(cat)} data-testid={`button-edit-type-${cat.id}`}>
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button size="icon" variant="ghost" onClick={() => setDeleteId(cat.id)} data-testid={`button-delete-type-${cat.id}`}>
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
+                        {!(cat as any).isSystem && (
+                          <>
+                            <Button size="icon" variant="ghost" onClick={() => openEdit(cat)} data-testid={`button-edit-type-${cat.id}`}>
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button size="icon" variant="ghost" onClick={() => setDeleteId(cat.id)} data-testid={`button-delete-type-${cat.id}`}>
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>

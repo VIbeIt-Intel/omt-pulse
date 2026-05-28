@@ -141,6 +141,7 @@ export const incidentCategories = pgTable("incident_categories", {
   color: text("color").default("#3B82F6"),
   icon: text("icon").default("alert"),
   isOther: boolean("is_other").notNull().default(false),
+  isSystem: boolean("is_system").notNull().default(false),
   severity: text("severity"),
   commandId: integer("command_id"),
 });

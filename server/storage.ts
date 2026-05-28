@@ -993,6 +993,7 @@ export class DatabaseStorage implements IStorage {
         color: "#22c55e",
         icon: "alert",
         isOther: false,
+        isSystem: true,
         commandId: commandId ?? null,
       }).returning();
       return created;
