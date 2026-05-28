@@ -3277,7 +3277,7 @@ export default function LiveIncidentPage() {
                   setMapType(next as "Normal" | "Hybrid" | "Satellite");
                   capMapRef.current?.setMapType(next as "Normal" | "Hybrid" | "Satellite").catch(() => {});
                 }}
-                className={`absolute right-3 z-20 h-10 w-10 rounded-full bg-background/90 backdrop-blur border shadow-lg flex items-center justify-center text-foreground hover:bg-accent active:scale-95 transition-transform ${navMode ? "bottom-24" : "top-3"}`}
+                className="absolute right-3 top-3 z-20 h-10 w-10 rounded-full bg-background/90 backdrop-blur border shadow-lg flex items-center justify-center text-foreground hover:bg-accent active:scale-95 transition-transform"
                 aria-label={`Map view: ${mapType} — tap to cycle`}
                 title={`Map: ${mapType} (tap to cycle)`}
                 data-testid="button-map-type-toggle"
@@ -3324,11 +3324,11 @@ export default function LiveIncidentPage() {
                   <div className="flex items-center gap-2 min-w-0">
                     {routeInfo && (
                       <>
-                        <span className="text-xl font-extrabold text-red-600 dark:text-red-400 tabular-nums" data-testid="text-nav-distance">
+                        <span className="text-lg font-bold text-red-600 dark:text-red-400 tabular-nums" data-testid="text-nav-distance">
                           {fmtDist(routeInfo.distance)}
                         </span>
-                        <span className="text-xl font-extrabold text-red-600/60 dark:text-red-400/60">·</span>
-                        <span className="text-xl font-extrabold text-red-600 dark:text-red-400" data-testid="text-nav-eta">
+                        <span className="text-lg font-bold text-red-600/60 dark:text-red-400/60">·</span>
+                        <span className="text-lg font-bold text-red-600 dark:text-red-400" data-testid="text-nav-eta">
                           ETA <span className="tabular-nums">{fmtDur(routeInfo.duration)}</span>
                         </span>
                       </>
@@ -3343,8 +3343,7 @@ export default function LiveIncidentPage() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      disabled
-                      className="h-9 w-9 opacity-50"
+                      className="h-9 w-9"
                       data-testid="button-chat-nav"
                       aria-label="Chat"
                       onClick={() => navigate("/chat")}
