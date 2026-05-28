@@ -798,7 +798,8 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
   return (
     <>
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-4xl p-0 flex flex-col" style={{ maxHeight: "calc(100dvh - 2rem)" }}>
+        <div className="overflow-y-auto flex-1 p-6" style={{ WebkitOverflowScrolling: "touch" } as React.CSSProperties}>
         <DialogHeader>
           <DialogTitle className="text-lg font-semibold flex items-center gap-2 flex-wrap" data-testid="text-dialog-title">
             {incident ? "Edit Incident" : "Report New Incident"}
@@ -1678,6 +1679,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
             </div>
           </form>
         </Form>
+        </div>
       </DialogContent>
     </Dialog>
 
