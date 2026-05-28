@@ -128,9 +128,20 @@ const CapacitorMap = forwardRef<CapacitorMapHandle, CapacitorMapProps>(
     const mapRef     = useRef<GoogleMap | null>(null);
     const polyIdsRef = useRef<string[]>([]);
 
-    // Create the native map once on mount; destroy on unmount
+    // Create the native map once on mount; destroy on unmount.
+    // Includes a 3-second readiness timeout: if GoogleMap.create() succeeds but
+    // the native view never paints (silent failure mode), we treat it as an
+    // error so the caller can fall back to the web map.
     useEffect(() => {
       let cancelled = false;
+      let succeeded = false;
+
+      const timeoutId = setTimeout(() => {
+        if (!succeeded && !cancelled) {
+          console.warn('[CapacitorMap] native map readiness timeout (3s) — assuming failure');
+          onError?.(new Error('Native map readiness timeout'));
+        }
+      }, 3000);
 
       (async () => {
         if (!elementRef.current) return;
@@ -145,12 +156,19 @@ const CapacitorMap = forwardRef<CapacitorMapHandle, CapacitorMapProps>(
           forceCreate: true,
         });
         if (cancelled) { map.destroy().catch(() => {}); return; }
+        succeeded = true;
+        clearTimeout(timeoutId);
         mapRef.current = map;
         onReady?.();
-      })().catch((err) => { console.error(err); onError?.(err); });
+      })().catch((err) => {
+        clearTimeout(timeoutId);
+        console.error('[CapacitorMap] GoogleMap.create failed', err);
+        onError?.(err);
+      });
 
       return () => {
         cancelled = true;
+        clearTimeout(timeoutId);
         mapRef.current?.destroy().catch(() => {});
         mapRef.current = null;
       };

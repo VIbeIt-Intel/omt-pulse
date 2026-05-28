@@ -1179,8 +1179,20 @@ export default function LiveIncidentPage() {
   }, [isOnline]);
 
   useEffect(() => {
-    // Always load the JS API — it's needed as fallback if native map fails
-    loadGoogleMaps().then(() => setMapsReady(true)).catch(() => setMapsError(true));
+    // Always load the JS API — it's needed for search/geocoding on both web and
+    // native, and as a map fallback if native Capacitor map fails.
+    loadGoogleMaps().then(() => {
+      setMapsReady(true);
+      // Initialize search/geocoder services as soon as the JS API loads.
+      // These work in the Capacitor WebView and avoid CORS issues from
+      // calling Google REST APIs directly via fetch().
+      if (!geocoderRef.current && window.google?.maps) {
+        geocoderRef.current = new google.maps.Geocoder();
+      }
+      if (!autocompleteRef.current && window.google?.maps?.places) {
+        autocompleteRef.current = new google.maps.places.AutocompleteService();
+      }
+    }).catch(() => setMapsError(true));
     return () => stopTracking();
   }, []);
 
@@ -1498,27 +1510,11 @@ export default function LiveIncidentPage() {
     setSearch(val);
     if (searchDebRef.current) clearTimeout(searchDebRef.current);
     if (!val.trim()) { setSuggestions([]); return; }
-    searchDebRef.current = setTimeout(async () => {
+    searchDebRef.current = setTimeout(() => {
       setLoadingSugg(true);
-      if (isNative) {
-        // Native: google.maps JS API is not loaded — use Places Autocomplete REST API
-        try {
-          const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? '';
-          const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(val)}&components=country:za&key=${apiKey}`;
-          const res = await fetch(url);
-          const data = await res.json();
-          setLoadingSugg(false);
-          if (data.status === 'OK' && data.predictions) {
-            setSuggestions(data.predictions.slice(0, 5).map((p: any) => ({ place_id: p.place_id, description: p.description })));
-          } else {
-            setSuggestions([]);
-          }
-        } catch {
-          setLoadingSugg(false);
-          setSuggestions([]);
-        }
-        return;
-      }
+      // Use the JS API on both web and native — the REST API doesn't return CORS
+      // headers so it fails when called from a WebView. The JS API works in any
+      // browser context including Capacitor's WebView.
       if (!autocompleteRef.current) { setLoadingSugg(false); return; }
       autocompleteRef.current.getPlacePredictions(
         { input: val, componentRestrictions: { country: "za" } },
@@ -1532,7 +1528,7 @@ export default function LiveIncidentPage() {
         }
       );
     }, 350);
-  }, [isNative]);
+  }, []);
 
   function selectPlace(s: PlaceSuggestion) {
     setSearch(s.description);
@@ -1561,21 +1557,8 @@ export default function LiveIncidentPage() {
       }
     };
 
-    if (isNative) {
-      // Native: google.maps JS API is not loaded — use Geocoding REST API
-      const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? '';
-      fetch(`https://maps.googleapis.com/maps/api/geocode/json?place_id=${encodeURIComponent(s.place_id)}&key=${apiKey}`)
-        .then((r) => r.json())
-        .then((data) => {
-          if (data.status === 'OK' && data.results?.[0]) {
-            const loc = data.results[0].geometry.location;
-            commitDestination(loc.lat, loc.lng);
-          }
-        })
-        .catch((err) => console.warn('[selectPlace] geocode REST failed', err));
-      return;
-    }
-
+    // Use the JS API geocoder on both web and native — the REST API doesn't
+    // return CORS headers so it fails when called from a WebView.
     geocoderRef.current?.geocode(
       { placeId: s.place_id },
       (results, status) => {
