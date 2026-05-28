@@ -606,6 +606,11 @@ export default function LiveIncidentPage() {
         capMapRef.current.setUserLocation(p.lat, p.lng).catch(() => {});
         const hdg = pos.coords.heading;
         if (hdg != null && !isNaN(hdg)) lastHeadingRef.current = hdg;
+        // Retry route draw on first GPS fix — handles the race where drawRoute was
+        // called at mapsReady time but had no origin yet (lastPosRef was null).
+        if (stepsRef.current.length === 0 && destPositionRef.current && !navModeRef.current) {
+          drawRoute(destPositionRef.current.lat, destPositionRef.current.lng, p);
+        }
         if (navModeRef.current) {
           capMapRef.current.setCamera({
             lat: p.lat, lng: p.lng, zoom: 17, tilt: 45,
@@ -1619,18 +1624,28 @@ export default function LiveIncidentPage() {
   function drawRoute(dlat: number, dlng: number, origin?: { lat: number; lng: number }, skipFitBounds = false) {
     // ── Native path ────────────────────────────────────────────────────────────
     if (isNative && capMapRef.current) {
-      const originToUse = origin ?? lastPosRef.current ?? userLoc;
-      if (!originToUse) return;
+      const cap = capMapRef.current;
       setRouteInfo(null);
+      // Always place/refresh the destination marker — even when GPS has no fix yet.
+      // The web path (line ~1653) does this unconditionally; matching that behaviour
+      // here prevents a blank map when GPS arrives late.
       if (capDestMarkerIdRef.current) {
-        capMapRef.current.removeMarker(capDestMarkerIdRef.current).catch(() => {});
+        cap.removeMarker(capDestMarkerIdRef.current).catch(() => {});
         capDestMarkerIdRef.current = '';
       }
       // tintColor intentionally omitted — the plugin needs {r,g,b,a} (0-255) and
       // silently drops the marker when given a hex string. Default native pin is red.
-      capMapRef.current.addMarker({ lat: dlat, lng: dlng, title: 'Destination' })
+      cap.addMarker({ lat: dlat, lng: dlng, title: 'Destination' })
         .then(id => { capDestMarkerIdRef.current = id; }).catch(() => {});
-      capMapRef.current.drawRoute(originToUse, { lat: dlat, lng: dlng }, skipFitBounds || navModeRef.current)
+
+      const originToUse = origin ?? lastPosRef.current ?? userLoc;
+      if (!originToUse) {
+        // No GPS fix yet — center the camera on the destination so at least the
+        // pin is visible. The GPS callback will retry drawRoute once a fix arrives.
+        cap.setCamera({ lat: dlat, lng: dlng, zoom: 13, tilt: 0 }).catch(() => {});
+        return;
+      }
+      cap.drawRoute(originToUse, { lat: dlat, lng: dlng }, skipFitBounds || navModeRef.current)
         .then(result => {
           if (!result) return;
           stepsRef.current = result.steps as unknown as google.maps.DirectionsStep[];
@@ -1771,6 +1786,19 @@ export default function LiveIncidentPage() {
       if (typeof DeviceOrientationEvent !== "undefined" && typeof (DeviceOrientationEvent as any).requestPermission === "function") {
         try { await (DeviceOrientationEvent as any).requestPermission(); } catch { /* denied — proceed */ }
       }
+      // On native: ensure the route is drawn before entering navMode so the step
+      // banner, tilt camera, and ETA are all seeded correctly. drawRoute may have
+      // bailed earlier because GPS had no fix at mapsReady time.
+      if (isNative && capMapRef.current && stepsRef.current.length === 0) {
+        drawRoute(
+          destination.lat, destination.lng,
+          lastPosRef.current ?? undefined,
+          true, // skipFitBounds — we're about to go nav-mode, don't pan around
+        );
+        // Give the DirectionsService a moment to resolve before navMode useEffect
+        // runs — otherwise stepsRef is still empty when the tilt+seed block fires.
+        await new Promise(r => setTimeout(r, 600));
+      }
       setNavMode(true);
       toast({ title: "Navigation started", description: "GPS tracking continues — dispatch can see your position." });
     } catch (e: unknown) {
@@ -1795,6 +1823,9 @@ export default function LiveIncidentPage() {
       lastPosRef.current ?? undefined,
       true
     );
+    // On native: wait briefly for DirectionsService to resolve before setNavMode(true)
+    // so the tilt+seed useEffect finds stepsRef already populated.
+    if (isNative) await new Promise(r => setTimeout(r, 600));
     // iOS Safari requires an explicit user-gesture permission call before
     // DeviceOrientationEvent fires — request it here and proceed regardless.
     if (typeof DeviceOrientationEvent !== "undefined" && typeof (DeviceOrientationEvent as any).requestPermission === "function") {
