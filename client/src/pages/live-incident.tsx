@@ -3319,25 +3319,38 @@ export default function LiveIncidentPage() {
                 className="absolute bottom-0 left-0 right-0 z-10 bg-background border-t px-4 py-3 space-y-2"
                 style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
               >
-                {/* v75: prominent red distance/ETA — speed stays right */}
+                {/* prominent red distance/ETA — same size — speed + chat right */}
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2 min-w-0">
                     {routeInfo && (
                       <>
-                        <span className="text-2xl font-extrabold text-red-600 dark:text-red-400 tabular-nums" data-testid="text-nav-distance">
+                        <span className="text-xl font-extrabold text-red-600 dark:text-red-400 tabular-nums" data-testid="text-nav-distance">
                           {fmtDist(routeInfo.distance)}
                         </span>
-                        <span className="text-base font-bold text-red-600/60 dark:text-red-400/60">·</span>
-                        <span className="text-base font-bold text-red-600 dark:text-red-400" data-testid="text-nav-eta">
+                        <span className="text-xl font-extrabold text-red-600/60 dark:text-red-400/60">·</span>
+                        <span className="text-xl font-extrabold text-red-600 dark:text-red-400" data-testid="text-nav-eta">
                           ETA <span className="tabular-nums">{fmtDur(routeInfo.duration)}</span>
                         </span>
                       </>
                     )}
                   </div>
-                  <div className="flex items-center gap-1.5 text-muted-foreground shrink-0" data-testid="nav-speed">
-                    <Gauge className="h-5 w-5" />
-                    <span className="font-bold text-foreground text-xl tabular-nums">{speedKmh ?? "--"}</span>
-                    <span className="text-xs">km/h</span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center gap-1.5 text-muted-foreground" data-testid="nav-speed">
+                      <Gauge className="h-5 w-5" />
+                      <span className="font-bold text-foreground text-xl tabular-nums">{speedKmh ?? "--"}</span>
+                      <span className="text-xs">km/h</span>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      disabled
+                      className="h-9 w-9 opacity-50"
+                      data-testid="button-chat-nav"
+                      aria-label="Chat"
+                      onClick={() => navigate("/chat")}
+                    >
+                      <MessageCircle className="h-5 w-5" />
+                    </Button>
                   </div>
                 </div>
                 {/* Arrived button */}

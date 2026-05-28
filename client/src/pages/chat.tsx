@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -155,6 +156,7 @@ function NewDmDialog({
 }
 
 export default function ChatPage() {
+  const [, navigate] = useLocation();
   const { toast } = useToast();
   const qc = useQueryClient();
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -378,6 +380,15 @@ export default function ChatPage() {
         <div className="p-4 border-b">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-semibold text-sm flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 -ml-1 mr-0.5"
+                onClick={() => navigate("/")}
+                data-testid="button-chat-back"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
               <MessageSquare className="h-4 w-4 text-primary" />
               Chat
               {totalUnread > 0 && (
