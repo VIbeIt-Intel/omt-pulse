@@ -24,7 +24,6 @@ import { loadGoogleMaps } from "@/lib/google-maps-loader";
 import { speak, stopSpeaking } from "@/lib/tts";
 import { Capacitor } from '@capacitor/core';
 import CapacitorMap, { type CapacitorMapHandle } from '@/components/CapacitorMap';
-import MapDebugOverlay, { type MapDebugSnapshot } from '@/components/MapDebugOverlay';
 import type { Incident, Category } from "@shared/schema";
 
 const LIVE_INCIDENT_KEY = "omt_live_incident_id";
@@ -218,7 +217,9 @@ export default function LiveIncidentPage() {
 
   const [mapsReady, setMapsReady] = useState(false);
   const [mapsError, setMapsError] = useState(false);
-  // ── Diagnostic state (consumed by MapDebugOverlay) ──────────────────────────
+  // Internal map status state — drives the NATIVE/WEB-MAP badge and the
+  // "Map unavailable" error UI. (The former on-screen debug overlay that also
+  // consumed these was removed for the Play Store release.)
   const [mapsErrorMsg, setMapsErrorMsg] = useState<string | null>(null);
   const [geocoderReady, setGeocoderReady] = useState(false);
   const [autocompleteReady, setAutocompleteReady] = useState(false);
@@ -227,39 +228,8 @@ export default function LiveIncidentPage() {
   const [nativeRenderer, setNativeRenderer] = useState<string | null>(null);
   const [nativeMapCreateAt, setNativeMapCreateAt] = useState<number | null>(null);
   const [nativeMapReadyAt, setNativeMapReadyAt] = useState<number | null>(null);
-  const [cameraTilt, setCameraTilt] = useState<number | null>(null);
-  const [cameraZoom, setCameraZoom] = useState<number | null>(null);
-  const [debugErrors, setDebugErrors] = useState<string[]>([]);
-  const [debugVisible, setDebugVisible] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    return new URLSearchParams(window.location.search).has("debug");
-  });
-  // Mirror of debugVisible read inside the onCameraIdle callback. When the
-  // debug overlay is closed (default), the camera-idle handler skips its
-  // React state updates entirely — otherwise the ~400 ms tilt-keeper interval
-  // causes a re-render storm in nav mode that resets the step-tracking
-  // interval, watchPosition, and step voice announcements. (v75 fix.)
-  const debugVisibleRef = useRef(false);
-  useEffect(() => { debugVisibleRef.current = debugVisible; }, [debugVisible]);
   // Current base map tile style — cycled by the floating top-right button.
   const [mapType, setMapType] = useState<"Normal" | "Hybrid" | "Satellite">("Normal");
-  const titlePressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Capture window errors and unhandled rejections for the debug overlay.
-  // Kept small (last 5) to avoid memory growth.
-  useEffect(() => {
-    const push = (msg: string) => {
-      setDebugErrors((prev) => [...prev.slice(-4), `${new Date().toLocaleTimeString()} ${msg}`.slice(0, 240)]);
-    };
-    const onErr = (e: ErrorEvent) => push(`error: ${e.message}${e.filename ? ` @ ${e.filename}:${e.lineno}` : ""}`);
-    const onRej = (e: PromiseRejectionEvent) => push(`reject: ${(e.reason as any)?.message ?? String(e.reason)}`);
-    window.addEventListener("error", onErr);
-    window.addEventListener("unhandledrejection", onRej);
-    return () => {
-      window.removeEventListener("error", onErr);
-      window.removeEventListener("unhandledrejection", onRej);
-    };
-  }, []);
 
   // Mark native map as "creating" the moment we mount <CapacitorMap>.
   useEffect(() => {
@@ -536,7 +506,11 @@ export default function LiveIncidentPage() {
         // the step-advance announcement and always fires once per step when within 200 m.
         if (dist <= 200 && idx !== approachingTurnAnnouncedRef.current) {
           approachingTurnAnnouncedRef.current = idx;
-          void speak(`In ${fmtDist(dist)}, ${stripHtml(currStep.instructions)}`);
+          // Announce the UPCOMING maneuver (at the end of the current step =
+          // start of the next step), not the road already being driven. Falls
+          // back to currStep on the final step where no next maneuver exists.
+          const turnInstr = steps[idx + 1]?.instructions ?? currStep.instructions;
+          void speak(`In ${fmtDist(dist)}, ${stripHtml(turnInstr)}`);
         }
       }
     }, 5000);
@@ -1702,12 +1676,14 @@ export default function LiveIncidentPage() {
         capOriginMarkerIdRef.current = '';
       }
       // Destination — red tint
-      cap.addMarker({ lat: dlat, lng: dlng, title: 'B — Destination', tintColor: { r: 239, g: 68, b: 68, a: 255 } })
+      cap.addMarker({ lat: dlat, lng: dlng, title: 'Destination', tintColor: { r: 239, g: 68, b: 68, a: 255 } })
         .then(id => { capDestMarkerIdRef.current = id; }).catch(() => {});
       // Origin / start — primary green tint. Use lastPosRef or userLoc as the start point.
+      // Skipped in nav mode: the heading-up "you" arrow overlay represents the
+      // responder, so a static "A — Start" pin would just clutter the route ahead.
       const startPos = origin ?? lastPosRef.current ?? userLoc;
-      if (startPos) {
-        cap.addMarker({ lat: startPos.lat, lng: startPos.lng, title: 'A — Start', tintColor: { r: 0, g: 96, b: 57, a: 255 } })
+      if (startPos && !navModeRef.current) {
+        cap.addMarker({ lat: startPos.lat, lng: startPos.lng, title: 'Start', tintColor: { r: 0, g: 96, b: 57, a: 255 } })
           .then(id => { capOriginMarkerIdRef.current = id; }).catch(() => {});
       }
 
@@ -2018,6 +1994,14 @@ export default function LiveIncidentPage() {
 
   const steps = stepsRef.current;
   const currentStep = steps[currentStepIndex];
+  // Turn-by-turn shows the maneuver you are APPROACHING, not the road you are
+  // already on. step[i].instructions is the maneuver at the START of step i, so
+  // while travelling step `currentStepIndex` the next thing to do is step
+  // `currentStepIndex + 1`. stepDist is the distance remaining to it.
+  // `followingStep` (+2) feeds the "Then" pill. Falls back gracefully near the
+  // destination where no further maneuver exists.
+  const upcomingStep = steps[currentStepIndex + 1] ?? currentStep;
+  const followingStep = steps[currentStepIndex + 2] ?? null;
   const nonLiveCategories = categories.filter((c) => c.name.toLowerCase() !== "live incident");
 
   // --- Panicker view detection ---------------------------------------------
@@ -2143,6 +2127,12 @@ export default function LiveIncidentPage() {
         // animateCamera patch + v69 400 ms tilt-keeper can finally win.
         // Pinch-zoom and pan stay enabled.
         capMapRef.current.setGestures({ tilt: false, rotate: false, zoom: true, scroll: true }).catch(() => {});
+        // Drop any "Start" pin placed during the pre-nav preview — in nav mode the
+        // heading-up "you" arrow overlay represents the responder instead.
+        if (capOriginMarkerIdRef.current) {
+          capMapRef.current.removeMarker(capOriginMarkerIdRef.current).catch(() => {});
+          capOriginMarkerIdRef.current = '';
+        }
         if (lastPosRef.current) {
           // v72: animate:true with 100 ms duration. animate:false routes through
           // Kotlin moveCamera, which on this Android Maps SDK version silently
@@ -2715,16 +2705,6 @@ export default function LiveIncidentPage() {
         </Button>
         <div
           className="flex items-center gap-2 select-none min-w-0 flex-1"
-          onPointerDown={() => {
-            if (titlePressTimerRef.current) clearTimeout(titlePressTimerRef.current);
-            titlePressTimerRef.current = setTimeout(() => setDebugVisible((v) => !v), 1200);
-          }}
-          onPointerUp={() => {
-            if (titlePressTimerRef.current) { clearTimeout(titlePressTimerRef.current); titlePressTimerRef.current = null; }
-          }}
-          onPointerLeave={() => {
-            if (titlePressTimerRef.current) { clearTimeout(titlePressTimerRef.current); titlePressTimerRef.current = null; }
-          }}
           data-testid="title-live-incident"
         >
           <span className="font-semibold text-base shrink-0">Live Incident</span>
@@ -2778,27 +2758,6 @@ export default function LiveIncidentPage() {
           )}
         </div>
       </div>
-
-      <MapDebugOverlay
-        visible={debugVisible}
-        onClose={() => setDebugVisible(false)}
-        snapshot={{
-          isNative,
-          mapsReady,
-          mapsError,
-          mapsErrorMsg,
-          geocoderReady,
-          autocompleteReady,
-          nativeMapStatus,
-          nativeMapErrorMsg,
-          nativeMapCreateAt,
-          nativeMapReadyAt,
-          useWebMap,
-          errors: debugErrors,
-          cameraTilt,
-          cameraZoom,
-        } satisfies MapDebugSnapshot}
-      />
 
       {/* Offline warning banner */}
       {!isOnline && (
@@ -2859,146 +2818,6 @@ export default function LiveIncidentPage() {
         </div>
       )}
 
-      {/* v75: GPS status banner removed — info merged into title row above.
-          GPS-lost recovery still handled by the fixed top-0 banner (60 s). */}
-      {false && currentIncident && gpsStatus !== "idle" && (
-        <div
-          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium shrink-0 ${
-            gpsStatus === "tracking" || gpsStatus === "stationary"
-              ? "bg-green-600/10 text-green-700 dark:text-green-400 border-b border-green-600/20"
-              : gpsStatus === "acquiring"
-              ? "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-b border-amber-500/20"
-              : "bg-red-600/10 text-red-700 dark:text-red-400 border-b border-red-600/20"
-          }`}
-          data-testid="banner-gps-status"
-        >
-          <span
-            className={`inline-block w-2 h-2 rounded-full shrink-0 ${
-              gpsLost
-                ? "bg-red-500 animate-pulse"
-                : gpsStatus === "tracking" || gpsStatus === "stationary"
-                ? "bg-green-500"
-                : gpsStatus === "acquiring" || gpsStatus === "timeout"
-                ? "bg-amber-500 animate-pulse"
-                : "bg-red-500"
-            }`}
-          />
-          {gpsStatus === "tracking" && (
-            <span>
-              GPS active{gpsAccuracy != null ? ` · ±${gpsAccuracy} m` : ""}
-              {gpsLastSentAt != null && (
-                <span className="opacity-70"> · {Math.max(0, Math.round((Date.now() - gpsLastSentAt) / 1000))}s ago</span>
-              )}
-              {isNative && (
-                <span
-                  className={`ml-2 px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                    useWebMap
-                      ? "bg-amber-500/20 text-amber-700 dark:text-amber-400"
-                      : nativeMapStatus === "ready"
-                      ? "bg-green-500/20 text-green-700 dark:text-green-400"
-                      : "bg-gray-500/20 text-gray-700 dark:text-gray-400"
-                  }`}
-                  data-testid="badge-map-mode"
-                >
-                  {useWebMap ? "WEB MAP" : nativeMapStatus === "ready" ? `NATIVE${nativeRenderer ? ` · ${nativeRenderer}` : ""}` : nativeMapStatus.toUpperCase()}
-                </span>
-              )}
-            </span>
-          )}
-          {gpsStatus === "stationary" && (
-            <span>
-              Stationary{gpsAccuracy != null ? ` · ±${gpsAccuracy} m` : ""}
-              {gpsLastSentAt != null && (
-                <span className="opacity-70"> · {Math.max(0, Math.round((Date.now() - gpsLastSentAt) / 1000))}s ago</span>
-              )}
-              {isNative && (
-                <span
-                  className={`ml-2 px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                    useWebMap
-                      ? "bg-amber-500/20 text-amber-700 dark:text-amber-400"
-                      : nativeMapStatus === "ready"
-                      ? "bg-green-500/20 text-green-700 dark:text-green-400"
-                      : "bg-gray-500/20 text-gray-700 dark:text-gray-400"
-                  }`}
-                  data-testid="badge-map-mode-stationary"
-                >
-                  {useWebMap ? "WEB MAP" : nativeMapStatus === "ready" ? `NATIVE${nativeRenderer ? ` · ${nativeRenderer}` : ""}` : nativeMapStatus.toUpperCase()}
-                </span>
-              )}
-            </span>
-          )}
-          {gpsStatus === "acquiring" && (
-            <span>
-              {gpsAccuracy != null
-                ? gpsAccuracy < GPS_ACCURACY_FIRST
-                  ? patchState === "sending"
-                    ? `Sending position… (±${gpsAccuracy} m)`
-                    : patchState.startsWith("fail:")
-                    ? `Retrying… (±${gpsAccuracy} m)`
-                    : patchState === "error"
-                    ? `Network error — retrying… (±${gpsAccuracy} m)`
-                    : `GPS ready · ±${gpsAccuracy} m`
-                  : `Acquiring GPS… (${gpsAccuracy} m)`
-                : "Acquiring GPS…"}
-            </span>
-          )}
-          {gpsStatus === "denied" && (
-            <>
-              <span>Location access is off — enable it in your browser settings so dispatch can track your position.</span>
-              {/* Deep link works on desktop Chrome; silently ignored by other browsers */}
-              <a
-                href="chrome://settings/content/location"
-                className="ml-2 underline font-semibold shrink-0"
-                data-testid="link-gps-settings"
-              >
-                Open settings
-              </a>
-            </>
-          )}
-          {gpsStatus === "unavailable" && <span>GPS unavailable on this device.</span>}
-          {gpsStatus === "session_expired" && (
-            <>
-              <span>Session expired —</span>
-              <a href="/login" className="underline font-semibold ml-1">log in again</a>
-            </>
-          )}
-          {(gpsStatus === "stopped" || gpsStatus === "timeout") && (
-            <>
-              <span>GPS lost.</span>
-              <button
-                className="ml-2 underline font-semibold"
-                onClick={() => {
-                  if (joinedId) { gpsEndpointRef.current = "joiner-position"; startTracking(joinedId); }
-                  else if (liveId) { gpsEndpointRef.current = "responder-position"; startTracking(liveId); }
-                }}
-                data-testid="button-retry-gps"
-              >
-                Retry
-              </button>
-            </>
-          )}
-
-          {/* Right-side: Live/Waiting badge */}
-          <span className="ml-auto flex items-center gap-2 shrink-0">
-            {(gpsStatus === "tracking" || gpsStatus === "stationary") && (
-              <span
-                className="text-xs font-bold px-2 py-0.5 rounded-full bg-green-600 text-white tracking-wide"
-                data-testid="badge-gps-live"
-              >
-                LIVE
-              </span>
-            )}
-            {gpsStatus === "acquiring" && (
-              <span
-                className="text-xs font-bold px-2 py-0.5 rounded-full bg-amber-500 text-white tracking-wide"
-                data-testid="badge-gps-waiting"
-              >
-                WAITING
-              </span>
-            )}
-          </span>
-        </div>
-      )}
 
       <div ref={scrollContainerRef} className="flex flex-col flex-1 gap-3 p-4 overflow-y-auto live-scroll">
         {currentIncident ? (
@@ -3132,7 +2951,7 @@ export default function LiveIncidentPage() {
               <div className="rounded-lg border border-green-500/40 bg-green-500/5 px-4 py-3 space-y-2 shrink-0" data-testid="nav-panel">
                 <div className="flex items-center justify-between">
                   <p className="font-semibold text-base leading-snug flex-1 pr-2" data-testid="text-step-instruction">
-                    {stripHtml(currentStep.instructions)}
+                    {stripHtml(upcomingStep.instructions)}
                   </p>
                   {isOffRoute && (
                     <Button
@@ -3275,12 +3094,12 @@ export default function LiveIncidentPage() {
                 {/* Main step banner */}
                 <div className="pointer-events-auto bg-primary text-primary-foreground rounded-2xl shadow-2xl px-4 py-3 flex items-center gap-3">
                   <ManeuverIcon
-                    maneuver={(currentStep as google.maps.DirectionsStep & { maneuver?: string }).maneuver}
+                    maneuver={(upcomingStep as google.maps.DirectionsStep & { maneuver?: string }).maneuver}
                     className="h-12 w-12 shrink-0"
                   />
                   <div className="flex-1 min-w-0">
                     <p className="text-xl font-bold leading-tight line-clamp-2" data-testid="text-nav-instruction">
-                      {stripHtml(currentStep.instructions)}
+                      {stripHtml(upcomingStep.instructions)}
                     </p>
                     <p className="text-base font-semibold opacity-90 leading-tight">
                       {stepDist !== null ? fmtDist(stepDist) : currentStep.distance ? fmtDist(currentStep.distance.value) : "—"}
@@ -3298,15 +3117,15 @@ export default function LiveIncidentPage() {
                 </div>
                 {/* Row: "Then" pill (left) + responder "en route" chip (right) */}
                 <div className="mt-1.5 flex items-center gap-2">
-                  {steps[currentStepIndex + 1] && (
+                  {followingStep && (
                     <div className="pointer-events-auto inline-flex items-center gap-1.5 bg-primary text-primary-foreground rounded-full pl-3 pr-3 py-1 shadow-lg text-sm font-medium max-w-[60%]">
                       <span className="opacity-75">Then</span>
                       <ManeuverIcon
-                        maneuver={(steps[currentStepIndex + 1] as google.maps.DirectionsStep & { maneuver?: string }).maneuver}
+                        maneuver={(followingStep as google.maps.DirectionsStep & { maneuver?: string }).maneuver}
                         className="h-4 w-4 shrink-0"
                       />
                       <span className="truncate opacity-90">
-                        {stripHtml(steps[currentStepIndex + 1].instructions)}
+                        {stripHtml(followingStep.instructions)}
                       </span>
                     </div>
                   )}
@@ -3368,13 +3187,26 @@ export default function LiveIncidentPage() {
                   setNativeMapFailed(true);
                 }}
                 onRendererKnown={(r) => setNativeRenderer(r)}
-                onCameraIdle={(d) => {
-                  // Gated on debug overlay visibility — see debugVisibleRef.
-                  if (debugVisibleRef.current) { setCameraTilt(d.tilt); setCameraZoom(d.zoom); }
-                }}
               />
             ) : (
               <div ref={mapRef} className="absolute inset-0" data-testid="map-live" />
+            )}
+
+            {/* Nav mode: "you" arrow — center-locked over the map. The camera is
+                heading-up (bearing follows GPS heading) so the map rotates to put
+                the direction of travel at the top; a fixed upward arrow therefore
+                always points "forward". Pure CSS overlay — no native marker, so it
+                never disturbs the frozen tilt/camera pipeline. */}
+            {navMode && (
+              <div
+                className="absolute inset-0 z-[5] flex items-center justify-center pointer-events-none"
+                data-testid="nav-user-arrow"
+              >
+                <svg width="46" height="46" viewBox="0 0 46 46" className="drop-shadow-lg">
+                  <circle cx="23" cy="23" r="20" fill="#006039" stroke="#ffffff" strokeWidth="3" />
+                  <path d="M23 11 L32 32 L23 26.5 L14 32 Z" fill="#ffffff" />
+                </svg>
+              </div>
             )}
 
             {/* Nav mode: action bar — absolute overlay at the bottom of the in-flow map */}

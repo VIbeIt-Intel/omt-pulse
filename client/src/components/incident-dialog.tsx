@@ -325,20 +325,28 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
   }, [incident, open]);
 
   const applyGpsPosition = (lat: number, lng: number) => {
-    const map = mapInstanceRef.current;
-    if (!map) {
-      setLocationError("Map is still loading. Please wait a moment and try again.");
-      return;
-    }
+    // Capture the GPS fix UNCONDITIONALLY. The raw lat/lng is what the incident
+    // record, analytics map and live tracking actually need, and it must persist
+    // even if the embedded picker map hasn't finished loading — on the native APK
+    // WebView the Google Maps JS-API map can be slow or unavailable, and the old
+    // `if (!map) return` guard silently discarded the position, saving incidents
+    // with no location. The visual map is now treated as optional confirmation.
+    setLocationError(null);
     setPendingLatLng({ lat, lng });
     form.setValue("latitude", lat);
     form.setValue("longitude", lng);
     form.setValue("locationId", null);
     form.setValue("locationName", `Dropped pin (${lat.toFixed(5)}, ${lng.toFixed(5)})`);
-    if (pinRef.current) pinRef.current.setMap(null);
-    pinRef.current = new google.maps.Marker({ position: { lat, lng }, map, title: "My location" });
-    map.setCenter({ lat, lng });
-    map.setZoom(14);
+    // Visual map updates only when the interactive map is available.
+    const map = mapInstanceRef.current;
+    if (map) {
+      if (pinRef.current) pinRef.current.setMap(null);
+      pinRef.current = new google.maps.Marker({ position: { lat, lng }, map, title: "My location" });
+      map.setCenter({ lat, lng });
+      map.setZoom(14);
+    }
+    // Reverse-geocode for a friendly place name. The geocoder is a standalone
+    // service and works even when the visual map isn't ready.
     if (geocoderRef.current) {
       setMapLoading(true);
       geocoderRef.current.geocode({ location: { lat, lng } }, (results, status) => {
