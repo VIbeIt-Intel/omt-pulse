@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Bell, BellOff, CheckCircle2, Smartphone, Monitor, Apple, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
+import { Capacitor } from "@capacitor/core";
 import omtLogo from "@/assets/omt-logo-v2.png";
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
@@ -11,19 +12,47 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
 
 type Step = { heading: string; items: string[] };
 
-const ANDROID_STEPS: Step[] = [
+const ANDROID_APP_STEPS: Step[] = [
   {
     heading: "Samsung (Galaxy)",
     items: [
-      "Open Settings → Apps → find OMT Pulse",
+      "Open Settings → Apps → OMT Pulse",
       "Tap Notifications → make sure all are turned On",
-      "Back in your browser, reload this page and tap Enable below",
+      "Tap Permissions → Location → Allow all the time (recommended for live incidents)",
+      "Re-open OMT Pulse and tap Enable below",
     ],
   },
   {
     heading: "Google Pixel / Stock Android",
     items: [
       "Open Settings → Apps → OMT Pulse",
+      "Tap Notifications → toggle Allow notifications On",
+      "Tap Permissions → Location → Allow all the time",
+      "Re-open OMT Pulse and tap Enable below",
+    ],
+  },
+  {
+    heading: "Battery (recommended)",
+    items: [
+      "Settings → Apps → OMT Pulse → Battery → Unrestricted",
+      "On Samsung: Settings → Battery → Background usage limits → add OMT Pulse to Never sleeping apps",
+    ],
+  },
+];
+
+const ANDROID_BROWSER_STEPS: Step[] = [
+  {
+    heading: "Samsung (Galaxy)",
+    items: [
+      "Open Settings → Apps → find your browser (Chrome)",
+      "Tap Notifications → make sure all are turned On",
+      "Reload this page and tap Enable below",
+    ],
+  },
+  {
+    heading: "Google Pixel / Stock Android",
+    items: [
+      "Open Settings → Apps → Chrome",
       "Tap Notifications → toggle Allow notifications On",
       "Reload this page and tap Enable below",
     ],
@@ -135,6 +164,7 @@ function PlatformSection({
 }
 
 export default function EnableAlertsPage() {
+  const nativeApp = Capacitor.isNativePlatform();
   const [permission, setPermission] = useState<NotificationPermission | "unsupported" | "unknown">("unknown");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
@@ -142,18 +172,67 @@ export default function EnableAlertsPage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (nativeApp) {
+      setPermission("unknown");
+      return;
+    }
     if (!("Notification" in window)) {
       setPermission("unsupported");
     } else {
       setPermission(Notification.permission);
     }
-  }, []);
+  }, [nativeApp]);
+
+  async function handleEnableNative() {
+    const { PushNotifications } = await import("@capacitor/push-notifications");
+    const permResult = await PushNotifications.requestPermissions();
+    if (permResult.receive !== "granted") {
+      setError("Notifications were not allowed. Open Settings → Apps → OMT Pulse → Notifications and turn them on, then try again.");
+      return;
+    }
+
+    const token = await new Promise<string>((resolve, reject) => {
+      const timeout = window.setTimeout(() => reject(new Error("FCM registration timed out")), 15000);
+      let regHandle: { remove: () => void } | null = null;
+      let errHandle: { remove: () => void } | null = null;
+      const cleanup = () => {
+        window.clearTimeout(timeout);
+        regHandle?.remove();
+        errHandle?.remove();
+      };
+      void PushNotifications.addListener("registration", (tokenData) => {
+        cleanup();
+        resolve(tokenData.value);
+      }).then((h) => { regHandle = h; });
+      void PushNotifications.addListener("registrationError", () => {
+        cleanup();
+        reject(new Error("FCM registration failed"));
+      }).then((h) => { errHandle = h; });
+      PushNotifications.register().catch((e) => {
+        cleanup();
+        reject(e);
+      });
+    });
+
+    const res = await fetch("/api/push/register-fcm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ token }),
+    });
+    if (!res.ok) throw new Error("Server rejected FCM token");
+    setDone(true);
+  }
 
   async function handleEnable() {
     if (busy || done) return;
     setError(null);
     setBusy(true);
     try {
+      if (nativeApp) {
+        await handleEnableNative();
+        return;
+      }
       if (!("Notification" in window)) {
         setError("Your browser doesn't support notifications. Try Chrome or Firefox.");
         return;
@@ -188,15 +267,17 @@ export default function EnableAlertsPage() {
         body: JSON.stringify(sub.toJSON()),
       });
       setDone(true);
-    } catch (e: unknown) {
-      setError("Something went wrong. Make sure you're logged in to OMT Pulse, then try again.");
+    } catch {
+      setError(nativeApp
+        ? "Something went wrong registering this device. Make sure you're logged in, then try again."
+        : "Something went wrong. Make sure you're logged in to OMT Pulse, then try again.");
     } finally {
       setBusy(false);
     }
   }
 
-  const isGranted = permission === "granted";
-  const isDenied = permission === "denied";
+  const isGranted = !nativeApp && permission === "granted";
+  const isDenied = !nativeApp && permission === "denied";
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center px-4 py-10">
@@ -233,10 +314,16 @@ export default function EnableAlertsPage() {
               }
               <div>
                 <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
-                  {isGranted ? "Permission granted — tap below to finish" : "Notifications are not enabled"}
+                  {nativeApp
+                    ? "Turn on notifications for this app"
+                    : isGranted
+                    ? "Permission granted — tap below to finish"
+                    : "Notifications are not enabled"}
                 </p>
                 <p className="text-xs text-amber-800/90 dark:text-amber-300/90 mt-0.5">
-                  {isDenied
+                  {nativeApp
+                    ? "Tap below — Android will ask you to allow notifications for OMT Pulse. Tap Allow."
+                    : isDenied
                     ? "Notifications are blocked. Follow the device instructions below to unblock them, then tap the button."
                     : isGranted
                     ? "Your browser has given permission. Tap the button to register your device for push alerts."
@@ -268,19 +355,23 @@ export default function EnableAlertsPage() {
           </p>
           <PlatformSection
             icon={<Smartphone className="h-4 w-4" />}
-            title="Android"
-            steps={ANDROID_STEPS}
+            title={nativeApp ? "Android app (OMT Pulse)" : "Android"}
+            steps={nativeApp ? ANDROID_APP_STEPS : ANDROID_BROWSER_STEPS}
           />
-          <PlatformSection
-            icon={<Apple className="h-4 w-4" />}
-            title="iPhone / iPad (iOS)"
-            steps={IOS_STEPS}
-          />
-          <PlatformSection
-            icon={<Monitor className="h-4 w-4" />}
-            title="Desktop (Chrome, Firefox, Safari)"
-            steps={DESKTOP_STEPS}
-          />
+          {!nativeApp && (
+            <>
+              <PlatformSection
+                icon={<Apple className="h-4 w-4" />}
+                title="iPhone / iPad (iOS)"
+                steps={IOS_STEPS}
+              />
+              <PlatformSection
+                icon={<Monitor className="h-4 w-4" />}
+                title="Desktop (Chrome, Firefox, Safari)"
+                steps={DESKTOP_STEPS}
+              />
+            </>
+          )}
         </div>
 
         <p className="text-center text-xs text-muted-foreground">

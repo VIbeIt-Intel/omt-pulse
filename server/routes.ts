@@ -1,6 +1,5 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { createServer, type Server } from "http";
-import https from "https";
 import crypto from "crypto";
 import multer from "multer";
 import webpush from "web-push";
@@ -425,22 +424,12 @@ const AUTH_WHITELIST = [
 
 const SUBSCRIPTION_WHITELIST = [
   "/billing/status",
-  "/billing/initiate",
-  "/billing/cancel",
-  "/billing/return",
-  "/webhooks/payfast",
   "/auth/change-password",
   "/uploads/request-url",
   "/users/me/avatar",
   "/push/vapid-public-key",
   "/push/subscribe",
 ];
-
-const ROLE_PRICES: Record<string, number> = {
-  administrator: 300,
-  supervisor: 200,
-  reporter: 50,
-};
 
 function getOrgEffectiveStatus(org: Organization): "trial" | "active" | "expired" | "complimentary" {
   if (org.isComplimentary) return "complimentary";
@@ -452,37 +441,6 @@ function getOrgEffectiveStatus(org: Organization): "trial" | "active" | "expired
     return "trial";
   }
   return "expired";
-}
-
-function buildPayFastSignature(params: Record<string, string>, passphrase?: string): string {
-  const entries = Object.entries(params).filter(([, v]) => v !== "");
-  if (passphrase) entries.push(["passphrase", passphrase]);
-  const queryString = entries.map(([k, v]) => `${k}=${encodeURIComponent(v).replace(/%20/g, "+")}`).join("&");
-  return crypto.createHash("md5").update(queryString).digest("hex");
-}
-
-async function validatePayFastITN(params: Record<string, string>): Promise<boolean> {
-  return new Promise((resolve) => {
-    const postData = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
-    const options = {
-      hostname: "www.payfast.co.za",
-      port: 443,
-      path: "/eng/query/validate",
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Content-Length": Buffer.byteLength(postData),
-      },
-    };
-    const req = https.request(options, (res) => {
-      let data = "";
-      res.on("data", (chunk) => data += chunk);
-      res.on("end", () => resolve(data.trim() === "VALID"));
-    });
-    req.on("error", () => resolve(false));
-    req.write(postData);
-    req.end();
-  });
 }
 
 async function resolveUser(req: Request, res: Response, next: NextFunction) {
@@ -960,11 +918,8 @@ export async function registerRoutes(
     const breakdown = Object.entries(counts).map(([role, count]) => ({
       role,
       count,
-      rate: ROLE_PRICES[role] ?? 0,
-      subtotal: (ROLE_PRICES[role] ?? 0) * count,
     }));
 
-    const totalMonthly = breakdown.reduce((sum, r) => sum + r.subtotal, 0);
     const effectiveStatus = getOrgEffectiveStatus(org);
 
     res.json({
@@ -972,181 +927,7 @@ export async function registerRoutes(
       trialEndsAt: org.trialEndsAt ?? null,
       subscriptionCurrentPeriodEnd: org.subscriptionCurrentPeriodEnd ?? null,
       breakdown,
-      totalMonthly,
     });
-  });
-
-  app.post("/api/billing/initiate", async (req, res) => {
-    if (req.currentUser!.role !== "administrator") {
-      return res.status(403).json({ message: "Administrator access required" });
-    }
-
-    const orgId = req.currentUser!.organizationId;
-    const org = await storage.getOrganization(orgId);
-    if (!org) return res.status(404).json({ message: "Organization not found" });
-
-    const orgUsers = await storage.getActiveUsersByOrg(orgId);
-    const counts: Record<string, number> = {};
-    for (const u of orgUsers) counts[u.role] = (counts[u.role] ?? 0) + 1;
-    const totalMonthly = Object.entries(counts).reduce((sum, [role, count]) => sum + (ROLE_PRICES[role] ?? 0) * count, 0);
-
-    const merchantId = process.env.PAYFAST_MERCHANT_ID ?? "";
-    const merchantKey = process.env.PAYFAST_MERCHANT_KEY ?? "";
-    const passphrase = process.env.PAYFAST_PASSPHRASE ?? "";
-    const baseUrl = process.env.APP_BASE_URL ?? `https://${process.env.REPLIT_DOMAINS?.split(",")[0] ?? "localhost:5000"}`;
-
-    const today = new Date().toISOString().split("T")[0];
-    const mPaymentId = `${orgId}-${Date.now()}`;
-
-    const params: Record<string, string> = {
-      merchant_id: merchantId,
-      merchant_key: merchantKey,
-      return_url: `${baseUrl}/billing?payment=success`,
-      cancel_url: `${baseUrl}/billing?payment=cancelled`,
-      notify_url: `${baseUrl}/api/webhooks/payfast`,
-      name_first: req.currentUser!.firstName,
-      name_last: req.currentUser!.lastName,
-      email_address: req.currentUser!.email,
-      m_payment_id: mPaymentId,
-      amount: totalMonthly.toFixed(2),
-      item_name: "OB System Subscription",
-      subscription_type: "1",
-      billing_date: today,
-      recurring_amount: totalMonthly.toFixed(2),
-      frequency: "3",
-      cycles: "0",
-    };
-
-    const signature = buildPayFastSignature(params, passphrase || undefined);
-    params.signature = signature;
-
-    res.json({
-      payFastUrl: "https://www.payfast.co.za/eng/process",
-      fields: params,
-    });
-  });
-
-  // PayFast ITN webhook — no auth required
-  app.post("/api/webhooks/payfast", async (req, res) => {
-    try {
-      const params: Record<string, string> = req.body as Record<string, string>;
-
-      // Step 1: Verify signature
-      const { signature, ...paramsWithoutSig } = params;
-      const passphrase = process.env.PAYFAST_PASSPHRASE ?? "";
-      const expectedSig = buildPayFastSignature(paramsWithoutSig, passphrase || undefined);
-      if (signature && expectedSig !== signature) {
-        console.error("PayFast ITN: signature mismatch");
-        return res.status(200).send(""); // Always 200 to PayFast
-      }
-
-      // Step 2: Validate with PayFast server
-      const isValid = await validatePayFastITN(params);
-      if (!isValid) {
-        console.error("PayFast ITN: server validation failed");
-        return res.status(200).send("");
-      }
-
-      // Step 3: Check merchant ID
-      const merchantId = process.env.PAYFAST_MERCHANT_ID ?? "";
-      if (merchantId && params.merchant_id !== merchantId) {
-        console.error("PayFast ITN: merchant ID mismatch");
-        return res.status(200).send("");
-      }
-
-      // Step 4: Extract org ID from m_payment_id (format: orgId-timestamp)
-      const mPaymentId = params.m_payment_id ?? "";
-      const orgId = mPaymentId.split("-").slice(0, -1).join("-");
-
-      const paymentStatus = params.payment_status;
-      const token = params.token ?? null;
-
-      if (paymentStatus === "COMPLETE") {
-        const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-        await storage.updateOrganizationSubscription(orgId, {
-          subscriptionStatus: "active",
-          subscriptionCurrentPeriodEnd: periodEnd,
-          ...(token ? { payFastToken: token } : {}),
-        });
-        console.log(`PayFast ITN: subscription activated for org ${orgId}, renews ${periodEnd.toISOString()}`);
-      } else if (paymentStatus === "CANCELLED") {
-        await storage.updateOrganizationSubscription(orgId, {
-          subscriptionStatus: "expired",
-        });
-        console.log(`PayFast ITN: subscription cancelled for org ${orgId}`);
-      }
-
-      res.status(200).send("");
-    } catch (err) {
-      console.error("PayFast ITN error:", err);
-      res.status(200).send(""); // Always return 200
-    }
-  });
-
-  app.post("/api/billing/cancel", async (req, res) => {
-    if (req.currentUser!.role !== "administrator") {
-      return res.status(403).json({ message: "Administrator access required" });
-    }
-
-    const orgId = req.currentUser!.organizationId;
-    const org = await storage.getOrganization(orgId);
-    if (!org) return res.status(404).json({ message: "Organization not found" });
-
-    // Attempt to cancel at PayFast if we have a subscription token
-    if (org.payFastToken) {
-      try {
-        const merchantId = process.env.PAYFAST_MERCHANT_ID ?? "";
-        const passphrase = process.env.PAYFAST_PASSPHRASE ?? "";
-        const timestamp = new Date().toISOString();
-
-        const sigParts: Record<string, string> = {
-          "merchant-id": merchantId,
-          passphrase,
-          timestamp,
-          version: "v1",
-        };
-        const sigString = Object.keys(sigParts).sort().map((k) => `${k}=${encodeURIComponent(sigParts[k]).replace(/%20/g, "+")}`).join("&");
-        const signature = crypto.createHash("md5").update(sigString).digest("hex");
-
-        await new Promise<void>((resolve) => {
-          const options = {
-            hostname: "api.payfast.co.za",
-            port: 443,
-            path: `/subscriptions/${org.payFastToken}/cancel`,
-            method: "PUT",
-            headers: {
-              "merchant-id": merchantId,
-              version: "v1",
-              timestamp,
-              signature,
-              "content-length": "0",
-            },
-          };
-          const pfReq = https.request(options, (pfRes) => {
-            let body = "";
-            pfRes.on("data", (c) => body += c);
-            pfRes.on("end", () => {
-              console.log(`PayFast cancel response [${pfRes.statusCode}]: ${body}`);
-              resolve();
-            });
-          });
-          pfReq.on("error", (e) => { console.error("PayFast cancel error:", e); resolve(); });
-          pfReq.end();
-        });
-      } catch (err) {
-        console.error("PayFast cancel exception:", err);
-      }
-    }
-
-    // Always mark as expired in our DB regardless of PayFast outcome
-    await storage.updateOrganizationSubscription(orgId, {
-      subscriptionStatus: "expired",
-      subscriptionCurrentPeriodEnd: null,
-      payFastToken: null,
-    });
-    audit(req.currentUser!.id, orgId, "billing.cancel", "Cancelled subscription", { entityType: "billing" });
-
-    res.json({ success: true });
   });
 
   // ─── End billing routes ───────────────────────────────────────────────────

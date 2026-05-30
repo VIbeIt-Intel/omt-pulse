@@ -1,6 +1,4 @@
-import { Lock, CreditCard, Clock } from "lucide-react";
-import { Link } from "wouter";
-import { Button } from "@/components/ui/button";
+import { Lock, Clock, Mail } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 type AuthUser = {
@@ -47,26 +45,23 @@ export function SubscriptionWall({ user }: SubscriptionWallProps) {
           </div>
 
           <div className="border rounded-xl p-6 bg-card shadow-sm space-y-4 text-left">
-            {isAdmin ? (
-              <>
-                <Link href="/billing">
-                  <Button className="w-full gap-2 min-h-[44px] [touch-action:manipulation]" data-testid="button-subscribe-now">
-                    <CreditCard className="h-4 w-4" />
-                    Subscribe Now
-                  </Button>
-                </Link>
-              </>
-            ) : (
-              <div className="flex items-start gap-3">
+            <div className="flex items-start gap-3">
+              {isAdmin ? (
+                <Mail className="h-5 w-5 text-primary shrink-0 mt-0.5" />
+              ) : (
                 <Clock className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
-                <div className="space-y-1">
-                  <p className="text-sm font-medium">Account locked</p>
-                  <p className="text-sm text-muted-foreground">
-                    Your organization's subscription has expired. Please contact your system administrator to renew access.
-                  </p>
-                </div>
+              )}
+              <div className="space-y-1">
+                <p className="text-sm font-medium">
+                  {isAdmin ? "Contact IntelAfri to renew" : "Account locked"}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {isAdmin
+                    ? "Subscriptions are managed by IntelAfri. Contact your account representative or email support to activate or renew access for your organization."
+                    : "Your organization's subscription has expired. Please contact your system administrator to renew access."}
+                </p>
               </div>
-            )}
+            </div>
           </div>
 
           <p className="text-xs text-muted-foreground">

@@ -225,7 +225,6 @@ export default function LiveIncidentPage() {
   const [autocompleteReady, setAutocompleteReady] = useState(false);
   const [nativeMapStatus, setNativeMapStatus] = useState<"idle" | "creating" | "ready" | "timeout" | "error">("idle");
   const [nativeMapErrorMsg, setNativeMapErrorMsg] = useState<string | null>(null);
-  const [nativeRenderer, setNativeRenderer] = useState<string | null>(null);
   const [nativeMapCreateAt, setNativeMapCreateAt] = useState<number | null>(null);
   const [nativeMapReadyAt, setNativeMapReadyAt] = useState<number | null>(null);
   // Current base map tile style — cycled by the floating top-right button.
@@ -2685,10 +2684,9 @@ export default function LiveIncidentPage() {
 
   return (
     <div className="flex flex-col h-full bg-background live-page-root">
-      {/* v75: merged title + GPS status row. Single LIVE pill, single NATIVE
-          badge, inline GPS info, background tinted by GPS health. The old
-          separate GPS status banner below has been removed — the fixed
-          top-0 GPS-lost banner (60 s threshold) still handles retry. */}
+      {/* v75: merged title + GPS status row. Single LIVE pill, inline GPS info,
+          background tinted by GPS health. The fixed top-0 GPS-lost banner (60 s
+          threshold) still handles retry. */}
       <div
         className={`flex items-center gap-2 px-3 py-2 border-b shrink-0 transition-colors ${
           !currentIncident || gpsStatus === "idle"
@@ -2730,24 +2728,6 @@ export default function LiveIncidentPage() {
           )}
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
-          {currentIncident && isNative && (
-            <span
-              className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                useWebMap
-                  ? "bg-amber-500/20 text-amber-700 dark:text-amber-400"
-                  : nativeMapStatus === "ready"
-                  ? "bg-green-500/20 text-green-700 dark:text-green-400"
-                  : "bg-gray-500/20 text-gray-700 dark:text-gray-400"
-              }`}
-              data-testid="badge-map-mode"
-            >
-              {useWebMap
-                ? "WEB MAP"
-                : nativeMapStatus === "ready"
-                ? `NATIVE${nativeRenderer ? ` · ${nativeRenderer}` : ""}`
-                : nativeMapStatus.toUpperCase()}
-            </span>
-          )}
           {currentIncident && (
             <Badge
               className={`text-white ${isJoinerMode ? "bg-blue-600" : "bg-green-500"}`}
@@ -2771,7 +2751,7 @@ export default function LiveIncidentPage() {
           the Screen Wake Lock API at all (e.g. Firefox). One-time dismissable. */}
       {!wakeLockSupported && currentIncidentId !== null && !wakeLockUnsupportedDismissed && (
         <div className="fixed top-0 left-0 right-0 z-50 flex items-center gap-2 px-4 py-3 bg-amber-600 text-white text-sm font-semibold" data-testid="banner-wake-lock-unsupported">
-          <span className="flex-1">⚠️ Your browser can't keep the screen on automatically — you may need to prevent it from locking manually during this incident.</span>
+          <span className="flex-1">{isNative ? "Your device can't keep the screen on automatically — prevent it from locking manually during this incident." : "Your browser can't keep the screen on automatically — you may need to prevent it from locking manually during this incident."}</span>
           <button
             className="underline font-bold shrink-0 ml-2"
             onClick={() => setWakeLockUnsupportedDismissed(true)}
@@ -3186,7 +3166,6 @@ export default function LiveIncidentPage() {
                   setNativeMapErrorMsg(msg);
                   setNativeMapFailed(true);
                 }}
-                onRendererKnown={(r) => setNativeRenderer(r)}
               />
             ) : (
               <div ref={mapRef} className="absolute inset-0" data-testid="map-live" />
@@ -3301,6 +3280,8 @@ export default function LiveIncidentPage() {
                     <p className="text-xs text-muted-foreground">
                       {/iPad|iPhone|iPod/.test(navigator.userAgent)
                         ? "Settings → Privacy & Security → Location Services → find your browser → set to \"While Using\"."
+                        : isNative
+                        ? "Settings → Apps → OMT Pulse → Permissions → Location → Allow (or \"Allow all the time\" for background tracking)."
                         : /Android/i.test(navigator.userAgent)
                         ? "Settings → Apps → Chrome → Permissions → Location → Allow."
                         : "Click the lock icon in your browser's address bar → Site settings → Location → Allow."}

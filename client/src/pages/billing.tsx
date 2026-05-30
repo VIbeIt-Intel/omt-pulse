@@ -1,12 +1,8 @@
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
-import { CreditCard, CheckCircle2, Clock, AlertCircle, Users, XCircle, Gift } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { CreditCard, CheckCircle2, Clock, AlertCircle, Users, Gift, Mail } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { useToast } from "@/hooks/use-toast";
-import { apiRequest, queryClient } from "@/lib/queryClient";
 
 type BillingStatus = {
   subscriptionStatus: string;
@@ -15,10 +11,7 @@ type BillingStatus = {
   breakdown: {
     role: string;
     count: number;
-    rate: number;
-    subtotal: number;
   }[];
-  totalMonthly: number;
 };
 
 const ROLE_LABELS: Record<string, string> = {
@@ -82,7 +75,7 @@ function StatusBadge({ status, trialEndsAt, periodEnd }: { status: string; trial
         <Badge className="bg-green-600 text-white gap-1.5">
           <CheckCircle2 className="h-3 w-3" /> Active
         </Badge>
-        <span className="text-sm text-muted-foreground">Renews {formatDate(periodEnd)}</span>
+        <span className="text-sm text-muted-foreground">Valid until {formatDate(periodEnd)}</span>
       </div>
     );
   }
@@ -103,59 +96,14 @@ function StatusBadge({ status, trialEndsAt, periodEnd }: { status: string; trial
       <Badge variant="destructive" className="gap-1.5">
         <AlertCircle className="h-3 w-3" /> Expired
       </Badge>
-      <span className="text-sm text-muted-foreground">Subscribe to restore access</span>
+      <span className="text-sm text-muted-foreground">Contact IntelAfri to restore access</span>
     </div>
   );
 }
 
 export default function BillingPage() {
-  const { toast } = useToast();
-  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
-
   const { data: billing, isLoading } = useQuery<BillingStatus>({
     queryKey: ["/api/billing/status"],
-  });
-
-  const cancelMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/billing/cancel", {});
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/billing/status"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
-      setCancelDialogOpen(false);
-      toast({ title: "Subscription cancelled", description: "Your subscription has been cancelled. Access will end immediately." });
-    },
-    onError: (err: any) => {
-      setCancelDialogOpen(false);
-      toast({ title: "Error", description: err.message || "Failed to cancel subscription", variant: "destructive" });
-    },
-  });
-
-  const initiateMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/billing/initiate", {});
-      return res.json() as Promise<{ payFastUrl: string; fields: Record<string, string> }>;
-    },
-    onSuccess: (data) => {
-      // Build and submit a form to PayFast
-      const form = document.createElement("form");
-      form.method = "POST";
-      form.action = data.payFastUrl;
-      Object.entries(data.fields).forEach(([key, value]) => {
-        const input = document.createElement("input");
-        input.type = "hidden";
-        input.name = key;
-        input.value = String(value);
-        form.appendChild(input);
-      });
-      document.body.appendChild(form);
-      form.submit();
-    },
-    onError: (err: any) => {
-      toast({ title: "Error", description: err.message || "Failed to initiate payment", variant: "destructive" });
-    },
   });
 
   return (
@@ -163,8 +111,8 @@ export default function BillingPage() {
       <div className="flex items-center gap-3">
         <CreditCard className="h-6 w-6 text-primary" />
         <div>
-          <h1 className="text-2xl font-bold tracking-tight" data-testid="text-billing-title">Billing</h1>
-          <p className="text-sm text-muted-foreground">Manage your organization's subscription</p>
+          <h1 className="text-2xl font-bold tracking-tight" data-testid="text-billing-title">Subscription</h1>
+          <p className="text-sm text-muted-foreground">View your organization's subscription status</p>
         </div>
       </div>
 
@@ -175,7 +123,6 @@ export default function BillingPage() {
         </div>
       ) : billing ? (
         <>
-          {/* Status card */}
           <div className="border rounded-xl p-5 bg-card space-y-2">
             <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Subscription Status</p>
             <StatusBadge
@@ -185,16 +132,15 @@ export default function BillingPage() {
             />
             {billing.subscriptionStatus === "trial" && (
               <p className="text-xs text-muted-foreground pt-1">
-                Your trial expires on {formatDate(billing.trialEndsAt)}. Subscribe before then to avoid interruption.
+                Your trial expires on {formatDate(billing.trialEndsAt)}. Contact IntelAfri before then to continue access.
               </p>
             )}
           </div>
 
-          {/* Pricing breakdown */}
           <div className="border rounded-xl overflow-hidden">
             <div className="px-5 py-3 bg-muted/50 border-b flex items-center gap-2">
               <Users className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-medium">Monthly Subscription Breakdown</span>
+              <span className="text-sm font-medium">Organization Users</span>
             </div>
             <table className="w-full text-sm">
               <thead className="bg-muted/30 border-b">
@@ -217,84 +163,25 @@ export default function BillingPage() {
                   ))
                 )}
               </tbody>
-              <tfoot className="border-t bg-muted/30">
-                <tr className="border-t">
-                  <td colSpan={1} className="px-5 py-3 text-sm font-medium text-muted-foreground">Next Payment Date</td>
-                  <td className="px-5 py-3 text-right text-sm font-medium" data-testid="text-next-payment-date">
-                    {billing.subscriptionStatus === "active" && billing.subscriptionCurrentPeriodEnd
-                      ? formatDate(billing.subscriptionCurrentPeriodEnd)
-                      : billing.subscriptionStatus === "trial"
-                        ? "Upon subscription"
-                        : "—"}
-                  </td>
-                </tr>
-              </tfoot>
             </table>
           </div>
 
-          {/* Cancel button — shown below breakdown for all cancellable statuses */}
-          {(billing.subscriptionStatus === "active" || billing.subscriptionStatus === "trial" || billing.subscriptionStatus === "complimentary") && (
-            <div>
-              <Button
-                variant="outline"
-                className="w-full gap-2 min-h-[44px] [touch-action:manipulation] text-destructive border-destructive/40 hover:bg-destructive/5 hover:text-destructive"
-                onClick={() => setCancelDialogOpen(true)}
-                disabled={cancelMutation.isPending}
-                data-testid="button-cancel-subscription"
-              >
-                <XCircle className="h-4 w-4" />
-                Cancel Subscription
-              </Button>
+          {(billing.subscriptionStatus === "expired" || billing.subscriptionStatus === "trial") && (
+            <div className="border rounded-xl p-5 bg-card space-y-2">
+              <div className="flex items-start gap-3">
+                <Mail className="h-5 w-5 text-primary shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">Need to activate or renew?</p>
+                  <p className="text-sm text-muted-foreground">
+                    Subscriptions are managed by IntelAfri. Contact your account representative or email support to activate, extend, or renew your organization's access.
+                  </p>
+                </div>
+              </div>
             </div>
           )}
-
-          {/* Subscribe — hidden for complimentary plan */}
-          {billing.subscriptionStatus !== "complimentary" && (
-            <div className="space-y-3">
-              <Button
-                className="w-full gap-2 min-h-[44px] [touch-action:manipulation]"
-                size="lg"
-                onClick={() => initiateMutation.mutate()}
-                disabled={initiateMutation.isPending}
-                data-testid="button-subscribe"
-              >
-                <CreditCard className="h-4 w-4" />
-                {initiateMutation.isPending
-                  ? "Redirecting to PayFast..."
-                  : billing.subscriptionStatus === "active"
-                    ? "Manage / Renew Subscription"
-                    : "Subscribe Now — R" + billing.totalMonthly + "/month"}
-              </Button>
-              <p className="text-xs text-center text-muted-foreground">
-                You will be redirected to PayFast's secure payment page. Monthly recurring payments will be charged automatically.
-              </p>
-            </div>
-          )}
-
-          <AlertDialog open={cancelDialogOpen} onOpenChange={setCancelDialogOpen}>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Cancel your subscription?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Your access will end immediately. You will not be charged again. This cannot be undone.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel className="min-h-[44px] [touch-action:manipulation]" data-testid="button-keep-subscription">Keep Subscription</AlertDialogCancel>
-                <AlertDialogAction
-                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90 min-h-[44px] [touch-action:manipulation]"
-                  onClick={() => cancelMutation.mutate()}
-                  disabled={cancelMutation.isPending}
-                  data-testid="button-confirm-cancel"
-                >
-                  {cancelMutation.isPending ? "Cancelling..." : "Yes, Cancel"}
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
         </>
       ) : (
-        <p className="text-muted-foreground">Failed to load billing information.</p>
+        <p className="text-muted-foreground">Failed to load subscription information.</p>
       )}
     </div>
   );

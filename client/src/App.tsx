@@ -52,6 +52,11 @@ import { PushPermissionBanner } from "@/components/push-permission-banner";
 import { PwaInstallGate } from "@/components/pwa-install-gate";
 import { PanicAlertSiren } from "@/components/panic-alert-siren";
 import { SetupWizardController } from "@/components/setup-wizard";
+import { Capacitor } from "@capacitor/core";
+
+function isCapacitorNative(): boolean {
+  return Capacitor.isNativePlatform();
+}
 
 function resolveAvatarSrc(avatarUrl: string): string {
   if (avatarUrl.startsWith("data:")) return avatarUrl;
@@ -109,6 +114,7 @@ function usePushSubscription(userId: string | undefined) {
 
   async function doSubscribe() {
     if (!userId) return;
+    if (isCapacitorNative()) return;
     if (!("serviceWorker" in navigator) || !("PushManager" in window)) { setSubState("unavailable"); return; }
     try {
       const reg = await navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" });
@@ -151,6 +157,7 @@ function usePushSubscription(userId: string | undefined) {
   // auto-prompt for permission — the banner does that explicitly.
   useEffect(() => {
     if (!userId) return;
+    if (isCapacitorNative()) { setSubState("unavailable"); return; }
     if (!("serviceWorker" in navigator) || !("PushManager" in window)) { setSubState("unavailable"); return; }
     if (Notification.permission === "denied") { setSubState("denied"); return; }
     let cancelled = false;
@@ -194,18 +201,24 @@ function usePushSubscription(userId: string | undefined) {
   return { subState, subscribe: doSubscribe };
 }
 
+type FcmState = "unknown" | "granted" | "denied" | "error";
+
 // ── Capacitor FCM token registration (native Android/iOS only) ───────────────
 function useCapacitorPush(userId: string | undefined) {
+  const [fcmState, setFcmState] = useState<FcmState>("unknown");
+
   useEffect(() => {
     if (!userId) return;
+    if (!isCapacitorNative()) return;
     let cancelled = false;
     (async () => {
       try {
-        const { Capacitor } = await import("@capacitor/core");
-        if (!Capacitor.isNativePlatform()) return;
         const { PushNotifications } = await import("@capacitor/push-notifications");
         const permResult = await PushNotifications.requestPermissions();
-        if (permResult.receive !== "granted") return;
+        if (permResult.receive !== "granted") {
+          if (!cancelled) setFcmState("denied");
+          return;
+        }
         await PushNotifications.register();
         PushNotifications.addListener("registration", async (tokenData) => {
           if (cancelled) return;
@@ -216,15 +229,26 @@ function useCapacitorPush(userId: string | undefined) {
               credentials: "include",
               body: JSON.stringify({ token: tokenData.value }),
             });
-          } catch { /* silent */ }
+            if (!cancelled) {
+              setFcmState("granted");
+              triggerBatteryHint();
+            }
+          } catch {
+            if (!cancelled) setFcmState("error");
+          }
         });
         PushNotifications.addListener("registrationError", (err) => {
           console.warn("[FCM] registration error:", err);
+          if (!cancelled) setFcmState("error");
         });
-      } catch { /* not on native platform or capacitor not available */ }
+      } catch {
+        if (!cancelled) setFcmState("error");
+      }
     })();
     return () => { cancelled = true; };
   }, [userId]);
+
+  return { fcmState };
 }
 
 // ── Battery optimisation hint ────────────────────────────────────────────────
@@ -265,6 +289,9 @@ function BatteryOptimizationHint() {
 
   if (!open) return null;
 
+  const nativeApp = isCapacitorNative();
+  const appLabel = nativeApp ? "OMT Pulse" : "Chrome";
+
   return (
     <Sheet open={open} onOpenChange={(v) => { if (!v) dismiss(false); }}>
       <SheetContent side="bottom" className="rounded-t-2xl px-6 pb-8 pt-4 max-w-lg mx-auto">
@@ -275,12 +302,12 @@ function BatteryOptimizationHint() {
         </SheetHeader>
         <p className="text-sm text-muted-foreground mb-4">
           Android may delay notifications while your screen is off. To ensure live incidents
-          wake your device immediately, allow unrestricted background activity for Chrome:
+          wake your device immediately, allow unrestricted background activity for {appLabel}:
         </p>
         <ol className="space-y-2 text-sm mb-6">
           <li className="flex items-start gap-2">
             <span className="shrink-0 font-semibold text-primary">1.</span>
-            Open <strong>Settings → Apps → Chrome</strong>
+            Open <strong>Settings → Apps → {appLabel}</strong>
           </li>
           <li className="flex items-start gap-2">
             <span className="shrink-0 font-semibold text-primary">2.</span>
@@ -292,7 +319,7 @@ function BatteryOptimizationHint() {
           </li>
         </ol>
         <p className="text-xs text-muted-foreground mb-5">
-          On Samsung devices also check: <strong>Settings → Battery → Background usage limits</strong> and make sure Chrome is not listed under sleeping apps.
+          On Samsung devices also check: <strong>Settings → Battery → Background usage limits</strong> and make sure {appLabel} is not listed under sleeping apps.
         </p>
         <div className="flex flex-col gap-2">
           <Button className="w-full min-h-[44px] touch-manipulation" onClick={() => dismiss(true)} data-testid="button-battery-hint-done">
@@ -320,8 +347,9 @@ function detectNotifPlatform(): NotifPlatform {
 }
 
 const NOTIF_FIX_INSTRUCTIONS: Record<NotifPlatform, string> = {
-  android:
-    'Open Settings → Apps → Chrome (or your browser) → Permissions → Notifications → Allow. Then return here — the warning will clear automatically.',
+  android: isCapacitorNative()
+    ? 'Open Settings → Apps → OMT Pulse → Notifications → Allow. Then return here — the warning will clear automatically.'
+    : 'Open Settings → Apps → Chrome (or your browser) → Permissions → Notifications → Allow. Then return here — the warning will clear automatically.',
   ios:
     'Open Settings → scroll to your browser (Chrome or Safari) → Notifications → Allow. Then return here — the warning will clear automatically.',
   desktop:
@@ -389,6 +417,51 @@ function NotificationBanner({ onEnable, denied }: { onEnable: () => void; denied
       >
         Enable Now
       </Button>
+    </div>
+  );
+}
+
+function NativePushBanner({ fcmState }: { fcmState: FcmState }) {
+  if (fcmState !== "denied" && fcmState !== "error") return null;
+
+  return (
+    <div
+      className="shrink-0 bg-amber-500/15 border-b border-amber-500/40 px-4 py-2 flex items-center justify-between gap-3 text-sm"
+      data-testid="banner-native-push"
+    >
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="relative shrink-0 flex h-3 w-3">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+          <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500" />
+        </span>
+        <span className="font-semibold text-amber-700 dark:text-amber-400 shrink-0">Alerts off</span>
+        <span className="text-amber-700/80 dark:text-amber-400/80 hidden sm:inline truncate">
+          — panic and live incident alerts won&apos;t reach this device.
+        </span>
+      </div>
+      <Popover>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400 hover:text-amber-900 dark:hover:text-amber-200 transition-colors font-medium px-3 rounded hover:bg-amber-500/10 shrink-0 min-h-[44px]"
+            style={{ touchAction: "manipulation" }}
+            data-testid="button-fix-native-notifications"
+          >
+            <HelpCircle className="h-3.5 w-3.5" />
+            How to fix
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-80 p-4 space-y-3" data-testid="popover-native-notification-help">
+          <p className="text-sm font-semibold flex items-center gap-1.5">
+            <Bell className="h-4 w-4 text-primary" />
+            Enable notifications for OMT Pulse
+          </p>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            Open <strong>Settings → Apps → OMT Pulse → Notifications</strong> and turn notifications on.
+            {fcmState === "error" ? " If they are already on, force-close the app and reopen it." : ""}
+          </p>
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }
@@ -489,8 +562,9 @@ function NotificationSheet({ open, onOpenChange, onMarkAllRead }: { open: boolea
 function AuthenticatedApp({ user }: { user: AuthUser }) {
   const [, navigate] = useLocation();
   const pwa = usePwaInstall();
+  const nativeApp = isCapacitorNative();
   const { subState: pushSubState, subscribe: subscribePush } = usePushSubscription(user.id);
-  useCapacitorPush(user.id);
+  const { fcmState } = useCapacitorPush(user.id);
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
@@ -829,15 +903,21 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
               </button>
             </div>
           )}
-          {(pushSubState === "not-subscribed" || pushSubState === "denied") &&
-            typeof Notification !== "undefined" && Notification.permission !== "granted" && (
-            <NotificationBanner
-              onEnable={subscribePush}
-              denied={pushSubState === "denied"}
-            />
+          {nativeApp ? (
+            <NativePushBanner fcmState={fcmState} />
+          ) : (
+            <>
+              {(pushSubState === "not-subscribed" || pushSubState === "denied") &&
+                typeof Notification !== "undefined" && Notification.permission !== "granted" && (
+                <NotificationBanner
+                  onEnable={subscribePush}
+                  denied={pushSubState === "denied"}
+                />
+              )}
+              <PushPermissionBanner />
+            </>
           )}
           <PermissionDeniedBanner />
-          <PushPermissionBanner />
           <BatteryOptimizationHint />
           <PanicAlertSiren currentUserId={user.id} />
           {(user.role === "administrator" || user.isSuperadmin) && <SetupWizardController />}

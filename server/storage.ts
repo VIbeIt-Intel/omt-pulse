@@ -58,8 +58,6 @@ export interface IStorage {
   // Organizations
   createOrganization(org: InsertOrganization): Promise<Organization>;
   getOrganization(id: string): Promise<Organization | undefined>;
-  getOrganizationByPayFastToken(token: string): Promise<Organization | undefined>;
-  updateOrganizationSubscription(orgId: string, data: { subscriptionStatus?: string; subscriptionCurrentPeriodEnd?: Date | null; payFastToken?: string | null }): Promise<Organization>;
   updateOrganizationComplimentary(orgId: string, isComplimentary: boolean): Promise<Organization>;
   updateOrganization(orgId: string, data: Partial<Organization>): Promise<Organization>;
   getOrgsWithUsage(): Promise<Array<Organization & { userCounts: { administrator: number; supervisor: number; reporter: number; total: number }; incidentCount: number; lastActivityAt: Date | null }>>;
@@ -239,16 +237,6 @@ export class DatabaseStorage implements IStorage {
   async getOrganization(id: string): Promise<Organization | undefined> {
     const [org] = await db.select().from(organizations).where(eq(organizations.id, id));
     return org;
-  }
-
-  async getOrganizationByPayFastToken(token: string): Promise<Organization | undefined> {
-    const [org] = await db.select().from(organizations).where(eq(organizations.payFastToken, token));
-    return org;
-  }
-
-  async updateOrganizationSubscription(orgId: string, data: { subscriptionStatus?: string; subscriptionCurrentPeriodEnd?: Date | null; payFastToken?: string | null }): Promise<Organization> {
-    const [updated] = await db.update(organizations).set(data).where(eq(organizations.id, orgId)).returning();
-    return updated;
   }
 
   async updateOrganizationComplimentary(orgId: string, isComplimentary: boolean): Promise<Organization> {

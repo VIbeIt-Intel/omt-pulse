@@ -1,7 +1,7 @@
 # OMT - Occurrence Management Tool
 
 ## Overview
-Full-stack incident management PWA (Occurrence Book). React + TS + Vite + shadcn/ui frontend, Express + PostgreSQL/Drizzle backend, session-based auth, multi-tenant, PayFast subscriptions, Archon super-admin panel.
+Full-stack incident management PWA (Occurrence Book). React + TS + Vite + shadcn/ui frontend, Express + PostgreSQL/Drizzle backend, session-based auth, multi-tenant, Archon-managed subscriptions, Archon super-admin panel.
 
 ## Stack
 - **Frontend**: React + TypeScript + Vite, shadcn/ui, Tailwind, Leaflet (direct), Google Maps JS API (live nav), recharts
@@ -27,13 +27,12 @@ Every table except `organizations` and `users` carries `organizationId`. **Every
 - **Supervisor**: Occurrence Book, Analytics, Audit Trail
 - **Reporter**: Occurrence Book only
 
-## Subscription (PayFast)
+## Subscription
 - 48 h trial from org registration
-- Per-role pricing (combined per org): Admin R300/mo, Supervisor R200/mo, Reporter R50/mo
-- PayFast recurring (`subscription_type=1`, `frequency=3`, `cycles=0`); ITN webhook `POST /api/webhooks/payfast` validates signature + server-side, sets `subscriptionStatus='active'`, extends 30 days
-- Expired → lock screen. Admin sees "Subscribe Now" → `/billing`. Non-admin sees "contact your administrator"
+- Subscription status managed via Archon (`isComplimentary`, `subscriptionStatus`, `subscriptionCurrentPeriodEnd`)
+- Expired → lock screen. Admin sees contact IntelAfri message. Non-admin sees "contact your administrator"
 - Billing icon in header (admin only): green=active, amber=trial, red=expired
-- **Secrets**: `PAYFAST_MERCHANT_ID`, `PAYFAST_MERCHANT_KEY`, `PAYFAST_PASSPHRASE`. Optional `APP_BASE_URL`.
+- `/billing` — read-only status page for administrators
 
 ## Commands (Sub-Orgs)
 Sub-organisations within one org — isolated users, incidents, categories, locations.
@@ -65,7 +64,7 @@ Sub-organisations within one org — isolated users, incidents, categories, loca
 - `panic_acknowledgers` table created via `safeMigrate` in `server/index.ts` (`UNIQUE(incident_id, user_id)` for idempotent acks)
 
 ## Audit Trail
-- Tracked: auth.login/logout, incident.create/edit/delete, admin.user_*, profile.update, billing.cancel, command.switch_active, command.visibility_*
+- Tracked: auth.login/logout, incident.create/edit/delete, admin.user_*, profile.update, command.switch_active, command.visibility_*
 - `audit_logs` table, JSONB `changes` for field-level diffs
 - `GET /api/users/:userId/audit?all=true|since=ISO_DATE` — admin + supervisor only
 - `AuditTrailDialog` in User Admin (ScrollText icon), 30-day default + "Show all history" toggle, Excel export via xlsx
@@ -115,7 +114,7 @@ Charts with cross-filtering (clicking any bar in Date/Time/Type/Location filters
 - Commands: `/api/commands`, `/api/me/commands`, `/api/me/active-command`
 - Live: `/api/panic`, `/api/panic/recent`, `/api/incidents/:id/{close-panic,join-live,escalate}`
 - Uploads: `/api/uploads/request-url`, `GET /objects/*`
-- Billing: `/api/webhooks/payfast`
+- Billing: `GET /api/billing/status`
 - Archon: `/api/archon/*`
 
 ---
