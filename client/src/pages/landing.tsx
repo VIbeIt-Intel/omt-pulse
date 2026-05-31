@@ -472,6 +472,9 @@ export default function LandingPage() {
             <span>© {new Date().getFullYear()} OMT Pulse · An IntelAfri product</span>
           </div>
           <div className="flex items-center gap-4">
+            <Link href="/privacy" className="hover:text-foreground" data-testid="link-footer-privacy">
+              Privacy Policy
+            </Link>
             <a href={`mailto:${SALES_EMAIL}`} className="hover:text-foreground" data-testid="link-footer-email">
               {SALES_EMAIL}
             </a>

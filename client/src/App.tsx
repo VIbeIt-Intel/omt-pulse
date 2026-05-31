@@ -31,6 +31,7 @@ import OnboardingPage from "@/pages/onboarding";
 import InvitePage from "@/pages/invite";
 import LandingPage from "@/pages/landing";
 import EnableAlertsPage from "@/pages/enable-alerts";
+import PrivacyPage from "@/pages/privacy";
 import NotificationsPage from "@/pages/notifications";
 import ChatPage from "@/pages/chat";
 import { Bell, CreditCard, Loader2, LogOut, Download, X, Camera, CheckCheck, Radio, HelpCircle, MessageCircle, ArrowLeft } from "lucide-react";
@@ -1000,6 +1001,7 @@ function UnauthenticatedApp() {
     <Switch>
       <Route path="/login" component={LoginPage} />
       <Route path="/register" component={RegisterPage} />
+      <Route path="/privacy" component={PrivacyPage} />
       <Route component={RedirectToLogin} />
     </Switch>
   );
@@ -1068,6 +1070,9 @@ function AppRouter() {
   if (location.startsWith("/enable-alerts")) {
     return <EnableAlertsPage />;
   }
+  if (location.startsWith("/privacy")) {
+    return <PrivacyPage />;
+  }
   return <AppContent />;
 }
 
@@ -1093,6 +1098,9 @@ function RootRouter() {
   }
   if (location.startsWith("/enable-alerts")) {
     return <EnableAlertsPage />;
+  }
+  if (location.startsWith("/privacy")) {
+    return <PrivacyPage />;
   }
 
   // Visitor at "/" with no session → marketing landing page, no install gate.

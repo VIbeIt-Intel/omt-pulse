@@ -346,6 +346,13 @@ export function AppSidebar({ user, onLogout, avatarPreview }: AppSidebarProps) {
           Sign Out
         </Button>
         <VersionLabel />
+        <Link
+          href="/privacy"
+          className="block text-center text-[10px] text-muted-foreground hover:text-foreground hover:underline"
+          data-testid="link-sidebar-privacy"
+        >
+          Privacy Policy
+        </Link>
       </SidebarFooter>
     </Sidebar>
   );

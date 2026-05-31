@@ -18,7 +18,7 @@ const ANDROID_APP_STEPS: Step[] = [
     items: [
       "Open Settings → Apps → OMT Pulse",
       "Tap Notifications → make sure all are turned On",
-      "Tap Permissions → Location → Allow all the time (recommended for live incidents)",
+      "Tap Permissions → Location → Allow while using the app",
       "Re-open OMT Pulse and tap Enable below",
     ],
   },
@@ -27,7 +27,7 @@ const ANDROID_APP_STEPS: Step[] = [
     items: [
       "Open Settings → Apps → OMT Pulse",
       "Tap Notifications → toggle Allow notifications On",
-      "Tap Permissions → Location → Allow all the time",
+      "Tap Permissions → Location → Allow while using the app",
       "Re-open OMT Pulse and tap Enable below",
     ],
   },

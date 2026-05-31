@@ -186,6 +186,11 @@ export default function LoginPage() {
                 Register here
               </Link>
             </p>
+            <p className="text-center text-xs text-white/35">
+              <Link href="/privacy" className="hover:text-white/60 hover:underline" data-testid="link-privacy-login">
+                Privacy Policy
+              </Link>
+            </p>
           </div>
         </div>
 
