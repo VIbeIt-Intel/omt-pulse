@@ -6,13 +6,11 @@ if (localPropsFile.exists()) {
     localPropsFile.withInputStream { localProps.load(it) }
 }
 
-def resolveGoogleMapsApiKey() {
-    def fromEnv = System.getenv("GOOGLE_MAPS_ANDROID_API_KEY")
-    if (fromEnv) return fromEnv
-    def fromLocal = localProps.getProperty("GOOGLE_MAPS_ANDROID_API_KEY")
-    if (fromLocal) return fromLocal
-    // Firebase auto-creates a separate Android-restricted key in google-services.json.
-    // Use it when no explicit override is set — do NOT reuse the Browser/JS key here.
+def googleMapsApiKey = System.getenv("GOOGLE_MAPS_ANDROID_API_KEY")
+    ?: localProps.getProperty("GOOGLE_MAPS_ANDROID_API_KEY")
+    ?: ""
+
+if (!googleMapsApiKey) {
     def gsFile = file("google-services.json")
     if (gsFile.exists()) {
         try {
@@ -20,14 +18,13 @@ def resolveGoogleMapsApiKey() {
             def androidClient = gs?.client?.find { it?.client_info?.android_client_info != null }
             def firebaseKey = androidClient?.api_key?.find { it?.current_key }?.current_key
             if (firebaseKey) {
+                googleMapsApiKey = firebaseKey.toString()
                 logger.lifecycle("Using Firebase Android API key from google-services.json")
-                return firebaseKey.toString()
             }
         } catch (Exception e) {
             logger.warn("Could not read Android API key from google-services.json: ${e.message}")
         }
     }
-    return ""
 }
 
 android {
@@ -43,7 +40,7 @@ android {
         // Injected at CI build time via GOOGLE_MAPS_ANDROID_API_KEY (see .env.example).
         // Local dev: add GOOGLE_MAPS_ANDROID_API_KEY=... to android/local.properties
         manifestPlaceholders = [
-            googleMapsApiKey: resolveGoogleMapsApiKey()
+            googleMapsApiKey: googleMapsApiKey
         ]
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
