@@ -6,7 +6,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Category, Location, Incident, FormField, CustomMap, AttachmentWithUploader } from "@shared/schema";
-import { isManualIncidentType } from "@/lib/incident-categories";
+import { getEligibleManualTypes, getOtherManualTypes, getSeverityGroupKey, SEVERITY_GROUP_ORDER, SEVERITY_GROUP_LABELS } from "@/lib/incident-categories";
 import {
   Dialog,
   DialogClose,
@@ -840,20 +840,15 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                           </FormControl>
                           <SelectContent>
                             {(() => {
-                              const eligible = categories.filter(
-                                (cat) => isManualIncidentType(cat) && !cat.isOther
-                              );
+                              const eligible = getEligibleManualTypes(categories);
                               const byName = (a: typeof eligible[0], b: typeof eligible[0]) =>
                                 a.name.localeCompare(b.name);
-                              const high   = eligible.filter((c) => c.severity === "red").sort(byName);
-                              const medium = eligible.filter((c) => c.severity === "orange").sort(byName);
-                              const low    = eligible.filter((c) => c.severity === "yellow").sort(byName);
-                              const general = eligible.filter(
-                                (c) => c.severity !== "red" && c.severity !== "orange" && c.severity !== "yellow"
-                              ).sort(byName);
-                              const otherCats = categories.filter(
-                                (cat) => isManualIncidentType(cat) && cat.isOther
-                              ).sort(byName);
+                              const grouped = SEVERITY_GROUP_ORDER.map((key) => ({
+                                key,
+                                label: SEVERITY_GROUP_LABELS[key],
+                                types: eligible.filter((c) => getSeverityGroupKey(c) === key).sort(byName),
+                              })).filter((g) => g.types.length > 0);
+                              const otherCats = getOtherManualTypes(categories);
 
                               const renderItem = (cat: typeof eligible[0]) => (
                                 <SelectItem key={cat.id} value={cat.id.toString()}>
@@ -869,30 +864,12 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
 
                               return (
                                 <>
-                                  {high.length > 0 && (
-                                    <SelectGroup>
-                                      <SelectLabel className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">High</SelectLabel>
-                                      {high.map(renderItem)}
+                                  {grouped.map((group) => (
+                                    <SelectGroup key={group.key}>
+                                      <SelectLabel className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{group.label}</SelectLabel>
+                                      {group.types.map(renderItem)}
                                     </SelectGroup>
-                                  )}
-                                  {medium.length > 0 && (
-                                    <SelectGroup>
-                                      <SelectLabel className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Medium</SelectLabel>
-                                      {medium.map(renderItem)}
-                                    </SelectGroup>
-                                  )}
-                                  {low.length > 0 && (
-                                    <SelectGroup>
-                                      <SelectLabel className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Low</SelectLabel>
-                                      {low.map(renderItem)}
-                                    </SelectGroup>
-                                  )}
-                                  {general.length > 0 && (
-                                    <SelectGroup>
-                                      <SelectLabel className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">General</SelectLabel>
-                                      {general.map(renderItem)}
-                                    </SelectGroup>
-                                  )}
+                                  ))}
                                   {(otherCats.length > 0 || !hasOtherCategory) && (
                                     <SelectGroup>
                                       <SelectLabel className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Other</SelectLabel>

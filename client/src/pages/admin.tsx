@@ -1,9 +1,11 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, Fragment } from "react";
 import {
   isManualIncidentType,
   isSystemResponseMode,
+  groupManualIncidentTypes,
   SYSTEM_MODE_DESCRIPTIONS,
   uniqueSystemResponseModes,
+  type SeverityGroupKey,
 } from "@/lib/incident-categories";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -425,9 +427,13 @@ function PredefinedTypesManager() {
 
   const isSaving = createMutation.isPending || updateMutation.isPending;
 
-  const incidentTypes = useMemo(
-    () => categories.filter(isManualIncidentType),
+  const incidentTypeGroups = useMemo(
+    () => groupManualIncidentTypes(categories),
     [categories],
+  );
+  const incidentTypes = useMemo(
+    () => incidentTypeGroups.flatMap((g) => g.types),
+    [incidentTypeGroups],
   );
   const systemModes = useMemo(
     () => uniqueSystemResponseModes(categories),
@@ -454,6 +460,56 @@ function PredefinedTypesManager() {
         dangerouslySetInnerHTML={{ __html: getIconSvg(cat.icon) }}
       />
     </div>
+  );
+
+  const severityGroupHeaderClass = (key: SeverityGroupKey) => {
+    switch (key) {
+      case "high":
+        return "bg-red-500/10 text-red-800 dark:text-red-300";
+      case "medium":
+        return "bg-orange-500/10 text-orange-800 dark:text-orange-300";
+      case "low":
+        return "bg-yellow-400/15 text-yellow-800 dark:text-yellow-300";
+      case "other":
+        return "bg-amber-500/10 text-amber-800 dark:text-amber-300";
+      default:
+        return "bg-muted/60 text-muted-foreground";
+    }
+  };
+
+  const severityGroupEmoji = (key: SeverityGroupKey) => {
+    switch (key) {
+      case "high": return "🔴";
+      case "medium": return "🟠";
+      case "low": return "🟡";
+      default: return null;
+    }
+  };
+
+  const renderTypeRow = (cat: Category) => (
+    <TableRow key={cat.id} data-testid={`row-type-${cat.id}`}>
+      <TableCell>{renderTypeSwatch(cat)}</TableCell>
+      <TableCell className="font-medium">
+        <span className="flex items-center gap-2">
+          {cat.name}
+          {cat.isOther && (
+            <span className="text-xs px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400" data-testid={`badge-other-${cat.id}`}>
+              Other
+            </span>
+          )}
+        </span>
+      </TableCell>
+      <TableCell className="text-right">
+        <div className="flex items-center justify-end gap-1">
+          <Button size="icon" variant="ghost" onClick={() => openEdit(cat)} data-testid={`button-edit-type-${cat.id}`}>
+            <Pencil className="h-3.5 w-3.5" />
+          </Button>
+          <Button size="icon" variant="ghost" onClick={() => setDeleteId(cat.id)} data-testid={`button-delete-type-${cat.id}`}>
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </TableCell>
+    </TableRow>
   );
 
   return (
@@ -505,30 +561,29 @@ function PredefinedTypesManager() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {incidentTypes.map((cat) => (
-                  <TableRow key={cat.id} data-testid={`row-type-${cat.id}`}>
-                    <TableCell>{renderTypeSwatch(cat)}</TableCell>
-                    <TableCell className="font-medium">
-                      <span className="flex items-center gap-2">
-                        {cat.name}
-                        {cat.isOther && (
-                          <span className="text-xs px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400" data-testid={`badge-other-${cat.id}`}>
-                            Other
+                {incidentTypeGroups.map((group) => (
+                  <Fragment key={group.key}>
+                    <TableRow
+                      className="hover:bg-transparent border-t border-border/60"
+                      data-testid={`row-type-group-${group.key}`}
+                    >
+                      <TableCell colSpan={3} className="py-2 px-4">
+                        <div className={`rounded-md px-3 py-1.5 flex items-center justify-between gap-2 ${severityGroupHeaderClass(group.key)}`}>
+                          <span className="text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5">
+                            {severityGroupEmoji(group.key) && <span aria-hidden>{severityGroupEmoji(group.key)}</span>}
+                            {group.label}
+                            <span className="font-normal normal-case tracking-normal text-muted-foreground">
+                              ({group.types.length})
+                            </span>
                           </span>
-                        )}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button size="icon" variant="ghost" onClick={() => openEdit(cat)} data-testid={`button-edit-type-${cat.id}`}>
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button size="icon" variant="ghost" onClick={() => setDeleteId(cat.id)} data-testid={`button-delete-type-${cat.id}`}>
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
+                          <span className="text-[10px] font-normal normal-case tracking-normal opacity-80 hidden sm:inline">
+                            {group.hint}
+                          </span>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                    {group.types.map(renderTypeRow)}
+                  </Fragment>
                 ))}
               </TableBody>
             </Table>
