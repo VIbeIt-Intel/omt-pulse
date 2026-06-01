@@ -1,8 +1,19 @@
 import { Capacitor } from "@capacitor/core";
 import { CapacitorAudioRecorder } from "@capgo/capacitor-audio-recorder";
 
+export type NativeRecordingMode = "plugin" | "legacy-apk" | "web";
+
+export function getNativeRecordingMode(): NativeRecordingMode {
+  if (!Capacitor.isNativePlatform()) return "web";
+  return Capacitor.isPluginAvailable("CapacitorAudioRecorder") ? "plugin" : "legacy-apk";
+}
+
 export function isNativeAudioRecorderAvailable(): boolean {
-  return Capacitor.isNativePlatform() && Capacitor.isPluginAvailable("CapacitorAudioRecorder");
+  return getNativeRecordingMode() === "plugin";
+}
+
+export function isCapacitorNativeShell(): boolean {
+  return Capacitor.isNativePlatform();
 }
 
 export async function requestNativeMicPermission(): Promise<boolean> {
@@ -11,7 +22,11 @@ export async function requestNativeMicPermission(): Promise<boolean> {
 }
 
 export async function startNativeRecording(): Promise<void> {
-  const perm = await CapacitorAudioRecorder.requestPermissions();
+  const checked = await CapacitorAudioRecorder.checkPermissions();
+  let perm = checked;
+  if (checked.recordAudio !== "granted") {
+    perm = await CapacitorAudioRecorder.requestPermissions();
+  }
   if (perm.recordAudio !== "granted") {
     throw new DOMException("Microphone permission denied", "NotAllowedError");
   }

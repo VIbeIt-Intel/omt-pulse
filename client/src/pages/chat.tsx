@@ -21,7 +21,7 @@ import {
 import { MessageSquare, Send, Plus, Search, Users, ArrowLeft, ImageIcon, Camera, Mic, Trash2, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MAX_VOICE_SECONDS, uploadFile, UploadValidationError } from "@/lib/upload-media";
-import { nativeMicDeniedHint } from "@/lib/native-mic-hint";
+import { nativeMicDeniedHint, nativeVoiceApkUpdateHint } from "@/lib/native-mic-hint";
 import {
   createAudioMediaRecorder,
   openMicStream,
@@ -30,10 +30,11 @@ import {
 } from "@/lib/voice-recorder";
 import {
   cancelNativeRecording,
-  isNativeAudioRecorderAvailable,
+  getNativeRecordingMode,
   startNativeRecording,
   stopNativeRecording,
 } from "@/lib/native-audio-recorder";
+import { Capacitor } from "@capacitor/core";
 
 type ChatMessage = {
   id: number;
@@ -213,6 +214,7 @@ export default function ChatPage() {
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const voiceInputRef = useRef<HTMLInputElement>(null);
+  const voiceCaptureInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -229,7 +231,16 @@ export default function ChatPage() {
 
   const { data: me } = useQuery<AuthUser>({ queryKey: ["/api/auth/me"] });
   const isAdmin = me?.role === "administrator" || !!me?.isSuperadmin;
-  const useNativeRecorder = isNativeAudioRecorderAvailable();
+  const [nativeRecordingMode, setNativeRecordingMode] = useState(getNativeRecordingMode);
+  const useNativeRecorder = nativeRecordingMode === "plugin";
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    const sync = () => setNativeRecordingMode(getNativeRecordingMode());
+    sync();
+    const timers = [150, 600, 1500].map((ms) => setTimeout(sync, ms));
+    return () => timers.forEach(clearTimeout);
+  }, []);
 
   const { data: conversations = [] } = useQuery<Conversation[]>({
     queryKey: ["/api/chat/conversations"],
@@ -462,13 +473,25 @@ export default function ChatPage() {
     }
   }
 
+  function voiceErrorDescription(description: string): string {
+    if (description === "mic-denied") return nativeMicDeniedHint();
+    if (description === "needs-apk-update") return nativeVoiceApkUpdateHint();
+    return description;
+  }
+
   function handleMicPress() {
     if (isRecording) {
       stopVoiceRecording();
       return;
     }
-    if (useNativeRecorder) {
-      void startNativeVoiceRecording();
+    if (Capacitor.isNativePlatform()) {
+      if (useNativeRecorder) {
+        void startNativeVoiceRecording();
+      } else {
+        // Old APK shells cannot use WebView MediaRecorder on Samsung — open system capture instead.
+        setShowAttachMenu(false);
+        voiceCaptureInputRef.current?.click();
+      }
       return;
     }
     startVoiceRecording();
@@ -496,7 +519,7 @@ export default function ChatPage() {
       const { title, description } = recordingErrorMessage(err);
       toast({
         title,
-        description: description === "mic-denied" ? nativeMicDeniedHint() : description,
+        description: voiceErrorDescription(description),
         variant: "destructive",
       });
     }
@@ -545,7 +568,7 @@ export default function ChatPage() {
       const { title, description } = recordingErrorMessage(err);
       toast({
         title,
-        description: description === "mic-denied" ? nativeMicDeniedHint() : description,
+        description: voiceErrorDescription(description),
         variant: "destructive",
       });
     }
@@ -703,6 +726,19 @@ export default function ChatPage() {
         className="hidden"
         onChange={(e) => { const f = e.target.files?.[0]; if (f) handleVoiceFile(f); }}
         data-testid="input-voice-file"
+      />
+      <input
+        ref={voiceCaptureInputRef}
+        type="file"
+        accept="audio/*"
+        capture="user"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) void handleVoiceFile(f);
+          e.target.value = "";
+        }}
+        data-testid="input-voice-capture"
       />
 
       {/* Left panel — conversation list */}

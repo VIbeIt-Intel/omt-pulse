@@ -57,8 +57,15 @@ export function recordingErrorMessage(err: unknown): { title: string; descriptio
       };
     }
   }
+  if (err instanceof Error && err.message.trim()) {
+    const msg = err.message.trim();
+    if (/permission/i.test(msg)) {
+      return { title: "Microphone access denied", description: "mic-denied" };
+    }
+    return { title: "Recording failed", description: msg };
+  }
   return {
     title: "Recording failed",
-    description: "Could not start recording. Update the OMT Pulse app to the latest version and try again.",
+    description: "needs-apk-update",
   };
 }
