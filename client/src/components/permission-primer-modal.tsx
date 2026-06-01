@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Capacitor } from "@capacitor/core";
 import { Camera, Mic, MapPin, ShieldCheck, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -7,7 +8,7 @@ const PRIMER_KEY = "omt-permission-primer-seen";
 const isSupported =
   typeof window !== "undefined" &&
   window.isSecureContext &&
-  !!navigator.permissions;
+  (Capacitor.isNativePlatform() || !!navigator.permissions);
 
 function hasSeen(): boolean {
   return localStorage.getItem(PRIMER_KEY) === "1";

@@ -21,6 +21,7 @@ import {
 import { MessageSquare, Send, Plus, Search, Users, ArrowLeft, ImageIcon, Camera, Mic, Trash2, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MAX_VOICE_SECONDS, uploadFile, UploadValidationError } from "@/lib/upload-media";
+import { nativeMicDeniedHint } from "@/lib/native-mic-hint";
 
 type ChatMessage = {
   id: number;
@@ -474,7 +475,7 @@ export default function ChatPage() {
       toast({
         title: isDenied ? "Microphone access denied" : "Recording failed",
         description: isDenied
-          ? "Enable microphone access in your device settings and try again."
+          ? nativeMicDeniedHint()
           : "Could not start recording. Please try again.",
         variant: "destructive",
       });
