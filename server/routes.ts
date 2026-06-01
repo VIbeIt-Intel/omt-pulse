@@ -534,6 +534,69 @@ function computeChanges(oldObj: Record<string, unknown>, newObj: Record<string, 
   return Object.keys(changes).length > 0 ? changes : null;
 }
 
+const CHAT_MAX_TEXT_LENGTH = 4000;
+const UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
+const UPLOAD_MAX_AUDIO_BYTES = 5 * 1024 * 1024;
+const ALLOWED_AUDIO_TYPES = new Set([
+  "audio/webm",
+  "audio/ogg",
+  "audio/mp4",
+  "audio/mpeg",
+  "audio/wav",
+  "audio/x-wav",
+]);
+
+function normalizeMimeType(contentType: string): string {
+  return contentType.split(";")[0]?.trim().toLowerCase() || "application/octet-stream";
+}
+
+function isAllowedChatMediaUrl(url: string, kind: "image" | "audio"): boolean {
+  if (url.startsWith(`data:${kind}/`)) return true;
+  try {
+    const pathname = url.startsWith("/") ? url : new URL(url).pathname;
+    return pathname.startsWith("/objects/");
+  } catch {
+    return url.startsWith("/objects/");
+  }
+}
+
+function validateChatContent(content: string): { ok: true; trimmed: string } | { ok: false; message: string } {
+  const trimmed = content.trim();
+  if (!trimmed) return { ok: false, message: "content is required" };
+
+  if (trimmed.startsWith("[img]")) {
+    const url = trimmed.slice(5).trim();
+    if (!url || !isAllowedChatMediaUrl(url, "image")) {
+      return { ok: false, message: "Invalid image attachment" };
+    }
+    return { ok: true, trimmed: `[img]${url}` };
+  }
+
+  if (trimmed.startsWith("[audio]")) {
+    const url = trimmed.slice(7).trim();
+    if (!url || !isAllowedChatMediaUrl(url, "audio")) {
+      return { ok: false, message: "Invalid voice note attachment" };
+    }
+    return { ok: true, trimmed: `[audio]${url}` };
+  }
+
+  if (trimmed.length > CHAT_MAX_TEXT_LENGTH) {
+    return { ok: false, message: `Message too long (max ${CHAT_MAX_TEXT_LENGTH} characters)` };
+  }
+
+  return { ok: true, trimmed };
+}
+
+function chatContentPreview(content: string): string {
+  if (content.startsWith("[img]")) return "Photo";
+  if (content.startsWith("[audio]")) return "Voice note";
+  return content.length > 120 ? content.slice(0, 117) + "…" : content;
+}
+
+function canManageChatMessage(user: User, msg: { senderId: string }): boolean {
+  return msg.senderId === user.id || user.role === "administrator" || !!user.isSuperadmin;
+}
+
 // Unique per server process — changes on every deploy/restart. The client
 // polls /api/version and prompts the user to refresh when this value changes.
 const BUILD_ID = String(Date.now());
@@ -565,6 +628,19 @@ export async function registerRoutes(
       return res.status(400).json({ message: "Failed to read upload data" });
     }
     if (!buffer.length) return res.status(400).json({ message: "Missing file data" });
+
+    const mime = normalizeMimeType(contentType);
+    if (buffer.length > UPLOAD_MAX_BYTES) {
+      return res.status(413).json({ message: `File too large (max ${UPLOAD_MAX_BYTES / (1024 * 1024)} MB)` });
+    }
+    if (mime.startsWith("audio/")) {
+      if (!ALLOWED_AUDIO_TYPES.has(mime)) {
+        return res.status(400).json({ message: "Unsupported audio format" });
+      }
+      if (buffer.length > UPLOAD_MAX_AUDIO_BYTES) {
+        return res.status(413).json({ message: `Voice note too large (max ${UPLOAD_MAX_AUDIO_BYTES / (1024 * 1024)} MB)` });
+      }
+    }
 
     // ── Step 2: try GCS object storage ───────────────────────────────────
     const proto = (req.headers["x-forwarded-proto"] as string) || req.protocol;
@@ -4133,8 +4209,12 @@ export async function registerRoutes(
   app.post("/api/chat/messages", async (req, res) => {
     const { id: userId, organizationId: orgId } = req.currentUser!;
     const { recipientId, content } = req.body ?? {};
-    if (!content || typeof content !== "string" || !content.trim()) {
+    if (typeof content !== "string") {
       return res.status(400).json({ message: "content is required" });
+    }
+    const validated = validateChatContent(content);
+    if (!validated.ok) {
+      return res.status(400).json({ message: validated.message });
     }
     if (recipientId !== null && recipientId !== undefined) {
       const partner = await storage.getUserById(recipientId);
@@ -4142,18 +4222,18 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Recipient not found" });
       }
     }
-    const msg = await storage.sendChatMessage(orgId, userId, recipientId ?? null, content.trim());
+    const msg = await storage.sendChatMessage(orgId, userId, recipientId ?? null, validated.trimmed);
     res.status(201).json(msg);
 
     // Fire push notifications non-blocking — failures must never affect the 201 response
     const senderId = userId;
     const finalRecipientId = recipientId ?? null;
-    const trimmedContent = content.trim();
+    const trimmedContent = validated.trimmed;
     Promise.resolve().then(async () => {
       try {
         const sender = await storage.getUserById(senderId);
         const senderName = sender ? `${sender.firstName} ${sender.lastName}`.trim() : "Someone";
-        const preview = trimmedContent.length > 120 ? trimmedContent.slice(0, 117) + "…" : trimmedContent;
+        const preview = chatContentPreview(trimmedContent);
         const title = finalRecipientId ? `💬 ${senderName}` : `💬 ${senderName} · General`;
         const payload = JSON.stringify({ type: "chat_message", title, body: preview, url: "/chat" });
         const pushOpts = { TTL: 60 };
@@ -4232,6 +4312,38 @@ export async function registerRoutes(
     const readNotifUrl = recipientId ? `/chat?dm=${recipientId}` : "/chat?type=group";
     storage.deleteNotificationLogsByUserAndUrl(orgId, userId, readNotifUrl).catch(() => {});
     res.json({ ok: true });
+  });
+
+  app.delete("/api/chat/messages/:id", async (req, res) => {
+    const user = req.currentUser!;
+    const orgId = user.organizationId;
+    const id = parseInt(req.params.id as string, 10);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid message ID" });
+
+    const msg = await storage.getChatMessageById(id, orgId);
+    if (!msg) return res.status(404).json({ message: "Message not found" });
+
+    if (!canManageChatMessage(user, msg)) {
+      return res.status(403).json({ message: "You can only delete your own messages" });
+    }
+
+    await storage.deleteChatMessage(id, orgId);
+    audit(user.id, orgId, "chat.delete_message", `Deleted chat message #${id}`, {
+      entityType: "chat_message",
+      entityId: String(id),
+    });
+    res.json({ ok: true });
+  });
+
+  app.delete("/api/chat/group", requireAdmin, async (req, res) => {
+    const user = req.currentUser!;
+    const orgId = user.organizationId;
+    const count = await storage.clearGroupChatMessages(orgId);
+    audit(user.id, orgId, "chat.clear_group", `Cleared General chat (${count} messages)`, {
+      entityType: "chat_thread",
+      entityId: "group",
+    });
+    res.json({ ok: true, deletedCount: count });
   });
 
   app.delete("/api/imports/:id", requireAdmin, async (req, res) => {

@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -8,8 +7,20 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { MessageSquare, Send, Plus, Search, Users, ArrowLeft, ImageIcon, Camera } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { MessageSquare, Send, Plus, Search, Users, ArrowLeft, ImageIcon, Camera, Mic, Trash2, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { MAX_VOICE_SECONDS, uploadFile, UploadValidationError } from "@/lib/upload-media";
 
 type ChatMessage = {
   id: number;
@@ -48,8 +59,32 @@ type AuthUser = {
   firstName: string;
   lastName: string;
   organizationId: string;
+  role: string;
+  isSuperadmin?: boolean;
   avatarUrl?: string | null;
 };
+
+function mediaSrc(url: string): string {
+  if (url.startsWith("data:")) return url;
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return url;
+  }
+}
+
+function previewMessage(content: string | null): string | null {
+  if (!content) return null;
+  if (content.startsWith("[img]")) return "Photo";
+  if (content.startsWith("[audio]")) return "Voice note";
+  return content;
+}
+
+function formatRecordingTime(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
 
 function formatTime(iso: string) {
   const d = new Date(iso);
@@ -156,7 +191,6 @@ function NewDmDialog({
 }
 
 export default function ChatPage() {
-  const [, navigate] = useLocation();
   const { toast } = useToast();
   const qc = useQueryClient();
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -165,14 +199,22 @@ export default function ChatPage() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recordingStreamRef = useRef<MediaStream | null>(null);
   const [newDmOpen, setNewDmOpen] = useState(false);
   const [showThread, setShowThread] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [text, setText] = useState("");
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [uploadingVoice, setUploadingVoice] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [activeConvo, setActiveConvo] = useState<{ type: "group" } | { type: "dm"; recipientId: string; recipientName: string; recipientAvatarUrl: string | null }>({ type: "group" });
 
   const { data: me } = useQuery<AuthUser>({ queryKey: ["/api/auth/me"] });
+  const isAdmin = me?.role === "administrator" || !!me?.isSuperadmin;
 
   const { data: conversations = [] } = useQuery<Conversation[]>({
     queryKey: ["/api/chat/conversations"],
@@ -277,6 +319,64 @@ export default function ChatPage() {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: async (messageId: number) => apiRequest("DELETE", `/api/chat/messages/${messageId}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: messagesQueryKey });
+      qc.invalidateQueries({ queryKey: ["/api/chat/conversations"] });
+    },
+    onError: () => {
+      toast({ title: "Failed to delete message", variant: "destructive" });
+    },
+  });
+
+  const clearGroupMutation = useMutation({
+    mutationFn: async () => apiRequest("DELETE", "/api/chat/group"),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: messagesQueryKey });
+      qc.invalidateQueries({ queryKey: ["/api/chat/conversations"] });
+      toast({ title: "General chat cleared" });
+    },
+    onError: () => {
+      toast({ title: "Failed to clear General chat", variant: "destructive" });
+    },
+  });
+
+  const stopRecordingTracks = useCallback(() => {
+    recordingStreamRef.current?.getTracks().forEach((t) => t.stop());
+    recordingStreamRef.current = null;
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (mediaRecorderRef.current?.state !== "inactive") {
+        mediaRecorderRef.current?.stop();
+      }
+      stopRecordingTracks();
+    };
+  }, [stopRecordingTracks]);
+
+  useEffect(() => {
+    if (isRecording && mediaRecorderRef.current?.state !== "inactive") {
+      mediaRecorderRef.current?.stop();
+    }
+    stopRecordingTracks();
+    setIsRecording(false);
+    setRecordingSeconds(0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeConvoKey]);
+
+  async function sendMediaMessage(content: string) {
+    const recipientId = activeConvo.type === "dm" ? activeConvo.recipientId : null;
+    await apiRequest("POST", "/api/chat/messages", { recipientId, content });
+    qc.invalidateQueries({ queryKey: messagesQueryKey });
+    qc.invalidateQueries({ queryKey: ["/api/chat/conversations"] });
+  }
+
   async function handleImageFile(file: File) {
     if (!file) return;
     if (!file.type.startsWith("image/")) {
@@ -294,19 +394,104 @@ export default function ChatPage() {
       });
       if (!uploadResp.ok) throw new Error(`Upload failed: ${uploadResp.status}`);
       const { objectUrl } = await uploadResp.json();
-      const recipientId = activeConvo.type === "dm" ? activeConvo.recipientId : null;
-      await apiRequest("POST", "/api/chat/messages", {
-        recipientId,
-        content: `[img]${objectUrl}`,
-      });
-      qc.invalidateQueries({ queryKey: messagesQueryKey });
-      qc.invalidateQueries({ queryKey: ["/api/chat/conversations"] });
+      await sendMediaMessage(`[img]${objectUrl}`);
     } catch {
       toast({ title: "Image upload failed", variant: "destructive" });
     } finally {
       setUploadingImage(false);
       if (galleryInputRef.current) galleryInputRef.current.value = "";
       if (cameraInputRef.current) cameraInputRef.current.value = "";
+    }
+  }
+
+  async function uploadAndSendVoice(blob: Blob, mimeType: string) {
+    setUploadingVoice(true);
+    try {
+      const { objectUrl } = await uploadFile(blob, mimeType);
+      await sendMediaMessage(`[audio]${objectUrl}`);
+    } catch (err) {
+      const message = err instanceof UploadValidationError
+        ? err.message
+        : "Voice note upload failed";
+      toast({ title: message, variant: "destructive" });
+    } finally {
+      setUploadingVoice(false);
+    }
+  }
+
+  async function startVoiceRecording() {
+    if (isRecording || uploadingVoice || uploadingImage) return;
+    setShowAttachMenu(false);
+    let stream: MediaStream | null = null;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      recordingStreamRef.current = stream;
+      const supportedType = ["audio/webm", "audio/ogg", "audio/mp4"].find((t) =>
+        MediaRecorder.isTypeSupported(t),
+      );
+      if (!supportedType) {
+        stopRecordingTracks();
+        toast({
+          title: "Recording not supported",
+          description: "Your browser does not support audio recording.",
+          variant: "destructive",
+        });
+        return;
+      }
+      audioChunksRef.current = [];
+      const recorder = new MediaRecorder(stream, { mimeType: supportedType });
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+      recorder.onstop = () => {
+        stopRecordingTracks();
+        const blob = new Blob(audioChunksRef.current, { type: supportedType });
+        if (blob.size > 0) {
+          uploadAndSendVoice(blob, supportedType);
+        }
+        mediaRecorderRef.current = null;
+        setIsRecording(false);
+        setRecordingSeconds(0);
+      };
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      setRecordingSeconds(0);
+      setIsRecording(true);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingSeconds((s) => {
+          if (s + 1 >= MAX_VOICE_SECONDS) {
+            stopVoiceRecording();
+            return MAX_VOICE_SECONDS;
+          }
+          return s + 1;
+        });
+      }, 1000);
+    } catch (err: unknown) {
+      stopRecordingTracks();
+      setIsRecording(false);
+      setRecordingSeconds(0);
+      const isDenied = err instanceof DOMException && (err.name === "NotAllowedError" || err.name === "PermissionDeniedError");
+      toast({
+        title: isDenied ? "Microphone access denied" : "Recording failed",
+        description: isDenied
+          ? "Enable microphone access in your device settings and try again."
+          : "Could not start recording. Please try again.",
+        variant: "destructive",
+      });
+    }
+  }
+
+  function stopVoiceRecording() {
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    } else {
+      stopRecordingTracks();
+      setIsRecording(false);
+      setRecordingSeconds(0);
     }
   }
 
@@ -369,8 +554,7 @@ export default function ChatPage() {
 
   function renderMessageContent(content: string, isMe: boolean) {
     if (content.startsWith("[img]")) {
-      const url = content.slice(5);
-      const imgSrc = url.startsWith("data:") ? url : (() => { try { return new URL(url).pathname; } catch { return url; } })();
+      const imgSrc = mediaSrc(content.slice(5));
       return (
         <a href={imgSrc} target="_blank" rel="noopener noreferrer" data-testid="msg-image-link">
           <img
@@ -380,6 +564,20 @@ export default function ChatPage() {
             onError={(e) => { (e.currentTarget as HTMLImageElement).alt = "Image unavailable"; }}
           />
         </a>
+      );
+    }
+    if (content.startsWith("[audio]")) {
+      const audioSrc = mediaSrc(content.slice(7));
+      return (
+        <div
+          className={cn(
+            "px-2 py-1.5 rounded-2xl min-w-[200px] max-w-[260px]",
+            isMe ? "bg-primary/90" : "bg-muted",
+          )}
+          data-testid="msg-audio"
+        >
+          <audio controls src={audioSrc} className="w-full h-8" preload="metadata" />
+        </div>
       );
     }
     return (
@@ -477,7 +675,7 @@ export default function ChatPage() {
                   )}
                 </div>
                 {groupConvo?.lastMessage && (
-                  <p className="text-xs text-muted-foreground truncate mt-0.5">{groupConvo.lastMessage}</p>
+                  <p className="text-xs text-muted-foreground truncate mt-0.5">{previewMessage(groupConvo.lastMessage)}</p>
                 )}
               </div>
               {(groupConvo?.unreadCount ?? 0) > 0 && (
@@ -512,7 +710,7 @@ export default function ChatPage() {
                     )}
                   </div>
                   {convo.lastMessage && (
-                    <p className="text-xs text-muted-foreground truncate mt-0.5">{convo.lastMessage}</p>
+                    <p className="text-xs text-muted-foreground truncate mt-0.5">{previewMessage(convo.lastMessage)}</p>
                   )}
                 </div>
                 {convo.unreadCount > 0 && (
@@ -531,8 +729,63 @@ export default function ChatPage() {
         "flex flex-col flex-1 min-w-0",
         !showThread ? "hidden md:flex" : "flex"
       )}>
-        {/* Minimal back row — mobile only, no name/avatar */}
-        <div className="flex md:hidden items-center px-2 py-1.5 border-b shrink-0 bg-background">
+        {/* Thread header — title + admin clear (General only) */}
+        <div className="hidden md:flex items-center justify-between px-4 py-2 border-b shrink-0 bg-background">
+          <div className="flex items-center gap-2 min-w-0">
+            {activeConvo.type === "group" ? (
+              <>
+                <Users className="h-4 w-4 text-primary shrink-0" />
+                <span className="font-medium text-sm truncate">General</span>
+              </>
+            ) : (
+              <>
+                <Initials
+                  firstName={activeConvo.recipientName.split(" ")[0] ?? ""}
+                  lastName={activeConvo.recipientName.split(" ").slice(1).join(" ") ?? ""}
+                  avatarUrl={activeConvo.recipientAvatarUrl}
+                  size="sm"
+                />
+                <span className="font-medium text-sm truncate">{activeConvo.recipientName}</span>
+              </>
+            )}
+          </div>
+          {activeConvo.type === "group" && isAdmin && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                  disabled={clearGroupMutation.isPending || messages.length === 0}
+                  data-testid="button-clear-general-chat"
+                >
+                  <Trash2 className="h-3.5 w-3.5 mr-1" />
+                  Clear chat
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Clear General chat?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This permanently deletes all messages in the General channel for your organization. Direct messages are not affected.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    onClick={() => clearGroupMutation.mutate()}
+                  >
+                    Clear all messages
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+        </div>
+
+        {/* Minimal back row — mobile only */}
+        <div className="flex md:hidden items-center justify-between px-2 py-1.5 border-b shrink-0 bg-background">
           <Button
             variant="ghost"
             size="icon"
@@ -542,6 +795,44 @@ export default function ChatPage() {
           >
             <ArrowLeft className="h-4 w-4" />
           </Button>
+          <span className="text-sm font-medium truncate flex-1 text-center px-2">
+            {activeConvo.type === "group" ? "General" : activeConvo.recipientName}
+          </span>
+          {activeConvo.type === "group" && isAdmin ? (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-destructive"
+                  disabled={clearGroupMutation.isPending || messages.length === 0}
+                  data-testid="button-clear-general-chat-mobile"
+                  aria-label="Clear General chat"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Clear General chat?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This permanently deletes all messages in the General channel. Direct messages are not affected.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    onClick={() => clearGroupMutation.mutate()}
+                  >
+                    Clear all
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          ) : (
+            <div className="w-8" />
+          )}
         </div>
 
         {/* Messages */}
@@ -564,12 +855,13 @@ export default function ChatPage() {
                   const isMe = msg.senderId === me?.id;
                   const prevMsg = group.messages[idx - 1];
                   const showAvatar = !prevMsg || prevMsg.senderId !== msg.senderId;
-                  const isImage = msg.content.startsWith("[img]");
+                  const isMedia = msg.content.startsWith("[img]") || msg.content.startsWith("[audio]");
+                  const canDelete = isMe || isAdmin;
 
                   return (
                     <div
                       key={msg.id}
-                      className={cn("flex items-end gap-2", isMe && "flex-row-reverse")}
+                      className={cn("flex items-end gap-2 group", isMe && "flex-row-reverse")}
                       data-testid={`msg-${msg.id}`}
                     >
                       <div className="shrink-0 w-7">
@@ -584,16 +876,31 @@ export default function ChatPage() {
                             {isMe ? "You" : `${msg.senderFirstName} ${msg.senderLastName}`}
                           </span>
                         )}
-                        <div className={cn("flex items-end gap-1.5", isImage && "flex-col", isMe && !isImage && "flex-row-reverse")}>
-                          {!isImage && isMe && (
+                        <div className={cn("flex items-end gap-1.5", isMedia && "flex-col", isMe && !isMedia && "flex-row-reverse")}>
+                          {!isMedia && isMe && (
                             <span className="text-[10px] text-muted-foreground shrink-0 mb-0.5">{formatMessageTime(msg.createdAt)}</span>
                           )}
                           {renderMessageContent(msg.content, isMe)}
-                          {!isImage && !isMe && (
+                          {!isMedia && !isMe && (
                             <span className="text-[10px] text-muted-foreground shrink-0 mb-0.5">{formatMessageTime(msg.createdAt)}</span>
                           )}
-                          {isImage && (
+                          {isMedia && (
                             <span className={cn("text-[10px] text-muted-foreground", isMe && "self-end")}>{formatMessageTime(msg.createdAt)}</span>
+                          )}
+                          {canDelete && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className={cn(
+                                "h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive opacity-70 md:opacity-0 md:group-hover:opacity-100",
+                                deleteMutation.isPending && "pointer-events-none opacity-40",
+                              )}
+                              onClick={() => deleteMutation.mutate(msg.id)}
+                              aria-label="Delete message"
+                              data-testid={`button-delete-msg-${msg.id}`}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
                           )}
                         </div>
                       </div>
@@ -608,8 +915,26 @@ export default function ChatPage() {
 
         {/* Input bar */}
         <div className="px-3 py-3 border-t shrink-0 bg-background">
+          {isRecording && (
+            <div className="flex items-center justify-between gap-2 mb-2 px-2 py-2 rounded-lg bg-destructive/10 border border-destructive/20">
+              <div className="flex items-center gap-2 text-sm text-destructive">
+                <span className="h-2 w-2 rounded-full bg-destructive animate-pulse" />
+                Recording {formatRecordingTime(recordingSeconds)}
+              </div>
+              <Button
+                size="sm"
+                variant="destructive"
+                className="h-8 gap-1"
+                onClick={stopVoiceRecording}
+                data-testid="button-stop-voice-recording"
+              >
+                <Square className="h-3 w-3 fill-current" />
+                Stop
+              </Button>
+            </div>
+          )}
           {/* Attach menu */}
-          {showAttachMenu && (
+          {showAttachMenu && !isRecording && (
             <div className="flex items-center gap-2 mb-2 px-1">
               <button
                 className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors py-1 px-2 rounded-lg hover:bg-muted/60"
@@ -635,7 +960,7 @@ export default function ChatPage() {
               size="icon"
               className={cn("shrink-0 h-10 w-10 rounded-xl", showAttachMenu && "text-primary bg-primary/10")}
               onClick={() => setShowAttachMenu((v) => !v)}
-              disabled={uploadingImage}
+              disabled={uploadingImage || uploadingVoice || isRecording}
               data-testid="button-toggle-attach"
               aria-label="Attach image"
             >
@@ -643,6 +968,24 @@ export default function ChatPage() {
                 <span className="h-4 w-4 rounded-full border-2 border-primary border-t-transparent animate-spin" />
               ) : (
                 <ImageIcon className="h-4 w-4" />
+              )}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                "shrink-0 h-10 w-10 rounded-xl",
+                isRecording && "text-destructive bg-destructive/10",
+              )}
+              onClick={isRecording ? stopVoiceRecording : startVoiceRecording}
+              disabled={uploadingImage || uploadingVoice || sendMutation.isPending}
+              data-testid="button-voice-note"
+              aria-label={isRecording ? "Stop recording" : "Record voice note"}
+            >
+              {uploadingVoice ? (
+                <span className="h-4 w-4 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+              ) : (
+                <Mic className="h-4 w-4" />
               )}
             </Button>
             <textarea
@@ -653,13 +996,14 @@ export default function ChatPage() {
               onChange={(e) => setText(e.target.value)}
               onKeyDown={handleKeyDown}
               rows={1}
+              disabled={isRecording}
               data-testid="input-chat-message"
             />
             <Button
               size="icon"
               className="shrink-0 h-10 w-10 rounded-xl"
               onClick={handleSend}
-              disabled={!text.trim() || sendMutation.isPending}
+              disabled={!text.trim() || sendMutation.isPending || isRecording}
               data-testid="button-send-message"
             >
               <Send className="h-4 w-4" />

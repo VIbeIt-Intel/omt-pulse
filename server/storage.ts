@@ -208,6 +208,9 @@ export interface IStorage {
   // Chat
   getChatMessages(orgId: string, userId: string, opts: { type: 'group'; limit: number; before?: number } | { type: 'dm'; withUserId: string; limit: number; before?: number }): Promise<Array<ChatMessage & { senderFirstName: string; senderLastName: string; senderAvatarUrl: string | null }>>;
   sendChatMessage(orgId: string, senderId: string, recipientId: string | null, content: string): Promise<ChatMessage & { senderFirstName: string; senderLastName: string; senderAvatarUrl: string | null }>;
+  getChatMessageById(id: number, orgId: string): Promise<ChatMessage | undefined>;
+  deleteChatMessage(id: number, orgId: string): Promise<boolean>;
+  clearGroupChatMessages(orgId: string): Promise<number>;
   getChatConversations(orgId: string, userId: string): Promise<Array<{ recipientId: string | null; recipientFirstName: string | null; recipientLastName: string | null; recipientAvatarUrl: string | null; lastMessage: string | null; lastMessageAt: string | null; unreadCount: number }>>;
   markThreadRead(orgId: string, userId: string, recipientId: string | null): Promise<void>;
 
@@ -1699,6 +1702,21 @@ export class DatabaseStorage implements IStorage {
       senderLastName: sender?.lastName ?? "",
       senderAvatarUrl: sender?.avatarUrl ?? null,
     };
+  }
+
+  async getChatMessageById(id: number, orgId: string): Promise<ChatMessage | undefined> {
+    const [msg] = await db.select().from(chatMessages).where(and(eq(chatMessages.id, id), eq(chatMessages.organizationId, orgId)));
+    return msg;
+  }
+
+  async deleteChatMessage(id: number, orgId: string): Promise<boolean> {
+    const deleted = await db.delete(chatMessages).where(and(eq(chatMessages.id, id), eq(chatMessages.organizationId, orgId))).returning({ id: chatMessages.id });
+    return deleted.length > 0;
+  }
+
+  async clearGroupChatMessages(orgId: string): Promise<number> {
+    const deleted = await db.delete(chatMessages).where(and(eq(chatMessages.organizationId, orgId), isNull(chatMessages.recipientId))).returning({ id: chatMessages.id });
+    return deleted.length;
   }
 
   async getChatConversations(orgId: string, userId: string): Promise<Array<{ recipientId: string | null; recipientFirstName: string | null; recipientLastName: string | null; recipientAvatarUrl: string | null; lastMessage: string | null; lastMessageAt: string | null; unreadCount: number }>> {
