@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useLocation } from "wouter";
+import { useLocation, Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
@@ -123,10 +123,24 @@ function getMarkerColor(inc: LiveIncident): string {
   return inc.categoryColor ?? "#22c55e";
 }
 
-function getSeverityRingColor(severity: string | null): string | null {
+/** True when a hex colour reads as yellow/gold (category + severity would double-stack). */
+function isYellowishHex(hex: string): boolean {
+  const h = hex.replace("#", "");
+  if (h.length !== 6) return false;
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return r > 170 && g > 130 && b < 140;
+}
+
+function getSeverityRingColor(severity: string | null, categoryColor?: string | null): string | null {
   if (severity === "red") return "#ef4444";
   if (severity === "orange") return "#f97316";
-  if (severity === "yellow") return "#eab308";
+  if (severity === "yellow") {
+    // Yellow category + yellow severity ring = unreadable blob; category colour is enough.
+    if (categoryColor && isYellowishHex(categoryColor)) return null;
+    return "#92400e";
+  }
   return null;
 }
 
@@ -162,11 +176,18 @@ function makePanicMarkerIcon(label?: string | null): google.maps.Icon {
   };
 }
 
-function makeMarkerIcon(color: string, escalated: boolean, severity?: string | null, label?: string | null): google.maps.Icon {
+function makeMarkerIcon(
+  color: string,
+  escalated: boolean,
+  severity?: string | null,
+  label?: string | null,
+  categoryColor?: string | null,
+): google.maps.Icon {
   const dur = escalated ? "0.7s" : "1.4s";
-  const ringColor = getSeverityRingColor(severity ?? null);
+  const ringColor = getSeverityRingColor(severity ?? null, categoryColor);
   const dotSize = ringColor ? 48 : 40;
   const cx = dotSize / 2;
+  const pulseOpacity = severity === "yellow" ? "0.22" : "0.4";
   const warning = escalated
     ? `<line x1="${cx}" y1="${cx - 6}" x2="${cx}" y2="${cx + 1}" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
        <circle cx="${cx}" cy="${cx + 5}" r="1.2" fill="white"/>`
@@ -188,9 +209,9 @@ function makeMarkerIcon(color: string, escalated: boolean, severity?: string | n
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}">
     ${severityRing}
-    <circle cx="${cx}" cy="${cx}" r="10" fill="${color}" opacity="0.4">
+    <circle cx="${cx}" cy="${cx}" r="10" fill="${color}" opacity="${pulseOpacity}">
       <animate attributeName="r" values="10;20;10" dur="${dur}" repeatCount="indefinite"/>
-      <animate attributeName="opacity" values="0.4;0;0.4" dur="${dur}" repeatCount="indefinite"/>
+      <animate attributeName="opacity" values="${pulseOpacity};0;${pulseOpacity}" dur="${dur}" repeatCount="indefinite"/>
     </circle>
     <circle cx="${cx}" cy="${cx}" r="10" fill="${color}" stroke="white" stroke-width="2.5"/>
     ${warning}
@@ -212,6 +233,28 @@ function makeDestinationIcon(): google.maps.Icon {
     url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
     scaledSize: new google.maps.Size(28, 36),
     anchor: new google.maps.Point(14, 36),
+  };
+}
+
+function makeJoinerMarkerIcon(label: string, pendingGps: boolean): google.maps.Icon {
+  const labelText = label.replace(/[<>&]/g, "") || "Joiner";
+  const pillWidth = Math.max(44, labelText.length * 7 + 14);
+  const svgW = Math.max(44, pillWidth);
+  const svgH = 50;
+  const dotCx = svgW / 2;
+  const pillX = (svgW - pillWidth) / 2;
+  const fill = pendingGps ? "#64748b" : "#2563eb";
+  const pulse = pendingGps
+    ? ""
+    : `<circle cx="${dotCx}" cy="16" r="10" fill="${fill}" fill-opacity="0.25"><animate attributeName="r" from="10" to="15" dur="1.4s" repeatCount="indefinite"/><animate attributeName="fill-opacity" from="0.25" to="0" dur="1.4s" repeatCount="indefinite"/></circle>`;
+  const dot = pendingGps
+    ? `<circle cx="${dotCx}" cy="16" r="9" fill="none" stroke="${fill}" stroke-width="2" stroke-dasharray="3 2"/><circle cx="${dotCx}" cy="16" r="4" fill="${fill}" stroke="#ffffff" stroke-width="1.5"/>`
+    : `<circle cx="${dotCx}" cy="16" r="7" fill="${fill}" stroke="#ffffff" stroke-width="2"/>`;
+  const jSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}">${pulse}${dot}<rect x="${pillX}" y="32" width="${pillWidth}" height="14" rx="7" fill="${fill}" stroke="#ffffff" stroke-width="1"/><text x="${dotCx}" y="42" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" font-weight="600" fill="#ffffff">${labelText}</text></svg>`;
+  return {
+    url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(jSvg)}`,
+    scaledSize: new google.maps.Size(svgW, svgH),
+    anchor: new google.maps.Point(dotCx, 16),
   };
 }
 
@@ -391,7 +434,7 @@ export default function LiveMonitorPage() {
       const color = isPanic ? "#dc2626" : getMarkerColor(inc);
       const icon = isPanic
         ? makePanicMarkerIcon(inc.responderFirstName ?? null)
-        : makeMarkerIcon(color, inc.isEscalated, inc.severity, inc.responderFirstName ?? null);
+        : makeMarkerIcon(color, inc.isEscalated, inc.severity, inc.responderFirstName ?? null, inc.categoryColor);
       const zIndex = isPanic ? 300 : (inc.isEscalated ? 200 : 100);
       const name = getResponderName(inc);
       const duration = formatDuration(inc.liveStartedAt);
@@ -496,42 +539,47 @@ export default function LiveMonitorPage() {
     const joinerInfo = joinerInfoRef.current;
     const activeJoinerKeys = new Set<string>();
     for (const inc of liveIncidents) {
-      for (const r of (inc.responders ?? [])) {
+      const joiners = (inc.responders ?? []).filter((r) => r.userId !== inc.userId);
+      joiners.forEach((r, idx) => {
         const key = `joiner-${inc.id}-${r.userId}`;
         activeJoinerKeys.add(key);
-        if (r.lastLat == null || r.lastLng == null) continue;
-        const jPos = { lat: r.lastLat, lng: r.lastLng };
+        const hasGps = r.lastLat != null && r.lastLng != null;
+        let jPos: google.maps.LatLngLiteral | null = null;
+        if (hasGps) {
+          jPos = { lat: r.lastLat!, lng: r.lastLng! };
+        } else {
+          const baseLat = inc.responderLat ?? inc.latitude;
+          const baseLng = inc.responderLng ?? inc.longitude;
+          if (baseLat == null || baseLng == null) return;
+          // Slight offset so pending joiners don't stack on the creator pin
+          jPos = { lat: baseLat + 0.00025 * (idx + 1), lng: baseLng + 0.00018 * (idx + 1) };
+        }
         bounds.extend(jPos);
         hasBounds = true;
         const arrivedStr = r.arrivedAt ? `<div style="color:#16a34a;font-size:11px;font-weight:600">✅ Arrived ${formatTime(r.arrivedAt)}</div>` : "";
-        const posStr = r.lastPositionAt && !r.arrivedAt ? `<div style="color:#6b7280;font-size:11px">GPS: ${formatTime(r.lastPositionAt)}</div>` : "";
+        const posStr = hasGps && r.lastPositionAt && !r.arrivedAt
+          ? `<div style="color:#6b7280;font-size:11px">GPS: ${formatTime(r.lastPositionAt)}</div>`
+          : !hasGps && !r.arrivedAt
+            ? `<div style="color:#64748b;font-size:11px;font-weight:600">Awaiting GPS — shown near incident</div>`
+            : "";
         const noteStr = r.arrivalNote ? `<div style="color:#374151;font-size:11px;margin-top:2px">${r.arrivalNote}</div>` : "";
         const jHtml = `<div style="min-width:160px;font-family:system-ui;font-size:13px;line-height:1.5;padding:2px 0"><div style="font-weight:700;margin-bottom:4px;font-size:14px">👥 ${r.firstName} ${r.lastName}</div><div style="color:#2563eb;font-size:11px;font-weight:600">Joiner on Incident #${inc.id}</div>${arrivedStr}${posStr}${noteStr}</div>`;
         joinerInfo.set(key, jHtml);
+        const pendingGps = !hasGps;
+        const labelText = r.firstName || "Joiner";
+        const icon = makeJoinerMarkerIcon(labelText, pendingGps);
         const existing = joinerMarkerMap.get(key);
         if (existing) {
           existing.setPosition(jPos);
+          existing.setIcon(icon);
+          existing.setZIndex(pendingGps ? 85 : 90);
         } else {
-          // SVG bakes a permanent name pill below the pulsing dot so dispatchers
-          // can identify joiners at a glance without clicking the marker.
-          const labelText = (r.firstName || "Joiner").replace(/[<>&]/g, "");
-          const pillWidth = Math.max(44, labelText.length * 7 + 14);
-          const svgW = Math.max(44, pillWidth);
-          const svgH = 50;
-          const dotCx = svgW / 2;
-          const pillX = (svgW - pillWidth) / 2;
-          const jSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}"><circle cx="${dotCx}" cy="16" r="10" fill="#2563eb" fill-opacity="0.25"><animate attributeName="r" from="10" to="15" dur="1.4s" repeatCount="indefinite"/><animate attributeName="fill-opacity" from="0.25" to="0" dur="1.4s" repeatCount="indefinite"/></circle><circle cx="${dotCx}" cy="16" r="7" fill="#2563eb" stroke="#ffffff" stroke-width="2"/><rect x="${pillX}" y="32" width="${pillWidth}" height="14" rx="7" fill="#2563eb" stroke="#ffffff" stroke-width="1"/><text x="${dotCx}" y="42" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" font-weight="600" fill="#ffffff">${labelText}</text></svg>`;
-          const pulsingIcon = {
-            url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(jSvg)}`,
-            scaledSize: new google.maps.Size(svgW, svgH),
-            anchor: new google.maps.Point(dotCx, 16),
-          };
           const jm = new google.maps.Marker({
             position: jPos,
             map,
-            icon: pulsingIcon,
-            title: `${r.firstName} ${r.lastName}`,
-            zIndex: 90,
+            icon,
+            title: `${r.firstName} ${r.lastName}${pendingGps ? " (awaiting GPS)" : ""}`,
+            zIndex: pendingGps ? 85 : 90,
           });
           jm.addListener("click", () => {
             const iw = infoWindowRef.current;
@@ -540,7 +588,7 @@ export default function LiveMonitorPage() {
           });
           joinerMarkerMap.set(key, jm);
         }
-      }
+      });
     }
     // Remove stale joiner markers
     for (const [key, m] of Array.from(joinerMarkerMap.entries())) {
@@ -1066,9 +1114,21 @@ function LiveIncidentCard({
               {isJoining ? "Joining…" : "Respond — Join & Track GPS"}
             </Button>
           ) : (
-            <div className="flex items-center gap-1.5 text-xs text-blue-600 dark:text-blue-400 font-medium">
-              <UserPlus className="h-3 w-3" />
-              You are responding to this incident
+            <div className="flex flex-col gap-2 pb-1">
+              <Link href="/live-incident" className="block">
+                <Button
+                  size="sm"
+                  className="w-full text-xs h-10 bg-blue-600 hover:bg-blue-700 text-white gap-1.5"
+                  data-testid={`button-open-gps-tracking-${incident.id}`}
+                >
+                  <Navigation className="h-3.5 w-3.5" />
+                  Open GPS Tracking
+                </Button>
+              </Link>
+              <div className="flex items-center gap-1.5 text-xs text-blue-600 dark:text-blue-400 font-medium px-1">
+                <UserPlus className="h-3 w-3" />
+                You are responding — stay on Live Incident to share GPS
+              </div>
             </div>
           )}
         </div>

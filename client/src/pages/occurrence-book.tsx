@@ -27,11 +27,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Pencil, Trash2, BookOpen, Eye, Paperclip, Map as MapIcon, X, CalendarRange, Download, ArrowLeft, ClipboardList, FileText, Radio, BarChart2, Siren, MessageSquare, ChevronRight } from "lucide-react";
+import { Plus, Pencil, Trash2, BookOpen, Eye, Paperclip, Map as MapIcon, X, CalendarRange, Download, ArrowLeft, Radio, Siren } from "lucide-react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { PanicBanner, type PanicAlert } from "@/components/panic-banner";
-import { HeartbeatLine } from "@/components/heartbeat-line";
-import omtLogo from "@/assets/omt-logo-v2.png";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -56,7 +54,6 @@ export default function OccurrenceBook() {
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
   const [severityFilter, setSeverityFilter] = useState<string>("any");
-  const [showMyIncidents, setShowMyIncidents] = useState(false);
   const [dismissedLiveAlert, setDismissedLiveAlert] = useState(false);
   const [dismissedPanicAlertIds, setDismissedPanicAlertIds] = useState<Set<number>>(() => {
     try {
@@ -81,12 +78,16 @@ export default function OccurrenceBook() {
     const n = v ? parseInt(v, 10) : NaN;
     return Number.isFinite(n) ? n : null;
   }, [search]);
-  const clearImportBatchFilter = () => setLocation("/");
+  const clearImportBatchFilter = () => setLocation("/occurrence-book");
   const deepLinkIncidentId = useMemo(() => {
     const params = new URLSearchParams(search);
     const v = params.get("incident");
     const n = v ? parseInt(v, 10) : NaN;
     return Number.isFinite(n) ? n : null;
+  }, [search]);
+  const periodParam = useMemo(() => {
+    const p = new URLSearchParams(search).get("period");
+    return p === "week" ? "week" : p === "day" ? "day" : null;
   }, [search]);
   const { toast } = useToast();
 
@@ -217,10 +218,19 @@ export default function OccurrenceBook() {
   const isReporter = currentUser?.role === "reporter";
 
   useEffect(() => {
-    if ((isAdmin || isSupervisor) && !showMyIncidents) {
-      setShowMyIncidents(true);
+    if (!periodParam) return;
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+    if (periodParam === "day") {
+      setDateFrom(todayStr);
+      setDateTo(todayStr);
+    } else {
+      const d = new Date(now);
+      d.setDate(d.getDate() - 6);
+      setDateFrom(d.toISOString().slice(0, 10));
+      setDateTo(todayStr);
     }
-  }, [isAdmin, isSupervisor, showMyIncidents]);
+  }, [periodParam]);
 
   const prevLiveCountRef = useRef(0);
   useEffect(() => {
@@ -300,6 +310,7 @@ export default function OccurrenceBook() {
 
   const filteredIncidents = useMemo(() => {
     return incidents.filter((inc) => {
+      if (isReporter && currentUser?.id && inc.userId !== currentUser.id) return false;
       if (selectedMapId !== null && inc.customMapId !== selectedMapId) return false;
       if (dateFrom && inc.incidentDate < dateFrom) return false;
       if (dateTo && inc.incidentDate > dateTo) return false;
@@ -307,7 +318,7 @@ export default function OccurrenceBook() {
       if (severityFilter !== "any" && inc.severity !== severityFilter) return false;
       return true;
     });
-  }, [incidents, selectedMapId, dateFrom, dateTo, importBatchIdFilter, severityFilter, isReporter, showMyIncidents, currentUser?.id]);
+  }, [incidents, selectedMapId, dateFrom, dateTo, importBatchIdFilter, severityFilter, isReporter, currentUser?.id]);
 
   const hasDateFilter = dateFrom !== "" || dateTo !== "";
   const clearDateFilter = () => { setDateFrom(""); setDateTo(""); };
@@ -414,331 +425,17 @@ export default function OccurrenceBook() {
     return map;
   }, [incidents]);
 
-  // Reporter landing dashboard — shown before they choose to review
-  if (isReporter && !showMyIncidents) {
-    const myCount = incidents.filter((inc) => inc.userId === currentUser?.id).length;
-    return (
-      <div className="flex flex-col h-full">
-        <div className="flex items-center gap-1 px-3 py-2 border-b shrink-0">
-          <SidebarTrigger />
-        </div>
-        <div className="p-6 flex flex-col items-center justify-center flex-1 gap-6">
-          <div className="text-center max-w-sm">
-            <div className="flex justify-center mb-1">
-              <img src={omtLogo} alt="OMT Pulse" className="w-20 h-20 object-contain" />
-            </div>
-            <div className="flex items-center justify-center gap-2">
-              <div style={{ transform: "scaleX(-1)" }}>
-                <HeartbeatLine className="w-20 h-5" />
-              </div>
-              <h1 className="text-2xl font-bold tracking-tight" data-testid="text-page-title">OMT Pulse</h1>
-              <HeartbeatLine className="w-20 h-5" />
-            </div>
-            <p className="text-sm text-muted-foreground mt-1">
-              {currentUser?.firstName ? `Welcome, ${currentUser.firstName}.` : "Welcome."} What would you like to do?
-            </p>
-          </div>
-          <div className="w-full max-w-sm">
-            <PanicBanner
-              alerts={recentPanicAlerts}
-              currentUserId={currentUser?.id}
-              dismissedIds={dismissedPanicAlertIds}
-              onDismiss={dismissPanic}
-              testIdSuffix="reporter"
-            />
-          </div>
-
-          {totalUnread > 0 && (
-            <button
-              type="button"
-              onClick={() => setLocation("/chat")}
-              className="w-full max-w-sm text-left rounded-lg border-2 border-primary/60 bg-primary/5 hover:bg-primary/10 transition-colors overflow-hidden shadow"
-              data-testid="banner-unread-chat-reporter"
-            >
-              <div className="flex items-center gap-3 px-4 py-3">
-                <div className="relative shrink-0">
-                  <MessageSquare className="h-5 w-5 text-primary" />
-                  <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground leading-none">
-                    {totalUnread > 99 ? "99+" : totalUnread}
-                  </span>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-foreground">
-                    {totalUnread} unread message{totalUnread !== 1 ? "s" : ""}
-                  </p>
-                  {unreadSenders.length > 0 && (
-                    <p className="text-xs text-muted-foreground truncate" data-testid="text-unread-senders-reporter">
-                      From: {unreadSenders.join(", ")}
-                    </p>
-                  )}
-                </div>
-                <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-              </div>
-            </button>
-          )}
-
-          <Card className="w-full max-w-sm">
-            <CardContent className="pt-6 pb-6 flex flex-col gap-5">
-              <Link href="/live-severity" className="w-full">
-                <Button
-                  size="lg"
-                  className="w-full h-20 text-base font-bold bg-orange-500 hover:bg-orange-600 text-white border-orange-500 hover:border-orange-600"
-                  data-testid="button-live-incident"
-                >
-                  <Radio className="h-6 w-6 mr-2" />
-                  Live Incident
-                </Button>
-              </Link>
-              <Button
-                size="lg"
-                className="w-full h-20 text-base font-bold"
-                onClick={() => {
-                  setEditingIncident(null);
-                  setDialogOpen(true);
-                }}
-                data-testid="button-new-incident"
-              >
-                <Plus className="h-6 w-6 mr-2" />
-                Report Incident
-              </Button>
-              <Button
-                size="lg"
-                variant="outline"
-                className="w-full h-16 text-muted-foreground border-border/60 hover:bg-muted/50 hover:text-foreground"
-                onClick={() => setShowMyIncidents(true)}
-                data-testid="button-review-my-incidents"
-              >
-                <FileText className="h-5 w-5 mr-2" />
-                Review my Incidents
-                {myCount > 0 && (
-                  <Badge variant="secondary" className="ml-2">{myCount}</Badge>
-                )}
-              </Button>
-            </CardContent>
-          </Card>
-
-          {/* Inline SOS button — part of the page flow, between card and footer */}
-          <div className="flex flex-col items-center gap-1.5">
-            <button
-              onClick={() => setPanicOpen(true)}
-              disabled={panicking}
-              data-testid="button-panic"
-              className="h-20 w-20 rounded-full bg-red-600 hover:bg-red-700 active:scale-95 shadow-[0_0_0_4px_rgba(220,38,38,0.3)] hover:shadow-[0_0_0_6px_rgba(220,38,38,0.4)] transition-all duration-150 flex items-center justify-center touch-manipulation"
-              aria-label="Send panic alert"
-            >
-              <Siren className="h-9 w-9 text-white" />
-            </button>
-            <span className="text-[11px] font-bold tracking-widest text-red-600 dark:text-red-400 uppercase select-none">SOS</span>
-          </div>
-        </div>
-        <div className="pb-6 text-center shrink-0 select-none">
-          <div className="flex items-center justify-center gap-2">
-            <div className="h-px w-8 bg-gradient-to-r from-transparent to-primary/30" />
-            <span className="text-[8px] text-muted-foreground/30 font-light">powered by</span>
-            <span className="text-[10px] font-semibold tracking-[0.12em] uppercase text-primary/45">IntelAfri</span>
-            <div className="h-px w-8 bg-gradient-to-l from-transparent to-primary/30" />
-          </div>
-        </div>
-
-        <IncidentDialog
-          open={dialogOpen}
-          onOpenChange={setDialogOpen}
-          incident={editingIncident}
-        />
-
-        {/* Full-screen panic confirmation overlay — reporter branch */}
-        {panicOpen && (
-          <div className="fixed inset-0 z-[300] flex flex-col items-center justify-center bg-black/85 backdrop-blur-sm px-6" data-testid="overlay-panic-confirm">
-            <div className="w-full max-w-sm flex flex-col items-center gap-6 text-center">
-              <div className="relative flex items-center justify-center">
-                <span className="absolute h-28 w-28 rounded-full bg-red-600/20 animate-ping" />
-                <span className="absolute h-20 w-20 rounded-full bg-red-600/30" />
-                <div className="relative h-24 w-24 rounded-full bg-red-600 flex items-center justify-center shadow-lg">
-                  <Siren className="h-12 w-12 text-white" />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <h2 className="text-2xl font-bold text-white tracking-tight">Send PANIC Alert?</h2>
-                <p className="text-sm text-white/70 leading-relaxed">
-                  This will immediately alert <strong className="text-white">everyone</strong> in your organisation that you need urgent assistance. Your GPS location will be shared.
-                </p>
-              </div>
-              {typeof Notification !== "undefined" && Notification.permission !== "granted" && (
-                <div className="w-full flex items-start gap-2 rounded-xl bg-amber-500/15 border border-amber-500/40 px-4 py-3 text-xs text-amber-300 text-left">
-                  <Siren className="h-4 w-4 shrink-0 mt-0.5" />
-                  <span>Push notifications are not enabled — team members may not be alerted instantly.</span>
-                </div>
-              )}
-              <div className="w-full space-y-3 pt-2">
-                <button
-                  onClick={() => { setPanicOpen(false); sendPanic(); }}
-                  disabled={panicking}
-                  data-testid="button-confirm-panic"
-                  className="w-full h-14 rounded-2xl bg-red-600 hover:bg-red-700 active:scale-[0.98] text-white font-bold text-base tracking-wide shadow-lg transition-all touch-manipulation disabled:opacity-60"
-                >
-                  {panicking ? "Sending alert…" : "CONFIRM — Send Alert"}
-                </button>
-                <button
-                  onClick={() => setPanicOpen(false)}
-                  disabled={panicking}
-                  className="w-full h-12 rounded-2xl bg-white/10 hover:bg-white/20 text-white font-medium text-sm transition-all touch-manipulation"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  if ((isAdmin || isSupervisor) && !showMyIncidents) {
-    return (
-      <div className="flex flex-col h-full">
-        <div className="p-6 flex flex-col items-center justify-center flex-1 gap-6">
-          <div className="w-full max-w-sm">
-            <PanicBanner
-              alerts={recentPanicAlerts}
-              currentUserId={currentUser?.id}
-              dismissedIds={dismissedPanicAlertIds}
-              onDismiss={dismissPanic}
-              testIdSuffix="admin"
-            />
-          </div>
-          {liveIncidents.length > 0 && !dismissedLiveAlert && (
-            <div className="w-full max-w-sm rounded-lg border-2 border-red-500 bg-red-500/10 overflow-hidden shadow-lg" data-testid="banner-live-incidents">
-              <div className="bg-red-500 px-4 py-2 flex items-center gap-2">
-                <span className="inline-block w-2.5 h-2.5 rounded-full bg-white animate-ping" />
-                <span className="text-white font-bold text-sm uppercase tracking-wide">
-                  ⚠ Live Emergency
-                </span>
-                <button
-                  onClick={() => setDismissedLiveAlert(true)}
-                  className="ml-auto text-white/80 hover:text-white transition-colors"
-                  data-testid="button-dismiss-live-alert"
-                  aria-label="Dismiss"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              <div className="px-4 py-3 space-y-2">
-                <p className="text-sm font-semibold text-red-700 dark:text-red-400">
-                  {liveIncidents.length} person{liveIncidents.length > 1 ? "s are" : " is"} in a live situation — possible life threat.
-                </p>
-                {liveIncidents.slice(0, 3).map((inc) => {
-                  const first = inc.responderFirstName ?? "";
-                  const last = inc.responderLastName ?? "";
-                  const name = `${first} ${last}`.trim() || `Incident #${inc.id}`;
-                  return (
-                    <p key={inc.id} className="text-xs text-red-600/80 dark:text-red-400/80 font-medium">
-                      • {name}{inc.locationName ? ` — ${inc.locationName}` : ""}
-                    </p>
-                  );
-                })}
-                {liveIncidents.length > 3 && (
-                  <p className="text-xs text-muted-foreground">+ {liveIncidents.length - 3} more…</p>
-                )}
-                <Link href="/live-monitor" className="block">
-                  <Button size="sm" className="w-full bg-red-600 hover:bg-red-700 text-white border-0" data-testid="button-monitor-live">
-                    <Radio className="h-4 w-4 mr-2 animate-pulse" />
-                    Monitor Now
-                  </Button>
-                </Link>
-              </div>
-            </div>
-          )}
-          <div className="text-center max-w-sm">
-            <div className="flex justify-center mb-1">
-              <img src={omtLogo} alt="OMT Pulse" className="w-20 h-20 object-contain" />
-            </div>
-            <div className="flex items-center justify-center gap-2">
-              <div style={{ transform: "scaleX(-1)" }}>
-                <HeartbeatLine className="w-20 h-5" />
-              </div>
-              <h1 className="text-2xl font-bold tracking-tight" data-testid="text-page-title">OMT Pulse</h1>
-              <HeartbeatLine className="w-20 h-5" />
-            </div>
-            <p className="text-sm text-muted-foreground mt-1">
-              {currentUser?.firstName ? `Welcome, ${currentUser.firstName}.` : "Welcome."} What would you like to do?
-            </p>
-          </div>
-          <Card className="w-full max-w-sm">
-            <CardContent className="pt-6 pb-6 flex flex-col gap-5">
-              <Button
-                size="lg"
-                className="w-full bg-red-700 hover:bg-red-800 text-white"
-                onClick={() => { setEditingIncident(null); setDialogOpen(true); }}
-                data-testid="button-new-incident"
-              >
-                <Plus className="h-5 w-5 mr-2" />
-                Report Incident
-              </Button>
-              <Button
-                size="lg"
-                className="w-full bg-red-600 hover:bg-red-700 text-white"
-                onClick={() => setPanicOpen(true)}
-                data-testid="button-panic"
-              >
-                <Siren className="h-5 w-5 mr-2" />
-                PANIC
-              </Button>
-              <Link href="/analytics" className="w-full">
-                <Button
-                  size="lg"
-                  variant="outline"
-                  className="w-full border-green-500/50 text-green-600 hover:bg-green-500/10 hover:text-green-700 dark:text-green-400 dark:hover:text-green-300"
-                  data-testid="button-view-analytics"
-                >
-                  <BarChart2 className="h-5 w-5 mr-2" />
-                  View Analytics
-                </Button>
-              </Link>
-              <Button
-                size="lg"
-                variant="outline"
-                className="w-full text-muted-foreground border-border/60 hover:bg-muted/50 hover:text-foreground"
-                onClick={() => setShowMyIncidents(true)}
-                data-testid="button-view-incident-log"
-              >
-                <BookOpen className="h-5 w-5 mr-2" />
-                View Incident Log
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-        <div className="pb-6 text-center shrink-0 select-none">
-          <div className="flex items-center justify-center gap-2">
-            <div className="h-px w-8 bg-gradient-to-r from-transparent to-primary/30" />
-            <span className="text-[8px] text-muted-foreground/30 font-light">powered by</span>
-            <span className="text-[10px] font-semibold tracking-[0.12em] uppercase text-primary/45">IntelAfri</span>
-            <div className="h-px w-8 bg-gradient-to-l from-transparent to-primary/30" />
-          </div>
-        </div>
-
-        <IncidentDialog
-          open={dialogOpen}
-          onOpenChange={setDialogOpen}
-          incident={editingIncident}
-        />
-      </div>
-    );
-  }
-
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-1 px-3 py-2 border-b shrink-0">
         <SidebarTrigger />
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => window.history.back()} data-testid="button-back">
+        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setLocation("/dashboard")} data-testid="button-back">
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        {isReporter && (
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowMyIncidents(false)} data-testid="button-back-to-dashboard">
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-        )}
         <span className="text-sm font-semibold flex-1 truncate px-1" data-testid="text-page-title">
-          {isReporter ? "My Incidents" : "Occurrence Book"}
+          {isReporter
+            ? periodParam === "week" ? "My Incidents — This Week" : periodParam === "day" ? "My Incidents — Today" : "My Incidents"
+            : periodParam === "week" ? "Occurrence Book — This Week" : periodParam === "day" ? "Occurrence Book — Today" : "Occurrence Book"}
         </span>
         {!isReporter && (
           <Button size="sm" onClick={() => { setEditingIncident(null); setDialogOpen(true); }} data-testid="button-new-incident">
@@ -761,11 +458,11 @@ export default function OccurrenceBook() {
         {(isAdmin || isSupervisor) && liveIncidents.length > 0 && !dismissedLiveAlert && (
           <div className="flex items-center gap-3 rounded-lg border border-amber-500/50 bg-amber-500/8 px-4 py-3" data-testid="banner-live-incidents-log">
             <Radio className="h-5 w-5 text-amber-500 shrink-0 animate-pulse" />
-            <Link href="/map" className="flex-1 min-w-0 no-underline">
+            <Link href="/live-monitor" className="flex-1 min-w-0 no-underline">
               <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
                 {liveIncidents.length} active live incident{liveIncidents.length > 1 ? "s" : ""}
               </p>
-              <p className="text-xs text-muted-foreground">Tap to view on map →</p>
+              <p className="text-xs text-muted-foreground">Tap to open Live Monitor →</p>
             </Link>
             <button
               onClick={() => setDismissedLiveAlert(true)}

@@ -199,10 +199,10 @@ interface AppSidebarProps {
 
 function getNavItems(role: string, isSuperadmin: boolean) {
   const items: Array<{ title: string; url: string; icon: typeof BookOpen }> = [
+    { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
     { title: "Occurrence Book", url: "/occurrence-book", icon: BookOpen },
   ];
   if (role === "administrator" || role === "supervisor") {
-    items.unshift({ title: "Dashboard", url: "/dashboard", icon: LayoutDashboard });
     items.push({ title: "Analytics", url: "/analytics", icon: BarChart3 });
     items.push({ title: "Live Monitor", url: "/live-monitor", icon: Radio });
   }

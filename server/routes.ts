@@ -3133,17 +3133,22 @@ export async function registerRoutes(
   // Dashboard summary
   app.get("/api/dashboard", async (req, res) => {
     const { organizationId: orgId, role, id: userId } = req.currentUser!;
-    if (role !== "administrator" && role !== "supervisor") {
+    if (role !== "administrator" && role !== "supervisor" && role !== "reporter") {
       return res.status(403).json({ message: "Forbidden" });
     }
     const period = req.query.period === "week" ? "week" : "day";
     let restrictToLocationIds: number[] | undefined;
-    if (role === "supervisor") {
+    let restrictToUserId: string | undefined;
+    if (role === "reporter") {
+      restrictToUserId = userId;
+      const assigned = await storage.getUserLocationAssignments(userId, orgId);
+      if (assigned.length > 0) restrictToLocationIds = assigned;
+    } else if (role === "supervisor") {
       const assigned = await storage.getUserLocationAssignments(userId, orgId);
       if (assigned.length > 0) restrictToLocationIds = assigned;
     }
     const { commandFilter } = await getCommandScope(req);
-    const summary = await storage.getDashboardSummary(orgId, period, restrictToLocationIds, commandFilter);
+    const summary = await storage.getDashboardSummary(orgId, period, restrictToLocationIds, commandFilter, restrictToUserId);
     res.json(summary);
   });
 

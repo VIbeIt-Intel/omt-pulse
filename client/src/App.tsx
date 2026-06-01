@@ -689,7 +689,7 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
     return null;
   }
 
-  if (location === "/" && (user.role === "administrator" || user.role === "supervisor")) {
+  if (location === "/") {
     navigate("/dashboard");
     return null;
   }
@@ -903,7 +903,7 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
           <main className="flex-1 overflow-hidden">
             <Switch>
               <Route path="/occurrence-book" component={OccurrenceBook} />
-              <Route path="/" component={OccurrenceBook} />
+              <Route path="/" component={CommandDashboard} />
               <Route path="/analytics">
                 <RoleGuard role={user.role} allowed={["administrator", "supervisor"]}>
                   <AnalyticsPage />
@@ -932,11 +932,7 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
               </Route>
               <Route path="/live-incident" component={LiveIncidentPage} />
               <Route path="/live-severity" component={LiveSeverityPage} />
-              <Route path="/dashboard">
-                <RoleGuard role={user.role} allowed={["administrator", "supervisor"]}>
-                  <CommandDashboard />
-                </RoleGuard>
-              </Route>
+              <Route path="/dashboard" component={CommandDashboard} />
               <Route path="/live-monitor">
                 <RoleGuard role={user.role} allowed={["administrator", "supervisor"]}>
                   <LiveMonitorPage />

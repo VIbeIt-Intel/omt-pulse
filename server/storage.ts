@@ -212,7 +212,7 @@ export interface IStorage {
   markThreadRead(orgId: string, userId: string, recipientId: string | null): Promise<void>;
 
   // Dashboard
-  getDashboardSummary(orgId: string, period: 'day' | 'week', restrictToLocationIds?: number[], commandFilter?: number[]): Promise<{
+  getDashboardSummary(orgId: string, period: 'day' | 'week', restrictToLocationIds?: number[], commandFilter?: number[], restrictToUserId?: string): Promise<{
     totalIncidents: number;
     liveCount: number;
     chartData: Array<{ label: string; count: number }>;
@@ -1815,7 +1815,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // --- Dashboard ---
-  async getDashboardSummary(orgId: string, period: 'day' | 'week', restrictToLocationIds?: number[], commandFilter?: number[]): Promise<{
+  async getDashboardSummary(orgId: string, period: 'day' | 'week', restrictToLocationIds?: number[], commandFilter?: number[], restrictToUserId?: string): Promise<{
     totalIncidents: number;
     liveCount: number;
     chartData: Array<{ label: string; count: number }>;
@@ -1843,12 +1843,17 @@ export class DatabaseStorage implements IStorage {
       ? inArray(incidents.commandId, commandFilter)
       : undefined;
 
+    const userCondition = restrictToUserId
+      ? eq(incidents.userId, restrictToUserId)
+      : undefined;
+
     const periodFilter = and(
       eq(incidents.organizationId, orgId),
       gte(incidents.incidentDate, startDate),
       lte(incidents.incidentDate, todayStr),
       locationCondition,
       commandCondition,
+      userCondition,
     );
 
     const [totalResult] = await db.select({ count: sql<number>`count(*)` })
@@ -1862,9 +1867,32 @@ export class DatabaseStorage implements IStorage {
       commandCondition,
     );
 
-    const [liveResult] = await db.select({ count: sql<number>`count(*)` })
-      .from(incidents).where(liveFilter);
-    const liveCount = Number(liveResult.count);
+    let liveCount: number;
+    if (restrictToUserId) {
+      const creatorLive = await db.select({ id: incidents.id })
+        .from(incidents)
+        .where(and(liveFilter, eq(incidents.userId, restrictToUserId)));
+      const joinerLive = await db.select({ incidentId: liveResponders.incidentId })
+        .from(liveResponders)
+        .innerJoin(incidents, eq(incidents.id, liveResponders.incidentId))
+        .where(and(
+          eq(liveResponders.organizationId, orgId),
+          eq(liveResponders.userId, restrictToUserId),
+          isNull(liveResponders.leftAt),
+          eq(incidents.isLive, true),
+          eq(incidents.organizationId, orgId),
+          locationCondition,
+          commandCondition,
+        ));
+      liveCount = new Set([
+        ...creatorLive.map((r) => r.id),
+        ...joinerLive.map((r) => r.incidentId),
+      ]).size;
+    } else {
+      const [liveResult] = await db.select({ count: sql<number>`count(*)` })
+        .from(incidents).where(liveFilter);
+      liveCount = Number(liveResult.count);
+    }
 
     let chartData: Array<{ label: string; count: number }> = [];
     if (period === 'day') {
@@ -1873,6 +1901,7 @@ export class DatabaseStorage implements IStorage {
         eq(incidents.incidentDate, todayStr),
         locationCondition,
         commandCondition,
+        userCondition,
       );
       const byHour = await db.select({
         hour: sql<number>`extract(hour from incident_time::time)::int`,
@@ -1903,6 +1932,10 @@ export class DatabaseStorage implements IStorage {
         const label = d.toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric' });
         chartData.push({ label, count: dateMap.get(dateStr) ?? 0 });
       }
+    }
+
+    if (restrictToUserId) {
+      return { totalIncidents, liveCount, chartData, users: [] };
     }
 
     const orgUsers = await db.select().from(users).where(
