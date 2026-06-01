@@ -264,15 +264,21 @@ export const incidentAttachments = pgTable("incident_attachments", {
   id: serial("id").primaryKey(),
   incidentId: integer("incident_id").notNull().references(() => incidents.id, { onDelete: "cascade" }),
   organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  uploadedByUserId: varchar("uploaded_by_user_id").references(() => users.id, { onDelete: "set null" }),
   url: text("url").notNull(),
   filename: text("filename").notNull(),
   mimeType: text("mime_type").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const insertAttachmentSchema = createInsertSchema(incidentAttachments).omit({ id: true, createdAt: true });
+export const insertAttachmentSchema = createInsertSchema(incidentAttachments).omit({ id: true, createdAt: true, uploadedByUserId: true });
 export type InsertAttachment = z.infer<typeof insertAttachmentSchema>;
 export type Attachment = typeof incidentAttachments.$inferSelect;
+
+export type AttachmentWithUploader = Attachment & {
+  uploadedByFirstName: string | null;
+  uploadedByLastName: string | null;
+};
 
 export const formFields = pgTable("form_fields", {
   id: serial("id").primaryKey(),

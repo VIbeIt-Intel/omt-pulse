@@ -5,7 +5,7 @@ import {
   type Category, type InsertCategory,
   type Incident, type InsertIncident,
   type FormField, type InsertFormField,
-  type Attachment, type InsertAttachment,
+  type Attachment, type InsertAttachment, type AttachmentWithUploader,
   type AuditLog, type InsertAuditLog,
   type CustomMap, type InsertCustomMap,
   type ImportBatch, type InsertImportBatch,
@@ -150,9 +150,9 @@ export interface IStorage {
   deleteFormField(id: number, orgId: string): Promise<boolean>;
 
   // Attachments (org-scoped)
-  getAttachmentsByIncident(incidentId: number, orgId: string): Promise<Attachment[]>;
+  getAttachmentsByIncident(incidentId: number, orgId: string): Promise<AttachmentWithUploader[]>;
   getAttachment(id: number, orgId: string): Promise<Attachment | undefined>;
-  createAttachment(data: InsertAttachment): Promise<Attachment>;
+  createAttachment(data: InsertAttachment & { uploadedByUserId?: string | null }): Promise<Attachment>;
   deleteAttachment(id: number, orgId: string): Promise<boolean>;
   getAttachmentCountsByOrg(orgId: string): Promise<Record<number, number>>;
 
@@ -1154,8 +1154,21 @@ export class DatabaseStorage implements IStorage {
   }
 
   // --- Attachments ---
-  async getAttachmentsByIncident(incidentId: number, orgId: string): Promise<Attachment[]> {
-    return db.select().from(incidentAttachments)
+  async getAttachmentsByIncident(incidentId: number, orgId: string): Promise<AttachmentWithUploader[]> {
+    return db.select({
+      id: incidentAttachments.id,
+      incidentId: incidentAttachments.incidentId,
+      organizationId: incidentAttachments.organizationId,
+      uploadedByUserId: incidentAttachments.uploadedByUserId,
+      url: incidentAttachments.url,
+      filename: incidentAttachments.filename,
+      mimeType: incidentAttachments.mimeType,
+      createdAt: incidentAttachments.createdAt,
+      uploadedByFirstName: users.firstName,
+      uploadedByLastName: users.lastName,
+    })
+      .from(incidentAttachments)
+      .leftJoin(users, eq(incidentAttachments.uploadedByUserId, users.id))
       .where(and(eq(incidentAttachments.incidentId, incidentId), eq(incidentAttachments.organizationId, orgId)))
       .orderBy(asc(incidentAttachments.createdAt));
   }
@@ -1166,7 +1179,7 @@ export class DatabaseStorage implements IStorage {
     return att;
   }
 
-  async createAttachment(data: InsertAttachment): Promise<Attachment> {
+  async createAttachment(data: InsertAttachment & { uploadedByUserId?: string | null }): Promise<Attachment> {
     const [created] = await db.insert(incidentAttachments).values(data).returning();
     return created;
   }

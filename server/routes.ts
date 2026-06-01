@@ -3192,8 +3192,9 @@ export async function registerRoutes(
 
   app.post("/api/incidents/:id/attachments", async (req, res) => {
     const orgId = req.currentUser!.organizationId;
-    if (req.currentUser!.role !== "administrator" && !req.currentUser!.canManageAttachments) {
-      return res.status(403).json({ message: "You do not have permission to manage attachments" });
+    const { role, id: userId } = req.currentUser!;
+    if (!["administrator", "supervisor", "reporter"].includes(role)) {
+      return res.status(403).json({ message: "You do not have permission to add evidence" });
     }
     const incidentId = parseInt(req.params.id as string);
     const inc = await verifyIncidentAccess(req, res, incidentId);
@@ -3204,14 +3205,19 @@ export async function registerRoutes(
     }
     const parsed = attachmentBodySchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: "url, filename, and mimeType are required" });
-    const attachment = await storage.createAttachment({ incidentId, organizationId: orgId, ...parsed.data });
+    const attachment = await storage.createAttachment({
+      incidentId,
+      organizationId: orgId,
+      uploadedByUserId: userId,
+      ...parsed.data,
+    });
     res.json(attachment);
   });
 
   app.delete("/api/attachments/:id", async (req, res) => {
     const orgId = req.currentUser!.organizationId;
-    if (req.currentUser!.role !== "administrator" && !req.currentUser!.canManageAttachments) {
-      return res.status(403).json({ message: "You do not have permission to manage attachments" });
+    if (req.currentUser!.role !== "administrator") {
+      return res.status(403).json({ message: "Only administrators can delete attachments" });
     }
     const id = parseInt(req.params.id as string);
     const att = await storage.getAttachment(id, orgId);

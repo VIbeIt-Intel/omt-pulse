@@ -5,7 +5,7 @@ import { z } from "zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Category, Location, Incident, FormField, Attachment, CustomMap } from "@shared/schema";
+import type { Category, Location, Incident, FormField, CustomMap, AttachmentWithUploader } from "@shared/schema";
 import {
   Dialog,
   DialogClose,
@@ -39,8 +39,10 @@ import {
   INVOLVEMENT_FIELD_KEYS,
   readInvolvement,
 } from "./incident-involvement-section";
-import { CalendarIcon, Clock, MapPin, Upload, Paperclip, X, FileText, Loader2, Camera, Mic, Square, Globe, Map, LocateFixed } from "lucide-react";
+import { CalendarIcon, Clock, MapPin, Upload, Paperclip, X, Loader2, Camera, Mic, Square, Globe, Map, LocateFixed } from "lucide-react";
 import { loadGoogleMaps } from "@/lib/google-maps-loader";
+import { AttachmentPreview, attachmentUploaderLabel } from "@/components/attachment-preview";
+import { IncidentEvidenceSection } from "@/components/incident-evidence-section";
 
 const incidentFormSchema = z.object({
   incidentDate: z.string().min(1, "Date is required"),
@@ -70,6 +72,8 @@ interface AttachmentsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   incidentId: number;
+  canAdd?: boolean;
+  canDelete?: boolean;
 }
 
 function isFieldVisible(fields: FormField[], key: string, _fieldsLoaded: boolean): boolean {
@@ -79,78 +83,6 @@ function isFieldVisible(fields: FormField[], key: string, _fieldsLoaded: boolean
   // This handles new commands that have no form-field config yet, so reporters
   // still see the full form rather than a blank Evidence-only dialog.
   return true;
-}
-
-function AttachmentPreview({ url, alt, mimeType, filename }: { url: string; alt: string; mimeType?: string; filename?: string }) {
-  const isServable = url.startsWith("data:") || url.startsWith("/objects/") || url.startsWith("https://") || url.startsWith("http://");
-  const [broken, setBroken] = useState(() => !isServable);
-  const [lightboxOpen, setLightboxOpen] = useState(false);
-
-  if (mimeType?.startsWith("audio/")) {
-    return (
-      <div className="flex flex-col gap-1 p-2 border border-border rounded-md bg-muted/30">
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Mic className="h-3.5 w-3.5 shrink-0" />
-          <span className="truncate max-w-[160px]">{filename ?? alt}</span>
-        </div>
-        <audio controls src={url} className="w-full h-8" />
-      </div>
-    );
-  }
-
-  if (mimeType && !mimeType.startsWith("image/")) {
-    return (
-      <a
-        href={url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="flex items-center gap-1.5 p-2 border border-border rounded-md text-xs text-primary hover:underline bg-muted/30"
-      >
-        <Paperclip className="h-3.5 w-3.5 shrink-0" />
-        <span className="truncate max-w-[160px]">{filename ?? alt}</span>
-      </a>
-    );
-  }
-
-  if (broken) {
-    return (
-      <div className="flex flex-col items-center justify-center h-20 text-muted-foreground gap-1">
-        <FileText className="h-6 w-6 opacity-40" />
-        <span className="text-xs opacity-60">File unavailable</span>
-      </div>
-    );
-  }
-  return (
-    <>
-      <button
-        type="button"
-        className="w-full block cursor-zoom-in focus:outline-none"
-        onClick={() => setLightboxOpen(true)}
-        aria-label={`View ${filename ?? alt}`}
-      >
-        <img
-          src={url}
-          alt={alt}
-          className="w-full h-20 object-cover rounded"
-          onError={() => setBroken(true)}
-        />
-      </button>
-      <Dialog open={lightboxOpen} onOpenChange={setLightboxOpen}>
-        <DialogContent className="max-w-3xl p-2 bg-black/90 border-0" hideDefaultClose>
-          <DialogTitle className="sr-only">{filename ?? alt}</DialogTitle>
-          <DialogClose className="absolute right-3 top-3 z-10 rounded-full bg-black/75 hover:bg-black/95 text-white border border-white/30 p-2 transition-colors focus:outline-none">
-            <X className="h-5 w-5" />
-            <span className="sr-only">Close</span>
-          </DialogClose>
-          <img
-            src={url}
-            alt={alt}
-            className="w-full max-h-[85vh] object-contain rounded"
-          />
-        </DialogContent>
-      </Dialog>
-    </>
-  );
 }
 
 interface PendingAttachment {
@@ -170,7 +102,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
   const [gpsLoading, setGpsLoading] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
-  const [existingAttachments, setExistingAttachments] = useState<Attachment[]>([]);
+  const [existingAttachments, setExistingAttachments] = useState<AttachmentWithUploader[]>([]);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
@@ -207,7 +139,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
   }>({
     queryKey: ["/api/auth/me"],
   });
-  const userCanManageAttachments = currentUser?.role === "administrator" || (currentUser?.canManageAttachments ?? true);
+  const isAdmin = currentUser?.role === "administrator";
 
   const { data: locationAssignments } = useQuery<{ locationIds: number[] }>({
     queryKey: ["/api/users", currentUser?.id, "location-assignments"],
@@ -1449,17 +1381,22 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                         data-testid={`card-existing-attachment-${att.id}`}
                       >
                         <AttachmentPreview url={att.url} alt={att.filename} mimeType={att.mimeType} filename={att.filename} />
-                        <div className="p-1 text-xs text-center truncate bg-background border-t border-border">
-                          {att.filename}
+                        <div className="p-1 text-xs bg-background border-t border-border space-y-0.5">
+                          <p className="truncate">{att.filename}</p>
+                          <p className="text-[10px] text-muted-foreground leading-tight">
+                            {attachmentUploaderLabel(att)}
+                          </p>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteExistingAttachment(att.id)}
-                          className="absolute top-1 right-1 bg-destructive text-destructive-foreground rounded-full p-0.5 hover:opacity-80"
-                          data-testid={`button-delete-existing-attachment-${att.id}`}
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteExistingAttachment(att.id)}
+                            className="absolute top-1 right-1 bg-destructive text-destructive-foreground rounded-full p-0.5 hover:opacity-80"
+                            data-testid={`button-delete-existing-attachment-${att.id}`}
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1766,39 +1703,24 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
   );
 }
 
-export function AttachmentsDialog({ open, onOpenChange, incidentId }: AttachmentsDialogProps) {
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [loading, setLoading] = useState(true);
-  const { toast } = useToast();
-
-  useEffect(() => {
-    if (open) {
-      setLoading(true);
-      fetch(`/api/incidents/${incidentId}/attachments`, { credentials: "include" })
-        .then((r) => r.json())
-        .then((data) => setAttachments(data))
-        .catch(() => setAttachments([]))
-        .finally(() => setLoading(false));
-    }
-  }, [open, incidentId]);
-
+export function AttachmentsDialog({
+  open,
+  onOpenChange,
+  incidentId,
+  canAdd = true,
+  canDelete = false,
+}: AttachmentsDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle data-testid="text-attachments-title">Attachments</DialogTitle>
         </DialogHeader>
-        {loading ? (
-          <div className="space-y-2">Loading...</div>
-        ) : attachments.length === 0 ? (
-          <div className="text-sm text-muted-foreground">No attachments yet.</div>
-        ) : (
-          <div className="grid grid-cols-2 gap-3">
-            {attachments.map((att) => (
-              <AttachmentPreview key={att.id} url={att.url} alt={att.filename} mimeType={att.mimeType} filename={att.filename} />
-            ))}
-          </div>
-        )}
+        <IncidentEvidenceSection
+          incidentId={incidentId}
+          canAdd={canAdd}
+          canDelete={canDelete}
+        />
       </DialogContent>
     </Dialog>
   );
