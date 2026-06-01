@@ -1408,7 +1408,6 @@ export default function LiveIncidentPage() {
     const map = new google.maps.Map(mapRef.current, {
       center: { lat: -26.2041, lng: 28.0473 },
       zoom: 6,
-      mapId: "d5b5764e0927466e62dc5e4e",
       mapTypeControl: false,
       streetViewControl: false,
       fullscreenControl: false,

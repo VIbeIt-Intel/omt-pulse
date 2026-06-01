@@ -39,7 +39,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { loadGoogleMaps } from "@/lib/google-maps-loader";
+import { loadGoogleMaps, resetGoogleMapsLoader } from "@/lib/google-maps-loader";
 
 type LiveResponderSummary = {
   id: number;
@@ -284,6 +284,8 @@ export default function LiveMonitorPage() {
 
   const [mapsReady, setMapsReady] = useState(false);
   const [mapsError, setMapsError] = useState(false);
+  const [mapsErrorMsg, setMapsErrorMsg] = useState<string | null>(null);
+  const [mapsLoadAttempt, setMapsLoadAttempt] = useState(0);
   const [endConfirmId, setEndConfirmId] = useState<number | null>(null);
   const [noteIncidentId, setNoteIncidentId] = useState<number | null>(null);
   const [noteText, setNoteText] = useState("");
@@ -357,8 +359,24 @@ export default function LiveMonitorPage() {
   }, []);
 
   useEffect(() => {
-    loadGoogleMaps().then(() => setMapsReady(true)).catch(() => setMapsError(true));
-  }, []);
+    let cancelled = false;
+    setMapsReady(false);
+    setMapsError(false);
+    setMapsErrorMsg(null);
+    loadGoogleMaps()
+      .then(() => {
+        if (!cancelled) setMapsReady(true);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setMapsError(true);
+          setMapsErrorMsg(err instanceof Error ? err.message : String(err));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mapsLoadAttempt]);
 
   useEffect(() => {
     if (!mapsReady || !mapRef.current || mapInstanceRef.current) return;
@@ -843,9 +861,25 @@ export default function LiveMonitorPage() {
         <div className="order-1 md:order-2 h-[42vh] md:h-auto md:flex-1 min-w-0 relative shrink-0 md:shrink" data-testid="map-live-monitor">
           {mapsError && (
             <div className="absolute inset-0 flex items-center justify-center bg-muted/20 z-10">
-              <div className="text-center px-6 py-8 space-y-2">
+              <div className="text-center px-6 py-8 space-y-3 max-w-sm">
                 <MapPin className="h-8 w-8 mx-auto text-destructive/60" />
-                <p className="text-sm text-muted-foreground">Map unavailable — contact your administrator.</p>
+                <p className="text-sm font-medium">Map unavailable</p>
+                <p className="text-xs text-muted-foreground break-words">
+                  {mapsErrorMsg ?? "Google Maps failed to load — contact your administrator."}
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    resetGoogleMapsLoader();
+                    mapInstanceRef.current = null;
+                    setMapsLoadAttempt((n) => n + 1);
+                  }}
+                  data-testid="button-retry-map"
+                >
+                  Retry map
+                </Button>
               </div>
             </div>
           )}
