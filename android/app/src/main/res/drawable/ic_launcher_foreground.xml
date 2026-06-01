@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- OMT Pulse shield — matches client/src/components/omt-shield.tsx -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="0.72"
+        android:scaleY="0.72"
+        android:translateX="19.44"
+        android:translateY="15.12">
+        <path
+            android:fillColor="#007A47"
+            android:pathData="M50,3 C50,3 9,14 9,14 L9,55 C9,78 50,97 50,97 C50,97 91,78 91,55 L91,14 Z"
+            android:strokeColor="#003D24"
+            android:strokeWidth="1.5"
+            android:strokeLineJoin="round" />
+        <path
+            android:fillColor="#006039"
+            android:pathData="M50,9 C50,9 15,19 15,19 L15,57 C15,77 50,92 50,92 C50,92 85,77 85,57 L85,19 Z" />
+        <path
+            android:fillColor="#F2FFFFFF"
+            android:pathData="M32,26 H60 A2,2 0 0,1 62,28 V62 A2,2 0 0,1 60,64 H32 A2,2 0 0,1 30,62 V28 A2,2 0 0,1 32,26 Z" />
+        <path
+            android:fillColor="#8C004D2E"
+            android:pathData="M52,26 L60,26 L60,34 Z" />
+        <path
+            android:fillColor="#4DFFFFFF"
+            android:pathData="M36,38 H52 A0.75,0.75 0 0,1 52.75,38.75 V39.25 A0.75,0.75 0 0,1 52,40 H36 A0.75,0.75 0 0,1 35.25,39.25 V38.75 A0.75,0.75 0 0,1 36,38 Z" />
+        <path
+            android:fillColor="#4DFFFFFF"
+            android:pathData="M36,42 H55 A0.75,0.75 0 0,1 55.75,42.75 V43.25 A0.75,0.75 0 0,1 55,44 H36 A0.75,0.75 0 0,1 35.25,43.25 V42.75 A0.75,0.75 0 0,1 36,42 Z" />
+        <path
+            android:fillColor="#4DFFFFFF"
+            android:pathData="M36,46 H49 A0.75,0.75 0 0,1 49.75,46.75 V47.25 A0.75,0.75 0 0,1 49,48 H36 A0.75,0.75 0 0,1 35.25,47.25 V46.75 A0.75,0.75 0 0,1 36,46 Z" />
+        <path
+            android:fillColor="#E64ADE80"
+            android:pathData="M35,52 H40 A0.75,0.75 0 0,1 40.75,52.75 V59.25 A0.75,0.75 0 0,1 40,60 H35 A0.75,0.75 0 0,1 34.25,59.25 V52.75 A0.75,0.75 0 0,1 35,52 Z" />
+        <path
+            android:fillColor="#4ADE80"
+            android:pathData="M42,48 H47 A0.75,0.75 0 0,1 47.75,48.75 V59.25 A0.75,0.75 0 0,1 47,60 H42 A0.75,0.75 0 0,1 41.25,59.25 V48.75 A0.75,0.75 0 0,1 42,48 Z" />
+        <path
+            android:fillColor="#D94ADE80"
+            android:pathData="M49,50 H54 A0.75,0.75 0 0,1 54.75,50.75 V59.25 A0.75,0.75 0 0,1 54,60 H49 A0.75,0.75 0 0,1 48.25,59.25 V50.75 A0.75,0.75 0 0,1 49,50 Z" />
+    </group>
+</vector>
