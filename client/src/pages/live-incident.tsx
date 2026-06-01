@@ -41,6 +41,113 @@ type ArrivalMedia = { id: string; url: string; filename: string; mimeType: strin
 const MAX_ARRIVAL_MEDIA = 5;
 const MAX_MEDIA_BYTES = 10 * 1024 * 1024; // 10 MB per item
 
+function severityBadgeClass(severity: string | null | undefined): string {
+  if (severity === "red") return "bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/30";
+  if (severity === "orange") return "bg-orange-500/15 text-orange-700 dark:text-orange-400 border-orange-500/30";
+  if (severity === "yellow") return "bg-yellow-400/15 text-yellow-800 dark:text-yellow-400 border-yellow-400/30";
+  return "bg-muted text-muted-foreground border-border";
+}
+
+function severityDotClass(severity: string | null | undefined): string {
+  if (severity === "red") return "bg-red-500";
+  if (severity === "orange") return "bg-orange-500";
+  if (severity === "yellow") return "bg-yellow-400";
+  return "bg-muted-foreground";
+}
+
+type LiveIncidentSummary = Incident & {
+  categoryName?: string | null;
+  categoryColor?: string | null;
+  responderFirstName?: string | null;
+  responderLastName?: string | null;
+};
+
+function IncidentActiveSummary({
+  incident,
+  isJoiner,
+  categories,
+  showLoadRoute,
+  onLoadRoute,
+}: {
+  incident: LiveIncidentSummary;
+  isJoiner: boolean;
+  categories: Category[];
+  showLoadRoute: boolean;
+  onLoadRoute: () => void;
+}) {
+  const categoryName =
+    incident.categoryName ?? categories.find((c) => c.id === incident.categoryId)?.name ?? null;
+  const categoryColor =
+    incident.categoryColor ?? categories.find((c) => c.id === incident.categoryId)?.color ?? null;
+  const severity = incident.severity;
+  const starter = [incident.responderFirstName, incident.responderLastName].filter(Boolean).join(" ").trim();
+  const startedLabel = incident.liveStartedAt
+    ? new Date(incident.liveStartedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : incident.incidentTime;
+
+  return (
+    <div
+      className={`rounded-xl border bg-card shadow-sm overflow-hidden shrink-0 ${
+        severity === "red" ? "border-red-500/30" : severity === "orange" ? "border-orange-500/25" : ""
+      }`}
+      data-testid="card-incident-active-summary"
+    >
+      {severity === "red" ? <div className="h-1 bg-red-500" aria-hidden /> : null}
+      <div className="p-4 flex items-start gap-3">
+        {categoryColor ? (
+          <div
+            className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full shadow-sm"
+            style={{ backgroundColor: categoryColor }}
+            aria-hidden
+          >
+            <Radio className="h-5 w-5 text-white" strokeWidth={2.25} />
+          </div>
+        ) : null}
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-semibold text-base">Incident #{incident.id}</span>
+            {severity && severity !== "none" ? (
+              <span
+                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${severityBadgeClass(severity)}`}
+                data-testid="badge-live-severity"
+              >
+                <span className={`h-1.5 w-1.5 rounded-full ${severityDotClass(severity)} ${severity === "red" ? "animate-pulse" : ""}`} />
+                {severity}
+              </span>
+            ) : null}
+            {categoryName ? (
+              <span className="text-sm font-medium text-muted-foreground">{categoryName}</span>
+            ) : null}
+          </div>
+          {isJoiner && starter ? (
+            <p className="text-sm text-foreground/80">Started by {starter}</p>
+          ) : null}
+          <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+            <span className="relative flex h-2 w-2 shrink-0">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500 opacity-60" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
+            </span>
+            {isJoiner ? "You're responding · GPS active" : "GPS tracking active"}
+            {startedLabel ? <span>· Started {startedLabel}</span> : null}
+          </p>
+          {showLoadRoute ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-full gap-1.5 text-xs mt-2"
+              onClick={onLoadRoute}
+              data-testid="button-load-route"
+            >
+              <Navigation className="h-3 w-3" />
+              Load Navigation
+            </Button>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function fmtDist(m: number) {
   return m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`;
 }
@@ -321,6 +428,8 @@ export default function LiveIncidentPage() {
     responders?: Array<{ id: number; userId: string; firstName: string; lastName: string; lastLat: number | null; lastLng: number | null; lastPositionAt: string | null; joinedAt: string }>;
     responderFirstName?: string | null;
     responderLastName?: string | null;
+    categoryName?: string | null;
+    categoryColor?: string | null;
   };
 
   const { data: liveIncidents = [], isSuccess: liveQueryLoaded } = useQuery<LiveIncidentWithResponders[]>({
@@ -2710,7 +2819,9 @@ export default function LiveIncidentPage() {
           className="flex items-center gap-2 select-none min-w-0 flex-1"
           data-testid="title-live-incident"
         >
-          <span className="font-semibold text-base shrink-0">Live Incident</span>
+          <span className="font-semibold text-base shrink-0">
+            {isJoinerMode && joinedId ? `Incident #${joinedId}` : "Live Incident"}
+          </span>
           {currentIncident && gpsStatus !== "idle" && (
             <span className="text-xs text-muted-foreground truncate" data-testid="text-gps-inline">
               ·{" "}
@@ -2807,15 +2918,24 @@ export default function LiveIncidentPage() {
       <div ref={scrollContainerRef} className="flex flex-col flex-1 gap-3 p-4 overflow-y-auto live-scroll">
         {currentIncident ? (
           <>
-            {/* Joiner mode status banner */}
-            {isJoinerMode && (
-              <div className="rounded-lg border border-blue-500/40 bg-blue-500/5 px-3 py-2 flex items-center gap-2 shrink-0">
-                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse shrink-0" />
-                <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">
-                  Joined Incident #{joinedId} — GPS tracking on
-                </span>
-              </div>
-            )}
+            <IncidentActiveSummary
+              incident={currentIncident}
+              isJoiner={isJoinerMode}
+              categories={categories}
+              showLoadRoute={
+                !isJoinerMode &&
+                !navMode &&
+                !hasRoute &&
+                Boolean(currentIncident.latitude && currentIncident.longitude)
+              }
+              onLoadRoute={() =>
+                drawRoute(
+                  currentIncident!.latitude!,
+                  currentIncident!.longitude!,
+                  lastPosRef.current ?? undefined,
+                )
+              }
+            />
             {/* Destination — joiner sees creator's destination as a navigate button;
                 creator gets the address search box */}
             <div className="space-y-1.5 shrink-0">
@@ -2823,7 +2943,7 @@ export default function LiveIncidentPage() {
                 /* Joiner: show a navigate button to the creator's saved destination */
                 !navMode && currentIncident?.destinationLat != null && currentIncident?.destinationLng != null ? (
                   <div className="space-y-1.5">
-                    <p className="text-sm font-medium">Incident destination</p>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Destination</p>
                     {navStarted ? (
                       <button
                         type="button"
@@ -2966,28 +3086,6 @@ export default function LiveIncidentPage() {
                   </span>
                   <span className="ml-auto text-xs opacity-60">{currentStepIndex + 1} / {steps.length}</span>
                 </div>
-              </div>
-            ) : !navMode ? (
-              <div className="rounded-lg border border-green-500/40 bg-green-500/5 p-4 space-y-2 shrink-0">
-                <div className="flex items-center gap-2 text-green-600 dark:text-green-400 font-semibold text-sm">
-                  <CheckCircle2 className="h-4 w-4" />
-                  {isJoinerMode ? `Joined Incident #${joinedId} — GPS tracking on` : "Incident Active — GPS tracking on"}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Started: {currentIncident?.liveStartedAt ? new Date(currentIncident.liveStartedAt).toLocaleTimeString() : currentIncident?.incidentTime}
-                </p>
-                {currentIncident?.latitude && currentIncident?.longitude && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="w-full gap-1.5 text-xs mt-1"
-                    onClick={() => drawRoute(currentIncident!.latitude!, currentIncident!.longitude!, lastPosRef.current ?? undefined)}
-                    data-testid="button-load-route"
-                  >
-                    <Navigation className="h-3 w-3" />
-                    Load Navigation
-                  </Button>
-                )}
               </div>
             ) : null}
           </>

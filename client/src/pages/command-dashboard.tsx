@@ -33,10 +33,14 @@ type LiveIncidentRow = {
   id: number;
   userId: string | null;
   categoryName: string | null;
+  categoryColor: string | null;
+  severity: string | null;
   locationId: number | null;
   locationName: string | null;
   destinationName: string | null;
   liveStartedAt: string | null;
+  responderFirstName: string | null;
+  responderLastName: string | null;
   isEscalated?: boolean;
   responders?: Array<{
     userId: string;
@@ -47,6 +51,38 @@ type LiveIncidentRow = {
     arrivedAt: string | null;
   }>;
 };
+
+function severityBadgeClass(severity: string | null): string {
+  if (severity === "red") {
+    return "bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/30";
+  }
+  if (severity === "orange") {
+    return "bg-orange-500/15 text-orange-700 dark:text-orange-400 border-orange-500/30";
+  }
+  if (severity === "yellow") {
+    return "bg-yellow-400/15 text-yellow-800 dark:text-yellow-400 border-yellow-400/30";
+  }
+  return "bg-muted text-muted-foreground border-border";
+}
+
+function severityDotClass(severity: string | null): string {
+  if (severity === "red") return "bg-red-500";
+  if (severity === "orange") return "bg-orange-500";
+  if (severity === "yellow") return "bg-yellow-400";
+  return "bg-muted-foreground";
+}
+
+function severityRowAccent(severity: string | null): string {
+  if (severity === "red") return "border-l-4 border-l-red-500 bg-red-500/[0.04]";
+  if (severity === "orange") return "border-l-4 border-l-orange-500 bg-orange-500/[0.03]";
+  if (severity === "yellow") return "border-l-4 border-l-yellow-400 bg-yellow-400/[0.03]";
+  return "";
+}
+
+function formatStarterName(inc: LiveIncidentRow): string | null {
+  const name = [inc.responderFirstName, inc.responderLastName].filter(Boolean).join(" ").trim();
+  return name || null;
+}
 
 function ActionTile({
   title,
@@ -252,9 +288,10 @@ export default function CommandDashboard() {
     navigate(`/occurrence-book?period=${period}`);
   }
 
+  const liveCountDisplay = visibleLiveIncidents.length;
+
   function openLiveView() {
-    const count = isReporter ? visibleLiveIncidents.length : (data?.liveCount ?? 0);
-    if (count === 0) {
+    if (liveCountDisplay === 0) {
       toast({ title: "No live incidents", description: "There are no active live incidents right now." });
       return;
     }
@@ -393,6 +430,24 @@ export default function CommandDashboard() {
       </div>
 
       <div className="p-4 md:p-6 pt-1 pb-28 space-y-5 max-w-4xl mx-auto w-full">
+        {visibleLiveIncidents.some((i) => i.severity === "red") && (
+          <div
+            className="flex items-center gap-3 rounded-xl border-2 border-red-500/50 bg-red-500/10 px-4 py-3"
+            data-testid="banner-red-live-incident"
+          >
+            <span className="relative flex h-3 w-3 shrink-0">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
+              <span className="relative inline-flex h-3 w-3 rounded-full bg-red-500" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-red-700 dark:text-red-400">
+                RED severity live incident{visibleLiveIncidents.filter((i) => i.severity === "red").length > 1 ? "s" : ""} active
+              </p>
+              <p className="text-xs text-muted-foreground">Review details below or open Live Monitor</p>
+            </div>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {isLoading ? (
             <>
@@ -410,14 +465,14 @@ export default function CommandDashboard() {
               />
               <StatTile
                 label="Currently Live"
-                value={isReporter ? visibleLiveIncidents.length : (data?.liveCount ?? 0)}
+                value={liveCountDisplay}
                 sublabel={
-                  (isReporter ? visibleLiveIncidents.length : (data?.liveCount ?? 0)) > 0
+                  liveCountDisplay > 0
                     ? `active · tap to open`
                     : "no active incidents"
                 }
                 onClick={openLiveView}
-                highlight={(isReporter ? visibleLiveIncidents.length : (data?.liveCount ?? 0)) > 0}
+                highlight={liveCountDisplay > 0}
                 testId="stat-live-count"
               />
             </>
@@ -449,22 +504,42 @@ export default function CommandDashboard() {
                   const startedMs = inc.liveStartedAt ? new Date(inc.liveStartedAt).getTime() : null;
                   const minsAgo = startedMs != null ? Math.max(0, Math.round((Date.now() - startedMs) / 60000)) : null;
                   const isMine = inc.userId === currentUser?.id;
+                  const starterName = formatStarterName(inc);
+                  const rowAccent = severityRowAccent(inc.severity);
                   return (
                     <li key={inc.id}>
                       <button
                         type="button"
                         onClick={() => openLiveIncidentRow(inc)}
-                        className="w-full text-left px-4 py-3 hover:bg-muted/50 active:bg-muted/70 transition-colors touch-manipulation"
+                        className={`w-full text-left px-4 py-3 hover:bg-muted/50 active:bg-muted/70 transition-colors touch-manipulation ${rowAccent}`}
                         data-testid={`row-live-incident-${inc.id}`}
                       >
-                        <div className="flex items-start gap-2">
+                        <div className="flex items-start gap-3">
+                          {inc.categoryColor ? (
+                            <div
+                              className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full shadow-sm"
+                              style={{ backgroundColor: inc.categoryColor }}
+                              aria-hidden
+                            >
+                              <Radio className="h-4 w-4 text-white" strokeWidth={2.25} />
+                            </div>
+                          ) : null}
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="font-semibold text-sm truncate">
                                 {isMine ? "Your live incident" : `Incident #${inc.id}`}
                               </span>
+                              {inc.severity && inc.severity !== "none" && (
+                                <span
+                                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${severityBadgeClass(inc.severity)}`}
+                                  data-testid={`badge-severity-live-${inc.id}`}
+                                >
+                                  <span className={`h-1.5 w-1.5 rounded-full ${severityDotClass(inc.severity)} ${inc.severity === "red" ? "animate-pulse" : ""}`} />
+                                  {inc.severity}
+                                </span>
+                              )}
                               {inc.categoryName && (
-                                <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                                <span className="inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded bg-muted text-foreground">
                                   {inc.categoryName}
                                 </span>
                               )}
@@ -474,6 +549,11 @@ export default function CommandDashboard() {
                                 </span>
                               )}
                             </div>
+                            {starterName && !isMine ? (
+                              <p className="text-xs text-foreground/80 mt-0.5">
+                                Started by {starterName}
+                              </p>
+                            ) : null}
                             <p className="text-xs text-muted-foreground truncate mt-0.5 flex items-center gap-1">
                               <Navigation className="h-3 w-3 shrink-0" />
                               {locText}
