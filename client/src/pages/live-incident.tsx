@@ -1380,7 +1380,9 @@ export default function LiveIncidentPage() {
       // stale key — otherwise startTracking would PATCH /joiner-position and
       // get 403 forever (the bug Nicolaas hit at 13:48 after a 11:53 arrival).
       if (joinedInc) {
-        const stillActive = (joinedInc.responders ?? []).some(r => r.userId === me.id);
+        const stillActive = (joinedInc.responders ?? []).some(
+          (r) => r.userId === me.id && !r.arrivedAt,
+        );
         if (stillActive) {
           setJoinedId(id);
           return;
@@ -1395,7 +1397,10 @@ export default function LiveIncidentPage() {
     }
     // Fallback: check server state — find any live incident where I am an active responder
     const serverJoined = liveIncidents.find(
-      i => i.isLive && i.userId !== me.id && (i.responders ?? []).some(r => r.userId === me.id)
+      (i) =>
+        i.isLive &&
+        i.userId !== me.id &&
+        (i.responders ?? []).some((r) => r.userId === me.id && !r.arrivedAt),
     );
     if (serverJoined) {
       localStorage.setItem(JOINED_INCIDENT_KEY, String(serverJoined.id));
