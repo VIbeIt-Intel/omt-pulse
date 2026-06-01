@@ -1,6 +1,8 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { createServer, type Server } from "http";
 import crypto from "crypto";
+import fs from "fs";
+import path from "path";
 import multer from "multer";
 import webpush from "web-push";
 import admin from "firebase-admin";
@@ -50,19 +52,33 @@ if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
   }
 }
 
+function loadFirebaseServiceAccount(): Record<string, unknown> | null {
+  if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+    return JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON) as Record<string, unknown>;
+  }
+  const filePath =
+    process.env.FIREBASE_SERVICE_ACCOUNT_PATH ||
+    path.join(process.cwd(), "secrets", "firebase-service-account.json");
+  if (!fs.existsSync(filePath)) return null;
+  return JSON.parse(fs.readFileSync(filePath, "utf8")) as Record<string, unknown>;
+}
+
 // Firebase Admin SDK — FCM V1 API for native Android/iOS push
 let fcmReady = false;
-if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-  try {
-    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+try {
+  const serviceAccount = loadFirebaseServiceAccount();
+  if (serviceAccount) {
     if (!admin.apps.length) {
-      admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+      admin.initializeApp({ credential: admin.credential.cert(serviceAccount as admin.ServiceAccount) });
     }
     fcmReady = true;
-    console.log("Firebase Admin initialised — FCM native push enabled");
-  } catch (err) {
-    console.warn("Firebase Admin init failed — FCM push disabled:", err instanceof Error ? err.message : String(err));
+    const source = process.env.FIREBASE_SERVICE_ACCOUNT_JSON
+      ? "FIREBASE_SERVICE_ACCOUNT_JSON"
+      : process.env.FIREBASE_SERVICE_ACCOUNT_PATH || "secrets/firebase-service-account.json";
+    console.log(`Firebase Admin initialised — FCM native push enabled (${source})`);
   }
+} catch (err) {
+  console.warn("Firebase Admin init failed — FCM push disabled:", err instanceof Error ? err.message : String(err));
 }
 
 async function sendFcmBatch(tokens: string[], payload: { title: string; body: string; data?: Record<string, string> }): Promise<void> {
