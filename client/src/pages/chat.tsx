@@ -19,7 +19,6 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { MessageSquare, Send, Plus, Search, Users, ArrowLeft, ImageIcon, Camera, Mic, Trash2, Square } from "lucide-react";
-import { Capacitor } from "@capacitor/core";
 import { cn } from "@/lib/utils";
 import { MAX_VOICE_SECONDS, uploadFile, UploadValidationError } from "@/lib/upload-media";
 import { nativeMicDeniedHint } from "@/lib/native-mic-hint";
@@ -224,7 +223,6 @@ export default function ChatPage() {
 
   const { data: me } = useQuery<AuthUser>({ queryKey: ["/api/auth/me"] });
   const isAdmin = me?.role === "administrator" || !!me?.isSuperadmin;
-  const isNativeApp = Capacitor.isNativePlatform();
 
   const { data: conversations = [] } = useQuery<Conversation[]>({
     queryKey: ["/api/chat/conversations"],
@@ -459,12 +457,6 @@ export default function ChatPage() {
       stopVoiceRecording();
       return;
     }
-    // Android WebView: use native recorder intent (same pattern as camera) — avoids getUserMedia.
-    if (isNativeApp) {
-      setShowAttachMenu(false);
-      voiceInputRef.current?.click();
-      return;
-    }
     startVoiceRecording();
   }
 
@@ -654,10 +646,9 @@ export default function ChatPage() {
         ref={voiceInputRef}
         type="file"
         accept="audio/*"
-        capture="user"
         className="hidden"
         onChange={(e) => { const f = e.target.files?.[0]; if (f) handleVoiceFile(f); }}
-        data-testid="input-voice-capture"
+        data-testid="input-voice-file"
       />
 
       {/* Left panel — conversation list */}
@@ -960,7 +951,7 @@ export default function ChatPage() {
 
         {/* Input bar */}
         <div className="px-3 py-3 border-t shrink-0 bg-background">
-          {isRecording && !isNativeApp && (
+          {isRecording && (
             <div className="flex items-center justify-between gap-2 mb-2 px-2 py-2 rounded-lg bg-destructive/10 border border-destructive/20">
               <div className="flex items-center gap-2 text-sm text-destructive">
                 <span className="h-2 w-2 rounded-full bg-destructive animate-pulse" />
@@ -996,6 +987,14 @@ export default function ChatPage() {
               >
                 <Camera className="h-4 w-4" />
                 Camera
+              </button>
+              <button
+                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors py-1 px-2 rounded-lg hover:bg-muted/60"
+                onClick={() => voiceInputRef.current?.click()}
+                data-testid="button-attach-audio-file"
+              >
+                <Mic className="h-4 w-4" />
+                Audio file
               </button>
             </div>
           )}
