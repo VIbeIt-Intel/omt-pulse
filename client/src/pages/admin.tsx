@@ -1,4 +1,10 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
+import {
+  isManualIncidentType,
+  isSystemResponseMode,
+  SYSTEM_MODE_DESCRIPTIONS,
+  uniqueSystemResponseModes,
+} from "@/lib/incident-categories";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { INCIDENT_ICONS, getIconSvg } from "@/lib/incident-icons";
@@ -42,7 +48,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Pencil, Trash2, Settings, ListChecks, Eye, EyeOff, MapPin, ChevronDown, ChevronUp, Tag, Map, Upload, X, ScanSearch } from "lucide-react";
+import { Plus, Pencil, Trash2, Settings, ListChecks, Eye, EyeOff, MapPin, ChevronDown, ChevronUp, Tag, Map, Upload, X, ScanSearch, Radio } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { CustomMap } from "@shared/schema";
 
@@ -419,6 +425,37 @@ function PredefinedTypesManager() {
 
   const isSaving = createMutation.isPending || updateMutation.isPending;
 
+  const incidentTypes = useMemo(
+    () => categories.filter(isManualIncidentType),
+    [categories],
+  );
+  const systemModes = useMemo(
+    () => uniqueSystemResponseModes(categories),
+    [categories],
+  );
+  const hasCommandScopedModes = categories.filter(isSystemResponseMode).length > systemModes.length;
+
+  const renderTypeSwatch = (cat: Category) => (
+    <div
+      className="w-7 h-7 rounded-full flex items-center justify-center shadow-sm"
+      style={{ backgroundColor: cat.color || "#3B82F6" }}
+      data-testid={`swatch-type-${cat.id}`}
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="white"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        dangerouslySetInnerHTML={{ __html: getIconSvg(cat.icon) }}
+      />
+    </div>
+  );
+
   return (
     <>
       <Card>
@@ -430,7 +467,7 @@ function PredefinedTypesManager() {
           <div className="flex items-center justify-between gap-4">
             <CardTitle className="flex items-center gap-2 text-base">
               <Tag className="h-4 w-4" />
-              Predefined Types
+              Incident Types
             </CardTitle>
             <div className="flex items-center gap-2">
               {!collapsed && (
@@ -442,49 +479,35 @@ function PredefinedTypesManager() {
               {collapsed ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronUp className="h-4 w-4 text-muted-foreground" />}
             </div>
           </div>
+          {!collapsed && (
+            <p className="text-sm text-muted-foreground font-normal mt-1">
+              Classifications for logging incidents — Criminal, Medical, Other, etc.
+            </p>
+          )}
         </CardHeader>
         {!collapsed && <CardContent className="p-0">
           {isLoading ? (
             <div className="p-6 space-y-3">
               {[1, 2, 3].map((i) => <Skeleton key={i} className="h-10 w-full" />)}
             </div>
-          ) : categories.length === 0 ? (
+          ) : incidentTypes.length === 0 ? (
             <div className="p-8 text-center">
               <Tag className="mx-auto h-10 w-10 text-muted-foreground/30" />
-              <p className="mt-3 text-sm text-muted-foreground">No predefined types yet.</p>
+              <p className="mt-3 text-sm text-muted-foreground">No incident types yet.</p>
             </div>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Colour</TableHead>
-                  <TableHead>Primary Type</TableHead>
+                  <TableHead>Type</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {categories.map((cat) => (
+                {incidentTypes.map((cat) => (
                   <TableRow key={cat.id} data-testid={`row-type-${cat.id}`}>
-                    <TableCell>
-                      <div
-                        className="w-7 h-7 rounded-full flex items-center justify-center shadow-sm"
-                        style={{ backgroundColor: cat.color || "#3B82F6" }}
-                        data-testid={`swatch-type-${cat.id}`}
-                      >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          width="14"
-                          height="14"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="white"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          dangerouslySetInnerHTML={{ __html: getIconSvg(cat.icon) }}
-                        />
-                      </div>
-                    </TableCell>
+                    <TableCell>{renderTypeSwatch(cat)}</TableCell>
                     <TableCell className="font-medium">
                       <span className="flex items-center gap-2">
                         {cat.name}
@@ -493,25 +516,16 @@ function PredefinedTypesManager() {
                             Other
                           </span>
                         )}
-                        {(cat as any).isSystem && (
-                          <span className="text-xs px-1.5 py-0.5 rounded-full bg-primary/10 text-primary dark:bg-primary/20" data-testid={`badge-system-${cat.id}`}>
-                            System
-                          </span>
-                        )}
                       </span>
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
-                        {!(cat as any).isSystem && (
-                          <>
-                            <Button size="icon" variant="ghost" onClick={() => openEdit(cat)} data-testid={`button-edit-type-${cat.id}`}>
-                              <Pencil className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button size="icon" variant="ghost" onClick={() => setDeleteId(cat.id)} data-testid={`button-delete-type-${cat.id}`}>
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          </>
-                        )}
+                        <Button size="icon" variant="ghost" onClick={() => openEdit(cat)} data-testid={`button-edit-type-${cat.id}`}>
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button size="icon" variant="ghost" onClick={() => setDeleteId(cat.id)} data-testid={`button-delete-type-${cat.id}`}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -520,6 +534,63 @@ function PredefinedTypesManager() {
             </Table>
           )}
         </CardContent>}
+      </Card>
+
+      <Card className="mt-4">
+        <CardHeader data-testid="header-system-modes">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Radio className="h-4 w-4" />
+            Built-in Response Modes
+          </CardTitle>
+          <p className="text-sm text-muted-foreground font-normal mt-1">
+            Platform-managed — triggered by the panic button or live incident flow, not selected when logging manually.
+          </p>
+        </CardHeader>
+        <CardContent className="p-0 pb-2">
+          {isLoading ? (
+            <div className="p-6 space-y-3">
+              {[1, 2].map((i) => <Skeleton key={i} className="h-10 w-full" />)}
+            </div>
+          ) : systemModes.length === 0 ? (
+            <div className="px-6 pb-6 text-sm text-muted-foreground">
+              Created automatically when panic or live incident is first used.
+            </div>
+          ) : (
+            <>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Colour</TableHead>
+                    <TableHead>Mode</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {systemModes.map((cat) => (
+                    <TableRow key={cat.id} data-testid={`row-system-mode-${cat.id}`}>
+                      <TableCell>{renderTypeSwatch(cat)}</TableCell>
+                      <TableCell>
+                        <div className="font-medium flex items-center gap-2">
+                          {cat.name}
+                          <span className="text-xs px-1.5 py-0.5 rounded-full bg-primary/10 text-primary dark:bg-primary/20" data-testid={`badge-system-${cat.id}`}>
+                            System
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {SYSTEM_MODE_DESCRIPTIONS[cat.name] ?? "Platform-managed response mode"}
+                        </p>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              {hasCommandScopedModes && (
+                <p className="text-xs text-muted-foreground px-6 pt-2">
+                  Multiple commands may each have their own system mode records — behaviour is the same.
+                </p>
+              )}
+            </>
+          )}
+        </CardContent>
       </Card>
 
       <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) closeDialog(); }}>
@@ -654,7 +725,7 @@ function PredefinedTypesManager() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Type</AlertDialogTitle>
-            <AlertDialogDescription>This will remove the type from the predefined list. Existing incidents that reference this type will be unaffected. Continue?</AlertDialogDescription>
+            <AlertDialogDescription>This will remove the type from your incident types list. Existing incidents that reference this type will be unaffected. Continue?</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
@@ -1317,7 +1388,7 @@ export default function AdminPage() {
             Field Admin
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Configure form fields and predefined locations for incident reporting
+            Configure form fields, incident types, and locations for reporting
           </p>
         </div>
 

@@ -25,6 +25,7 @@ import { speak, stopSpeaking } from "@/lib/tts";
 import { Capacitor } from '@capacitor/core';
 import CapacitorMap, { type CapacitorMapHandle } from '@/components/CapacitorMap';
 import type { Incident, Category } from "@shared/schema";
+import { isCloseReclassifyType } from "@/lib/incident-categories";
 
 const LIVE_INCIDENT_KEY = "omt_live_incident_id";
 const JOINED_INCIDENT_KEY = "omt_joined_incident_id";
@@ -2159,7 +2160,7 @@ export default function LiveIncidentPage() {
   // destination where no further maneuver exists.
   const upcomingStep = steps[currentStepIndex + 1] ?? currentStep;
   const followingStep = steps[currentStepIndex + 2] ?? null;
-  const nonLiveCategories = categories.filter((c) => c.name.toLowerCase() !== "live incident");
+  const nonLiveCategories = categories.filter(isCloseReclassifyType);
 
   // --- Panicker view detection ---------------------------------------------
   // A panic incident is created as a live incident with destination = the

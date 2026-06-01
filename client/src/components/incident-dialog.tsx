@@ -6,6 +6,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Category, Location, Incident, FormField, CustomMap, AttachmentWithUploader } from "@shared/schema";
+import { isManualIncidentType } from "@/lib/incident-categories";
 import {
   Dialog,
   DialogClose,
@@ -840,7 +841,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                           <SelectContent>
                             {(() => {
                               const eligible = categories.filter(
-                                (cat) => cat.name !== "Live Incident" && !cat.isOther
+                                (cat) => isManualIncidentType(cat) && !cat.isOther
                               );
                               const byName = (a: typeof eligible[0], b: typeof eligible[0]) =>
                                 a.name.localeCompare(b.name);
@@ -851,7 +852,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                                 (c) => c.severity !== "red" && c.severity !== "orange" && c.severity !== "yellow"
                               ).sort(byName);
                               const otherCats = categories.filter(
-                                (cat) => cat.name !== "Live Incident" && cat.isOther
+                                (cat) => isManualIncidentType(cat) && cat.isOther
                               ).sort(byName);
 
                               const renderItem = (cat: typeof eligible[0]) => (
