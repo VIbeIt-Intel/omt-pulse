@@ -16,6 +16,7 @@
     "@capacitor-community/text-to-speech": "^8.0.0",
     "@capacitor/google-maps": "^8.0.1",
     "@capacitor/push-notifications": "^8.1.1",
+    "@capgo/capacitor-audio-recorder": "^8.0.12",
     "@google-cloud/storage": "^7.19.0",
     "@hookform/resolvers": "^3.10.0",
     "@jridgewell/trace-mapping": "^0.3.25",

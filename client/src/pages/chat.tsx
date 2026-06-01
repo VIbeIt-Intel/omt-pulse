@@ -28,6 +28,12 @@ import {
   recorderMimeType,
   recordingErrorMessage,
 } from "@/lib/voice-recorder";
+import {
+  cancelNativeRecording,
+  isNativeAudioRecorderAvailable,
+  startNativeRecording,
+  stopNativeRecording,
+} from "@/lib/native-audio-recorder";
 
 type ChatMessage = {
   id: number;
@@ -223,6 +229,7 @@ export default function ChatPage() {
 
   const { data: me } = useQuery<AuthUser>({ queryKey: ["/api/auth/me"] });
   const isAdmin = me?.role === "administrator" || !!me?.isSuperadmin;
+  const useNativeRecorder = isNativeAudioRecorderAvailable();
 
   const { data: conversations = [] } = useQuery<Conversation[]>({
     queryKey: ["/api/chat/conversations"],
@@ -372,6 +379,9 @@ export default function ChatPage() {
     if (isRecording && mediaRecorderRef.current?.state !== "inactive") {
       mediaRecorderRef.current?.stop();
     }
+    if (isRecording && useNativeRecorder) {
+      void cancelNativeRecording();
+    }
     stopRecordingTracks();
     setIsRecording(false);
     setRecordingSeconds(0);
@@ -457,7 +467,39 @@ export default function ChatPage() {
       stopVoiceRecording();
       return;
     }
+    if (useNativeRecorder) {
+      void startNativeVoiceRecording();
+      return;
+    }
     startVoiceRecording();
+  }
+
+  async function startNativeVoiceRecording() {
+    if (isRecording || uploadingVoice || uploadingImage) return;
+    setShowAttachMenu(false);
+    try {
+      await startNativeRecording();
+      setRecordingSeconds(0);
+      setIsRecording(true);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingSeconds((s) => {
+          if (s + 1 >= MAX_VOICE_SECONDS) {
+            stopVoiceRecording();
+            return MAX_VOICE_SECONDS;
+          }
+          return s + 1;
+        });
+      }, 1000);
+    } catch (err: unknown) {
+      setIsRecording(false);
+      setRecordingSeconds(0);
+      const { title, description } = recordingErrorMessage(err);
+      toast({
+        title,
+        description: description === "mic-denied" ? nativeMicDeniedHint() : description,
+        variant: "destructive",
+      });
+    }
   }
 
   async function startVoiceRecording() {
@@ -513,6 +555,18 @@ export default function ChatPage() {
     if (recordingTimerRef.current) {
       clearInterval(recordingTimerRef.current);
       recordingTimerRef.current = null;
+    }
+    if (useNativeRecorder && isRecording) {
+      setIsRecording(false);
+      setRecordingSeconds(0);
+      setUploadingVoice(true);
+      void stopNativeRecording()
+        .then(({ blob, mimeType }) => uploadAndSendVoice(blob, mimeType))
+        .catch(() => {
+          toast({ title: "Recording failed", description: "Could not save voice note.", variant: "destructive" });
+          setUploadingVoice(false);
+        });
+      return;
     }
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       mediaRecorderRef.current.stop();
