@@ -34,6 +34,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CustomMapPicker } from "./custom-map-picker";
+import {
+  IncidentInvolvementSection,
+  INVOLVEMENT_FIELD_KEYS,
+  readInvolvement,
+} from "./incident-involvement-section";
 import { CalendarIcon, Clock, MapPin, Upload, Paperclip, X, FileText, Loader2, Camera, Mic, Square, Globe, Map, LocateFixed } from "lucide-react";
 import { loadGoogleMaps } from "@/lib/google-maps-loader";
 
@@ -237,7 +242,11 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
     staleTime: 0,
   });
 
-  const customFields = formFields.filter((f) => !f.isSystem && f.isVisible);
+  const orgCustomFields = formFields.filter(
+    (f) => !f.isSystem && f.isVisible && !INVOLVEMENT_FIELD_KEYS.has(f.fieldKey),
+  );
+  const [personInvolved, setPersonInvolved] = useState(false);
+  const [vehicleInvolved, setVehicleInvolved] = useState(false);
 
   const form = useForm<IncidentFormValues>({
     resolver: zodResolver(incidentFormSchema),
@@ -294,6 +303,9 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
         description: incident.description,
         customFields: (incident.customFields as Record<string, string | number | null>) || {},
       });
+      const inv = readInvolvement(incident.customFields as Record<string, string | number | null>);
+      setPersonInvolved(inv.personInvolved);
+      setVehicleInvolved(inv.vehicleInvolved);
       fetch(`/api/incidents/${incident.id}/attachments`, { credentials: "include" })
         .then(r => r.json())
         .then(data => setExistingAttachments(data))
@@ -303,9 +315,11 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
       setSelectedCustomMapId(null);
       setExistingAttachments([]);
       const defaults: Record<string, string | number | null> = {};
-      customFields.forEach((f) => {
+      orgCustomFields.forEach((f) => {
         defaults[f.fieldKey] = null;
       });
+      setPersonInvolved(false);
+      setVehicleInvolved(false);
       form.reset({
         incidentDate: new Date().toISOString().split("T")[0],
         incidentTime: new Date().toTimeString().slice(0, 5),
@@ -797,6 +811,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
   const showCategory = isFieldVisible(formFields, "categoryId", fieldsLoaded);
   const showLocation = isFieldVisible(formFields, "location", fieldsLoaded);
   const showDescription = isFieldVisible(formFields, "description", fieldsLoaded);
+  const showDescriptionField = showDescription && Boolean(incident?.description?.trim());
 
   const hasCustomMaps = customMaps.length > 0;
   const activeCustomMap = customMaps.find((m) => m.id === selectedCustomMapId) ?? null;
@@ -1064,63 +1079,35 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                     </Button>
 
                     <p className="text-xs text-muted-foreground">
-                      Tap the map to place the pin; the address and coordinates will fill in automatically.
+                      Tap the map to place the pin, or choose a predefined site below.
                     </p>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <FormFieldComponent
-                        control={form.control}
-                        name="locationId"
-                        render={({ field }) => (
-                          <FormItem>
-                            <Select
-                              onValueChange={(val) => handleLocationSelect(parseInt(val))}
-                              value={field.value?.toString() || ""}
-                            >
-                              <FormControl>
-                                <SelectTrigger data-testid="select-location">
-                                  <SelectValue placeholder="Select predefined location" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                {allowedLocations.map((loc) => (
-                                  <SelectItem key={loc.id} value={loc.id.toString()}>
-                                    {loc.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormFieldComponent
-                        control={form.control}
-                        name="locationName"
-                        render={({ field }) => (
-                          <FormItem>
+                    <FormFieldComponent
+                      control={form.control}
+                      name="locationId"
+                      render={({ field }) => (
+                        <FormItem>
+                          <Select
+                            onValueChange={(val) => handleLocationSelect(parseInt(val))}
+                            value={field.value?.toString() || ""}
+                          >
                             <FormControl>
-                              <Input
-                                placeholder="Street name, suburb, or place"
-                                {...field}
-                                value={field.value || ""}
-                                onChange={(e) => {
-                                  field.onChange(e);
-                                  if (!e.target.value.trim()) {
-                                    form.setValue("latitude", null);
-                                    form.setValue("longitude", null);
-                                    setPendingLatLng(null);
-                                    setPendingAddress(null);
-                                  }
-                                }}
-                                data-testid="input-location-name"
-                              />
+                              <SelectTrigger data-testid="select-location">
+                                <SelectValue placeholder="Select predefined location" />
+                              </SelectTrigger>
                             </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
+                            <SelectContent>
+                              {allowedLocations.map((loc) => (
+                                <SelectItem key={loc.id} value={loc.id.toString()}>
+                                  {loc.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
 
                     {form.watch("latitude") && form.watch("longitude") && (
                       <p className="text-xs text-muted-foreground" data-testid="text-coordinates">
@@ -1243,7 +1230,16 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
               </div>
             )}
 
-            {showDescription && (
+            <IncidentInvolvementSection
+              customFields={(form.watch("customFields") as Record<string, string | number | null>) || {}}
+              onChange={(next) => form.setValue("customFields", next)}
+              personInvolved={personInvolved}
+              vehicleInvolved={vehicleInvolved}
+              onPersonInvolvedChange={setPersonInvolved}
+              onVehicleInvolvedChange={setVehicleInvolved}
+            />
+
+            {showDescriptionField && (
               <FormFieldComponent
                 control={form.control}
                 name="description"
@@ -1266,11 +1262,11 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
               />
             )}
 
-            {customFields.length > 0 && (
+            {orgCustomFields.length > 0 && (
               <div className="space-y-4">
                 <h3 className="text-sm font-medium text-muted-foreground">Additional Fields</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {customFields.map((cf) => {
+                  {orgCustomFields.map((cf) => {
                     const currentCustomFields = form.watch("customFields") || {};
                     const value = currentCustomFields[cf.fieldKey] ?? "";
 
