@@ -68,12 +68,14 @@ function IncidentActiveSummary({
   categories,
   showLoadRoute,
   onLoadRoute,
+  compact = false,
 }: {
   incident: LiveIncidentSummary;
   isJoiner: boolean;
   categories: Category[];
   showLoadRoute: boolean;
   onLoadRoute: () => void;
+  compact?: boolean;
 }) {
   const categoryName =
     incident.categoryName ?? categories.find((c) => c.id === incident.categoryId)?.name ?? null;
@@ -81,6 +83,48 @@ function IncidentActiveSummary({
     incident.categoryColor ?? categories.find((c) => c.id === incident.categoryId)?.color ?? null;
   const severity = incident.severity;
   const starter = [incident.responderFirstName, incident.responderLastName].filter(Boolean).join(" ").trim();
+
+  if (compact) {
+    return (
+      <div
+        className={`rounded-lg border bg-card px-3 py-2 shrink-0 ${
+          severity === "red" ? "border-red-500/25" : severity === "orange" ? "border-orange-500/20" : ""
+        }`}
+        data-testid="card-incident-active-summary"
+      >
+        <div className="flex items-center gap-2 min-w-0 text-xs">
+          {categoryColor ? (
+            <span
+              className="h-2.5 w-2.5 shrink-0 rounded-full"
+              style={{ backgroundColor: categoryColor }}
+              aria-hidden
+            />
+          ) : null}
+          <span className="font-semibold shrink-0">#{incident.id}</span>
+          {severity && severity !== "none" ? (
+            <span
+              className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[9px] font-bold uppercase ${severityBadgeClass(severity)}`}
+              data-testid="badge-live-severity"
+            >
+              <span className={`h-1 w-1 rounded-full ${severityDotClass(severity)}`} />
+              {severity}
+            </span>
+          ) : null}
+          {categoryName ? (
+            <span className="truncate font-medium text-foreground/90">{categoryName}</span>
+          ) : null}
+          {isJoiner && starter ? (
+            <span className="truncate text-muted-foreground hidden min-[360px]:inline">· {starter}</span>
+          ) : null}
+          <span className="ml-auto flex shrink-0 items-center gap-1 text-green-600 dark:text-green-400">
+            <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
+            GPS
+          </span>
+        </div>
+      </div>
+    );
+  }
+
   const startedLabel = incident.liveStartedAt
     ? new Date(incident.liveStartedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
     : incident.incidentTime;
@@ -2802,7 +2846,9 @@ export default function LiveIncidentPage() {
           background tinted by GPS health. The fixed top-0 GPS-lost banner (60 s
           threshold) still handles retry. */}
       <div
-        className={`flex items-center gap-2 px-3 py-2 border-b shrink-0 transition-colors ${
+        className={`flex items-center gap-2 px-3 shrink-0 transition-colors border-b ${
+          navMode ? "py-1.5" : "py-2"
+        } ${
           !currentIncident || gpsStatus === "idle"
             ? "bg-background"
             : gpsStatus === "tracking" || gpsStatus === "stationary"
@@ -2819,12 +2865,14 @@ export default function LiveIncidentPage() {
           className="flex items-center gap-2 select-none min-w-0 flex-1"
           data-testid="title-live-incident"
         >
-          <span className="font-semibold text-base shrink-0">
-            {isJoinerMode && joinedId ? `Incident #${joinedId}` : "Live Incident"}
-          </span>
+          {!navMode && (
+            <span className="font-semibold text-base shrink-0">
+              {isJoinerMode ? "Responding" : "Live Incident"}
+            </span>
+          )}
           {currentIncident && gpsStatus !== "idle" && (
-            <span className="text-xs text-muted-foreground truncate" data-testid="text-gps-inline">
-              ·{" "}
+            <span className={`text-muted-foreground truncate ${navMode ? "text-sm font-medium text-foreground" : "text-xs"}`} data-testid="text-gps-inline">
+              {!navMode ? "· " : null}
               {gpsStatus === "tracking" || gpsStatus === "stationary"
                 ? `GPS${gpsAccuracy != null ? ` ±${gpsAccuracy}m` : ""}${
                     gpsLastSentAt != null
@@ -2915,29 +2963,36 @@ export default function LiveIncidentPage() {
       )}
 
 
-      <div ref={scrollContainerRef} className="flex flex-col flex-1 gap-3 p-4 overflow-y-auto live-scroll">
+      <div
+        ref={scrollContainerRef}
+        className={`flex flex-col flex-1 live-scroll ${
+          navMode ? "min-h-0 overflow-hidden p-0 gap-0" : "gap-3 p-4 overflow-y-auto"
+        }`}
+      >
         {currentIncident ? (
           <>
-            <IncidentActiveSummary
-              incident={currentIncident}
-              isJoiner={isJoinerMode}
-              categories={categories}
-              showLoadRoute={
-                !isJoinerMode &&
-                !navMode &&
-                !hasRoute &&
-                Boolean(currentIncident.latitude && currentIncident.longitude)
-              }
-              onLoadRoute={() =>
-                drawRoute(
-                  currentIncident!.latitude!,
-                  currentIncident!.longitude!,
-                  lastPosRef.current ?? undefined,
-                )
-              }
-            />
-            {/* Destination — joiner sees creator's destination as a navigate button;
-                creator gets the address search box */}
+            {!navMode && (
+              <IncidentActiveSummary
+                incident={currentIncident}
+                isJoiner={isJoinerMode}
+                categories={categories}
+                compact={isJoinerMode}
+                showLoadRoute={
+                  !isJoinerMode &&
+                  !hasRoute &&
+                  Boolean(currentIncident.latitude && currentIncident.longitude)
+                }
+                onLoadRoute={() =>
+                  drawRoute(
+                    currentIncident!.latitude!,
+                    currentIncident!.longitude!,
+                    lastPosRef.current ?? undefined,
+                  )
+                }
+              />
+            )}
+            {/* Destination — hidden in nav mode so the map fills the screen */}
+            {!navMode && (
             <div className="space-y-1.5 shrink-0">
               {isJoinerMode ? (
                 /* Joiner: show a navigate button to the creator's saved destination */
@@ -3051,6 +3106,7 @@ export default function LiveIncidentPage() {
                 </div>
               )}
             </div>
+            )}
 
             {!navMode && hasRoute && currentStep ? (
               <div className="rounded-lg border border-green-500/40 bg-green-500/5 px-4 py-3 space-y-2 shrink-0" data-testid="nav-panel">
@@ -3169,8 +3225,11 @@ export default function LiveIncidentPage() {
           </div>
         ) : (
           <div
-            className={navMode ? "relative overflow-hidden native-map-host" : "relative rounded-lg overflow-hidden min-h-[200px] flex-1 native-map-host"}
-            style={navMode ? { height: "calc(100dvh - 3.5rem)" } : undefined}
+            className={
+              navMode
+                ? "relative overflow-hidden native-map-host flex-1 min-h-0 w-full"
+                : "relative rounded-lg overflow-hidden min-h-[200px] flex-1 native-map-host"
+            }
           >
             {/* Nav mode: step banner overlaid at the top of the (tall in-flow) map.
                 Shows large maneuver arrow + instruction + distance, plus a "Then"
