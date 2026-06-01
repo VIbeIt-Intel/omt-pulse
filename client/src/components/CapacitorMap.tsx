@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { GoogleMap, MapType } from '@capacitor/google-maps';
 import { registerPlugin } from '@capacitor/core';
+import { pathFromDirectionsRoute } from '@/lib/decode-polyline';
 
 // Direct handle to the native plugin so we can call OMT-patched methods
 // (e.g. setGestures) that the upstream JS wrapper doesn't expose. Safe to
@@ -327,39 +328,15 @@ const CapacitorMap = forwardRef<CapacitorMapHandle, CapacitorMapProps>(
         const leg   = route?.legs?.[0];
         if (!route || !leg) throw new Error('DirectionsService:NO_ROUTE');
 
-        // Prefer decoding the encoded polyline (`overview_polyline.points`)
-        // ourselves — the SDK-derived `overview_path` array has been observed
-        // returning just origin+destination inside Capacitor WebView, producing
-        // a straight diagonal line ignoring roads. The encoded string is the
-        // raw Maps API payload and decodes to the full road-following geometry.
-        const enc = (route as any).overview_polyline?.points
-          ?? (route as any).overview_polyline;
-        let path: Array<{ lat: number; lng: number }> = [];
-        const decodePath = (google.maps as any).geometry?.encoding?.decodePath;
-        if (typeof enc === 'string' && typeof decodePath === 'function') {
-          try {
-            path = decodePath(enc).map((ll: google.maps.LatLng) => ({
-              lat: ll.lat(), lng: ll.lng(),
-            }));
-          } catch (e) {
-            reportNativeError('drawRoute:decodePath', e);
-          }
-        }
-        // Fallback to overview_path if decode unavailable or failed.
-        if (path.length < 2) {
-          path = (route.overview_path ?? []).map((ll) => ({
-            lat: ll.lat(), lng: ll.lng(),
-          }));
-        }
-        if (path.length < 2) return null;
+        // Build geometry from per-step polylines first. In Capacitor WebView,
+        // overview_path often collapses to origin→destination (straight line)
+        // even when step polylines contain the full road-following path.
+        const path = pathFromDirectionsRoute(route, leg);
+        if (path.length < 2) throw new Error('DirectionsService:NO_PATH');
 
-        // Diagnostic — single line per draw. adb logcat surfaces this verbatim
-        // and tells us in one screenshot whether the JS-side path is correct
-        // (then any visible straight line is bridge-side truncation) or not
-        // (then DirectionsService itself returned a degenerate path).
         const first = path[0], last = path[path.length - 1];
         console.log(
-          `[CapacitorMap.drawRoute] status=${status} points=${path.length} ` +
+          `[CapacitorMap.drawRoute] status=${status} points=${path.length} steps=${leg.steps?.length ?? 0} ` +
           `first=${first.lat.toFixed(5)},${first.lng.toFixed(5)} ` +
           `last=${last.lat.toFixed(5)},${last.lng.toFixed(5)}`
         );

@@ -201,6 +201,19 @@ function fmtDur(s: number) {
   if (mins < 60) return `${mins} min`;
   return `${Math.floor(mins / 60)}h ${mins % 60}min`;
 }
+/** Sum distance/duration from the current step onward (for nav-mode ETA strip). */
+function remainingFromSteps(
+  steps: Array<{ distance?: { value?: number }; duration?: { value?: number } }>,
+  fromIndex: number,
+) {
+  let distance = 0;
+  let duration = 0;
+  for (let i = fromIndex; i < steps.length; i++) {
+    distance += steps[i].distance?.value ?? 0;
+    duration += steps[i].duration?.value ?? 0;
+  }
+  return { distance, duration };
+}
 function stripHtml(html: string) {
   return html.replace(/<[^>]+>/g, "");
 }
@@ -416,6 +429,8 @@ export default function LiveIncidentPage() {
   const [newJoinerFlash, setNewJoinerFlash] = useState<string | null>(null);
   // Timestamp of the last auto-reroute, for 30-second rate-limiting.
   const lastRerouteRef = useRef<number>(0);
+  // Monotonic id so stale DirectionsService callbacks can't overwrite a newer route.
+  const drawRouteGenRef = useRef(0);
   // Mirrors currentStepIndex so the step-tracking interval can read the current value.
   const currentStepIndexRef = useRef(0);
   // Scrollable content container — scrolled to top when nav mode is entered.
@@ -968,6 +983,8 @@ export default function LiveIncidentPage() {
     setPendingActive(null);
     setLiveId(null);
     stepsRef.current = [];
+    drawRouteGenRef.current += 1;
+    setRouteInfo(null);
     announcedStepRef.current = -1;
     approachingTurnAnnouncedRef.current = -1;
     arrivedAnnouncedRef.current = false;
@@ -1013,6 +1030,10 @@ export default function LiveIncidentPage() {
     approachingTurnAnnouncedRef.current = -1;
     arrivedAnnouncedRef.current = false;
     setNavMode(false);
+    drawRouteGenRef.current += 1;
+    setRouteInfo(null);
+    setHasRoute(false);
+    stepsRef.current = [];
     setDestination(null);
     setSearch("");
     setSuggestions([]);
@@ -1590,12 +1611,8 @@ export default function LiveIncidentPage() {
     // native-ready re-trigger is permanently blocked by the guard.
     const mapActuallyReady = isNative ? nativeMapStatus === "ready" : mapsReady;
     if (!mapActuallyReady || !currentIncident) return;
-    const dlat = currentIncident.destinationLat != null
-      ? Number(currentIncident.destinationLat)
-      : (currentIncident.latitude ?? null);
-    const dlng = currentIncident.destinationLng != null
-      ? Number(currentIncident.destinationLng)
-      : (currentIncident.longitude ?? null);
+    const dlat = currentIncident.destinationLat != null ? Number(currentIncident.destinationLat) : null;
+    const dlng = currentIncident.destinationLng != null ? Number(currentIncident.destinationLng) : null;
     if (dlat == null || dlng == null) return;
 
     autoResumedNavRef.current = true;
@@ -1643,22 +1660,18 @@ export default function LiveIncidentPage() {
     }
   }, [active?.id, liveQueryLoaded]);
 
-  // Route drawing — only possible once Google Maps is ready.
-  // On reload, prefer the server-saved destinationLat/Lng over the incident start
-  // coords so the map shows the correct route after a PWA kill/reopen.
+  // Route drawing — only when the user (or joiner flow) has set an explicit destination.
+  // Do NOT fall back to incident.latitude/longitude — those may be stale import coords
+  // and produced cross-country routes when GPS hadn't fixed yet.
   useEffect(() => {
     if (!mapsReady || !currentIncident) return;
     if (stepsRef.current.length === 0) {
-      const dlat = currentIncident.destinationLat != null
-        ? Number(currentIncident.destinationLat)
-        : (currentIncident.latitude ?? null);
-      const dlng = currentIncident.destinationLng != null
-        ? Number(currentIncident.destinationLng)
-        : (currentIncident.longitude ?? null);
-      if (dlat && dlng) drawRoute(dlat, dlng, undefined, navModeRef.current);
+      const dlat = currentIncident.destinationLat != null ? Number(currentIncident.destinationLat) : null;
+      const dlng = currentIncident.destinationLng != null ? Number(currentIncident.destinationLng) : null;
+      if (dlat != null && dlng != null) drawRoute(dlat, dlng, undefined, navModeRef.current);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentIncident?.id, mapsReady]);
+  }, [currentIncident?.id, currentIncident?.destinationLat, currentIncident?.destinationLng, mapsReady]);
 
   // Keep destPositionRef in sync with the active incident's saved destination so
   // the sendPosition closure can check proximity without stale-closure issues.
@@ -1817,6 +1830,7 @@ export default function LiveIncidentPage() {
   }
 
   function drawRoute(dlat: number, dlng: number, origin?: { lat: number; lng: number }, skipFitBounds = false) {
+    const gen = ++drawRouteGenRef.current;
     // ── Native path ────────────────────────────────────────────────────────────
     if (isNative && capMapRef.current) {
       const cap = capMapRef.current;
@@ -1835,16 +1849,17 @@ export default function LiveIncidentPage() {
       // Destination — red tint
       cap.addMarker({ lat: dlat, lng: dlng, title: 'Destination', tintColor: { r: 239, g: 68, b: 68, a: 255 } })
         .then(id => { capDestMarkerIdRef.current = id; }).catch(() => {});
-      // Origin / start — primary green tint. Use lastPosRef or userLoc as the start point.
+      // Origin / start — primary green tint. Only use live GPS (lastPosRef), never
+      // the one-shot getCurrentPosition cache which can be stale/wrong city.
       // Skipped in nav mode: the heading-up "you" arrow overlay represents the
       // responder, so a static "A — Start" pin would just clutter the route ahead.
-      const startPos = origin ?? lastPosRef.current ?? userLoc;
+      const startPos = origin ?? lastPosRef.current;
       if (startPos && !navModeRef.current) {
         cap.addMarker({ lat: startPos.lat, lng: startPos.lng, title: 'Start', tintColor: { r: 0, g: 96, b: 57, a: 255 } })
           .then(id => { capOriginMarkerIdRef.current = id; }).catch(() => {});
       }
 
-      const originToUse = origin ?? lastPosRef.current ?? userLoc;
+      const originToUse = origin ?? lastPosRef.current;
       if (!originToUse) {
         // No GPS fix yet — center the camera on the destination so at least the
         // pin is visible. The GPS callback will retry drawRoute once a fix arrives.
@@ -1853,6 +1868,7 @@ export default function LiveIncidentPage() {
       }
       cap.drawRoute(originToUse, { lat: dlat, lng: dlng }, skipFitBounds || navModeRef.current)
         .then(result => {
+          if (gen !== drawRouteGenRef.current) return;
           if (!result) return;
           stepsRef.current = result.steps as unknown as google.maps.DirectionsStep[];
           setRouteInfo({ distance: result.distance, duration: result.duration });
@@ -1895,12 +1911,13 @@ export default function LiveIncidentPage() {
       title: "Destination",
       zIndex: 99,
     });
-    const originToUse = origin ?? lastPosRef.current ?? userLoc;
+    const originToUse = origin ?? lastPosRef.current;
     if (!originToUse) { map.setCenter({ lat: dlat, lng: dlng }); map.setZoom(13); return; }
     const ds = new google.maps.DirectionsService();
     ds.route(
       { origin: originToUse, destination: { lat: dlat, lng: dlng }, travelMode: google.maps.TravelMode.DRIVING },
       (result, status) => {
+        if (gen !== drawRouteGenRef.current) return;
         if (status === google.maps.DirectionsStatus.OK && result) {
           if (directionsRendererRef.current) {
             directionsRendererRef.current.setOptions({ preserveViewport: effectiveSkip });
@@ -2159,6 +2176,12 @@ export default function LiveIncidentPage() {
   // destination where no further maneuver exists.
   const upcomingStep = steps[currentStepIndex + 1] ?? currentStep;
   const followingStep = steps[currentStepIndex + 2] ?? null;
+  // Nav strip shows distance/time still to go, not the initial full-leg totals
+  // (which could be wrong if an early stale-GPS route raced a later reroute).
+  const navRouteDisplay =
+    navMode && steps.length > 0
+      ? remainingFromSteps(steps, currentStepIndex)
+      : routeInfo;
   const nonLiveCategories = categories.filter(isCloseReclassifyType);
 
   // --- Panicker view detection ---------------------------------------------
@@ -3365,14 +3388,14 @@ export default function LiveIncidentPage() {
                 {/* prominent red distance/ETA — same size — speed + chat right */}
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2 min-w-0">
-                    {routeInfo && (
+                    {navRouteDisplay && (
                       <>
                         <span className="text-lg font-bold text-red-600 dark:text-red-400 tabular-nums" data-testid="text-nav-distance">
-                          {fmtDist(routeInfo.distance)}
+                          {fmtDist(navRouteDisplay.distance)}
                         </span>
                         <span className="text-lg font-bold text-red-600/60 dark:text-red-400/60">·</span>
                         <span className="text-lg font-bold text-red-600 dark:text-red-400" data-testid="text-nav-eta">
-                          ETA <span className="tabular-nums">{fmtDur(routeInfo.duration)}</span>
+                          ETA <span className="tabular-nums">{fmtDur(navRouteDisplay.duration)}</span>
                         </span>
                       </>
                     )}
