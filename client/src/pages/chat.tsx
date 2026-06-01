@@ -19,6 +19,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { MessageSquare, Send, Plus, Search, Users, ArrowLeft, ImageIcon, Camera, Mic, Trash2, Square } from "lucide-react";
+import { Capacitor } from "@capacitor/core";
 import { cn } from "@/lib/utils";
 import { MAX_VOICE_SECONDS, uploadFile, UploadValidationError } from "@/lib/upload-media";
 import { nativeMicDeniedHint } from "@/lib/native-mic-hint";
@@ -206,6 +207,7 @@ export default function ChatPage() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const voiceInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -222,6 +224,7 @@ export default function ChatPage() {
 
   const { data: me } = useQuery<AuthUser>({ queryKey: ["/api/auth/me"] });
   const isAdmin = me?.role === "administrator" || !!me?.isSuperadmin;
+  const isNativeApp = Capacitor.isNativePlatform();
 
   const { data: conversations = [] } = useQuery<Conversation[]>({
     queryKey: ["/api/chat/conversations"],
@@ -426,6 +429,45 @@ export default function ChatPage() {
     }
   }
 
+  async function handleVoiceFile(file: File) {
+    const isAudio =
+      file.type.startsWith("audio/") ||
+      /\.(m4a|mp3|webm|ogg|aac|3gp|amr|wav)$/i.test(file.name);
+    if (!isAudio) {
+      toast({ title: "Please select an audio recording", variant: "destructive" });
+      return;
+    }
+    setUploadingVoice(true);
+    setShowAttachMenu(false);
+    try {
+      const contentType = file.type || "audio/mp4";
+      const { objectUrl } = await uploadFile(file, contentType);
+      await sendMediaMessage(`[audio]${objectUrl}`);
+    } catch (err) {
+      const message = err instanceof UploadValidationError
+        ? err.message
+        : "Voice note upload failed";
+      toast({ title: message, variant: "destructive" });
+    } finally {
+      setUploadingVoice(false);
+      if (voiceInputRef.current) voiceInputRef.current.value = "";
+    }
+  }
+
+  function handleMicPress() {
+    if (isRecording) {
+      stopVoiceRecording();
+      return;
+    }
+    // Android WebView: use native recorder intent (same pattern as camera) — avoids getUserMedia.
+    if (isNativeApp) {
+      setShowAttachMenu(false);
+      voiceInputRef.current?.click();
+      return;
+    }
+    startVoiceRecording();
+  }
+
   async function startVoiceRecording() {
     if (isRecording || uploadingVoice || uploadingImage) return;
     setShowAttachMenu(false);
@@ -607,6 +649,15 @@ export default function ChatPage() {
         className="hidden"
         onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImageFile(f); }}
         data-testid="input-camera-capture"
+      />
+      <input
+        ref={voiceInputRef}
+        type="file"
+        accept="audio/*"
+        capture="user"
+        className="hidden"
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) handleVoiceFile(f); }}
+        data-testid="input-voice-capture"
       />
 
       {/* Left panel — conversation list */}
@@ -909,7 +960,7 @@ export default function ChatPage() {
 
         {/* Input bar */}
         <div className="px-3 py-3 border-t shrink-0 bg-background">
-          {isRecording && (
+          {isRecording && !isNativeApp && (
             <div className="flex items-center justify-between gap-2 mb-2 px-2 py-2 rounded-lg bg-destructive/10 border border-destructive/20">
               <div className="flex items-center gap-2 text-sm text-destructive">
                 <span className="h-2 w-2 rounded-full bg-destructive animate-pulse" />
@@ -971,7 +1022,7 @@ export default function ChatPage() {
                 "shrink-0 h-10 w-10 rounded-xl",
                 isRecording && "text-destructive bg-destructive/10",
               )}
-              onClick={isRecording ? stopVoiceRecording : startVoiceRecording}
+              onClick={handleMicPress}
               disabled={uploadingImage || uploadingVoice || sendMutation.isPending}
               data-testid="button-voice-note"
               aria-label={isRecording ? "Stop recording" : "Record voice note"}
