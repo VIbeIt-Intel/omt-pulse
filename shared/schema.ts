@@ -260,11 +260,16 @@ export const insertUserLocationAssignmentSchema = createInsertSchema(userLocatio
 export type InsertUserLocationAssignment = z.infer<typeof insertUserLocationAssignmentSchema>;
 export type UserLocationAssignment = typeof userLocationAssignments.$inferSelect;
 
+/** scene = captured at reporting / live close; supplementary = added after the fact */
+export const EVIDENCE_PHASES = ["scene", "supplementary"] as const;
+export type EvidencePhase = (typeof EVIDENCE_PHASES)[number];
+
 export const incidentAttachments = pgTable("incident_attachments", {
   id: serial("id").primaryKey(),
   incidentId: integer("incident_id").notNull().references(() => incidents.id, { onDelete: "cascade" }),
   organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
   uploadedByUserId: varchar("uploaded_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  evidencePhase: varchar("evidence_phase", { length: 20 }),
   url: text("url").notNull(),
   filename: text("filename").notNull(),
   mimeType: text("mime_type").notNull(),
@@ -285,6 +290,7 @@ export const incidentEvidenceNotes = pgTable("incident_evidence_notes", {
   incidentId: integer("incident_id").notNull().references(() => incidents.id, { onDelete: "cascade" }),
   organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
   authorUserId: varchar("author_user_id").references(() => users.id, { onDelete: "set null" }),
+  evidencePhase: varchar("evidence_phase", { length: 20 }),
   body: text("body").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

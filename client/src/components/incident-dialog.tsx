@@ -488,7 +488,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
       }
       if (pendingAttachments.length > 0) {
         for (const att of pendingAttachments) {
-          await apiRequest("POST", `/api/incidents/${savedIncident.id}/attachments`, att);
+          await apiRequest("POST", `/api/incidents/${savedIncident.id}/attachments`, { ...att, evidencePhase: "scene" });
         }
       }
       return savedIncident;
@@ -1688,16 +1688,30 @@ export function AttachmentsDialog({
   canAdd = true,
   canDelete = false,
 }: AttachmentsDialogProps) {
+  const { data: incident } = useQuery<Incident>({
+    queryKey: ["/api/incidents", incidentId],
+    queryFn: async () => {
+      const res = await fetch(`/api/incidents/${incidentId}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load incident");
+      return res.json();
+    },
+    enabled: open && incidentId > 0,
+    staleTime: 60_000,
+  });
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle data-testid="text-attachments-title">Attachments</DialogTitle>
+          <DialogTitle data-testid="text-attachments-title">Evidence</DialogTitle>
         </DialogHeader>
         <IncidentEvidenceSection
           incidentId={incidentId}
           canAdd={canAdd}
           canDelete={canDelete}
+          splitPhases
+          liveEndedAt={incident?.liveEndedAt}
+          incidentCreatedAt={incident?.createdAt}
         />
       </DialogContent>
     </Dialog>

@@ -1003,12 +1003,14 @@ export default function OccurrenceBook() {
                   )}
 
                   <div className="pt-3 border-t border-border/40">
-                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">Attachments</p>
                     <IncidentEvidenceSection
                       incidentId={inc.id}
                       canAdd
                       canDelete={isAdmin}
                       compact
+                      splitPhases
+                      liveEndedAt={inc.liveEndedAt}
+                      incidentCreatedAt={inc.createdAt}
                     />
                   </div>
                 </div>

@@ -95,3 +95,17 @@ export function attachmentUploaderLabel(
   if (when) return when;
   return "Added before tracking was enabled";
 }
+
+/** Digital footprint label for scene vs after-the-fact supplementary evidence. */
+export function evidenceFootprintLabel(
+  att: { uploadedByFirstName?: string | null; uploadedByLastName?: string | null; createdAt?: Date | string },
+  phase: "scene" | "supplementary",
+): string {
+  const base = attachmentUploaderLabel(att);
+  if (phase === "scene") {
+    if (base.startsWith("Added by")) return `At scene · ${base}`;
+    return `Captured at scene · ${base}`;
+  }
+  if (base.startsWith("Added by")) return `After incident · ${base}`;
+  return `Recorded after incident · ${base}`;
+}

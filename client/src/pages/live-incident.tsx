@@ -1158,7 +1158,7 @@ export default function LiveIncidentPage() {
           record = { ...record, url: objectUrl };
         }
         if (!record.url.startsWith("blob:")) {
-          await apiRequest("POST", `/api/incidents/${liveId}/attachments`, { url: record.url, filename: record.filename, mimeType: record.mimeType });
+          await apiRequest("POST", `/api/incidents/${liveId}/attachments`, { url: record.url, filename: record.filename, mimeType: record.mimeType, evidencePhase: "scene" });
         }
       }
       // 3. Capture closure GPS coords (best-effort, 5 s timeout)
@@ -1367,7 +1367,7 @@ export default function LiveIncidentPage() {
         // Persist already-uploaded GCS attachments
         for (const item of persistedMedia) {
           if (!item.url.startsWith("blob:")) {
-            await apiRequest("POST", `/api/incidents/${queued.incidentId}/attachments`, { url: item.url, filename: item.filename, mimeType: item.mimeType });
+            await apiRequest("POST", `/api/incidents/${queued.incidentId}/attachments`, { url: item.url, filename: item.filename, mimeType: item.mimeType, evidencePhase: "scene" });
           }
         }
         // Upload in-memory blobs (captured offline, still in memory)
@@ -1385,7 +1385,7 @@ export default function LiveIncidentPage() {
             return;
           }
           const { objectUrl } = await uploadResp.json();
-          await apiRequest("POST", `/api/incidents/${queued.incidentId}/attachments`, { url: objectUrl, filename: blobEntry.filename, mimeType: blobEntry.mimeType });
+          await apiRequest("POST", `/api/incidents/${queued.incidentId}/attachments`, { url: objectUrl, filename: blobEntry.filename, mimeType: blobEntry.mimeType, evidencePhase: "scene" });
         }
         arrivalMediaBlobsRef.current.clear();
         await apiRequest("POST", `/api/incidents/${queued.incidentId}/end-live`, {});
@@ -2136,7 +2136,7 @@ export default function LiveIncidentPage() {
           record = { ...record, url: objectUrl };
         }
         if (!record.url.startsWith("blob:")) {
-          await apiRequest("POST", `/api/incidents/${incId}/attachments`, { url: record.url, filename: record.filename, mimeType: record.mimeType });
+          await apiRequest("POST", `/api/incidents/${incId}/attachments`, { url: record.url, filename: record.filename, mimeType: record.mimeType, evidencePhase: "scene" });
         }
       }
       // 2. Record arrival on the live_responders row (sets arrivedAt + note)
@@ -2562,7 +2562,7 @@ export default function LiveIncidentPage() {
         });
         for (const photo of closePanicPhotos) {
           await apiRequest("POST", `/api/incidents/${incidentId}/attachments`, {
-            url: photo.url, filename: photo.filename, mimeType: photo.mimeType,
+            url: photo.url, filename: photo.filename, mimeType: photo.mimeType, evidencePhase: "scene",
           });
         }
         finishClosePanicLocal();

@@ -3155,11 +3155,34 @@ export async function registerRoutes(
   });
 
   // Incident Attachments
+  const evidencePhaseBodySchema = z.enum(["scene", "supplementary"]).optional();
+
   const attachmentBodySchema = z.object({
     url: z.string().min(1),
     filename: z.string().min(1),
     mimeType: z.string().min(1),
+    evidencePhase: evidencePhaseBodySchema,
   });
+
+  /** Client may request scene only while the incident is still live; otherwise supplementary. */
+  function resolveAttachmentEvidencePhase(
+    requested: "scene" | "supplementary" | undefined,
+    inc: { isLive: boolean | null },
+  ): "scene" | "supplementary" {
+    if (requested === "scene") return "scene";
+    if (requested === "supplementary") return "supplementary";
+    if (inc.isLive) return "scene";
+    return "supplementary";
+  }
+
+  function resolveNoteEvidencePhase(
+    requested: "scene" | "supplementary" | undefined,
+    inc: { isLive: boolean | null },
+  ): "scene" | "supplementary" {
+    // Text notes added via the OB composer are follow-up commentary — default supplementary.
+    if (requested === "scene" && inc.isLive) return "scene";
+    return "supplementary";
+  }
 
   async function verifyIncidentAccess(req: Request, res: Response, incidentId: number): Promise<Incident | null> {
     const { organizationId: orgId, role, id: userId } = req.currentUser!;
@@ -3205,11 +3228,15 @@ export async function registerRoutes(
     }
     const parsed = attachmentBodySchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: "url, filename, and mimeType are required" });
+    const evidencePhase = resolveAttachmentEvidencePhase(parsed.data.evidencePhase, inc);
     const attachment = await storage.createAttachment({
       incidentId,
       organizationId: orgId,
       uploadedByUserId: userId,
-      ...parsed.data,
+      url: parsed.data.url,
+      filename: parsed.data.filename,
+      mimeType: parsed.data.mimeType,
+      evidencePhase,
     });
     res.json(attachment);
   });
@@ -3230,6 +3257,7 @@ export async function registerRoutes(
 
   const evidenceNoteBodySchema = z.object({
     body: z.string().trim().min(1).max(2000),
+    evidencePhase: evidencePhaseBodySchema,
   });
 
   app.get("/api/incidents/:id/evidence-notes", async (req, res) => {
@@ -3255,11 +3283,13 @@ export async function registerRoutes(
     }
     const parsed = evidenceNoteBodySchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: "A note between 1 and 2000 characters is required" });
+    const evidencePhase = resolveNoteEvidencePhase(parsed.data.evidencePhase, inc);
     const note = await storage.createEvidenceNote({
       incidentId,
       organizationId: orgId,
       authorUserId: userId,
       body: parsed.data.body,
+      evidencePhase,
     });
     res.json(note);
   });

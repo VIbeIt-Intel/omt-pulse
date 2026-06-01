@@ -197,6 +197,9 @@ app.use((req, res, next) => {
   `);
   await safeMigrate("incident_evidence_notes.incident_idx", sql`CREATE INDEX IF NOT EXISTS incident_evidence_notes_incident_idx ON incident_evidence_notes (incident_id)`);
 
+  await safeMigrate("incident_attachments.evidence_phase", sql`ALTER TABLE incident_attachments ADD COLUMN IF NOT EXISTS evidence_phase VARCHAR(20)`);
+  await safeMigrate("incident_evidence_notes.evidence_phase", sql`ALTER TABLE incident_evidence_notes ADD COLUMN IF NOT EXISTS evidence_phase VARCHAR(20)`);
+
   // Organizations — contract / billing config columns (Task #254)
   await safeMigrate("organizations.contract_ref", sql`ALTER TABLE organizations ADD COLUMN IF NOT EXISTS contract_ref VARCHAR`);
   await safeMigrate("organizations.contract_start_date", sql`ALTER TABLE organizations ADD COLUMN IF NOT EXISTS contract_start_date DATE`);
