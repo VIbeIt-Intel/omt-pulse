@@ -1,47 +1,65 @@
 export type NativePushStatus = "unknown" | "needs-enable" | "denied" | "granted" | "error";
 
 const PENDING_PUSH_URL_KEY = "omt_pending_push_url";
+export const PUSH_DEEPLINK_EVENT = "omt:push-deeplink";
+
+let nativePushListenersReady = false;
 
 function pushDataUrl(data: Record<string, unknown> | undefined): string | null {
   const url = data?.url;
   return typeof url === "string" && url.startsWith("/") ? url : null;
 }
 
-/** Navigate when the user taps a native push notification (FCM). */
-export function setupNativePushDeepLinks(navigate: (path: string) => void): () => void {
-  let removeAction: (() => void) | null = null;
-  let cancelled = false;
+/** Resolve in-app path from FCM data (fallback when url key is missing on Android). */
+export function resolvePushDeepLink(data: Record<string, unknown> | undefined): string | null {
+  const direct = pushDataUrl(data);
+  if (direct) {
+    // Reporters cannot open /live-monitor — RoleGuard sends them to dashboard.
+    const monitorMatch = direct.match(/^\/live-monitor\?incidentId=(\d+)/);
+    if (monitorMatch) return `/live-incident?join=${monitorMatch[1]}`;
+    return direct;
+  }
+  const type = data?.type;
+  const incidentId = data?.incidentId;
+  if (type === "incident_started" && incidentId != null && String(incidentId)) {
+    return `/live-incident?join=${incidentId}`;
+  }
+  return null;
+}
+
+function storePushDeepLink(url: string): void {
+  try {
+    sessionStorage.setItem(PENDING_PUSH_URL_KEY, url);
+  } catch { /* ignore */ }
+  window.dispatchEvent(new CustomEvent(PUSH_DEEPLINK_EVENT, { detail: { url } }));
+}
+
+function handlePushAction(data: Record<string, unknown> | undefined): void {
+  const url = resolvePushDeepLink(data);
+  if (url) storePushDeepLink(url);
+}
+
+/** Register FCM tap listener as early as possible (main.tsx) so cold-start taps are not missed. */
+export function initNativePushListeners(): void {
+  if (nativePushListenersReady) return;
+  nativePushListenersReady = true;
 
   void (async () => {
     const { Capacitor } = await import("@capacitor/core");
     if (!Capacitor.isNativePlatform()) return;
 
     const { PushNotifications } = await import("@capacitor/push-notifications");
-
-    const go = (data: Record<string, unknown> | undefined) => {
-      const url = pushDataUrl(data);
-      if (!url) return;
-      try {
-        sessionStorage.setItem(PENDING_PUSH_URL_KEY, url);
-      } catch { /* ignore */ }
-      navigate(url);
-    };
-
-    const actionHandle = await PushNotifications.addListener(
+    await PushNotifications.addListener(
       "pushNotificationActionPerformed",
-      (event) => go(event.notification.data as Record<string, unknown>),
+      (event) => handlePushAction(event.notification.data as Record<string, unknown>),
     );
-    if (cancelled) {
-      actionHandle.remove();
-      return;
-    }
-    removeAction = () => actionHandle.remove();
   })();
+}
 
-  return () => {
-    cancelled = true;
-    removeAction?.();
-  };
+/** @deprecated Prefer initNativePushListeners in main.tsx; kept for cleanup hook symmetry. */
+export function setupNativePushDeepLinks(navigate: (path: string) => void): () => void {
+  initNativePushListeners();
+  return () => {};
 }
 
 /** Apply a deep link stored when the app opened from a notification before auth routed. */

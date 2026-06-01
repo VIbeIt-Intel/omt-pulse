@@ -175,12 +175,13 @@ async function dispatchLiveIncidentPush(orgId: string, triggerUserId: string, in
 
   const body = `Started at ${incident.incidentTime} · ${locPart} · Tap to respond`;
 
+  const joinUrl = `/live-incident?join=${incident.id}`;
   const payload = JSON.stringify({
     type: "incident_started",
     title,
     body,
     incidentId: incident.id,
-    url: `/live-monitor?incidentId=${incident.id}`,
+    url: joinUrl,
   });
 
   const pushedUserIds = new Set<string>();
@@ -200,7 +201,7 @@ async function dispatchLiveIncidentPush(orgId: string, triggerUserId: string, in
             userId: sub.userId,
             title,
             body,
-            url: "/live-monitor",
+            url: joinUrl,
             incidentId: incident.id,
           }).catch(() => {});
         } catch (err: unknown) {
@@ -224,7 +225,7 @@ async function dispatchLiveIncidentPush(orgId: string, triggerUserId: string, in
       sendFcmBatch(fcmSubs.map((s) => s.token), {
         title,
         body,
-        data: { type: "incident_started", incidentId: String(incident.id), url: `/live-monitor?incidentId=${incident.id}` },
+        data: { type: "incident_started", incidentId: String(incident.id), url: joinUrl },
       }).catch(() => {});
     }
   }).catch(() => {});
@@ -247,7 +248,7 @@ async function dispatchLiveIncidentPush(orgId: string, triggerUserId: string, in
             userId: u.id,
             title,
             body,
-            url: "/live-monitor",
+            url: joinUrl,
             incidentId: incident.id,
           }).catch(() => {})
         )
@@ -3008,7 +3009,7 @@ export async function registerRoutes(
       const destBody = `${firstName} is navigating to ${destDisplay}.`;
       const navRoles = incident.severity === "yellow" ? ["administrator"] : ["administrator", "supervisor", "reporter"];
       const subs = await storage.getPushSubscriptionsByOrg(orgId, triggerUserId, navRoles);
-      const navUrl = `/live-monitor?incidentId=${id}`;
+      const navUrl = `/live-incident?join=${id}`;
       const payload = JSON.stringify({ title: destTitle, body: destBody, url: navUrl });
       await Promise.allSettled(dedupeByEndpoint(subs).map(async (sub) => {
         try {

@@ -7,6 +7,7 @@ import "./index.css";
 // transparent hole through to the native Google Map view drawn behind the WebView.
 if (Capacitor.isNativePlatform()) {
   document.documentElement.classList.add("capacitor-native");
+  void import("./lib/native-push").then(({ initNativePushListeners }) => initNativePushListeners());
 }
 
 if ("serviceWorker" in navigator) {

@@ -468,6 +468,7 @@ export default function LiveIncidentPage() {
   // Set to true if we mounted with a stored ID (stale-key reopen) OR once we've
   // actually had an active incident in this session (normal start → end).
   const hadIncidentRef = useRef<boolean>((storedId !== null) || (storedJoinedId !== null));
+  const joinFromPushRef = useRef(false);
   // True once the responder has tapped "Open Google Maps" — persisted in
   // localStorage so the red arrived-button survives app switches / PWA reloads.
   const [navStarted, setNavStarted] = useState<boolean>(() => {
@@ -1065,6 +1066,28 @@ export default function LiveIncidentPage() {
     },
     onError: () => toast({ title: "Error", description: "Could not join the incident.", variant: "destructive" }),
   });
+
+  // Opened from a push notification — auto-join the incident (reporters cannot use Live Monitor).
+  useEffect(() => {
+    if (!liveQueryLoaded || !me || joinFromPushRef.current) return;
+    const joinParam = new URLSearchParams(window.location.search).get("join");
+    if (!joinParam) return;
+    const id = parseInt(joinParam, 10);
+    if (isNaN(id)) return;
+    joinFromPushRef.current = true;
+    window.history.replaceState({}, "", "/live-incident");
+    if (joinedId === id || liveId === id) return;
+    const alreadyJoined = liveIncidents.some(
+      (i) => i.id === id && i.isLive && (i.responders ?? []).some((r) => r.userId === me.id && !r.arrivedAt),
+    );
+    if (alreadyJoined) {
+      localStorage.setItem(JOINED_INCIDENT_KEY, String(id));
+      setJoinedId(id);
+      return;
+    }
+    joinLiveMutation.mutate(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveQueryLoaded, me?.id, joinedId, liveId, liveIncidents]);
 
   const leaveLiveMutation = useMutation({
     mutationFn: (id: number) => apiRequest("POST", `/api/incidents/${id}/leave-live`, {}),

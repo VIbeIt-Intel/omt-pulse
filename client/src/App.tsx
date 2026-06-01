@@ -4,8 +4,9 @@ import {
   type NativePushStatus,
   enableNativePush,
   syncNativePushIfNeeded,
-  setupNativePushDeepLinks,
+  initNativePushListeners,
   consumePendingPushDeepLink,
+  PUSH_DEEPLINK_EVENT,
 } from "@/lib/native-push";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -537,8 +538,14 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
 
   useEffect(() => {
     if (!nativeApp) return;
+    initNativePushListeners();
     consumePendingPushDeepLink(navigate);
-    return setupNativePushDeepLinks(navigate);
+    const onDeepLink = (event: Event) => {
+      const url = (event as CustomEvent<{ url?: string }>).detail?.url;
+      if (url?.startsWith("/")) navigate(url);
+    };
+    window.addEventListener(PUSH_DEEPLINK_EVENT, onDeepLink);
+    return () => window.removeEventListener(PUSH_DEEPLINK_EVENT, onDeepLink);
   }, [nativeApp, navigate]);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
