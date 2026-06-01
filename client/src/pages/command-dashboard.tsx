@@ -137,6 +137,73 @@ function formatStarterName(inc: LiveIncidentRow): string | null {
   return name || null;
 }
 
+function LiveIncidentDashboardCard({
+  incidents,
+  hasRedLive,
+  isDispatch,
+  locations,
+  currentUserId,
+  userPos,
+  gpsUnavailable,
+  onOpenRow,
+}: {
+  incidents: LiveIncidentRow[];
+  hasRedLive: boolean;
+  isDispatch: boolean;
+  locations: Location[];
+  currentUserId?: string;
+  userPos: { lat: number; lng: number } | null;
+  gpsUnavailable: boolean;
+  onOpenRow: (inc: LiveIncidentRow) => void;
+}) {
+  if (incidents.length === 0) return null;
+
+  return (
+    <Card
+      className={
+        hasRedLive
+          ? "border-red-500/50 shadow-md ring-1 ring-red-500/20"
+          : "border-green-500/35 shadow-sm"
+      }
+    >
+      <CardHeader className="pb-2 pt-4 px-4">
+        <div className="flex items-center gap-2">
+          <span className="relative flex h-2 w-2">
+            <span
+              className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${hasRedLive ? "bg-red-500" : "bg-green-500"}`}
+            />
+            <span
+              className={`relative inline-flex rounded-full h-2 w-2 ${hasRedLive ? "bg-red-500" : "bg-green-500"}`}
+            />
+          </span>
+          <CardTitle className={`text-sm font-semibold ${hasRedLive ? "text-red-700 dark:text-red-400" : ""}`}>
+            {hasRedLive ? "RED live incident active" : "Active Live Incidents"}
+          </CardTitle>
+          <span className="ml-auto text-[10px] text-muted-foreground uppercase tracking-wide">
+            {isDispatch ? "Tap → Live Monitor" : "Tap to join"}
+          </span>
+        </div>
+      </CardHeader>
+      <CardContent className="px-0 pb-0">
+        <ul className="divide-y divide-border">
+          {incidents.map((inc) => (
+            <LiveIncidentDashboardRow
+              key={inc.id}
+              inc={inc}
+              locations={locations}
+              currentUserId={currentUserId}
+              userPos={userPos}
+              gpsUnavailable={gpsUnavailable}
+              isDispatch={isDispatch}
+              onOpen={() => onOpenRow(inc)}
+            />
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
+  );
+}
+
 function LiveIncidentDashboardRow({
   inc,
   locations,
@@ -544,6 +611,26 @@ export default function CommandDashboard() {
 
   return (
     <div className="h-full overflow-y-auto bg-background">
+      {visibleLiveIncidents.length > 0 && (
+        <div
+          className="sticky top-0 z-30 border-b border-border/80 bg-background/95 backdrop-blur-md shadow-sm"
+          data-testid="banner-live-incident-priority"
+        >
+          <div className="max-w-4xl mx-auto w-full px-4 md:px-6 pt-3 pb-3">
+            <LiveIncidentDashboardCard
+              incidents={visibleLiveIncidents}
+              hasRedLive={hasRedLive}
+              isDispatch={isDispatch}
+              locations={locations}
+              currentUserId={currentUser?.id}
+              userPos={userPos}
+              gpsUnavailable={gpsUnavailable}
+              onOpenRow={openLiveIncidentRow}
+            />
+          </div>
+        </div>
+      )}
+
       <div className="p-4 md:p-6 pb-4 space-y-4 max-w-4xl mx-auto w-full">
 
         <div className="flex flex-col items-center gap-1 pt-2 pb-1">
@@ -675,45 +762,6 @@ export default function CommandDashboard() {
             </>
           )}
         </div>
-
-        {visibleLiveIncidents.length > 0 && (
-          <Card className={hasRedLive ? "border-red-500/40 shadow-sm" : undefined}>
-            <CardHeader className="pb-2 pt-4 px-4">
-              <div className="flex items-center gap-2">
-                <span className="relative flex h-2 w-2">
-                  <span
-                    className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${hasRedLive ? "bg-red-500" : "bg-green-500"}`}
-                  />
-                  <span
-                    className={`relative inline-flex rounded-full h-2 w-2 ${hasRedLive ? "bg-red-500" : "bg-green-500"}`}
-                  />
-                </span>
-                <CardTitle className={`text-sm font-semibold ${hasRedLive ? "text-red-700 dark:text-red-400" : ""}`}>
-                  {hasRedLive ? "RED live incident active" : "Active Live Incidents"}
-                </CardTitle>
-                <span className="ml-auto text-[10px] text-muted-foreground uppercase tracking-wide">
-                  {isDispatch ? "Tap → Live Monitor" : "Tap to join"}
-                </span>
-              </div>
-            </CardHeader>
-            <CardContent className="px-0 pb-0">
-              <ul className="divide-y divide-border">
-                {visibleLiveIncidents.map((inc) => (
-                  <LiveIncidentDashboardRow
-                    key={inc.id}
-                    inc={inc}
-                    locations={locations}
-                    currentUserId={currentUser?.id}
-                    userPos={userPos}
-                    gpsUnavailable={gpsUnavailable}
-                    isDispatch={isDispatch}
-                    onOpen={() => openLiveIncidentRow(inc)}
-                  />
-                ))}
-              </ul>
-            </CardContent>
-          </Card>
-        )}
       </div>
 
       <IncidentDialog open={logIncidentOpen} onOpenChange={setLogIncidentOpen} />
