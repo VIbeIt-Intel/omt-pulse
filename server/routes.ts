@@ -746,6 +746,12 @@ export async function registerRoutes(
     res.json({ ok: true });
   });
 
+  app.get("/api/push/fcm-status", async (req, res) => {
+    const { id: userId } = req.currentUser!;
+    const tokens = await storage.getFcmTokensByUser(userId);
+    res.json({ registered: tokens.length > 0 });
+  });
+
   // Notification history — last 7 days by default for the current user
   app.get("/api/notifications", async (req, res) => {
     const { id: userId, organizationId: orgId } = req.currentUser!;

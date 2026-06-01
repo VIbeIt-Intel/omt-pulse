@@ -2,9 +2,8 @@ import { Switch, Route, useLocation, Link } from "wouter";
 import { useEffect, useState, useRef, useCallback } from "react";
 import {
   type NativePushStatus,
-  checkNativePushStatus,
   enableNativePush,
-  registerNativePushToken,
+  syncNativePushIfNeeded,
 } from "@/lib/native-push";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -212,28 +211,18 @@ function usePushSubscription(userId: string | undefined) {
 function useCapacitorPush(userId: string | undefined) {
   const [fcmState, setFcmState] = useState<NativePushStatus>("unknown");
   const [enabling, setEnabling] = useState(false);
+  const syncInFlightRef = useRef(false);
 
-  const syncIfGranted = useCallback(async () => {
+  const runSync = useCallback(async (forceRegister = false) => {
+    if (syncInFlightRef.current) return;
+    syncInFlightRef.current = true;
     try {
-      const status = await checkNativePushStatus();
-      if (status === "granted") {
-        await enableNativePush();
-        setFcmState("granted");
-        triggerBatteryHint();
-        return true;
+      if (!forceRegister) {
+        const status = await syncNativePushIfNeeded();
+        setFcmState(status);
+        if (status === "granted") triggerBatteryHint();
+        return;
       }
-      setFcmState(status);
-      return false;
-    } catch {
-      setFcmState("error");
-      return false;
-    }
-  }, []);
-
-  const enablePush = useCallback(async () => {
-    if (enabling) return;
-    setEnabling(true);
-    try {
       await enableNativePush();
       setFcmState("granted");
       triggerBatteryHint();
@@ -241,41 +230,30 @@ function useCapacitorPush(userId: string | undefined) {
       const msg = e instanceof Error ? e.message : "";
       setFcmState(msg === "denied" ? "denied" : "error");
     } finally {
+      syncInFlightRef.current = false;
+    }
+  }, []);
+
+  const enablePush = useCallback(async () => {
+    if (enabling) return;
+    setEnabling(true);
+    try {
+      await runSync(true);
+    } finally {
       setEnabling(false);
     }
-  }, [enabling]);
+  }, [enabling, runSync]);
 
   useEffect(() => {
     if (!userId || !isCapacitorNative()) return;
-    let cancelled = false;
-
-    (async () => {
-      if (cancelled) return;
-      await syncIfGranted();
-    })();
-
-    void import("@capacitor/push-notifications").then(({ PushNotifications }) => {
-      void PushNotifications.addListener("registration", async (tokenData) => {
-        if (cancelled) return;
-        try {
-          await registerNativePushToken(tokenData.value);
-          if (!cancelled) setFcmState("granted");
-        } catch {
-          if (!cancelled) setFcmState("error");
-        }
-      });
-    });
+    void runSync(false);
 
     const onVisible = () => {
-      if (document.visibilityState === "visible") void syncIfGranted();
+      if (document.visibilityState === "visible") void runSync(false);
     };
     document.addEventListener("visibilitychange", onVisible);
-
-    return () => {
-      cancelled = true;
-      document.removeEventListener("visibilitychange", onVisible);
-    };
-  }, [userId, syncIfGranted]);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [userId, runSync]);
 
   return { fcmState, enablePush, enabling };
 }
@@ -417,6 +395,9 @@ function NativePushBanner({
 }) {
   if (fcmState === "granted" || fcmState === "unknown") return null;
 
+  const isDenied = fcmState === "denied";
+  const isSyncError = fcmState === "error";
+
   return (
     <div
       className="shrink-0 bg-amber-500/15 border-b border-amber-500/40 px-4 py-2 flex items-center justify-between gap-3 text-sm"
@@ -427,9 +408,15 @@ function NativePushBanner({
           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
           <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500" />
         </span>
-        <span className="font-semibold text-amber-700 dark:text-amber-400 shrink-0">Alerts off</span>
+        <span className="font-semibold text-amber-700 dark:text-amber-400 shrink-0">
+          {isDenied ? "Alerts blocked" : isSyncError ? "Alerts not synced" : "Alerts off"}
+        </span>
         <span className="text-amber-700/80 dark:text-amber-400/80 hidden sm:inline truncate">
-          — tap Enable to turn on panic and live incident alerts.
+          {isDenied
+            ? "— allow notifications for OMT Pulse in Android Settings."
+            : isSyncError
+              ? "— permission is on but this device is not registered yet. Tap Try again."
+              : "— tap Enable to turn on panic and live incident alerts."}
         </span>
       </div>
       <Button
@@ -439,7 +426,7 @@ function NativePushBanner({
         disabled={enabling}
         data-testid="button-enable-native-notifications"
       >
-        {enabling ? "Enabling…" : fcmState === "error" ? "Try again" : "Enable alerts"}
+        {enabling ? "Enabling…" : isDenied ? "Open settings" : isSyncError ? "Try again" : "Enable alerts"}
       </Button>
     </div>
   );
