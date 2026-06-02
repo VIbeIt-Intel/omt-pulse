@@ -52,7 +52,9 @@ function isPublicRoute(pathname: string): boolean {
     pathname === "/login" ||
     pathname === "/register" ||
     pathname.startsWith("/invite") ||
-    pathname.startsWith("/archon")
+    pathname.startsWith("/archon") ||
+    pathname.startsWith("/privacy") ||
+    pathname.startsWith("/enable-alerts")
   );
 }
 
