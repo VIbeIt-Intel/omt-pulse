@@ -4,13 +4,15 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Incident, Category, Location, FormField, CustomMap } from "@shared/schema";
-
-type IncidentWithCount = Incident & { attachmentCount: number };
 import { IncidentDialog, AttachmentsDialog } from "@/components/incident-dialog";
 import { OccurrenceBookDesktopTable } from "@/components/occurrence-book-desktop-table";
 import { IncidentEvidenceSection } from "@/components/incident-evidence-section";
 import { IncidentInvolvementSummary } from "@/components/incident-involvement-section";
 import { IncidentLogMobileList } from "@/components/incident-log-mobile";
+import { IncidentLocationSheet } from "@/components/incident-location-sheet";
+import { resolveEffectiveSeverity, incidentHasViewableLocation, type IncidentWithMeta } from "@/lib/incident-display";
+
+type IncidentWithCount = IncidentWithMeta;
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -45,6 +47,7 @@ export default function OccurrenceBook() {
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [attachmentsIncidentId, setAttachmentsIncidentId] = useState<number | null>(null);
   const [viewingIncident, setViewingIncident] = useState<IncidentWithCount | null>(null);
+  const [locationViewIncident, setLocationViewIncident] = useState<IncidentWithCount | null>(null);
   const [selectedMapId, setSelectedMapId] = useState<number | null>(null);
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
@@ -291,9 +294,10 @@ export default function OccurrenceBook() {
     }
     return { type: "text" as const, label: "-" };
   };
-  const getGoogleMapsUrl = (incident: Incident) => {
-    if (incident.latitude == null || incident.longitude == null) return null;
-    return `https://www.google.com/maps?q=${incident.latitude},${incident.longitude}`;
+
+  const openLocationView = (incident: IncidentWithCount) => {
+    if (!incidentHasViewableLocation(incident, locations)) return;
+    setLocationViewIncident(incident);
   };
 
   const showDateTime = isFieldVisible(formFields, "incidentDate", fieldsLoaded) || isFieldVisible(formFields, "incidentTime", fieldsLoaded);
@@ -309,10 +313,13 @@ export default function OccurrenceBook() {
       if (dateFrom && inc.incidentDate < dateFrom) return false;
       if (dateTo && inc.incidentDate > dateTo) return false;
       if (importBatchIdFilter !== null && inc.importBatchId !== importBatchIdFilter) return false;
-      if (severityFilter !== "any" && inc.severity !== severityFilter) return false;
+      if (severityFilter !== "any") {
+        const cat = categories.find((c) => c.id === inc.categoryId);
+        if (resolveEffectiveSeverity(inc, cat) !== severityFilter) return false;
+      }
       return true;
     });
-  }, [incidents, selectedMapId, dateFrom, dateTo, importBatchIdFilter, severityFilter, isReporter, currentUser?.id]);
+  }, [incidents, selectedMapId, dateFrom, dateTo, importBatchIdFilter, severityFilter, isReporter, currentUser?.id, categories]);
 
   /** Desktop: only show custom-field columns when at least one visible row has data. */
   const tableCustomFields = useMemo(() => {
@@ -732,13 +739,14 @@ export default function OccurrenceBook() {
                 <OccurrenceBookDesktopTable
                   incidents={filteredIncidents}
                   incidentNumberMap={incidentNumberMap}
+                  categories={categories}
+                  locations={locations}
                   showDateTime={showDateTime}
                   showCategory={showCategory}
                   showLocation={showLocation}
                   tableCustomFields={tableCustomFields}
                   getCategoryName={getCategoryName}
                   getLocationDisplay={getLocationDisplay}
-                  getGoogleMapsUrl={getGoogleMapsUrl}
                   canEdit={canEdit}
                   canDelete={canDelete}
                   onView={setViewingIncident}
@@ -748,6 +756,7 @@ export default function OccurrenceBook() {
                   }}
                   onAttachments={setAttachmentsIncidentId}
                   onDelete={setDeleteId}
+                  onLocationClick={openLocationView}
                 />
               </>
             )}
@@ -778,10 +787,9 @@ export default function OccurrenceBook() {
             const cat = categories.find((c) => c.id === inc.categoryId);
             const locDisplay = getLocationDisplay(inc);
             const locationLabel = locDisplay.label !== "-" ? locDisplay.label : null;
-            const isCoords = locationLabel ? /^-?\d+(\.\d+)?,\s*-?\d+(\.\d+)?$/.test(locationLabel.trim()) : false;
-            const coordUrl = isCoords && locationLabel
-              ? `https://www.google.com/maps?q=${locationLabel.trim()}`
-              : null;
+            const canOpenLocation = incidentHasViewableLocation(inc, locations);
+            const effectiveSeverity = resolveEffectiveSeverity(inc, cat);
+            const hasEvidence = inc.attachmentCount > 0;
             return (
               <>
                 <SheetHeader className="mb-4">
@@ -848,26 +856,36 @@ export default function OccurrenceBook() {
                   {showLocation && locationLabel && (
                     <div>
                       <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Location</p>
-                      {coordUrl ? (
-                        <a href={coordUrl} target="_blank" rel="noopener noreferrer" className="text-sm mt-0.5 text-primary hover:underline flex items-center gap-1">
-                          {locationLabel} <span className="text-[10px] text-muted-foreground">↗</span>
-                        </a>
+                      {canOpenLocation ? (
+                        <button
+                          type="button"
+                          className="text-sm mt-0.5 text-primary hover:underline flex items-center gap-1"
+                          onClick={() => openLocationView(inc)}
+                          data-testid="button-view-location"
+                        >
+                          {locationLabel}
+                        </button>
                       ) : (
                         <p className="text-sm mt-0.5">{locationLabel}</p>
                       )}
                     </div>
                   )}
 
-                  {inc.severity && inc.severity !== "none" && (
+                  {effectiveSeverity && (
                     <div>
                       <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Severity</p>
                       <div className="mt-0.5">
-                        {inc.severity === "red" && <span className="inline-flex items-center gap-1 rounded-full bg-red-600 text-white text-xs font-bold px-2 py-0.5">🔴 Red</span>}
-                        {inc.severity === "orange" && <span className="inline-flex items-center gap-1 rounded-full bg-orange-500 text-white text-xs font-bold px-2 py-0.5">🟠 Orange</span>}
-                        {inc.severity === "yellow" && <span className="inline-flex items-center gap-1 rounded-full bg-yellow-400 text-black text-xs font-bold px-2 py-0.5">🟡 Yellow</span>}
+                        {effectiveSeverity === "red" && <span className="inline-flex items-center gap-1 rounded-full bg-red-600 text-white text-xs font-bold px-2 py-0.5">🔴 Red</span>}
+                        {effectiveSeverity === "orange" && <span className="inline-flex items-center gap-1 rounded-full bg-orange-500 text-white text-xs font-bold px-2 py-0.5">🟠 Orange</span>}
+                        {effectiveSeverity === "yellow" && <span className="inline-flex items-center gap-1 rounded-full bg-yellow-400 text-black text-xs font-bold px-2 py-0.5">🟡 Yellow</span>}
                       </div>
                     </div>
                   )}
+
+                  <div>
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Evidence</p>
+                    <p className="text-sm mt-0.5">{hasEvidence ? "Yes" : "No"}</p>
+                  </div>
 
                   {inc.description && (
                     <div>
@@ -1083,6 +1101,20 @@ export default function OccurrenceBook() {
           </div>
         </div>
       )}
+
+      <IncidentLocationSheet
+        open={locationViewIncident !== null}
+        onOpenChange={(open) => { if (!open) setLocationViewIncident(null); }}
+        incident={locationViewIncident}
+        locationLabel={
+          locationViewIncident
+            ? getLocationDisplay(locationViewIncident).label
+            : ""
+        }
+        customMaps={customMaps}
+        categories={categories}
+        locations={locations}
+      />
     </div>
   );
 }

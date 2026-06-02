@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Camera, Car, Loader2, Upload, User, X } from "lucide-react";
 import { prepareAndUploadFile, UploadValidationError } from "@/lib/upload-media";
 import { useToast } from "@/hooks/use-toast";
+import { AttachmentPreview } from "@/components/attachment-preview";
 
 export const PERSON_FIELD_KEYS = [
   "personInvolved",
@@ -216,7 +217,13 @@ function InvolvementPhotoGrid({
     <div className={`grid gap-2 ${readOnly ? "grid-cols-3 sm:grid-cols-4" : "grid-cols-3"}`}>
       {urls.map((url, i) => (
         <div key={`${url}-${i}`} className="relative aspect-square rounded-md border overflow-hidden bg-muted">
-          <img src={url} alt="" className="w-full h-full object-cover" />
+          {readOnly ? (
+            <div className="h-full [&_button]:h-full [&_img]:!h-full [&_img]:object-cover [&_img]:rounded-none">
+              <AttachmentPreview url={url} alt={`Photo ${i + 1}`} mimeType="image/jpeg" />
+            </div>
+          ) : (
+            <img src={url} alt="" className="w-full h-full object-cover" />
+          )}
           {!readOnly && onRemove && (
             <button
               type="button"

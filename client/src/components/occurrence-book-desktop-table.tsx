@@ -1,4 +1,4 @@
-import type { Incident, FormField } from "@shared/schema";
+import type { Incident, FormField, Category, Location } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -9,27 +9,33 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Eye, Pencil, Paperclip, Trash2, Map as MapIcon } from "lucide-react";
-
-type IncidentWithCount = Incident & { attachmentCount: number };
+import {
+  resolveEffectiveSeverity,
+  getReporterDisplayName,
+  incidentHasViewableLocation,
+  type IncidentWithMeta,
+} from "@/lib/incident-display";
 
 type LocationDisplay = { type: "customMap" | "text"; label: string };
 
 type Props = {
-  incidents: IncidentWithCount[];
+  incidents: IncidentWithMeta[];
   incidentNumberMap: Map<number, string>;
+  categories: Category[];
+  locations: Location[];
   showDateTime: boolean;
   showCategory: boolean;
   showLocation: boolean;
   tableCustomFields: FormField[];
   getCategoryName: (incident: Incident) => string;
   getLocationDisplay: (incident: Incident) => LocationDisplay;
-  getGoogleMapsUrl: (incident: Incident) => string | null;
   canEdit: boolean;
   canDelete: boolean;
-  onView: (incident: IncidentWithCount) => void;
-  onEdit: (incident: IncidentWithCount) => void;
+  onView: (incident: IncidentWithMeta) => void;
+  onEdit: (incident: IncidentWithMeta) => void;
   onAttachments: (incidentId: number) => void;
   onDelete: (incidentId: number) => void;
+  onLocationClick: (incident: IncidentWithMeta) => void;
 };
 
 function SeverityBadge({ severity, incidentId }: { severity: string; incidentId: number }) {
@@ -59,44 +65,52 @@ function stopRowClick(e: React.MouseEvent) {
 export function OccurrenceBookDesktopTable({
   incidents,
   incidentNumberMap,
+  categories,
+  locations,
   showDateTime,
   showCategory,
   showLocation,
   tableCustomFields,
   getCategoryName,
   getLocationDisplay,
-  getGoogleMapsUrl,
   canEdit,
   canDelete,
   onView,
   onEdit,
   onAttachments,
   onDelete,
+  onLocationClick,
 }: Props) {
   return (
     <div
       className="hidden md:block max-h-[calc(100dvh-16rem)] overflow-auto rounded-b-lg border-t"
       data-testid="occurrence-book-desktop-table"
     >
-      <Table className="table-fixed min-w-[960px]">
+      <Table className="table-fixed min-w-[1100px]">
         <TableHeader className="sticky top-0 z-10 bg-card shadow-[0_1px_0_0_hsl(var(--border))]">
           <TableRow className="hover:bg-transparent">
             <TableHead className="w-[128px] pl-6 text-xs uppercase tracking-wide">Incident #</TableHead>
             {showDateTime && <TableHead className="w-[118px] text-xs uppercase tracking-wide">Date & Time</TableHead>}
             {showCategory && <TableHead className="w-[160px] text-xs uppercase tracking-wide">Type</TableHead>}
             {showLocation && <TableHead className="text-xs uppercase tracking-wide">Location</TableHead>}
+            <TableHead className="w-[120px] text-xs uppercase tracking-wide">Reporter</TableHead>
             {tableCustomFields.map((cf) => (
               <TableHead key={cf.fieldKey} className="w-[120px] text-xs uppercase tracking-wide truncate">
                 {cf.label}
               </TableHead>
             ))}
             <TableHead className="w-[108px] text-xs uppercase tracking-wide">Severity</TableHead>
+            <TableHead className="w-[88px] text-xs uppercase tracking-wide">Evidence</TableHead>
             <TableHead className="w-[152px] pr-6 text-xs uppercase tracking-wide text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {incidents.map((incident, rowIndex) => {
             const customData = (incident.customFields as Record<string, string | number | null>) || {};
+            const cat = categories.find((c) => c.id === incident.categoryId);
+            const severity = resolveEffectiveSeverity(incident, cat);
+            const reporter = getReporterDisplayName(incident);
+            const hasEvidence = incident.attachmentCount > 0;
 
             return (
               <TableRow
@@ -124,7 +138,7 @@ export function OccurrenceBookDesktopTable({
                           LIVE
                         </span>
                       )}
-                      {!incident.isLive && (incident as Incident & { panicClosedAt?: string }).panicClosedAt && (
+                      {!incident.isLive && Boolean((incident as { panicClosedAt?: string | null }).panicClosedAt) && (
                         <span className="inline-flex items-center gap-1 rounded-full bg-red-500/15 text-red-600 dark:text-red-400 border border-red-500/25 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide" data-testid={`badge-panic-${incident.id}`}>
                           <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
                           PANIC
@@ -135,35 +149,54 @@ export function OccurrenceBookDesktopTable({
                 )}
                 {showLocation && (() => {
                   const locDisplay = getLocationDisplay(incident);
-                  const mapsUrl =
-                    getGoogleMapsUrl(incident) ||
-                    (locDisplay.type === "text" && /^-?\d+\.\d+, -?\d+\.\d+$/.test(locDisplay.label?.trim() ?? "")
-                      ? `https://www.google.com/maps?q=${locDisplay.label!.trim()}`
-                      : null);
+                  const canOpenMap = incidentHasViewableLocation(incident, locations);
                   return (
                     <TableCell className="py-3 text-sm" data-testid={`text-location-${incident.id}`}>
                       {locDisplay.type === "customMap" ? (
-                        <span className="flex items-center gap-1.5 min-w-0">
-                          <MapIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                          <span className="truncate">{locDisplay.label}</span>
-                        </span>
-                      ) : mapsUrl ? (
-                        <a
-                          href={mapsUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="truncate block text-primary hover:underline"
-                          onClick={stopRowClick}
+                        canOpenMap ? (
+                          <button
+                            type="button"
+                            className="flex items-center gap-1.5 min-w-0 text-left text-primary hover:underline"
+                            onClick={(e) => {
+                              stopRowClick(e);
+                              onLocationClick(incident);
+                            }}
+                            data-testid={`link-location-${incident.id}`}
+                          >
+                            <MapIcon className="h-3.5 w-3.5 shrink-0" />
+                            <span className="truncate">{locDisplay.label}</span>
+                          </button>
+                        ) : (
+                          <span className="flex items-center gap-1.5 min-w-0">
+                            <MapIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                            <span className="truncate">{locDisplay.label}</span>
+                          </span>
+                        )
+                      ) : canOpenMap ? (
+                        <button
+                          type="button"
+                          className="truncate block text-left text-primary hover:underline"
+                          onClick={(e) => {
+                            stopRowClick(e);
+                            onLocationClick(incident);
+                          }}
                           data-testid={`link-location-${incident.id}`}
                         >
                           {locDisplay.label}
-                        </a>
+                        </button>
                       ) : (
                         <span className="truncate block">{locDisplay.label}</span>
                       )}
                     </TableCell>
                   );
                 })()}
+                <TableCell className="py-3 text-sm" data-testid={`text-reporter-${incident.id}`}>
+                  {reporter ? (
+                    <span className="truncate block">{reporter}</span>
+                  ) : (
+                    <span className="text-muted-foreground/50">—</span>
+                  )}
+                </TableCell>
                 {tableCustomFields.map((cf) => {
                   const val = customData[cf.fieldKey]?.toString() || "";
                   return (
@@ -186,11 +219,16 @@ export function OccurrenceBookDesktopTable({
                   );
                 })}
                 <TableCell className="py-3" data-testid={`cell-severity-${incident.id}`}>
-                  {incident.severity ? (
-                    <SeverityBadge severity={incident.severity} incidentId={incident.id} />
+                  {severity ? (
+                    <SeverityBadge severity={severity} incidentId={incident.id} />
                   ) : (
                     <span className="text-muted-foreground text-xs">—</span>
                   )}
+                </TableCell>
+                <TableCell className="py-3 text-sm" data-testid={`cell-evidence-${incident.id}`}>
+                  <span className={hasEvidence ? "text-foreground font-medium" : "text-muted-foreground/50"}>
+                    {hasEvidence ? "Yes" : "No"}
+                  </span>
                 </TableCell>
                 <TableCell className="py-3 pr-6">
                   <div className="flex items-center justify-end gap-0.5" onClick={stopRowClick}>

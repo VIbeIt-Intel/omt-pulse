@@ -1,8 +1,9 @@
 import type { Incident, Category } from "@shared/schema";
 import { getIconSvg } from "@/lib/incident-icons";
+import { resolveEffectiveSeverity, getReporterDisplayName, type IncidentWithMeta } from "@/lib/incident-display";
 import { ChevronRight } from "lucide-react";
 
-export type IncidentWithCount = Incident & { attachmentCount: number };
+export type IncidentWithCount = IncidentWithMeta;
 
 export function formatIncidentDateGroup(dateStr: string): string {
   const todayStr = new Date().toISOString().slice(0, 10);
@@ -131,12 +132,17 @@ export function IncidentLogMobileList({
           <div className="divide-y divide-border/50">
             {group.items.map((incident) => {
               const cat = categories.find((c) => c.id === incident.categoryId);
+              const severity = resolveEffectiveSeverity(incident, cat);
+              const reporter = getReporterDisplayName(incident);
               const incNum = incidentNumberMap.get(incident.id) ?? String(incident.id);
               const loc = getLocationDisplay(incident);
+              const hasEvidence = incident.attachmentCount > 0;
               const meta = [
                 !showCategory || !showDateTime ? null : incNum,
                 showDateTime ? incident.incidentTime : null,
+                reporter,
                 showLocation && loc.label !== "-" ? loc.label : null,
+                hasEvidence ? "Evidence: Yes" : null,
               ]
                 .filter(Boolean)
                 .join(" · ");
@@ -162,7 +168,7 @@ export function IncidentLogMobileList({
                         {showCategory ? getCategoryName(incident) : incNum}
                       </span>
                       <LiveBadges incident={incident} />
-                      <SeverityDot severity={incident.severity} />
+                      <SeverityDot severity={severity} />
                     </div>
                     {meta ? (
                       <p className="mt-0.5 truncate text-xs text-muted-foreground">{meta}</p>
