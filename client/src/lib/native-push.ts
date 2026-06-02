@@ -24,6 +24,9 @@ export function resolvePushDeepLink(data: Record<string, unknown> | undefined): 
   if (type === "incident_started" && incidentId != null && String(incidentId)) {
     return `/live-incident?join=${incidentId}`;
   }
+  if (type === "incident_closed" && incidentId != null && String(incidentId)) {
+    return `/occurrence-book?incident=${incidentId}`;
+  }
   return null;
 }
 

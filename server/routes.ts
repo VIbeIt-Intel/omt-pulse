@@ -81,16 +81,33 @@ try {
   console.warn("Firebase Admin init failed — FCM push disabled:", err instanceof Error ? err.message : String(err));
 }
 
-async function sendFcmBatch(tokens: string[], payload: { title: string; body: string; data?: Record<string, string> }): Promise<void> {
+function liveIncidentFcmTag(incidentId: number): string {
+  return `incident-${incidentId}`;
+}
+
+function liveIncidentNotifyRoles(severity: string | null | undefined): string[] {
+  return severity === "yellow"
+    ? ["administrator"]
+    : ["administrator", "supervisor", "reporter"];
+}
+
+async function sendFcmBatch(
+  tokens: string[],
+  payload: { title: string; body: string; data?: Record<string, string>; notificationTag?: string },
+): Promise<void> {
   if (!fcmReady || tokens.length === 0) return;
   const messaging = admin.messaging();
+  const android: admin.messaging.AndroidConfig = { priority: "high" };
+  if (payload.notificationTag) {
+    android.notification = { tag: payload.notificationTag };
+  }
   const results = await Promise.allSettled(
     tokens.map((token) =>
       messaging.send({
         token,
         notification: { title: payload.title, body: payload.body },
         data: payload.data ?? {},
-        android: { priority: "high" },
+        android,
         apns: { payload: { aps: { sound: "default", contentAvailable: true } } },
       })
     )
@@ -220,12 +237,14 @@ async function dispatchLiveIncidentPush(orgId: string, triggerUserId: string, in
   }
 
   // FCM fan-out — native Android/iOS devices
+  const fcmTag = liveIncidentFcmTag(incident.id);
   storage.getFcmTokensByOrg(orgId, triggerUserId, TARGET_ROLES).then((fcmSubs) => {
     if (fcmSubs.length > 0) {
       sendFcmBatch(fcmSubs.map((s) => s.token), {
         title,
         body,
         data: { type: "incident_started", incidentId: String(incident.id), url: joinUrl },
+        notificationTag: fcmTag,
       }).catch(() => {});
     }
   }).catch(() => {});
@@ -255,6 +274,45 @@ async function dispatchLiveIncidentPush(orgId: string, triggerUserId: string, in
       );
     } catch { /* best-effort */ }
   })();
+}
+
+/** Replace stale live-incident FCM alerts on native devices when an incident closes. */
+async function dispatchLiveIncidentCloseFcm(
+  orgId: string,
+  incident: Incident,
+  opts: { fullName: string; endTime: string; durationMin: number | null },
+  joinerUserIds: string[] = [],
+): Promise<void> {
+  const roles = liveIncidentNotifyRoles(incident.severity);
+  const tag = liveIncidentFcmTag(incident.id);
+  const title = `✅ Live Incident Closed — ${opts.fullName}`;
+  const body = opts.durationMin != null
+    ? `Closed at ${opts.endTime} · Duration: ${opts.durationMin < 1 ? "< 1" : opts.durationMin} min`
+    : `Closed at ${opts.endTime}`;
+  const incidentUrl = `/occurrence-book?incident=${incident.id}`;
+
+  const [orgTokens, ...joinerTokenLists] = await Promise.all([
+    storage.getFcmTokensByOrg(orgId, undefined, roles),
+    ...joinerUserIds.map((uid) => storage.getFcmTokensByUser(uid)),
+  ]);
+  const tokenSet = new Set<string>();
+  for (const t of orgTokens) tokenSet.add(t.token);
+  for (const list of joinerTokenLists) {
+    for (const t of list) tokenSet.add(t.token);
+  }
+  const tokens = Array.from(tokenSet);
+  if (tokens.length === 0) return;
+
+  await sendFcmBatch(tokens, {
+    title,
+    body,
+    data: {
+      type: "incident_closed",
+      incidentId: String(incident.id),
+      url: incidentUrl,
+    },
+    notificationTag: tag,
+  });
 }
 
 async function sendClearBadgePush(orgId: string) {
@@ -2508,6 +2566,21 @@ export async function registerRoutes(
     arrivalNotificationSent.delete(id);
     proximityNotificationSent.delete(id);
     res.json(updated);
+    // FCM — replace stale "Live Incident" notification on native Android/iOS
+    const reporterIdForFcm = incident.userId ?? userId;
+    const reporterForFcm = await storage.getUserById(reporterIdForFcm);
+    const fcmFullName = reporterForFcm ? `${reporterForFcm.firstName} ${reporterForFcm.lastName}`.trim() : "Responder";
+    const fcmEndedAt = updated?.liveEndedAt ?? new Date();
+    const fcmEndTime = fcmEndedAt.toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit", hour12: false });
+    const fcmDurationMin = incident.liveStartedAt
+      ? Math.round((fcmEndedAt.getTime() - new Date(incident.liveStartedAt).getTime()) / 60000)
+      : null;
+    dispatchLiveIncidentCloseFcm(
+      orgId,
+      incident,
+      { fullName: fcmFullName, endTime: fcmEndTime, durationMin: fcmDurationMin },
+      activeResponders.map((r) => r.userId),
+    ).catch(() => {});
     // Push to active joiners: incident closed — same payload format as admin/supervisor notification
     if (activeResponders.length > 0) {
       const reporterId = incident.userId ?? userId;
@@ -3033,6 +3106,7 @@ export async function registerRoutes(
           title: destTitle,
           body: destBody,
           data: { type: "incident_update", incidentId: String(id), url: navUrl },
+          notificationTag: liveIncidentFcmTag(id),
         }).catch(() => {});
       }).catch(() => {});
     })().catch(() => {});

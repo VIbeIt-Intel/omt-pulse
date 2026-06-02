@@ -469,6 +469,7 @@ export default function LiveIncidentPage() {
   // actually had an active incident in this session (normal start → end).
   const hadIncidentRef = useRef<boolean>((storedId !== null) || (storedJoinedId !== null));
   const joinFromPushRef = useRef(false);
+  const [staleJoinNotice, setStaleJoinNotice] = useState<{ id: number; closedAt: string | null } | null>(null);
   // True once the responder has tapped "Open Google Maps" — persisted in
   // localStorage so the red arrived-button survives app switches / PWA reloads.
   const [navStarted, setNavStarted] = useState<boolean>(() => {
@@ -1057,6 +1058,7 @@ export default function LiveIncidentPage() {
   const joinLiveMutation = useMutation({
     mutationFn: (id: number) => apiRequest("POST", `/api/incidents/${id}/join-live`, {}),
     onSuccess: (_, id) => {
+      setStaleJoinNotice(null);
       localStorage.setItem(JOINED_INCIDENT_KEY, String(id));
       setJoinedId(id);
       gpsEndpointRef.current = "joiner-position";
@@ -1064,7 +1066,28 @@ export default function LiveIncidentPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/incidents/live"] });
       toast({ title: "Joined incident", description: "Your GPS position is now being shared with the team." });
     },
-    onError: () => toast({ title: "Error", description: "Could not join the incident.", variant: "destructive" }),
+    onError: (err: Error, id: number) => {
+      if (err.message.includes("Incident is not live")) {
+        void (async () => {
+          try {
+            const res = await fetch(`/api/incidents/${id}`, { credentials: "include" });
+            if (res.ok) {
+              const inc = (await res.json()) as Incident;
+              if (!inc.isLive) {
+                const closedAt = inc.liveEndedAt
+                  ? new Date(inc.liveEndedAt).toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit", hour12: false })
+                  : null;
+                setStaleJoinNotice({ id, closedAt });
+                return;
+              }
+            }
+          } catch { /* fall through */ }
+          toast({ title: "Incident closed", description: "This live incident is no longer active.", variant: "destructive" });
+        })();
+        return;
+      }
+      toast({ title: "Error", description: "Could not join the incident.", variant: "destructive" });
+    },
   });
 
   // Opened from a push notification — auto-join the incident (reporters cannot use Live Monitor).
@@ -1077,15 +1100,45 @@ export default function LiveIncidentPage() {
     joinFromPushRef.current = true;
     window.history.replaceState({}, "", "/live-incident");
     if (joinedId === id || liveId === id) return;
-    const alreadyJoined = liveIncidents.some(
-      (i) => i.id === id && i.isLive && (i.responders ?? []).some((r) => r.userId === me.id && !r.arrivedAt),
-    );
-    if (alreadyJoined) {
-      localStorage.setItem(JOINED_INCIDENT_KEY, String(id));
-      setJoinedId(id);
+
+    const showClosedNotice = (closedAt: string | null) => {
+      setStaleJoinNotice({ id, closedAt });
+    };
+
+    const tryJoin = () => {
+      const alreadyJoined = liveIncidents.some(
+        (i) => i.id === id && i.isLive && (i.responders ?? []).some((r) => r.userId === me.id && !r.arrivedAt),
+      );
+      if (alreadyJoined) {
+        localStorage.setItem(JOINED_INCIDENT_KEY, String(id));
+        setJoinedId(id);
+        return;
+      }
+      joinLiveMutation.mutate(id);
+    };
+
+    const isLiveOnServer = liveIncidents.some((i) => i.id === id && i.isLive);
+    if (isLiveOnServer) {
+      tryJoin();
       return;
     }
-    joinLiveMutation.mutate(id);
+
+    void (async () => {
+      try {
+        const res = await fetch(`/api/incidents/${id}`, { credentials: "include" });
+        if (res.ok) {
+          const inc = (await res.json()) as Incident;
+          if (!inc.isLive) {
+            const closedAt = inc.liveEndedAt
+              ? new Date(inc.liveEndedAt).toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit", hour12: false })
+              : null;
+            showClosedNotice(closedAt);
+            return;
+          }
+        }
+      } catch { /* fall through — attempt join */ }
+      tryJoin();
+    })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [liveQueryLoaded, me?.id, joinedId, liveId, liveIncidents]);
 
@@ -3194,6 +3247,36 @@ export default function LiveIncidentPage() {
         ) : (
           /* Pre-start screen — no incident created yet */
           <div className="flex flex-col flex-1 gap-4" data-testid="pre-start-screen">
+            {staleJoinNotice && (
+              <div
+                className="mx-4 mt-4 rounded-lg border border-green-500/30 bg-green-500/10 p-4 space-y-3 text-left"
+                data-testid="stale-join-notice"
+              >
+                <div className="flex items-start gap-3">
+                  <CheckCircle2 className="h-5 w-5 shrink-0 text-green-600 dark:text-green-400 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="font-semibold text-sm">This incident is already closed</p>
+                    <p className="text-sm text-muted-foreground">
+                      {staleJoinNotice.closedAt
+                        ? `It was closed at ${staleJoinNotice.closedAt}.`
+                        : "It is no longer active."}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    className="bg-green-600 hover:bg-green-700 text-white"
+                    onClick={() => navigate(`/occurrence-book?incident=${staleJoinNotice.id}`)}
+                  >
+                    View in Occurrence Book
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setStaleJoinNotice(null)}>
+                    Dismiss
+                  </Button>
+                </div>
+              </div>
+            )}
             <div className="flex flex-col items-center justify-center flex-1 gap-5 text-center px-6">
               <div className="rounded-full bg-green-500/10 p-5">
                 <Radio className="h-10 w-10 text-green-500" />
