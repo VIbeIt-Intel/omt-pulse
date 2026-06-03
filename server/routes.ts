@@ -4442,7 +4442,10 @@ export async function registerRoutes(
         const pushOpts = { TTL: 60 };
 
         if (finalRecipientId) {
-          // DM — push only to the recipient's subscribed devices
+          const dmNotifUrl = `/chat?dm=${senderId}`;
+          const fcmData = { type: "chat_message", url: dmNotifUrl };
+
+          // DM — Web Push (PWA browsers without native FCM)
           const subs = await storage.getPushSubscriptionsByUser(finalRecipientId);
           await Promise.allSettled(subs.map(async (sub) => {
             try {
@@ -4452,16 +4455,30 @@ export async function registerRoutes(
               if (code === 410 || code === 404) storage.deletePushSubscription(sub.endpoint).catch(() => {});
             }
           }));
+
+          // FCM — native Android/iOS (APK); same path as panic / live incident
+          const fcmSubs = await storage.getFcmTokensByUser(finalRecipientId);
+          if (fcmSubs.length > 0) {
+            await sendFcmBatch(fcmSubs.map((s) => s.token), {
+              title,
+              body: preview,
+              data: fcmData,
+              notificationTag: `chat-dm-${senderId}`,
+            });
+          }
+
           // Log to notification_logs only on the 0→1 unread transition (dedup per thread)
           // url encodes the sender so clearing on read is thread-scoped
-          const dmNotifUrl = `/chat?dm=${senderId}`;
           storage.hasNotificationLogWithUrl(orgId, finalRecipientId, dmNotifUrl).then((exists) => {
             if (!exists) {
               storage.createNotificationLog({ organizationId: orgId, userId: finalRecipientId, title, body: preview, url: dmNotifUrl }).catch(() => {});
             }
           }).catch(() => {});
         } else {
-          // Group — push to every org member except the sender
+          const groupNotifUrl = "/chat?type=group";
+          const fcmData = { type: "chat_message", url: groupNotifUrl };
+
+          // Group — Web Push (PWA browsers without native FCM)
           const subs = dedupeByEndpoint(await storage.getPushSubscriptionsByOrg(orgId, senderId));
           await Promise.allSettled(subs.map(async (sub) => {
             try {
@@ -4471,9 +4488,20 @@ export async function registerRoutes(
               if (code === 410 || code === 404) storage.deletePushSubscription(sub.endpoint).catch(() => {});
             }
           }));
+
+          // FCM — native Android/iOS (APK)
+          const fcmSubs = await storage.getFcmTokensByOrg(orgId, senderId);
+          if (fcmSubs.length > 0) {
+            await sendFcmBatch(fcmSubs.map((s) => s.token), {
+              title,
+              body: preview,
+              data: fcmData,
+              notificationTag: "chat-group",
+            });
+          }
+
           // Log to notification_logs for every org member except the sender — only on 0→1 transition
           // url is thread-scoped so clearing on read is precise
-          const groupNotifUrl = "/chat?type=group";
           const orgMembers = await storage.getActiveUsersByOrg(orgId);
           await Promise.allSettled(
             orgMembers
