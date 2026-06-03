@@ -10,7 +10,7 @@ import { IncidentEvidenceSection } from "@/components/incident-evidence-section"
 import { IncidentInvolvementSummary } from "@/components/incident-involvement-section";
 import { IncidentLogMobileList } from "@/components/incident-log-mobile";
 import { IncidentLocationSheet } from "@/components/incident-location-sheet";
-import { resolveEffectiveSeverity, incidentHasViewableLocation, type IncidentWithMeta } from "@/lib/incident-display";
+import { resolveEffectiveSeverity, incidentHasViewableLocation, liveIncidentDestination, type IncidentWithMeta } from "@/lib/incident-display";
 
 type IncidentWithCount = IncidentWithMeta;
 import { Button } from "@/components/ui/button";
@@ -136,7 +136,41 @@ export default function OccurrenceBook() {
   });
   const visiblePanicAlerts = recentPanicAlerts.filter((a) => !dismissedPanicAlertIds.has(a.id));
 
-  type IncidentResponder = { id: number; userId: string; firstName: string; lastName: string; joinedAt: string; arrivedAt: string | null; arrivalNote: string | null; leftAt?: string | null };
+  type IncidentResponder = {
+    id: number;
+    userId: string;
+    firstName: string;
+    lastName: string;
+    joinedAt: string;
+    arrivedAt: string | null;
+    arrivalNote: string | null;
+    leftAt?: string | null;
+    lastLat?: number | null;
+    lastLng?: number | null;
+    lastPositionAt?: string | null;
+  };
+
+  function mergeRespondersByUser(rows: IncidentResponder[]): IncidentResponder[] {
+    const map = new Map<string, IncidentResponder>();
+    for (const r of rows) {
+      const prev = map.get(r.userId);
+      if (!prev) {
+        map.set(r.userId, r);
+        continue;
+      }
+      map.set(r.userId, {
+        ...prev,
+        arrivedAt: prev.arrivedAt ?? r.arrivedAt,
+        arrivalNote: prev.arrivalNote ?? r.arrivalNote,
+        lastLat: r.lastLat ?? prev.lastLat,
+        lastLng: r.lastLng ?? prev.lastLng,
+        leftAt: prev.leftAt ?? r.leftAt,
+      });
+    }
+    return Array.from(map.values()).sort(
+      (a, b) => new Date(a.joinedAt).getTime() - new Date(b.joinedAt).getTime(),
+    );
+  }
   const { data: viewingIncidentResponders = [] } = useQuery<IncidentResponder[]>({
     queryKey: ["/api/incidents", viewingIncident?.id, "responders"],
     queryFn: async () => {
@@ -786,8 +820,16 @@ export default function OccurrenceBook() {
             const inc = viewingIncident;
             const cat = categories.find((c) => c.id === inc.categoryId);
             const locDisplay = getLocationDisplay(inc);
-            const locationLabel = locDisplay.label !== "-" ? locDisplay.label : null;
+            const liveDest = liveIncidentDestination(inc);
+            const isPlaceholderLiveLoc = inc.locationName?.trim() === "Live Incident";
+            const locationLabel = liveDest
+              ? liveDest.name
+              : (isPlaceholderLiveLoc ? null : (locDisplay.label !== "-" ? locDisplay.label : null));
+            const locationMapsUrl = liveDest?.lat != null && liveDest?.lng != null
+              ? `https://www.google.com/maps?q=${liveDest.lat},${liveDest.lng}`
+              : null;
             const canOpenLocation = incidentHasViewableLocation(inc, locations);
+            const mergedResponders = mergeRespondersByUser(viewingIncidentResponders);
             const effectiveSeverity = resolveEffectiveSeverity(inc, cat);
             const hasEvidence = inc.attachmentCount > 0;
             return (
@@ -853,20 +895,36 @@ export default function OccurrenceBook() {
                     </div>
                   )}
 
-                  {showLocation && locationLabel && (
+                  {showLocation && (locationLabel || (inc.liveStartedAt && !liveDest)) && (
                     <div>
-                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Location</p>
-                      {canOpenLocation ? (
-                        <button
-                          type="button"
-                          className="text-sm mt-0.5 text-primary hover:underline flex items-center gap-1"
-                          onClick={() => openLocationView(inc)}
-                          data-testid="button-view-location"
-                        >
-                          {locationLabel}
-                        </button>
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                        {inc.liveStartedAt ? "Destination" : "Location"}
+                      </p>
+                      {locationLabel ? (
+                        locationMapsUrl ? (
+                          <a
+                            href={locationMapsUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm mt-0.5 text-primary hover:underline flex items-center gap-1"
+                            data-testid="link-ob-live-destination"
+                          >
+                            {locationLabel} ↗
+                          </a>
+                        ) : canOpenLocation ? (
+                          <button
+                            type="button"
+                            className="text-sm mt-0.5 text-primary hover:underline flex items-center gap-1"
+                            onClick={() => openLocationView(inc)}
+                            data-testid="button-view-location"
+                          >
+                            {locationLabel}
+                          </button>
+                        ) : (
+                          <p className="text-sm mt-0.5">{locationLabel}</p>
+                        )
                       ) : (
-                        <p className="text-sm mt-0.5">{locationLabel}</p>
+                        <p className="text-sm mt-0.5 text-muted-foreground italic">No destination recorded</p>
                       )}
                     </div>
                   )}
@@ -937,6 +995,24 @@ export default function OccurrenceBook() {
                             </a>
                           </div>
                         )}
+                        {liveDest && (
+                          <div className="flex justify-between items-baseline gap-2">
+                            <span className="text-[10px] text-muted-foreground shrink-0">Destination</span>
+                            {liveDest.lat != null && liveDest.lng != null ? (
+                              <a
+                                href={`https://www.google.com/maps?q=${liveDest.lat},${liveDest.lng}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-primary hover:underline text-right"
+                                data-testid="link-ob-timeline-destination"
+                              >
+                                {liveDest.name} ↗
+                              </a>
+                            ) : (
+                              <span className="text-xs text-right">{liveDest.name}</span>
+                            )}
+                          </div>
+                        )}
                         {(inc as any).responderArrivedAt && (
                           <>
                             <div className="flex justify-between items-baseline">
@@ -964,6 +1040,26 @@ export default function OccurrenceBook() {
                             <span className="text-xs font-medium">
                               {(inc as any).liveClosedManually ? "Manually closed" : "Converted to incident"}
                             </span>
+                          </div>
+                        )}
+                        {(inc as any).closedByName && (inc as any).liveEndedAt && (
+                          <div className="flex justify-between items-baseline">
+                            <span className="text-[10px] text-muted-foreground">Closed by</span>
+                            <span className="text-xs font-medium" data-testid="text-ob-closed-by">{(inc as any).closedByName}</span>
+                          </div>
+                        )}
+                        {(inc as any).liveEndedAt && (inc as any).liveClosedManually && (inc as any).liveEndLat != null && (inc as any).liveEndLng != null && (
+                          <div className="flex justify-between items-baseline">
+                            <span className="text-[10px] text-muted-foreground">Closed from</span>
+                            <a
+                              href={`https://www.google.com/maps?q=${(inc as any).liveEndLat},${(inc as any).liveEndLng}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs text-primary hover:underline"
+                              data-testid="link-ob-live-end"
+                            >
+                              {Number((inc as any).liveEndLat).toFixed(4)}, {Number((inc as any).liveEndLng).toFixed(4)} ↗
+                            </a>
                           </div>
                         )}
                         {(inc as any).liveEndedAt && (inc as any).liveConvertLat != null && (inc as any).liveConvertLng != null && (
@@ -1003,22 +1099,35 @@ export default function OccurrenceBook() {
                     </div>
                   )}
 
-                  {inc.liveStartedAt && viewingIncidentResponders.length > 0 && (
+                  {inc.liveStartedAt && mergedResponders.length > 0 && (
                     <div className="pt-3 border-t border-border/40">
                       <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">Responders</p>
                       <div className="space-y-2">
-                        {viewingIncidentResponders.map((r) => (
-                          <div key={r.id} className="text-sm">
-                            <div className="flex items-center justify-between">
+                        {mergedResponders.map((r) => (
+                          <div key={r.userId} className="text-sm rounded border border-border/60 px-2.5 py-2" data-testid={`ob-responder-${r.userId}`}>
+                            <div className="flex items-center justify-between gap-2">
                               <span className="font-medium">{`${r.firstName} ${r.lastName}`.trim()}</span>
                               {r.arrivedAt && (
-                                <span className="text-[10px] text-muted-foreground">
+                                <span className="text-[10px] text-muted-foreground shrink-0">
                                   Arrived {new Date(r.arrivedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                                 </span>
                               )}
                             </div>
+                            {r.lastLat != null && r.lastLng != null && (
+                              <div className="mt-1">
+                                <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wide">Last GPS</p>
+                                <a
+                                  href={`https://www.google.com/maps?q=${r.lastLat},${r.lastLng}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-xs text-primary hover:underline"
+                                >
+                                  {Number(r.lastLat).toFixed(5)}, {Number(r.lastLng).toFixed(5)} ↗
+                                </a>
+                              </div>
+                            )}
                             {r.arrivalNote && (
-                              <p className="text-xs text-muted-foreground mt-0.5 ml-0">{r.arrivalNote}</p>
+                              <p className="text-xs text-muted-foreground mt-0.5">{r.arrivalNote}</p>
                             )}
                           </div>
                         ))}

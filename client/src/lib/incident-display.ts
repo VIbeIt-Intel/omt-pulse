@@ -4,7 +4,19 @@ export type IncidentWithMeta = Incident & {
   attachmentCount: number;
   reporterFirstName?: string | null;
   reporterLastName?: string | null;
+  closedByName?: string | null;
 };
+
+/** Destination set during a live incident (excludes placeholder locationName). */
+export function liveIncidentDestination(
+  incident: Pick<Incident, "destinationName" | "destinationLat" | "destinationLng">,
+): { name: string; lat: number | null; lng: number | null } | null {
+  const name = incident.destinationName?.trim();
+  if (!name || name === "Live Incident") return null;
+  const lat = incident.destinationLat != null ? Number(incident.destinationLat) : null;
+  const lng = incident.destinationLng != null ? Number(incident.destinationLng) : null;
+  return { name, lat, lng };
+}
 
 export type EffectiveSeverity = "red" | "orange" | "yellow" | null;
 
