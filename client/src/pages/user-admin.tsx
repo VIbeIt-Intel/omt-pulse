@@ -16,6 +16,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { PLAY_TESTING_JOIN_URL } from "@/lib/site-links";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Category, Location, FormField as OrgFormField } from "@shared/schema";
 import * as XLSX from "xlsx";
@@ -131,7 +132,31 @@ function PermissionsSection({ form }: { form: ReturnType<typeof useForm<UserForm
   );
 }
 
-type ShareInfo = { firstName: string; email: string; inviteToken?: string | null };
+type ShareInfo = { firstName: string; email: string; password?: string };
+
+function buildTesterWelcomeMessage(shareInfo: ShareInfo, orgName: string | null): string {
+  const installLine = PLAY_TESTING_JOIN_URL
+    ? `1) Install OMT Pulse (Android phone): ${PLAY_TESTING_JOIN_URL}`
+    : "1) Install OMT Pulse from the Play Store link your administrator sends you.";
+  const passwordLine = shareInfo.password
+    ? `   Password: ${shareInfo.password}`
+    : "";
+  return [
+    `Hi ${shareInfo.firstName},`,
+    "",
+    `You're set up on OMT Pulse (${orgName ?? "your organisation"}). On your Android phone:`,
+    "",
+    installLine,
+    "2) Open the app and sign in:",
+    `   Email: ${shareInfo.email}`,
+    passwordLine,
+    "",
+    "Use the same Gmail on your phone as that email. Allow notifications when asked.",
+    "Questions: support@intelafri.org",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
 
 function ShareScreen({
   shareInfo,
@@ -144,19 +169,15 @@ function ShareScreen({
   onDone: () => void;
   onAddAnother: () => void;
 }) {
-  const [copiedLink, setCopiedLink] = useState(false);
   const [copiedMsg, setCopiedMsg] = useState(false);
-  const appUrl = import.meta.env.VITE_APP_BASE_URL || window.location.origin;
-  const inviteUrl = shareInfo.inviteToken ? `${appUrl}/invite?token=${shareInfo.inviteToken}` : null;
-  const message = inviteUrl
-    ? `Hi ${shareInfo.firstName} 👋\n\nYou've been added to ${orgName ?? "OMT"}'s OMT Pulse team. Tap the link below to create your password and get started — it expires in 7 days.\n\n${inviteUrl}\n\nSee you on the ground. 🛡️`
-    : `Hi ${shareInfo.firstName} 👋\n\nYou've been added to ${orgName ?? "OMT"}'s OMT Pulse team.\n\nOpen the app here: ${appUrl}\n  Email: ${shareInfo.email}\n\nYour administrator will share your password with you separately.\n\nSee you on the ground. 🛡️`;
+  const [copiedPlayLink, setCopiedPlayLink] = useState(false);
+  const message = buildTesterWelcomeMessage(shareInfo, orgName);
 
-  function handleCopyLink() {
-    if (!inviteUrl) return;
-    navigator.clipboard.writeText(inviteUrl).then(() => {
-      setCopiedLink(true);
-      setTimeout(() => setCopiedLink(false), 2500);
+  function handleCopyPlayLink() {
+    if (!PLAY_TESTING_JOIN_URL) return;
+    navigator.clipboard.writeText(PLAY_TESTING_JOIN_URL).then(() => {
+      setCopiedPlayLink(true);
+      setTimeout(() => setCopiedPlayLink(false), 2500);
     });
   }
 
@@ -183,7 +204,7 @@ function ShareScreen({
         <div>
           <p className="font-semibold">{shareInfo.firstName} has been added</p>
           <p className="text-sm text-muted-foreground">
-            Send them the message below — they'll tap the link to set their password.
+            Copy this message to WhatsApp — install link + login details in one go.
           </p>
         </div>
       </div>
@@ -236,22 +257,23 @@ function ShareScreen({
         </Button>
       </div>
 
-      {/* Invite link — compact, secondary */}
-      {inviteUrl && (
+      {PLAY_TESTING_JOIN_URL ? (
         <div className="rounded-lg border bg-muted/30 px-3 py-2.5 flex items-center gap-2">
           <Link2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-          <span className="flex-1 text-xs font-mono text-muted-foreground truncate">{inviteUrl}</span>
+          <span className="flex-1 text-xs font-mono text-muted-foreground truncate">{PLAY_TESTING_JOIN_URL}</span>
           <button
-            onClick={handleCopyLink}
+            type="button"
+            onClick={handleCopyPlayLink}
             className="shrink-0 text-xs text-muted-foreground hover:text-foreground transition-colors"
-            data-testid="button-copy-invite-link"
+            data-testid="button-copy-play-link"
           >
-            {copiedLink ? <CheckCheck className="h-3.5 w-3.5 text-green-600" /> : <Copy className="h-3.5 w-3.5" />}
+            {copiedPlayLink ? <CheckCheck className="h-3.5 w-3.5 text-green-600" /> : <Copy className="h-3.5 w-3.5" />}
           </button>
         </div>
-      )}
-      {inviteUrl && (
-        <p className="text-[11px] text-muted-foreground -mt-2">Link expires in 7 days · single use</p>
+      ) : (
+        <p className="text-[11px] text-amber-700 dark:text-amber-400 rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-2">
+          Set <code className="text-[10px]">VITE_PLAY_TESTING_JOIN_URL</code> on the server so install links are included automatically.
+        </p>
       )}
 
       <DialogFooter className="mt-auto gap-2 sm:gap-0">
@@ -385,7 +407,7 @@ function UserDialog({
         canEditIncidents: data.canEditIncidents ?? true,
         canManageAttachments: data.canManageAttachments ?? true,
         canDeleteIncidents: data.canDeleteIncidents ?? true,
-        password: data.password || undefined,
+        password: isEdit ? (data.password && data.password.length > 0 ? data.password : undefined) : data.password,
         commandIds: data.commandIds,
       };
 
@@ -400,17 +422,10 @@ function UserDialog({
         toast({ title: "User updated" });
         handleClose();
       } else {
-        res.json().then((created: OrgUser) => {
-          setShareInfo({
-            firstName: variables.firstName,
-            email: variables.email,
-            inviteToken: created.inviteToken,
-          });
-        }).catch(() => {
-          setShareInfo({
-            firstName: variables.firstName,
-            email: variables.email,
-          });
+        setShareInfo({
+          firstName: variables.firstName,
+          email: variables.email.trim().toLowerCase(),
+          password: variables.password,
         });
       }
     },
@@ -450,7 +465,22 @@ function UserDialog({
           </div>
         ) : (
           <Form {...form}>
-            <form onSubmit={form.handleSubmit((d) => mutation.mutate(d))} className="flex flex-1 min-h-0 flex-col overflow-hidden">
+            <form
+              onSubmit={form.handleSubmit((d) => {
+                if (!isEdit) {
+                  if (!d.password || d.password.length < 10) {
+                    form.setError("password", { message: "Password must be at least 10 characters" });
+                    return;
+                  }
+                  if (d.password !== d.confirmPassword) {
+                    form.setError("confirmPassword", { message: "Passwords do not match" });
+                    return;
+                  }
+                }
+                mutation.mutate(d);
+              })}
+              className="flex flex-1 min-h-0 flex-col overflow-hidden"
+            >
               <div className="flex-1 min-h-0 space-y-2.5 overflow-y-auto pr-1">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <FormField control={form.control} name="firstName" render={({ field }) => (
@@ -632,10 +662,48 @@ function UserDialog({
                 </div>
               )}
               {!isEdit && (
-                <div className="border-t pt-2.5">
+                <div className="border-t pt-2.5 space-y-2">
                   <p className="text-xs text-muted-foreground">
-                    The user will set their own password via the invite link you'll share after saving.
+                    Set a login password now — you&apos;ll copy one WhatsApp message with install + sign-in details.
                   </p>
+                  <FormField control={form.control} name="password" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Password <span className="text-destructive">*</span></FormLabel>
+                      <FormControl>
+                        <div className="relative">
+                          <Input {...field} type={showPassword ? "text" : "password"} placeholder="Minimum 10 characters" className="pr-10" data-testid="input-user-password" autoComplete="new-password" />
+                          <button
+                            type="button"
+                            onClick={() => setShowPassword((v) => !v)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                            tabIndex={-1}
+                          >
+                            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </button>
+                        </div>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+                  <FormField control={form.control} name="confirmPassword" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Confirm password <span className="text-destructive">*</span></FormLabel>
+                      <FormControl>
+                        <div className="relative">
+                          <Input {...field} type={showConfirm ? "text" : "password"} placeholder="Repeat password" className="pr-10" data-testid="input-user-confirm-password" autoComplete="new-password" />
+                          <button
+                            type="button"
+                            onClick={() => setShowConfirm((v) => !v)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                            tabIndex={-1}
+                          >
+                            {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </button>
+                        </div>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
                 </div>
               )}
 

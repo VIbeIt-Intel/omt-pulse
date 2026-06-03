@@ -1403,7 +1403,7 @@ export async function registerRoutes(
     homeAddress: z.string().optional().nullable(),
     posting: z.string().optional().nullable(),
     role: z.enum(["administrator", "supervisor", "reporter"]),
-    password: z.string().optional(),
+    password: z.string().min(10, "Password must be at least 10 characters"),
     canEditIncidents: z.boolean().optional().default(true),
     canManageAttachments: z.boolean().optional().default(true),
     canDeleteIncidents: z.boolean().optional().default(true),
@@ -1463,7 +1463,8 @@ export async function registerRoutes(
         return res.status(400).json({ message: `Invalid Command id ${cid}` });
       }
     }
-    const existing = await storage.getUserByEmail(rest.email);
+    const email = rest.email.trim().toLowerCase();
+    const existing = await storage.getUserByEmail(email);
     if (existing) {
       const orgId = req.currentUser!.organizationId;
       if (existing.organizationId === orgId) {
@@ -1493,18 +1494,15 @@ export async function registerRoutes(
       return res.status(400).json({ message: "A user with this email already exists" });
     }
 
-    // If admin supplied a password, validate it; otherwise generate a secure random one
-    const password = rawPassword && rawPassword.length > 0 ? rawPassword : crypto.randomUUID() + crypto.randomUUID();
-    if (rawPassword && rawPassword.length > 0) {
-      if (rawPassword.length < 10) {
-        return res.status(400).json({ message: "Password must be at least 10 characters" });
-      }
-      if (await isPasswordInUse(rawPassword)) {
-        return res.status(400).json({ message: PASSWORD_IN_USE_MSG });
-      }
+    // Password required for new users — admins share email + password (field testers, Play closed test).
+    if (!rawPassword || rawPassword.length < 10) {
+      return res.status(400).json({ message: "Password must be at least 10 characters" });
+    }
+    if (await isPasswordInUse(rawPassword)) {
+      return res.status(400).json({ message: PASSWORD_IN_USE_MSG });
     }
 
-    const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
+    const hashedPassword = await bcrypt.hash(rawPassword, SALT_ROUNDS);
     const orgId = req.currentUser!.organizationId;
 
     if (rest.role === "administrator") {
@@ -1513,17 +1511,15 @@ export async function registerRoutes(
       rest.canDeleteIncidents = true;
     }
 
-    const inviteToken = crypto.randomUUID();
-    const inviteTokenExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-
     const user = await storage.createUser({
       ...rest,
+      email,
       organizationId: orgId,
       password: hashedPassword,
       isActive: true,
-      mustChangePassword: true,
-      inviteToken,
-      inviteTokenExpiresAt,
+      mustChangePassword: false,
+      inviteToken: null,
+      inviteTokenExpiresAt: null,
     });
     // Assign the new user to every selected Command. Required: schema enforces
     // commandIds.length >= 1, so the user can always raise a panic and have
@@ -1561,6 +1557,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: PASSWORD_IN_USE_MSG });
       }
       updateData.password = await bcrypt.hash(password, SALT_ROUNDS);
+      updateData.mustChangePassword = false;
     }
 
     // Verify user belongs to same org
@@ -1569,9 +1566,12 @@ export async function registerRoutes(
       return res.status(404).json({ message: "User not found" });
     }
 
-    if (rest.email && rest.email !== existingUser.email) {
-      const emailTaken = await storage.getUserByEmail(rest.email);
-      if (emailTaken) return res.status(400).json({ message: "A user with this email already exists" });
+    if (rest.email) {
+      rest.email = rest.email.trim().toLowerCase();
+      if (rest.email !== existingUser.email) {
+        const emailTaken = await storage.getUserByEmail(rest.email);
+        if (emailTaken) return res.status(400).json({ message: "A user with this email already exists" });
+      }
     }
 
     const changes = computeChanges(existingUser as Record<string, unknown>, rest as Record<string, unknown>);
