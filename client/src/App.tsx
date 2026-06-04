@@ -536,7 +536,6 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!nativeApp) return;
     initNativePushListeners();
     consumePendingPushDeepLink(navigate);
     const onDeepLink = (event: Event) => {
@@ -545,7 +544,7 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
     };
     window.addEventListener(PUSH_DEEPLINK_EVENT, onDeepLink);
     return () => window.removeEventListener(PUSH_DEEPLINK_EVENT, onDeepLink);
-  }, [nativeApp, navigate]);
+  }, [navigate]);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [notifSheetOpen, setNotifSheetOpen] = useState(false);

@@ -1133,6 +1133,7 @@ export default function LiveIncidentPage() {
     if (isNaN(id)) return;
     joinFromPushRef.current = true;
     window.history.replaceState({}, "", "/live-incident");
+    void queryClient.invalidateQueries({ queryKey: ["/api/incidents/live"] });
     if (joinedId === id || liveId === id) return;
 
     const showClosedNotice = (closedAt: string | null) => {

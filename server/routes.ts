@@ -2479,11 +2479,10 @@ export async function registerRoutes(
       console.error("[panic] incident create failed:", err);
     }
 
-    // Deep-link to live-monitor so the tapping user lands directly on the panic
-    // incident. If the incident record failed to create, fall back to /live-monitor.
+    // Deep-link to live-incident join flow (same path native FCM and PWA use after rewrite).
     const notifUrl = panicIncidentId
-      ? `/live-monitor?incidentId=${panicIncidentId}`
-      : "/live-monitor";
+      ? `/live-incident?join=${panicIncidentId}`
+      : "/live-incident";
     const payload = JSON.stringify({ type: "panic", title, body, incidentId: panicIncidentId, url: notifUrl });
 
     const allSubs = await storage.getPushSubscriptionsByOrg(orgId, userId, undefined, undefined);

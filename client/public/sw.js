@@ -1,4 +1,4 @@
-const CACHE_NAME = "omt-v88";
+const CACHE_NAME = "omt-v89";
 
 // When the page asks us to nuke everything (after a new deploy), wipe all
 // caches and tell every controlled tab to reload. The page also unregisters
@@ -190,23 +190,32 @@ self.addEventListener("push", (event) => {
   );
 });
 
+function rewritePushDeepLinkPath(url) {
+  if (typeof url !== "string" || !url.startsWith("/")) return "/";
+  const m = url.match(/^\/live-monitor\?incidentId=(\d+)/);
+  if (m) return `/live-incident?join=${m[1]}`;
+  return url;
+}
+
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const url = event.notification.data?.url ?? "/";
-  const isExternal = url.startsWith("http") && !url.startsWith(self.location.origin);
+  const rawUrl = event.notification.data?.url ?? "/";
+  const path = rewritePushDeepLinkPath(rawUrl);
+  const isExternal = rawUrl.startsWith("http") && !rawUrl.startsWith(self.location.origin);
+  const inAppUrl = new URL(path, self.location.origin).href;
   event.waitUntil(
     clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
       if (isExternal) {
-        if (clients.openWindow) return clients.openWindow(url);
+        if (clients.openWindow) return clients.openWindow(rawUrl);
         return;
       }
       for (const client of clientList) {
         if (client.url.includes(self.location.origin) && "focus" in client) {
-          client.navigate(url);
+          if ("navigate" in client) client.navigate(path);
           return client.focus();
         }
       }
-      if (clients.openWindow) return clients.openWindow(url);
+      if (clients.openWindow) return clients.openWindow(inAppUrl);
     })
   );
 });

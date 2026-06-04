@@ -10,17 +10,24 @@ function pushDataUrl(data: Record<string, unknown> | undefined): string | null {
   return typeof url === "string" && url.startsWith("/") ? url : null;
 }
 
+/** Normalize legacy panic URLs to the live-incident join flow. */
+export function rewritePushDeepLinkPath(url: string): string {
+  const monitorMatch = url.match(/^\/live-monitor\?incidentId=(\d+)/);
+  if (monitorMatch) return `/live-incident?join=${monitorMatch[1]}`;
+  return url;
+}
+
 /** Resolve in-app path from FCM data (fallback when url key is missing on Android). */
 export function resolvePushDeepLink(data: Record<string, unknown> | undefined): string | null {
   const direct = pushDataUrl(data);
   if (direct) {
-    // Reporters cannot open /live-monitor — RoleGuard sends them to dashboard.
-    const monitorMatch = direct.match(/^\/live-monitor\?incidentId=(\d+)/);
-    if (monitorMatch) return `/live-incident?join=${monitorMatch[1]}`;
-    return direct;
+    return rewritePushDeepLinkPath(direct);
   }
   const type = data?.type;
   const incidentId = data?.incidentId;
+  if (type === "panic" && incidentId != null && String(incidentId)) {
+    return `/live-incident?join=${incidentId}`;
+  }
   if (type === "incident_started" && incidentId != null && String(incidentId)) {
     return `/live-incident?join=${incidentId}`;
   }
