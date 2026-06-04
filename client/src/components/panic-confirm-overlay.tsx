@@ -117,9 +117,14 @@ export function PanicConfirmOverlay({ open, onOpenChange, confirmTestId, notifyH
           <div className="w-full space-y-3 pt-2">
             <OpenLocationSettingsButton
               variant="dark"
+              showInlineStatus
               testId={`${confirmTestId}-open-location-settings`}
               onAfterOpen={() => void refreshLocationProbe()}
             />
+            <p className="text-xs text-white/55 text-left leading-relaxed">
+              If Settings does not open, go to{" "}
+              <strong className="text-white">Settings → Apps → OMT Pulse → Permissions → Location → Allow</strong>.
+            </p>
             <button
               type="button"
               onClick={() => finishSend(pendingLoc)}
@@ -176,6 +181,7 @@ export function PanicConfirmOverlay({ open, onOpenChange, confirmTestId, notifyH
             </div>
             <OpenLocationSettingsButton
               variant="dark"
+              showInlineStatus
               testId={`${confirmTestId}-open-location-settings-preview`}
               onAfterOpen={() => void refreshLocationProbe()}
             />
