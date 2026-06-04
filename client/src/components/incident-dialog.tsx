@@ -40,6 +40,7 @@ import {
   INVOLVEMENT_FIELD_KEYS,
   readInvolvement,
 } from "./incident-involvement-section";
+import { IncidentSapsSection, isSapsFormField } from "./incident-saps-section";
 import { CalendarIcon, Clock, MapPin, Upload, Paperclip, X, Loader2, Camera, Mic, Square, Globe, Map, LocateFixed } from "lucide-react";
 import { loadGoogleMaps } from "@/lib/google-maps-loader";
 import { AttachmentPreview, attachmentUploaderLabel } from "@/components/attachment-preview";
@@ -178,6 +179,8 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
   const orgCustomFields = formFields.filter(
     (f) => !f.isSystem && f.isVisible && !INVOLVEMENT_FIELD_KEYS.has(f.fieldKey),
   );
+  const sapsCustomFields = orgCustomFields.filter(isSapsFormField);
+  const otherOrgCustomFields = orgCustomFields.filter((f) => !isSapsFormField(f));
   const [personInvolved, setPersonInvolved] = useState(false);
   const [vehicleInvolved, setVehicleInvolved] = useState(false);
 
@@ -1149,6 +1152,14 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
               onVehicleInvolvedChange={setVehicleInvolved}
             />
 
+            {sapsCustomFields.length > 0 && (
+              <IncidentSapsSection
+                fields={sapsCustomFields}
+                customFields={(form.watch("customFields") as Record<string, string | number | null>) || {}}
+                onChange={(next) => form.setValue("customFields", next)}
+              />
+            )}
+
             {showDescriptionField && (
               <FormFieldComponent
                 control={form.control}
@@ -1172,11 +1183,11 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
               />
             )}
 
-            {orgCustomFields.length > 0 && (
+            {otherOrgCustomFields.length > 0 && (
               <div className="space-y-4">
                 <h3 className="text-sm font-medium text-muted-foreground">Additional Fields</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {orgCustomFields.map((cf) => {
+                  {otherOrgCustomFields.map((cf) => {
                     const currentCustomFields = form.watch("customFields") || {};
                     const value = currentCustomFields[cf.fieldKey] ?? "";
 

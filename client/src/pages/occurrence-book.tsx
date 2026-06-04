@@ -7,7 +7,8 @@ import type { Incident, Category, Location, FormField, CustomMap } from "@shared
 import { IncidentDialog, AttachmentsDialog } from "@/components/incident-dialog";
 import { OccurrenceBookDesktopTable } from "@/components/occurrence-book-desktop-table";
 import { IncidentEvidenceSection } from "@/components/incident-evidence-section";
-import { IncidentInvolvementSummary } from "@/components/incident-involvement-section";
+import { IncidentInvolvementSummary, INVOLVEMENT_FIELD_KEYS } from "@/components/incident-involvement-section";
+import { IncidentSapsSummary, isSapsFormField } from "@/components/incident-saps-section";
 import { IncidentLogMobileList } from "@/components/incident-log-mobile";
 import { IncidentLocationSheet } from "@/components/incident-location-sheet";
 import { resolveEffectiveSeverity, incidentHasViewableLocation, liveIncidentDestination, type IncidentWithMeta } from "@/lib/incident-display";
@@ -920,8 +921,14 @@ export default function OccurrenceBook() {
 
                   <IncidentInvolvementSummary customFields={inc.customFields as Record<string, string | number | null>} />
 
+                  <IncidentSapsSummary
+                    fields={visibleCustomFields}
+                    customFields={inc.customFields as Record<string, string | number | null>}
+                  />
+
                   {inc.customFields && visibleCustomFields.length > 0 && (
                     visibleCustomFields
+                      .filter((f) => !isSapsFormField(f) && !INVOLVEMENT_FIELD_KEYS.has(f.fieldKey))
                       .filter(f => (inc.customFields as Record<string, unknown>)[f.fieldKey] != null && (inc.customFields as Record<string, unknown>)[f.fieldKey] !== "")
                       .map(f => (
                         <div key={f.fieldKey}>
