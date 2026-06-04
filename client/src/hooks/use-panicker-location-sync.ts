@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
-import { hasPanicCoordinates, acquirePanicLocation } from "@/lib/panic-location";
+import { hasPanicCoordinates, quickPanicLocationCheck } from "@/lib/panic-location";
 
 /**
  * While the user's own panic is active, keep trying to share GPS (e.g. location was off at SOS).
@@ -31,7 +31,7 @@ export function usePanickerLocationSync(
     };
 
     const tryOnce = async () => {
-      const loc = await acquirePanicLocation();
+      const loc = await quickPanicLocationCheck();
       if (hasPanicCoordinates(loc)) {
         await pushCoords(loc.lat, loc.lng);
       }

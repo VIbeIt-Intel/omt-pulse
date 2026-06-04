@@ -2,6 +2,25 @@ import { Capacitor } from "@capacitor/core";
 
 export type OpenLocationSettingsResult = "opened" | "prompted" | "unavailable";
 
+type NativeSettingsModule = typeof import("capacitor-native-settings");
+
+let settingsModulePromise: Promise<NativeSettingsModule> | null = null;
+
+/** Warm the native-settings chunk while SOS overlay is open (first tap feels instant). */
+export function preloadLocationSettingsModule(): void {
+  if (!Capacitor.isNativePlatform()) return;
+  settingsModulePromise ??= import("capacitor-native-settings");
+}
+
+async function loadNativeSettings(): Promise<NativeSettingsModule | null> {
+  if (!Capacitor.isNativePlatform()) return null;
+  try {
+    return await (settingsModulePromise ?? import("capacitor-native-settings"));
+  } catch {
+    return null;
+  }
+}
+
 function detectPlatform(): "ios" | "android" | "desktop" {
   if (typeof navigator === "undefined") return "desktop";
   const ua = navigator.userAgent;
@@ -22,35 +41,38 @@ export function locationSettingsHint(): string {
   return "Allow location in your browser site settings for omtpulse.com.";
 }
 
+/** Short browser permission retry — not used on native (Settings opens instead). */
+async function promptBrowserLocation(): Promise<boolean> {
+  if (!navigator.geolocation) return false;
+  return new Promise((resolve) => {
+    navigator.geolocation.getCurrentPosition(
+      () => resolve(true),
+      (err) => resolve(err.code !== 1),
+      { enableHighAccuracy: false, timeout: 3_000, maximumAge: 60_000 },
+    );
+  });
+}
+
 /**
- * Open app/location settings on native, or re-request browser geolocation permission.
- * On Android APK, requires a build that includes capacitor-native-settings (cap sync).
+ * Open app settings on native immediately; on web, a quick permission retry only.
  */
 export async function openLocationSettings(): Promise<OpenLocationSettingsResult> {
-  if (Capacitor.isNativePlatform()) {
+  const mod = await loadNativeSettings();
+  if (mod) {
     try {
-      const { NativeSettings, AndroidSettings, IOSSettings } = await import(
-        "capacitor-native-settings"
-      );
+      const { NativeSettings, AndroidSettings, IOSSettings } = mod;
       await NativeSettings.open({
         optionAndroid: AndroidSettings.ApplicationDetails,
         optionIOS: IOSSettings.App,
       });
       return "opened";
     } catch {
-      /* Plugin missing on old APK or OS blocked — fall through */
+      /* fall through to browser prompt on hybrid failures */
     }
   }
 
-  if (typeof navigator !== "undefined" && navigator.geolocation) {
-    const prompted = await new Promise<boolean>((resolve) => {
-      navigator.geolocation.getCurrentPosition(
-        () => resolve(true),
-        (err) => resolve(err.code !== 1),
-        { enableHighAccuracy: true, timeout: 10_000, maximumAge: 0 },
-      );
-    });
-    if (prompted) return "prompted";
+  if (await promptBrowserLocation()) {
+    return "prompted";
   }
 
   return "unavailable";

@@ -4,6 +4,7 @@ import {
   appendPanicLocationNote,
   hasPanicCoordinates,
   panicLocationWarning,
+  quickPanicLocationCheck,
   type PanicLocationIssue,
   type PanicLocationResult,
 } from "@/lib/panic-location";
@@ -65,7 +66,12 @@ export function buildPanicSentToast(outcome: PanicSendOutcome): {
   };
 }
 
-/** Probe GPS when opening SOS overlay (warms fix + drives UI warning). */
+/** Fast UI probe when opening SOS or returning from Settings (~3s max). */
 export async function probePanicLocation(): Promise<PanicLocationResult> {
+  return quickPanicLocationCheck();
+}
+
+/** Full-accuracy GPS when actually sending SOS (may take longer). */
+export async function probePanicLocationForSend(): Promise<PanicLocationResult> {
   return acquirePanicLocation();
 }

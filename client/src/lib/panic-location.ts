@@ -23,6 +23,34 @@ function issueFromGeolocationCode(code: number | undefined): PanicLocationIssue 
   return "unavailable";
 }
 
+/**
+ * Fast UI check only (~3s) — use when refreshing banners after Settings, not when sending SOS.
+ */
+export async function quickPanicLocationCheck(): Promise<PanicLocationResult> {
+  if (!navigator.geolocation) {
+    return { issue: "unsupported" };
+  }
+  try {
+    const pos = await getCurrentPositionOnce({
+      enableHighAccuracy: false,
+      timeout: 3_000,
+      maximumAge: 60_000,
+    });
+    const lat = pos.coords.latitude;
+    const lng = pos.coords.longitude;
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      return { lat, lng };
+    }
+  } catch (err) {
+    const code =
+      typeof err === "object" && err !== null && "code" in err
+        ? (err as GeolocationPositionError).code
+        : undefined;
+    if (code === 1) return { issue: "denied" };
+  }
+  return { issue: "unavailable" };
+}
+
 /** Best-effort GPS for panic: high-accuracy first, then a faster fallback. */
 export async function acquirePanicLocation(): Promise<PanicLocationResult> {
   if (!navigator.geolocation) {

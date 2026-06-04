@@ -7,9 +7,11 @@ import {
   panicLocationOffTitle,
   postPanicAlert,
   probePanicLocation,
+  probePanicLocationForSend,
 } from "@/lib/panic-send";
 import { hasPanicCoordinates, type PanicLocationResult } from "@/lib/panic-location";
 import { OpenLocationSettingsButton } from "@/components/open-location-settings-button";
+import { preloadLocationSettingsModule } from "@/lib/open-location-settings";
 
 type Props = {
   open: boolean;
@@ -40,6 +42,7 @@ export function PanicConfirmOverlay({ open, onOpenChange, confirmTestId, notifyH
       setShowLocationGate(false);
       return;
     }
+    preloadLocationSettingsModule();
     let cancelled = false;
     void probePanicLocation().then((loc) => {
       if (!cancelled) setLocationProbe(loc);
@@ -83,7 +86,9 @@ export function PanicConfirmOverlay({ open, onOpenChange, confirmTestId, notifyH
   }
 
   async function onConfirmSend() {
-    const loc = await probePanicLocation();
+    setSending(true);
+    const loc = await probePanicLocationForSend();
+    setSending(false);
     if (hasPanicCoordinates(loc)) {
       await finishSend(loc);
       return;
