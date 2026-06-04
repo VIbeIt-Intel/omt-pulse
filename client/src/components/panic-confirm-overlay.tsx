@@ -10,7 +10,7 @@ import {
   probePanicLocationForSend,
 } from "@/lib/panic-send";
 import { hasPanicCoordinates, type PanicLocationResult } from "@/lib/panic-location";
-import { OpenLocationSettingsButton } from "@/components/open-location-settings-button";
+import { LocationPermissionGuide } from "@/components/location-permission-guide";
 import { preloadLocationSettingsModule } from "@/lib/open-location-settings";
 
 type Props = {
@@ -111,20 +111,18 @@ export function PanicConfirmOverlay({ open, onOpenChange, confirmTestId, notifyH
             <h2 className="text-xl font-bold text-white">{panicLocationOffTitle(pendingLoc.issue)}</h2>
             <p className="text-sm text-white/80 leading-relaxed">{panicLocationOffBody(pendingLoc.issue)}</p>
             <p className="text-xs text-white/60">
-              Open settings below, turn on <strong className="text-white">Location</strong> for OMT Pulse, then return here to send with GPS.
+              Follow the steps below — works with your current app, no Play Store update.
             </p>
           </div>
           <div className="w-full space-y-3 pt-2">
-            <OpenLocationSettingsButton
+            <LocationPermissionGuide
               variant="dark"
-              showInlineStatus
-              testId={`${confirmTestId}-open-location-settings`}
-              onAfterOpen={() => void refreshLocationProbe()}
+              testIdPrefix={`${confirmTestId}-gate`}
+              onLocationUpdated={(loc) => {
+                setPendingLoc(loc);
+                setLocationProbe(loc);
+              }}
             />
-            <p className="text-xs text-white/55 text-left leading-relaxed">
-              If Settings does not open, go to{" "}
-              <strong className="text-white">Settings → Apps → OMT Pulse → Permissions → Location → Allow</strong>.
-            </p>
             <button
               type="button"
               onClick={() => finishSend(pendingLoc)}
@@ -176,14 +174,15 @@ export function PanicConfirmOverlay({ open, onOpenChange, confirmTestId, notifyH
             <div className="flex items-start gap-2 rounded-xl bg-red-500/20 border border-red-500/50 px-4 py-3 text-xs text-red-100 text-left">
               <MapPin className="h-4 w-4 shrink-0 mt-0.5" />
               <span>
-                <strong className="text-white">Location is off or unavailable.</strong> Open settings to turn on Location for OMT Pulse before sending.
+                <strong className="text-white">Location is off or unavailable.</strong> Turn on GPS below (no app update needed).
               </span>
             </div>
-            <OpenLocationSettingsButton
+            <LocationPermissionGuide
               variant="dark"
-              showInlineStatus
-              testId={`${confirmTestId}-open-location-settings-preview`}
-              onAfterOpen={() => void refreshLocationProbe()}
+              testIdPrefix={`${confirmTestId}-preview`}
+              onLocationUpdated={(loc) => {
+                setLocationProbe(loc);
+              }}
             />
           </div>
         )}

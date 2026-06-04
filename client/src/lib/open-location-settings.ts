@@ -4,10 +4,6 @@ import {
   AndroidSettings,
   IOSSettings,
 } from "capacitor-native-settings";
-import {
-  openOmtAppDetailsSettings,
-  openOmtLocationSourcesSettings,
-} from "@/lib/omt-app-settings";
 
 export type OpenLocationSettingsResult =
   | "opened"
@@ -17,14 +13,13 @@ export type OpenLocationSettingsResult =
 
 export type OpenLocationSettingsResponse = {
   result: OpenLocationSettingsResult;
-  /** User-visible line shown on the panic overlay (toasts sit behind z-300). */
   message: string;
 };
 
 const ANDROID_PACKAGE = "com.intelafri.omtpulse";
 
 export function preloadLocationSettingsModule(): void {
-  /* no-op — settings helpers are statically imported */
+  /* static import */
 }
 
 function detectPlatform(): "ios" | "android" | "desktop" {
@@ -57,7 +52,6 @@ function nativePlatform(): "ios" | "android" | null {
   return null;
 }
 
-/** Short hint when we cannot open system settings programmatically. */
 export function locationSettingsHint(): string {
   const platform = detectPlatform();
   if (platform === "android") {
@@ -78,7 +72,6 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   ]);
 }
 
-/** Try intent: links via synthetic anchor (WebView handles these better than location.assign). */
 function openAndroidIntentFallback(): boolean {
   const intents = [
     `intent:#Intent;action=android.settings.APPLICATION_DETAILS_SETTINGS;data=package:${ANDROID_PACKAGE};end`,
@@ -95,7 +88,7 @@ function openAndroidIntentFallback(): boolean {
       a.remove();
       return true;
     } catch {
-      /* try next */
+      /* next */
     }
   }
   return false;
@@ -115,14 +108,20 @@ function openIosUrlFallback(): boolean {
   }
 }
 
+/**
+ * Uses capacitor-native-settings already bundled in the Play Store APK.
+ * Does not require a new APK release.
+ */
 async function openViaNativeSettingsPlugin(platform: "android" | "ios"): Promise<boolean> {
   if (platform === "android") {
-    for (const option of [
+    const options = [
       AndroidSettings.ApplicationDetails,
       AndroidSettings.Location,
-    ]) {
+      AndroidSettings.Application,
+    ];
+    for (const option of options) {
       try {
-        await withTimeout(NativeSettings.openAndroid({ option }), 3_000);
+        await withTimeout(NativeSettings.openAndroid({ option }), 2_500);
         return true;
       } catch {
         /* next */
@@ -134,7 +133,7 @@ async function openViaNativeSettingsPlugin(platform: "android" | "ios"): Promise
           optionAndroid: AndroidSettings.ApplicationDetails,
           optionIOS: IOSSettings.App,
         }),
-        3_000,
+        2_500,
       );
       return true;
     } catch {
@@ -143,19 +142,11 @@ async function openViaNativeSettingsPlugin(platform: "android" | "ios"): Promise
   }
 
   try {
-    await withTimeout(NativeSettings.openIOS({ option: IOSSettings.App }), 3_000);
+    await withTimeout(NativeSettings.openIOS({ option: IOSSettings.App }), 2_500);
     return true;
   } catch {
     return false;
   }
-}
-
-async function openViaCapacitorNative(platform: "android" | "ios"): Promise<boolean> {
-  if (platform === "android") {
-    if (await openOmtAppDetailsSettings()) return true;
-    if (await openOmtLocationSourcesSettings()) return true;
-  }
-  return openViaNativeSettingsPlugin(platform);
 }
 
 async function promptBrowserLocation(): Promise<boolean> {
@@ -164,48 +155,42 @@ async function promptBrowserLocation(): Promise<boolean> {
     navigator.geolocation.getCurrentPosition(
       () => resolve(true),
       (err) => resolve(err.code !== 1),
-      { enableHighAccuracy: false, timeout: 2_500, maximumAge: 60_000 },
+      { enableHighAccuracy: true, timeout: 8_000, maximumAge: 0 },
     );
   });
 }
 
-/**
- * Open app/location settings on native; on web, permission retry then manual steps.
- */
+/** Best-effort Settings open — optional; manual steps are the reliable path without a new APK. */
 export async function openLocationSettings(): Promise<OpenLocationSettingsResponse> {
-  const openedMsg =
-    "Settings should be open — turn on Location for OMT Pulse, then return here.";
+  const manualMsg = `If Settings did not open, go manually: ${locationSettingsHint()}`;
   const platform = nativePlatform();
 
   if (platform === "android" || platform === "ios") {
-    if (await openViaCapacitorNative(platform)) {
-      return { result: "opened", message: openedMsg };
+    if (await openViaNativeSettingsPlugin(platform)) {
+      return {
+        result: "opened",
+        message: `Opening Settings… ${manualMsg}`,
+      };
     }
     if (platform === "android" && openAndroidIntentFallback()) {
-      return { result: "opened", message: openedMsg };
+      return { result: "opened", message: `Trying Settings… ${manualMsg}` };
     }
     if (platform === "ios" && openIosUrlFallback()) {
-      return { result: "opened", message: openedMsg };
+      return { result: "opened", message: `Trying Settings… ${manualMsg}` };
     }
-    return {
-      result: "manual",
-      message: `Could not open Settings automatically. ${locationSettingsHint()}`,
-    };
+    return { result: "manual", message: manualMsg };
   }
 
   if (detectPlatform() === "android" && openAndroidIntentFallback()) {
-    return { result: "opened", message: openedMsg };
+    return { result: "opened", message: `Trying Settings… ${manualMsg}` };
   }
 
   if (await promptBrowserLocation()) {
     return {
       result: "prompted",
-      message: "If you allowed location, GPS should work when you send.",
+      message: "If you allowed location, tap Allow location access again to refresh GPS.",
     };
   }
 
-  return {
-    result: "manual",
-    message: locationSettingsHint(),
-  };
+  return { result: "manual", message: manualMsg };
 }
