@@ -41,6 +41,7 @@ import {
   readInvolvement,
 } from "./incident-involvement-section";
 import { IncidentSapsSection, isSapsFormField } from "./incident-saps-section";
+import { IncidentDescriptionSection } from "./incident-description-section";
 import { CalendarIcon, Clock, MapPin, Upload, Paperclip, X, Loader2, Camera, Mic, Square, Globe, Map, LocateFixed } from "lucide-react";
 import { loadGoogleMaps } from "@/lib/google-maps-loader";
 import { AttachmentPreview, attachmentUploaderLabel } from "@/components/attachment-preview";
@@ -747,7 +748,6 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
   const showCategory = isFieldVisible(formFields, "categoryId", fieldsLoaded);
   const showLocation = isFieldVisible(formFields, "location", fieldsLoaded);
   const showDescription = isFieldVisible(formFields, "description", fieldsLoaded);
-  const showDescriptionField = showDescription && Boolean(incident?.description?.trim());
 
   const hasCustomMaps = customMaps.length > 0;
   const activeCustomMap = customMaps.find((m) => m.id === selectedCustomMapId) ?? null;
@@ -1160,25 +1160,16 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
               />
             )}
 
-            {showDescriptionField && (
+            {showDescription && (
               <FormFieldComponent
                 control={form.control}
                 name="description"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Description</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        placeholder="Describe the incident in detail..."
-                        className="min-h-[100px] resize-none"
-                        {...field}
-                        value={field.value || ""}
-                        maxLength={500}
-                        data-testid="input-description"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
+                render={({ field, fieldState }) => (
+                  <IncidentDescriptionSection
+                    value={field.value || ""}
+                    onChange={(v) => field.onChange(v)}
+                    error={fieldState.error?.message}
+                  />
                 )}
               />
             )}
