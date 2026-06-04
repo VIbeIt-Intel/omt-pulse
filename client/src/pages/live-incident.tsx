@@ -26,6 +26,7 @@ import { Capacitor } from '@capacitor/core';
 import CapacitorMap, { type CapacitorMapHandle } from '@/components/CapacitorMap';
 import type { Incident, Category } from "@shared/schema";
 import { isCloseReclassifyType } from "@/lib/incident-categories";
+import { resolveJoinerNavDestination } from "@/lib/incident-display";
 import { usePanickerLocationSync } from "@/hooks/use-panicker-location-sync";
 import { OpenLocationSettingsButton } from "@/components/open-location-settings-button";
 import { probePanicLocation } from "@/lib/panic-send";
@@ -520,7 +521,9 @@ export default function LiveIncidentPage() {
 
   const { data: liveIncidents = [], isSuccess: liveQueryLoaded } = useQuery<LiveIncidentWithResponders[]>({
     queryKey: ["/api/incidents/live"],
-    refetchInterval: 15000,
+    // Joiners need fresh destination/GPS — stale cache caused "waiting for creator"
+    // until the user backgrounded the app and a later poll/refetch arrived.
+    refetchInterval: joinedId !== null || liveId !== null ? 5000 : 15000,
   });
 
   const { data: categories = [] } = useQuery<Category[]>({
@@ -544,6 +547,9 @@ export default function LiveIncidentPage() {
   // Other-people responders on this incident (excludes self) — used for the nav-mode "en route" chip.
   const navResponders = (currentIncident?.responders ?? []).filter(r => r.userId !== me?.id);
   const isJoinerMode = joinedId !== null && active === null;
+  const joinerNavDestination = currentIncident && isJoinerMode
+    ? resolveJoinerNavDestination(currentIncident)
+    : null;
 
   // Screen Wake Lock — keep the screen on for the full duration of any live
   // incident (creator or joiner). Released automatically when the incident ends
@@ -982,10 +988,14 @@ export default function LiveIncidentPage() {
       } else if (joinedIncident) {
         startTracking(joinedIncident.id);
       }
+      // Refresh live incident payload (destination, panicker GPS) after app switch.
+      if (currentIncidentId !== null) {
+        void queryClient.refetchQueries({ queryKey: ["/api/incidents/live"] });
+      }
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
-  }, [active?.id, joinedIncident?.id]);
+  }, [active?.id, joinedIncident?.id, currentIncidentId, queryClient]);
 
   useEffect(() => {
     if (!active) return;
@@ -1081,13 +1091,13 @@ export default function LiveIncidentPage() {
 
   const joinLiveMutation = useMutation({
     mutationFn: (id: number) => apiRequest("POST", `/api/incidents/${id}/join-live`, {}),
-    onSuccess: (_, id) => {
+    onSuccess: async (_, id) => {
       setStaleJoinNotice(null);
       localStorage.setItem(JOINED_INCIDENT_KEY, String(id));
       setJoinedId(id);
       gpsEndpointRef.current = "joiner-position";
       startTracking(id);
-      queryClient.invalidateQueries({ queryKey: ["/api/incidents/live"] });
+      await queryClient.refetchQueries({ queryKey: ["/api/incidents/live"] });
       toast({ title: "Joined incident", description: "Your GPS position is now being shared with the team." });
     },
     onError: (err: Error, id: number) => {
@@ -1711,14 +1721,20 @@ export default function LiveIncidentPage() {
     // native-ready re-trigger is permanently blocked by the guard.
     const mapActuallyReady = isNative ? nativeMapStatus === "ready" : mapsReady;
     if (!mapActuallyReady || !currentIncident) return;
-    const dlat = currentIncident.destinationLat != null ? Number(currentIncident.destinationLat) : null;
-    const dlng = currentIncident.destinationLng != null ? Number(currentIncident.destinationLng) : null;
-    if (dlat == null || dlng == null) return;
+    const navDest = isJoinerMode && joinerNavDestination
+      ? joinerNavDestination
+      : currentIncident.destinationLat != null && currentIncident.destinationLng != null
+        ? {
+            lat: Number(currentIncident.destinationLat),
+            lng: Number(currentIncident.destinationLng),
+          }
+        : null;
+    if (!navDest) return;
 
     autoResumedNavRef.current = true;
     (async () => {
       if (stepsRef.current.length === 0) {
-        drawRoute(Number(dlat), Number(dlng), lastPosRef.current ?? undefined, true);
+        drawRoute(navDest.lat, navDest.lng, lastPosRef.current ?? undefined, true);
         // Give the native routing call time to resolve before entering nav mode.
         if (isNative) await new Promise((r) => setTimeout(r, 1500));
       }
@@ -1766,12 +1782,29 @@ export default function LiveIncidentPage() {
   useEffect(() => {
     if (!mapsReady || !currentIncident) return;
     if (stepsRef.current.length === 0) {
-      const dlat = currentIncident.destinationLat != null ? Number(currentIncident.destinationLat) : null;
-      const dlng = currentIncident.destinationLng != null ? Number(currentIncident.destinationLng) : null;
-      if (dlat != null && dlng != null) drawRoute(dlat, dlng, undefined, navModeRef.current);
+      const dest = isJoinerMode
+        ? joinerNavDestination
+        : currentIncident.destinationLat != null && currentIncident.destinationLng != null
+          ? {
+              lat: Number(currentIncident.destinationLat),
+              lng: Number(currentIncident.destinationLng),
+              name: currentIncident.destinationName ?? "Incident Location",
+            }
+          : null;
+      if (dest) drawRoute(dest.lat, dest.lng, undefined, navModeRef.current);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentIncident?.id, currentIncident?.destinationLat, currentIncident?.destinationLng, mapsReady]);
+  }, [
+    currentIncident?.id,
+    currentIncident?.destinationLat,
+    currentIncident?.destinationLng,
+    currentIncident?.responderLat,
+    currentIncident?.responderLng,
+    joinerNavDestination?.lat,
+    joinerNavDestination?.lng,
+    mapsReady,
+    isJoinerMode,
+  ]);
 
   // Keep destPositionRef in sync with the active incident's saved destination so
   // the sendPosition closure can check proximity without stale-closure issues.
@@ -1787,8 +1820,13 @@ export default function LiveIncidentPage() {
     // to avoid a race condition where categories haven't loaded yet.
     const catName = (dest?.categoryName ?? "").toLowerCase();
     const isPanicCat = catName.includes("panic");
-    if (dest?.destinationLat != null && dest?.destinationLng != null) {
-      const destPos = { lat: dest.destinationLat, lng: dest.destinationLng };
+    const navPos = isJoinerMode && joinerNavDestination
+      ? { lat: joinerNavDestination.lat, lng: joinerNavDestination.lng }
+      : dest?.destinationLat != null && dest?.destinationLng != null
+        ? { lat: Number(dest.destinationLat), lng: Number(dest.destinationLng) }
+        : null;
+    if (navPos) {
+      const destPos = navPos;
       // Always store destination for rerouting, even for panic incidents.
       // Arrival UI is suppressed separately via isPanicIncidentRef in sendPosition.
       destPositionRef.current = destPos;
@@ -2149,7 +2187,8 @@ export default function LiveIncidentPage() {
   }
 
   async function dispatchJoinerInApp() {
-    if (!joinedId || !currentIncident?.destinationLat || !currentIncident?.destinationLng) return;
+    const dest = joinerNavDestination;
+    if (!joinedId || !dest) return;
     localStorage.setItem(NAV_STARTED_KEY, String(joinedId));
     setNavStarted(true);
     announcedStepRef.current = -1;
@@ -2157,12 +2196,7 @@ export default function LiveIncidentPage() {
     arrivedAnnouncedRef.current = false;
     // Draw the route to the incident destination so the step panel, voice
     // announcements, and ETA all work for joiners — matching creator behaviour.
-    drawRoute(
-      Number(currentIncident.destinationLat),
-      Number(currentIncident.destinationLng),
-      lastPosRef.current ?? undefined,
-      true
-    );
+    drawRoute(dest.lat, dest.lng, lastPosRef.current ?? undefined, true);
     // On native: wait briefly for DirectionsService to resolve before setNavMode(true)
     // so the tilt+seed useEffect finds stepsRef already populated.
     if (isNative) await new Promise(r => setTimeout(r, 600));
@@ -3146,7 +3180,7 @@ export default function LiveIncidentPage() {
             <div className="space-y-1.5 shrink-0">
               {isJoinerMode ? (
                 /* Joiner: show a navigate button to the creator's saved destination */
-                !navMode && currentIncident?.destinationLat != null && currentIncident?.destinationLng != null ? (
+                !navMode && joinerNavDestination ? (
                   <div className="space-y-1.5">
                     <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Destination</p>
                     {navStarted ? (
@@ -3154,13 +3188,13 @@ export default function LiveIncidentPage() {
                         type="button"
                         className="w-full min-w-0 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground transition-colors py-1 text-left flex items-center gap-1.5"
                         onClick={() => confirmAndOpenNav(
-                          Number(currentIncident.destinationLat),
-                          Number(currentIncident.destinationLng)
+                          joinerNavDestination.lat,
+                          joinerNavDestination.lng
                         )}
                         data-testid="button-joiner-reopen-maps"
                       >
                         <Navigation className="h-3.5 w-3.5 shrink-0" />
-                        <span className="truncate">Open in Google Maps (pauses GPS) — {currentIncident.destinationName ?? "Incident Location"}</span>
+                        <span className="truncate">Open in Google Maps (pauses GPS) — {joinerNavDestination.name}</span>
                       </button>
                     ) : (
                       <Button
@@ -3174,7 +3208,7 @@ export default function LiveIncidentPage() {
                           <span className="text-base font-semibold">Navigate (keeps GPS active)</span>
                         </div>
                         <span className="text-xs font-normal opacity-80 max-w-full truncate px-2">
-                          {currentIncident.destinationName ?? "Incident Location"}
+                          {joinerNavDestination.name}
                         </span>
                       </Button>
                     )}

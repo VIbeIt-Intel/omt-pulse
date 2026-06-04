@@ -105,7 +105,7 @@ export function PanicBanner({ alerts, currentUserId, dismissedIds, onDismiss, te
         try { localStorage.removeItem("omt_panic_target"); } catch { /* ignore */ }
       }
       try { localStorage.setItem("omt_joined_incident_id", String(alert.id)); } catch { /* ignore */ }
-      queryClient.invalidateQueries({ queryKey: ["/api/incidents/live"] });
+      await queryClient.refetchQueries({ queryKey: ["/api/incidents/live"] });
       if (!hasGps) {
         toast({
           title: "Joined panic response",

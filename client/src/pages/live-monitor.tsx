@@ -369,9 +369,9 @@ export default function LiveMonitorPage() {
 
   const joinMutation = useMutation({
     mutationFn: (id: number) => apiRequest("POST", `/api/incidents/${id}/join-live`, {}),
-    onSuccess: (_, id) => {
+    onSuccess: async (_, id) => {
       localStorage.setItem("omt_joined_incident_id", String(id));
-      queryClient.invalidateQueries({ queryKey: ["/api/incidents/live"] });
+      await queryClient.refetchQueries({ queryKey: ["/api/incidents/live"] });
       navigate("/live-incident");
     },
     onError: () => toast({ title: "Error", description: "Could not join the incident.", variant: "destructive" }),

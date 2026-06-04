@@ -7,6 +7,76 @@ export type IncidentWithMeta = Incident & {
   closedByName?: string | null;
 };
 
+type JoinerNavIncident = Pick<
+  Incident,
+  | "destinationLat"
+  | "destinationLng"
+  | "destinationName"
+  | "liveStartLat"
+  | "liveStartLng"
+  | "latitude"
+  | "longitude"
+> & {
+  categoryName?: string | null;
+  responderLat?: number | string | null;
+  responderLng?: number | string | null;
+  responderFirstName?: string | null;
+  responderLastName?: string | null;
+};
+
+function finiteCoordPair(
+  lat: number | string | null | undefined,
+  lng: number | string | null | undefined,
+): { lat: number; lng: number } | null {
+  if (lat == null || lng == null) return null;
+  const la = Number(lat);
+  const ln = Number(lng);
+  if (!Number.isFinite(la) || !Number.isFinite(ln)) return null;
+  return { lat: la, lng: ln };
+}
+
+/**
+ * Navigation target for a joiner on /live-incident.
+ * Uses the creator's saved destination when present; for panic incidents also
+ * falls back to the panicker's live GPS / start coords so joiners are not stuck
+ * on "waiting for destination" while the live list cache catches up.
+ */
+export function resolveJoinerNavDestination(
+  incident: JoinerNavIncident,
+): { lat: number; lng: number; name: string } | null {
+  const explicit = finiteCoordPair(incident.destinationLat, incident.destinationLng);
+  if (explicit) {
+    const name = incident.destinationName?.trim() || "Incident Location";
+    return { ...explicit, name };
+  }
+
+  const isPanic = (incident.categoryName ?? "").toLowerCase().includes("panic");
+  if (!isPanic) return null;
+
+  const panickerName =
+    `${incident.responderFirstName ?? ""} ${incident.responderLastName ?? ""}`.trim() || "Panicker";
+
+  const responder = finiteCoordPair(incident.responderLat, incident.responderLng);
+  if (responder) {
+    return {
+      ...responder,
+      name: incident.destinationName?.trim() || `🆘 ${panickerName}`,
+    };
+  }
+
+  const start = finiteCoordPair(incident.liveStartLat, incident.liveStartLng);
+  if (start) {
+    return { ...start, name: incident.destinationName?.trim() || `🆘 ${panickerName}` };
+  }
+
+  const origin = finiteCoordPair(incident.latitude, incident.longitude);
+  if (origin) {
+    return { ...origin, name: incident.destinationName?.trim() || `🆘 ${panickerName}` };
+  }
+
+  return null;
+}
+
 /** Destination set during a live incident (excludes placeholder locationName). */
 export function liveIncidentDestination(
   incident: Pick<Incident, "destinationName" | "destinationLat" | "destinationLng">,
