@@ -46,6 +46,8 @@ import { CalendarIcon, Clock, MapPin, Upload, Paperclip, X, Loader2, Camera, Mic
 import { loadGoogleMaps } from "@/lib/google-maps-loader";
 import { AttachmentPreview, attachmentUploaderLabel } from "@/components/attachment-preview";
 import { IncidentEvidenceSection } from "@/components/incident-evidence-section";
+import { GeoLocationSheet, type GeoMapView } from "@/components/incident-location-sheet";
+import { CoordinateLink } from "@/components/coordinate-link";
 
 const incidentFormSchema = z.object({
   incidentDate: z.string().min(1, "Date is required"),
@@ -184,6 +186,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
   const otherOrgCustomFields = orgCustomFields.filter((f) => !isSapsFormField(f));
   const [personInvolved, setPersonInvolved] = useState(false);
   const [vehicleInvolved, setVehicleInvolved] = useState(false);
+  const [geoMapView, setGeoMapView] = useState<GeoMapView | null>(null);
 
   const form = useForm<IncidentFormValues>({
     resolver: zodResolver(incidentFormSchema),
@@ -1434,30 +1437,31 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                   {incident.liveStartLat != null && incident.liveStartLng != null && (
                     <div>
                       <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Origin Coordinates</p>
-                      <a
-                        href={`https://www.google.com/maps?q=${incident.liveStartLat},${incident.liveStartLng}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sm mt-0.5 text-primary hover:underline flex items-center gap-1"
-                        data-testid="link-live-origin"
-                      >
-                        {Number(incident.liveStartLat).toFixed(5)}, {Number(incident.liveStartLng).toFixed(5)} ↗
-                      </a>
+                      <div className="mt-0.5">
+                        <CoordinateLink
+                          lat={incident.liveStartLat}
+                          lng={incident.liveStartLng}
+                          onOpenMap={setGeoMapView}
+                          className="text-sm"
+                          testId="link-live-origin"
+                        />
+                      </div>
                     </div>
                   )}
                   {(incident as any).destinationName && (
                     <div>
                       <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Destination</p>
                       {(incident as any).destinationLat != null && (incident as any).destinationLng != null ? (
-                        <a
-                          href={`https://www.google.com/maps?q=${(incident as any).destinationLat},${(incident as any).destinationLng}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-sm mt-0.5 text-primary hover:underline flex items-center gap-1"
-                          data-testid="link-live-destination"
-                        >
-                          {(incident as any).destinationName} ↗
-                        </a>
+                        <div className="mt-0.5">
+                          <CoordinateLink
+                            lat={Number((incident as any).destinationLat)}
+                            lng={Number((incident as any).destinationLng)}
+                            label={(incident as any).destinationName}
+                            onOpenMap={setGeoMapView}
+                            className="text-sm"
+                            testId="link-live-destination"
+                          />
+                        </div>
                       ) : (
                         <p className="text-sm mt-0.5" data-testid="text-live-destination">{(incident as any).destinationName}</p>
                       )}
@@ -1513,29 +1517,29 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                   {incident.liveEndedAt && !incident.liveClosedManually && incident.liveConvertLat != null && incident.liveConvertLng != null && (
                     <div>
                       <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Location at Submission</p>
-                      <a
-                        href={`https://www.google.com/maps?q=${incident.liveConvertLat},${incident.liveConvertLng}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sm mt-0.5 text-primary hover:underline flex items-center gap-1"
-                        data-testid="link-live-convert-location"
-                      >
-                        {Number(incident.liveConvertLat).toFixed(5)}, {Number(incident.liveConvertLng).toFixed(5)} ↗
-                      </a>
+                      <div className="mt-0.5">
+                        <CoordinateLink
+                          lat={incident.liveConvertLat}
+                          lng={incident.liveConvertLng}
+                          onOpenMap={setGeoMapView}
+                          className="text-sm"
+                          testId="link-live-convert-location"
+                        />
+                      </div>
                     </div>
                   )}
                   {incident.liveEndedAt && incident.liveClosedManually && (incident as any).liveEndLat != null && (incident as any).liveEndLng != null && (
                     <div>
                       <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Closed From</p>
-                      <a
-                        href={`https://www.google.com/maps?q=${(incident as any).liveEndLat},${(incident as any).liveEndLng}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sm mt-0.5 text-primary hover:underline flex items-center gap-1"
-                        data-testid="link-live-end-location"
-                      >
-                        {Number((incident as any).liveEndLat).toFixed(5)}, {Number((incident as any).liveEndLng).toFixed(5)} ↗
-                      </a>
+                      <div className="mt-0.5">
+                        <CoordinateLink
+                          lat={Number((incident as any).liveEndLat)}
+                          lng={Number((incident as any).liveEndLng)}
+                          onOpenMap={setGeoMapView}
+                          className="text-sm"
+                          testId="link-live-end-location"
+                        />
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1585,9 +1589,13 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                               {r.lastLat != null && r.lastLng != null && (
                                 <div className="col-span-3">
                                   <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wide">Last GPS</p>
-                                  <a href={`https://www.google.com/maps?q=${r.lastLat},${r.lastLng}`} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline" data-testid={`link-responder-gps-${r.id}`}>
-                                    {Number(r.lastLat).toFixed(5)}, {Number(r.lastLng).toFixed(5)} ↗
-                                  </a>
+                                  <CoordinateLink
+                                    lat={r.lastLat}
+                                    lng={r.lastLng}
+                                    onOpenMap={setGeoMapView}
+                                    className="text-xs"
+                                    testId={`link-responder-gps-${r.id}`}
+                                  />
                                 </div>
                               )}
                             </div>
@@ -1617,6 +1625,8 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
         </div>
       </DialogContent>
     </Dialog>
+
+      <GeoLocationSheet view={geoMapView} onClose={() => setGeoMapView(null)} />
 
       {mapModalOpen && (
         <Dialog open={mapModalOpen} onOpenChange={cancelMapModal}>

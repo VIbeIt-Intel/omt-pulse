@@ -106,6 +106,48 @@ function GeoMapPreview({
   );
 }
 
+export type GeoMapView = { lat: number; lng: number; title: string };
+
+export function formatCoordLabel(lat: number, lng: number, decimals = 5): string {
+  return `${Number(lat).toFixed(decimals)}, ${Number(lng).toFixed(decimals)}`;
+}
+
+/** In-app map for any lat/lng (live timeline, responder GPS, etc.). */
+export function GeoLocationSheet({
+  view,
+  onClose,
+}: {
+  view: GeoMapView | null;
+  onClose: () => void;
+}) {
+  const open = view != null;
+  return (
+    <Sheet
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+    >
+      <SheetContent className="w-full sm:max-w-xl overflow-y-auto">
+        {view && (
+          <>
+            <SheetHeader className="mb-4">
+              <SheetTitle className="flex items-center gap-2 text-base">
+                <MapPin className="h-4 w-4 shrink-0 text-muted-foreground" />
+                {view.title}
+              </SheetTitle>
+            </SheetHeader>
+            <GeoMapPreview lat={view.lat} lng={view.lng} label={view.title} open={open} />
+            <p className="mt-3 text-xs text-muted-foreground font-mono">
+              {formatCoordLabel(view.lat, view.lng)}
+            </p>
+          </>
+        )}
+      </SheetContent>
+    </Sheet>
+  );
+}
+
 export function IncidentLocationSheet({
   open,
   onOpenChange,

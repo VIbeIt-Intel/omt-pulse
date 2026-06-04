@@ -10,7 +10,8 @@ import { IncidentEvidenceSection } from "@/components/incident-evidence-section"
 import { IncidentInvolvementSummary, INVOLVEMENT_FIELD_KEYS } from "@/components/incident-involvement-section";
 import { IncidentSapsSummary, isSapsFormField } from "@/components/incident-saps-section";
 import { IncidentLogMobileList } from "@/components/incident-log-mobile";
-import { IncidentLocationSheet } from "@/components/incident-location-sheet";
+import { GeoLocationSheet, IncidentLocationSheet, type GeoMapView } from "@/components/incident-location-sheet";
+import { CoordinateLink } from "@/components/coordinate-link";
 import { resolveEffectiveSeverity, incidentHasViewableLocation, liveIncidentDestination, type IncidentWithMeta } from "@/lib/incident-display";
 import { PanicConfirmOverlay } from "@/components/panic-confirm-overlay";
 
@@ -50,6 +51,7 @@ export default function OccurrenceBook() {
   const [attachmentsIncidentId, setAttachmentsIncidentId] = useState<number | null>(null);
   const [viewingIncident, setViewingIncident] = useState<IncidentWithCount | null>(null);
   const [locationViewIncident, setLocationViewIncident] = useState<IncidentWithCount | null>(null);
+  const [geoMapView, setGeoMapView] = useState<GeoMapView | null>(null);
   const [selectedMapId, setSelectedMapId] = useState<number | null>(null);
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
@@ -786,9 +788,6 @@ export default function OccurrenceBook() {
             const locationLabel = liveDest
               ? liveDest.name
               : (isPlaceholderLiveLoc ? null : (locDisplay.label !== "-" ? locDisplay.label : null));
-            const locationMapsUrl = liveDest?.lat != null && liveDest?.lng != null
-              ? `https://www.google.com/maps?q=${liveDest.lat},${liveDest.lng}`
-              : null;
             const canOpenLocation = incidentHasViewableLocation(inc, locations);
             const mergedResponders = mergeRespondersByUser(viewingIncidentResponders);
             const effectiveSeverity = resolveEffectiveSeverity(inc, cat);
@@ -862,16 +861,18 @@ export default function OccurrenceBook() {
                         {inc.liveStartedAt ? "Destination" : "Location"}
                       </p>
                       {locationLabel ? (
-                        locationMapsUrl ? (
-                          <a
-                            href={locationMapsUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-sm mt-0.5 text-primary hover:underline flex items-center gap-1"
-                            data-testid="link-ob-live-destination"
-                          >
-                            {locationLabel} ↗
-                          </a>
+                        liveDest?.lat != null && liveDest?.lng != null ? (
+                          <div className="mt-0.5">
+                            <CoordinateLink
+                              lat={liveDest.lat}
+                              lng={liveDest.lng}
+                              label={locationLabel}
+                              onOpenMap={setGeoMapView}
+                              className="text-sm"
+                              decimals={4}
+                              testId="link-ob-live-destination"
+                            />
+                          </div>
                         ) : canOpenLocation ? (
                           <button
                             type="button"
@@ -950,31 +951,32 @@ export default function OccurrenceBook() {
                           <span className="text-xs">{new Date(inc.liveStartedAt).toLocaleString()}</span>
                         </div>
                         {(inc as any).liveStartLat != null && (inc as any).liveStartLng != null && (
-                          <div className="flex justify-between items-baseline">
-                            <span className="text-[10px] text-muted-foreground">Origin</span>
-                            <a
-                              href={`https://www.google.com/maps?q=${(inc as any).liveStartLat},${(inc as any).liveStartLng}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-xs text-primary hover:underline"
-                            >
-                              {Number((inc as any).liveStartLat).toFixed(4)}, {Number((inc as any).liveStartLng).toFixed(4)} ↗
-                            </a>
+                          <div className="flex justify-between items-baseline gap-2">
+                            <span className="text-[10px] text-muted-foreground shrink-0">Origin</span>
+                            <CoordinateLink
+                              lat={Number((inc as any).liveStartLat)}
+                              lng={Number((inc as any).liveStartLng)}
+                              onOpenMap={setGeoMapView}
+                              className="text-xs"
+                              decimals={4}
+                              align="right"
+                            />
                           </div>
                         )}
                         {liveDest && (
                           <div className="flex justify-between items-baseline gap-2">
                             <span className="text-[10px] text-muted-foreground shrink-0">Destination</span>
                             {liveDest.lat != null && liveDest.lng != null ? (
-                              <a
-                                href={`https://www.google.com/maps?q=${liveDest.lat},${liveDest.lng}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-xs text-primary hover:underline text-right"
-                                data-testid="link-ob-timeline-destination"
-                              >
-                                {liveDest.name} ↗
-                              </a>
+                              <CoordinateLink
+                                lat={liveDest.lat}
+                                lng={liveDest.lng}
+                                label={liveDest.name}
+                                onOpenMap={setGeoMapView}
+                                className="text-xs"
+                                decimals={4}
+                                align="right"
+                                testId="link-ob-timeline-destination"
+                              />
                             ) : (
                               <span className="text-xs text-right">{liveDest.name}</span>
                             )}
@@ -1016,30 +1018,30 @@ export default function OccurrenceBook() {
                           </div>
                         )}
                         {(inc as any).liveEndedAt && (inc as any).liveClosedManually && (inc as any).liveEndLat != null && (inc as any).liveEndLng != null && (
-                          <div className="flex justify-between items-baseline">
-                            <span className="text-[10px] text-muted-foreground">Closed from</span>
-                            <a
-                              href={`https://www.google.com/maps?q=${(inc as any).liveEndLat},${(inc as any).liveEndLng}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-xs text-primary hover:underline"
-                              data-testid="link-ob-live-end"
-                            >
-                              {Number((inc as any).liveEndLat).toFixed(4)}, {Number((inc as any).liveEndLng).toFixed(4)} ↗
-                            </a>
+                          <div className="flex justify-between items-baseline gap-2">
+                            <span className="text-[10px] text-muted-foreground shrink-0">Closed from</span>
+                            <CoordinateLink
+                              lat={Number((inc as any).liveEndLat)}
+                              lng={Number((inc as any).liveEndLng)}
+                              onOpenMap={setGeoMapView}
+                              className="text-xs"
+                              decimals={4}
+                              align="right"
+                              testId="link-ob-live-end"
+                            />
                           </div>
                         )}
                         {(inc as any).liveEndedAt && (inc as any).liveConvertLat != null && (inc as any).liveConvertLng != null && (
-                          <div className="flex justify-between items-baseline">
-                            <span className="text-[10px] text-muted-foreground">Closure Coords</span>
-                            <a
-                              href={`https://www.google.com/maps?q=${(inc as any).liveConvertLat},${(inc as any).liveConvertLng}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-xs text-primary hover:underline"
-                            >
-                              {Number((inc as any).liveConvertLat).toFixed(4)}, {Number((inc as any).liveConvertLng).toFixed(4)} ↗
-                            </a>
+                          <div className="flex justify-between items-baseline gap-2">
+                            <span className="text-[10px] text-muted-foreground shrink-0">Closure Coords</span>
+                            <CoordinateLink
+                              lat={Number((inc as any).liveConvertLat)}
+                              lng={Number((inc as any).liveConvertLng)}
+                              onOpenMap={setGeoMapView}
+                              className="text-xs"
+                              decimals={4}
+                              align="right"
+                            />
                           </div>
                         )}
                         {(inc as any).liveEndedAt && inc.liveStartedAt && (() => {
@@ -1083,14 +1085,13 @@ export default function OccurrenceBook() {
                             {r.lastLat != null && r.lastLng != null && (
                               <div className="mt-1">
                                 <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wide">Last GPS</p>
-                                <a
-                                  href={`https://www.google.com/maps?q=${r.lastLat},${r.lastLng}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-xs text-primary hover:underline"
-                                >
-                                  {Number(r.lastLat).toFixed(5)}, {Number(r.lastLng).toFixed(5)} ↗
-                                </a>
+                                <CoordinateLink
+                                  lat={r.lastLat}
+                                  lng={r.lastLng}
+                                  onOpenMap={setGeoMapView}
+                                  className="text-xs"
+                                  testId={`link-ob-responder-gps-${r.userId}`}
+                                />
                               </div>
                             )}
                             {r.arrivalNote && (
@@ -1146,6 +1147,8 @@ export default function OccurrenceBook() {
         confirmTestId="button-confirm-panic"
         notifyHint="Push notifications are not enabled — team members may not be alerted instantly."
       />
+
+      <GeoLocationSheet view={geoMapView} onClose={() => setGeoMapView(null)} />
 
       <IncidentLocationSheet
         open={locationViewIncident !== null}

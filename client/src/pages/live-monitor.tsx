@@ -40,6 +40,8 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { loadGoogleMaps, resetGoogleMapsLoader } from "@/lib/google-maps-loader";
+import { GeoLocationSheet, type GeoMapView } from "@/components/incident-location-sheet";
+import { CoordinateLink } from "@/components/coordinate-link";
 
 type LiveResponderSummary = {
   id: number;
@@ -318,6 +320,7 @@ export default function LiveMonitorPage() {
     return p ? parseInt(p, 10) : null;
   });
   const cardRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const [geoMapView, setGeoMapView] = useState<GeoMapView | null>(null);
 
   const { data: liveIncidents = [], isLoading } = useQuery<LiveIncident[]>({
     queryKey: ["/api/incidents/live"],
@@ -871,6 +874,7 @@ export default function LiveMonitorPage() {
                       alreadyJoined={alreadyJoined}
                       onJoinClick={() => joinMutation.mutate(inc.id)}
                       isJoining={joinMutation.isPending && (joinMutation.variables as number) === inc.id}
+                      onOpenMap={setGeoMapView}
                     />
                   </div>
                 );
@@ -992,6 +996,8 @@ export default function LiveMonitorPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <GeoLocationSheet view={geoMapView} onClose={() => setGeoMapView(null)} />
     </div>
   );
 }
@@ -1006,6 +1012,7 @@ function LiveIncidentCard({
   alreadyJoined,
   onJoinClick,
   isJoining,
+  onOpenMap,
 }: {
   incident: LiveIncident;
   onEndClick: () => void;
@@ -1016,6 +1023,7 @@ function LiveIncidentCard({
   alreadyJoined: boolean;
   onJoinClick: () => void;
   isJoining: boolean;
+  onOpenMap: (view: GeoMapView) => void;
 }) {
   const name = getResponderName(incident);
   const duration = formatDuration(incident.liveStartedAt);
@@ -1141,16 +1149,15 @@ function LiveIncidentCard({
         </div>
         {hasGps && (
           <div className="flex items-center gap-1 text-xs">
-            <MapPin className="h-3 w-3 shrink-0 text-muted-foreground" />
-            <a
-              href={`https://www.google.com/maps?q=${incident.responderLat},${incident.responderLng}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-primary hover:underline"
-              data-testid={`link-responder-position-${incident.id}`}
-            >
-              {Number(incident.responderLat).toFixed(4)}, {Number(incident.responderLng).toFixed(4)} ↗
-            </a>
+            <CoordinateLink
+              lat={Number(incident.responderLat)}
+              lng={Number(incident.responderLng)}
+              label={`${name} — last GPS`}
+              onOpenMap={onOpenMap}
+              className="text-xs"
+              decimals={4}
+              testId={`link-responder-position-${incident.id}`}
+            />
           </div>
         )}
       </div>

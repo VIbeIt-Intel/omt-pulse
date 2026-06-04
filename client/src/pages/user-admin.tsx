@@ -19,6 +19,8 @@ import { apiRequest } from "@/lib/queryClient";
 import { PLAY_TESTING_JOIN_URL } from "@/lib/site-links";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Category, Location, FormField as OrgFormField } from "@shared/schema";
+import { GeoLocationSheet, type GeoMapView } from "@/components/incident-location-sheet";
+import { CoordinateLink } from "@/components/coordinate-link";
 import * as XLSX from "xlsx";
 
 type OrgCommand = { id: number; name: string; isCentral: boolean };
@@ -864,6 +866,7 @@ function ChangePills({ changes }: { changes: Record<string, { from: unknown; to:
 
 function AuditTrailDialog({ user, onClose }: { user: OrgUser | null; onClose: () => void }) {
   const [showAll, setShowAll] = useState(false);
+  const [geoMapView, setGeoMapView] = useState<GeoMapView | null>(null);
 
   const queryUrl = user ? `/api/users/${user.id}/audit${showAll ? "?all=true" : ""}` : "";
 
@@ -900,6 +903,7 @@ function AuditTrailDialog({ user, onClose }: { user: OrgUser | null; onClose: ()
   }
 
   return (
+    <>
     <Dialog open={!!user} onOpenChange={(o) => { if (!o) { onClose(); setShowAll(false); } }}>
       <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
         <DialogHeader>
@@ -936,7 +940,6 @@ function AuditTrailDialog({ user, onClose }: { user: OrgUser | null; onClose: ()
                 {logs.map((log) => {
                   const isPanic = log.action === "panic.alert";
                   const panicCoords = isPanic && log.changes?.location?.to as { lat: number; lng: number } | undefined;
-                  const mapsUrl = panicCoords ? `https://maps.google.com/?q=${panicCoords.lat},${panicCoords.lng}` : null;
                   return (
                     <tr key={log.id} className={`border-b last:border-0 hover:bg-muted/30${isPanic ? " bg-destructive/5" : ""}`} data-testid={`row-audit-${log.id}`}>
                       <td className="px-3 py-2 whitespace-nowrap text-muted-foreground text-xs">{formatAuditDate(log.createdAt)}</td>
@@ -951,16 +954,15 @@ function AuditTrailDialog({ user, onClose }: { user: OrgUser | null; onClose: ()
                       </td>
                       <td className="px-3 py-2 text-xs">{log.description}</td>
                       <td className="px-3 py-2">
-                        {isPanic && mapsUrl ? (
-                          <a
-                            href={mapsUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-xs text-primary underline underline-offset-2 hover:opacity-80"
-                            data-testid={`link-panic-map-${log.id}`}
-                          >
-                            📍 Open in Maps
-                          </a>
+                        {isPanic && panicCoords ? (
+                          <CoordinateLink
+                            lat={panicCoords.lat}
+                            lng={panicCoords.lng}
+                            label="Panic location"
+                            onOpenMap={setGeoMapView}
+                            className="text-xs"
+                            testId={`link-panic-map-${log.id}`}
+                          />
                         ) : log.changes && !isPanic ? (
                           <ChangePills changes={log.changes} />
                         ) : (
@@ -995,6 +997,8 @@ function AuditTrailDialog({ user, onClose }: { user: OrgUser | null; onClose: ()
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    <GeoLocationSheet view={geoMapView} onClose={() => setGeoMapView(null)} />
+    </>
   );
 }
 
@@ -1137,6 +1141,7 @@ function IncidentAttachmentsSection({ incidentId }: { incidentId: number }) {
 function UserIncidentsSheet({ user, onClose }: { user: OrgUser | null; onClose: () => void }) {
   const [openValue, setOpenValue] = useState<string>("");
   const [openedIds, setOpenedIds] = useState<Set<number>>(new Set());
+  const [geoMapView, setGeoMapView] = useState<GeoMapView | null>(null);
 
   useEffect(() => {
     setOpenValue("");
@@ -1286,9 +1291,6 @@ function UserIncidentsSheet({ user, onClose }: { user: OrgUser | null; onClose: 
                           const startedAt = new Date(inc.liveStartedAt);
                           const arrivedAt = inc.responderArrivedAt ? new Date(inc.responderArrivedAt) : null;
                           const durationMin = arrivedAt ? Math.round((arrivedAt.getTime() - startedAt.getTime()) / 60000) : null;
-                          const mapsUrl = inc.liveStartLat != null && inc.liveStartLng != null
-                            ? `https://www.google.com/maps?q=${inc.liveStartLat.toFixed(6)},${inc.liveStartLng.toFixed(6)}`
-                            : null;
                           return (
                             <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2.5 space-y-2" data-testid={`live-details-${inc.id}`}>
                               <p className="text-[10px] font-semibold text-primary uppercase tracking-wide flex items-center gap-1.5">
@@ -1315,17 +1317,17 @@ function UserIncidentsSheet({ user, onClose }: { user: OrgUser | null; onClose: 
                                 </div>
                                 <div>
                                   <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Starting Location</p>
-                                  {mapsUrl ? (
-                                    <a
-                                      href={mapsUrl}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="text-sm mt-0.5 text-primary hover:underline flex items-center gap-1"
-                                      data-testid={`link-start-location-${inc.id}`}
-                                    >
-                                      {inc.liveStartLat!.toFixed(4)}, {inc.liveStartLng!.toFixed(4)}
-                                      <span className="text-[10px] text-muted-foreground">↗</span>
-                                    </a>
+                                  {inc.liveStartLat != null && inc.liveStartLng != null ? (
+                                    <div className="mt-0.5">
+                                      <CoordinateLink
+                                        lat={inc.liveStartLat}
+                                        lng={inc.liveStartLng}
+                                        onOpenMap={setGeoMapView}
+                                        className="text-sm"
+                                        decimals={4}
+                                        testId={`link-start-location-${inc.id}`}
+                                      />
+                                    </div>
                                   ) : (
                                     <p className="text-sm mt-0.5 text-muted-foreground italic">Not recorded</p>
                                   )}
@@ -1378,15 +1380,15 @@ function UserIncidentsSheet({ user, onClose }: { user: OrgUser | null; onClose: 
                               {inc.liveEndedAt && inc.liveStartLat != null && inc.liveStartLng != null && (
                                 <div>
                                   <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Origin</p>
-                                  <a
-                                    href={`https://www.google.com/maps?q=${inc.liveStartLat},${inc.liveStartLng}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-sm mt-0.5 text-primary hover:underline flex items-center gap-1"
-                                    data-testid={`link-submit-location-${inc.id}`}
-                                  >
-                                    {Number(inc.liveStartLat).toFixed(5)}, {Number(inc.liveStartLng).toFixed(5)} ↗
-                                  </a>
+                                  <div className="mt-0.5">
+                                    <CoordinateLink
+                                      lat={inc.liveStartLat}
+                                      lng={inc.liveStartLng}
+                                      onOpenMap={setGeoMapView}
+                                      className="text-sm"
+                                      testId={`link-submit-location-${inc.id}`}
+                                    />
+                                  </div>
                                 </div>
                               )}
                               <div className="border-t border-primary/10 pt-2">
@@ -1426,16 +1428,20 @@ function UserIncidentsSheet({ user, onClose }: { user: OrgUser | null; onClose: 
                         </div>
 
                         {locationLabel && (() => {
-                          const coordUrl = /^-?\d+\.\d+, -?\d+\.\d+$/.test(locationLabel.trim())
-                            ? `https://www.google.com/maps?q=${locationLabel.trim()}`
-                            : null;
+                          const coordMatch = locationLabel.trim().match(/^(-?\d+\.?\d*),\s*(-?\d+\.?\d*)$/);
                           return (
                             <div>
                               <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Location</p>
-                              {coordUrl ? (
-                                <a href={coordUrl} target="_blank" rel="noopener noreferrer" className="text-sm mt-0.5 text-primary hover:underline flex items-center gap-1" data-testid={`link-location-${inc.id}`}>
-                                  {locationLabel} <span className="text-[10px] text-muted-foreground">↗</span>
-                                </a>
+                              {coordMatch ? (
+                                <div className="mt-0.5">
+                                  <CoordinateLink
+                                    lat={parseFloat(coordMatch[1])}
+                                    lng={parseFloat(coordMatch[2])}
+                                    onOpenMap={setGeoMapView}
+                                    className="text-sm"
+                                    testId={`link-location-${inc.id}`}
+                                  />
+                                </div>
                               ) : (
                                 <p className="text-sm mt-0.5">{locationLabel}</p>
                               )}
@@ -1559,6 +1565,7 @@ function UserIncidentsSheet({ user, onClose }: { user: OrgUser | null; onClose: 
           )}
         </div>
       </SheetContent>
+      <GeoLocationSheet view={geoMapView} onClose={() => setGeoMapView(null)} />
     </Sheet>
   );
 }

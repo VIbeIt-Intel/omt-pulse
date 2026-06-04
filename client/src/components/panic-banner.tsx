@@ -4,6 +4,8 @@ import { useMutation } from "@tanstack/react-query";
 import { Siren, X, CheckCircle2, Phone, Radio, AlertOctagon, MapPin } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { GeoLocationSheet, type GeoMapView } from "@/components/incident-location-sheet";
+import { CoordinateLink } from "@/components/coordinate-link";
 
 export type PanicAlert = {
   id: number;
@@ -81,6 +83,7 @@ export function PanicBanner({ alerts, currentUserId, dismissedIds, onDismiss, te
 
   const [closingId, setClosingId] = useState<number | null>(null);
   const [joiningId, setJoiningId] = useState<number | null>(null);
+  const [geoMapView, setGeoMapView] = useState<GeoMapView | null>(null);
 
   async function respondLive(alert: PanicAlert) {
     const hasGps = alert.lat != null && alert.lng != null;
@@ -136,9 +139,7 @@ export function PanicBanner({ alerts, currentUserId, dismissedIds, onDismiss, te
           const hasArrived = !!myAck?.arrivedAt;
           const ackText = formatAckList(alert.acknowledgedBy);
           const onSceneText = summariseAckStatus(alert.acknowledgedBy);
-          const mapsUrl = alert.lat != null && alert.lng != null
-            ? `https://maps.google.com/?q=${alert.lat},${alert.lng}`
-            : null;
+          const hasPanicGps = alert.lat != null && alert.lng != null;
           const fullAckList = alert.acknowledgedBy.map((a) => `${a.firstName} ${a.lastName}`.trim()).join(", ");
 
           return (
@@ -192,16 +193,15 @@ export function PanicBanner({ alerts, currentUserId, dismissedIds, onDismiss, te
                       )}
                     </>
                   )}
-                  {mapsUrl ? (
-                    <a
-                      href={mapsUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs text-amber-600 dark:text-amber-400 underline"
-                      data-testid={`link-panic-location${suffix}-${alert.id}`}
-                    >
-                      View location on Google Maps →
-                    </a>
+                  {hasPanicGps ? (
+                    <CoordinateLink
+                      lat={alert.lat!}
+                      lng={alert.lng!}
+                      label="View panic location"
+                      onOpenMap={setGeoMapView}
+                      className="text-xs text-amber-700 dark:text-amber-300"
+                      testId={`link-panic-location${suffix}-${alert.id}`}
+                    />
                   ) : (
                     <p className="text-xs text-amber-600/70 dark:text-amber-400/70">Location unavailable</p>
                   )}
@@ -290,6 +290,7 @@ export function PanicBanner({ alerts, currentUserId, dismissedIds, onDismiss, te
           );
         })}
       </div>
+      <GeoLocationSheet view={geoMapView} onClose={() => setGeoMapView(null)} />
     </div>
   );
 }
