@@ -20,7 +20,9 @@ export function OpenLocationSettingsButton({
   const { toast } = useToast();
   const [opening, setOpening] = useState(false);
 
-  async function handleClick() {
+  async function handleClick(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
     setOpening(true);
     try {
       const result = await openLocationSettings();
@@ -58,7 +60,7 @@ export function OpenLocationSettingsButton({
   return (
     <button
       type="button"
-      onClick={() => void handleClick()}
+      onClick={(e) => void handleClick(e)}
       disabled={opening}
       className={`inline-flex items-center justify-center gap-2 transition-colors touch-manipulation ${styles} ${className}`}
       data-testid={testId}

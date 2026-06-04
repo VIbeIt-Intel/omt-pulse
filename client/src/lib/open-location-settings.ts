@@ -1,30 +1,27 @@
 import { Capacitor } from "@capacitor/core";
+import {
+  NativeSettings,
+  AndroidSettings,
+  IOSSettings,
+} from "capacitor-native-settings";
 
 export type OpenLocationSettingsResult = "opened" | "prompted" | "unavailable";
 
-type NativeSettingsModule = typeof import("capacitor-native-settings");
+const ANDROID_PACKAGE = "com.intelafri.omtpulse";
 
-let settingsModulePromise: Promise<NativeSettingsModule> | null = null;
-
-/** Warm the native-settings chunk while SOS overlay is open (first tap feels instant). */
+/** Warm native-settings (bundled statically; no-op kept for overlay preload hook). */
 export function preloadLocationSettingsModule(): void {
-  if (!Capacitor.isNativePlatform()) return;
-  settingsModulePromise ??= import("capacitor-native-settings");
-}
-
-async function loadNativeSettings(): Promise<NativeSettingsModule | null> {
-  if (!Capacitor.isNativePlatform()) return null;
-  try {
-    return await (settingsModulePromise ?? import("capacitor-native-settings"));
-  } catch {
-    return null;
-  }
+  /* chunk is in main bundle */
 }
 
 function detectPlatform(): "ios" | "android" | "desktop" {
+  const cap = Capacitor.getPlatform();
+  if (cap === "ios" || cap === "android") return cap;
   if (typeof navigator === "undefined") return "desktop";
   const ua = navigator.userAgent;
-  if (/iPad|iPhone|iPod/.test(ua) && !(window as Window & { MSStream?: unknown }).MSStream) return "ios";
+  if (/iPad|iPhone|iPod/.test(ua) && !(window as Window & { MSStream?: unknown }).MSStream) {
+    return "ios";
+  }
   if (/Android/i.test(ua)) return "android";
   return "desktop";
 }
@@ -41,6 +38,73 @@ export function locationSettingsHint(): string {
   return "Allow location in your browser site settings for omtpulse.com.";
 }
 
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error("settings open timeout")), ms),
+    ),
+  ]);
+}
+
+/** Android intent fallback when the native plugin is missing or fails. */
+function openAndroidIntentFallback(): boolean {
+  const intents = [
+    `intent:#Intent;action=android.settings.APPLICATION_DETAILS_SETTINGS;data=package:${ANDROID_PACKAGE};end`,
+    `intent:#Intent;action=android.settings.APPLICATION_DETAILS_SETTINGS;package=${ANDROID_PACKAGE};end`,
+    "intent:#Intent;action=android.settings.LOCATION_SOURCE_SETTINGS;end",
+  ];
+  for (const uri of intents) {
+    try {
+      window.location.href = uri;
+      return true;
+    } catch {
+      /* try next */
+    }
+  }
+  return false;
+}
+
+function openIosUrlFallback(): boolean {
+  try {
+    window.location.href = "app-settings:";
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function openViaNativePlugin(platform: "android" | "ios"): Promise<boolean> {
+  if (!Capacitor.isPluginAvailable("NativeSettings")) return false;
+
+  const androidOptions = [
+    AndroidSettings.ApplicationDetails,
+    AndroidSettings.Location,
+  ];
+
+  if (platform === "android") {
+    for (const option of androidOptions) {
+      try {
+        await withTimeout(NativeSettings.openAndroid({ option }), 4_000);
+        return true;
+      } catch {
+        /* try next screen */
+      }
+    }
+    return false;
+  }
+
+  try {
+    await withTimeout(
+      NativeSettings.openIOS({ option: IOSSettings.App }),
+      4_000,
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Short browser permission retry — not used on native (Settings opens instead). */
 async function promptBrowserLocation(): Promise<boolean> {
   if (!navigator.geolocation) return false;
@@ -54,21 +118,19 @@ async function promptBrowserLocation(): Promise<boolean> {
 }
 
 /**
- * Open app settings on native immediately; on web, a quick permission retry only.
+ * Open app/location settings on native; on web, a quick permission retry only.
  */
 export async function openLocationSettings(): Promise<OpenLocationSettingsResult> {
-  const mod = await loadNativeSettings();
-  if (mod) {
-    try {
-      const { NativeSettings, AndroidSettings, IOSSettings } = mod;
-      await NativeSettings.open({
-        optionAndroid: AndroidSettings.ApplicationDetails,
-        optionIOS: IOSSettings.App,
-      });
-      return "opened";
-    } catch {
-      /* fall through to browser prompt on hybrid failures */
-    }
+  const platform = Capacitor.getPlatform();
+  const isNative = Capacitor.isNativePlatform();
+
+  if (isNative && (platform === "android" || platform === "ios")) {
+    if (await openViaNativePlugin(platform)) return "opened";
+
+    if (platform === "android" && openAndroidIntentFallback()) return "opened";
+    if (platform === "ios" && openIosUrlFallback()) return "opened";
+  } else if (!isNative && detectPlatform() === "android") {
+    if (openAndroidIntentFallback()) return "opened";
   }
 
   if (await promptBrowserLocation()) {
