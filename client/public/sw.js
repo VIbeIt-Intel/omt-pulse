@@ -1,4 +1,4 @@
-const CACHE_NAME = "omt-v92";
+const CACHE_NAME = "omt-v93";
 
 // When the page asks us to nuke everything (after a new deploy), wipe all
 // caches and tell every controlled tab to reload. The page also unregisters

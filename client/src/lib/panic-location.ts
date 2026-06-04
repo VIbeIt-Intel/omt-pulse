@@ -85,6 +85,35 @@ export async function acquirePanicLocation(): Promise<PanicLocationResult> {
   return { issue: issueFromGeolocationCode(lastCode) };
 }
 
+/** Shorter GPS wait when sending SOS — avoids long “frozen” confirm button. */
+export async function acquirePanicLocationForSend(): Promise<PanicLocationResult> {
+  if (!navigator.geolocation) {
+    return { issue: "unsupported" };
+  }
+  const attempts: PositionOptions[] = [
+    { enableHighAccuracy: true, timeout: 8_000, maximumAge: 0 },
+    { enableHighAccuracy: false, timeout: 5_000, maximumAge: 30_000 },
+  ];
+  let lastCode: number | undefined;
+  for (const opts of attempts) {
+    try {
+      const pos = await getCurrentPositionOnce(opts);
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        return { lat, lng };
+      }
+    } catch (err) {
+      lastCode =
+        typeof err === "object" && err !== null && "code" in err
+          ? (err as GeolocationPositionError).code
+          : undefined;
+      if (lastCode === 1) return { issue: "denied" };
+    }
+  }
+  return { issue: issueFromGeolocationCode(lastCode) };
+}
+
 /** User-facing hint when panic is sent without coordinates. */
 export function panicLocationWarning(issue?: PanicLocationIssue): string {
   switch (issue) {

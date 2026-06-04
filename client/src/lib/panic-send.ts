@@ -1,6 +1,6 @@
 import { apiRequest } from "@/lib/queryClient";
 import {
-  acquirePanicLocation,
+  acquirePanicLocationForSend,
   appendPanicLocationNote,
   hasPanicCoordinates,
   panicLocationWarning,
@@ -13,14 +13,34 @@ export type PanicSendOutcome = {
   sent: number;
   found: number;
   loc: PanicLocationResult;
+  incidentId?: number | null;
+  deduped?: boolean;
 };
 
+let panicSendInFlight: Promise<PanicSendOutcome> | null = null;
+
 export async function postPanicAlert(loc: PanicLocationResult): Promise<PanicSendOutcome> {
+  if (panicSendInFlight) return panicSendInFlight;
+
   const lat = hasPanicCoordinates(loc) ? loc.lat : undefined;
   const lng = hasPanicCoordinates(loc) ? loc.lng : undefined;
-  const res = await apiRequest("POST", "/api/panic", { lat, lng });
-  const { sent, found } = (await res.json()) as { sent: number; found: number };
-  return { sent, found, loc };
+
+  panicSendInFlight = (async () => {
+    try {
+      const res = await apiRequest("POST", "/api/panic", { lat, lng });
+      const body = (await res.json()) as {
+        sent: number;
+        found: number;
+        incidentId?: number | null;
+        deduped?: boolean;
+      };
+      return { sent: body.sent, found: body.found, loc, incidentId: body.incidentId, deduped: body.deduped };
+    } finally {
+      panicSendInFlight = null;
+    }
+  })();
+
+  return panicSendInFlight;
 }
 
 export function panicLocationOffTitle(issue?: PanicLocationIssue): string {
@@ -37,7 +57,18 @@ export function buildPanicSentToast(outcome: PanicSendOutcome): {
   description: string;
   variant?: "destructive";
 } {
-  const { sent, found, loc } = outcome;
+  const { sent, found, loc, deduped } = outcome;
+
+  if (deduped) {
+    return {
+      title: "🆘 Panic already active",
+      description: appendPanicLocationNote(
+        "Your team was already alerted. Only one panic is sent until you close it.",
+        loc,
+      ),
+    };
+  }
+
   if (found === 0) {
     return {
       title: "🆘 Panic alert stored",
@@ -60,18 +91,16 @@ export function buildPanicSentToast(outcome: PanicSendOutcome): {
   return {
     title: "🆘 Panic alert sent",
     description: appendPanicLocationNote(
-      `Push notification delivered to ${sent} device${sent === 1 ? "" : "s"}.`,
+      `Push notification delivered to ${sent} device${sent === 1 ? "" : "s"}. Do not press again.`,
       loc,
     ),
   };
 }
 
-/** Fast UI probe when opening SOS or returning from Settings (~3s max). */
 export async function probePanicLocation(): Promise<PanicLocationResult> {
   return quickPanicLocationCheck();
 }
 
-/** Full-accuracy GPS when actually sending SOS (may take longer). */
 export async function probePanicLocationForSend(): Promise<PanicLocationResult> {
-  return acquirePanicLocation();
+  return acquirePanicLocationForSend();
 }

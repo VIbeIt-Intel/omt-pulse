@@ -173,6 +173,8 @@ export interface IStorage {
   createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
   getAuditLogsByUser(userId: string, orgId: string, since?: Date): Promise<AuditLog[]>;
   getRecentPanicAlerts(orgId: string, since: Date): Promise<Array<{ id: number; userId: string | null; firstName: string; lastName: string; contactNumber: string | null; lat: number | null; lng: number | null; createdAt: Date; panicAcknowledgedAt: Date | null; panicClosedAt: Date | null; acknowledgedBy: Array<{ userId: string; firstName: string; lastName: string; acknowledgedAt: Date; arrivedAt: Date | null }> }>>;
+  /** Latest open panic incident for this panicker (not closed), if any. */
+  getOpenPanicIncidentForUser(orgId: string, userId: string): Promise<Incident | undefined>;
   acknowledgePanic(incidentId: number, orgId: string, acknowledgedByUserId: string): Promise<void>;
   closePanic(incidentId: number, orgId: string): Promise<void>;
   getAllUnacknowledgedPanicsForReminder(): Promise<Array<{ id: number; organizationId: string; userId: string | null; firstName: string | null; lastName: string | null }>>;
@@ -1378,6 +1380,25 @@ export class DatabaseStorage implements IStorage {
       panicClosedAt: r.panicClosedAt ?? null,
       acknowledgedBy: acksByIncident.get(r.id) ?? [],
     }));
+  }
+
+  async getOpenPanicIncidentForUser(orgId: string, userId: string): Promise<Incident | undefined> {
+    const [row] = await db
+      .select({ incident: incidents })
+      .from(incidents)
+      .innerJoin(incidentCategories, eq(incidents.categoryId, incidentCategories.id))
+      .where(
+        and(
+          eq(incidents.organizationId, orgId),
+          eq(incidents.userId, userId),
+          eq(incidentCategories.name, "Panic"),
+          isNull(incidents.panicClosedAt),
+          eq(incidents.isLive, true),
+        ),
+      )
+      .orderBy(desc(incidents.createdAt))
+      .limit(1);
+    return row?.incident;
   }
 
   async acknowledgePanic(incidentId: number, orgId: string, acknowledgedByUserId: string): Promise<void> {

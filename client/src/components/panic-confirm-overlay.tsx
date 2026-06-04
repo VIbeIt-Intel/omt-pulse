@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Siren, MapPin, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -17,16 +17,20 @@ type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   confirmTestId: string;
-  /** Extra line for org-specific copy (e.g. occurrence book). */
   notifyHint?: string;
 };
 
+type SendPhase = "idle" | "gps" | "sending";
+
 export function PanicConfirmOverlay({ open, onOpenChange, confirmTestId, notifyHint }: Props) {
   const { toast } = useToast();
-  const [sending, setSending] = useState(false);
+  const [sendPhase, setSendPhase] = useState<SendPhase>("idle");
   const [locationProbe, setLocationProbe] = useState<PanicLocationResult | null>(null);
   const [pendingLoc, setPendingLoc] = useState<PanicLocationResult | null>(null);
   const [showLocationGate, setShowLocationGate] = useState(false);
+  const sendLockRef = useRef(false);
+
+  const sending = sendPhase !== "idle";
 
   async function refreshLocationProbe() {
     const loc = await probePanicLocation();
@@ -40,6 +44,8 @@ export function PanicConfirmOverlay({ open, onOpenChange, confirmTestId, notifyH
       setLocationProbe(null);
       setPendingLoc(null);
       setShowLocationGate(false);
+      setSendPhase("idle");
+      sendLockRef.current = false;
       return;
     }
     preloadLocationSettingsModule();
@@ -65,36 +71,52 @@ export function PanicConfirmOverlay({ open, onOpenChange, confirmTestId, notifyH
 
   const locationReady = locationProbe != null && hasPanicCoordinates(locationProbe);
 
+  function confirmButtonLabel(): string {
+    if (sendPhase === "gps") return "Getting GPS — wait…";
+    if (sendPhase === "sending") return "Sending — do not tap again";
+    return "CONFIRM — Send Alert";
+  }
+
   async function finishSend(loc: PanicLocationResult) {
-    setSending(true);
+    sendLockRef.current = true;
+    setSendPhase("sending");
     try {
       const outcome = await postPanicAlert(loc);
       onOpenChange(false);
       const t = buildPanicSentToast(outcome);
       toast({ title: t.title, description: t.description, variant: t.variant });
     } catch (e: unknown) {
+      sendLockRef.current = false;
       toast({
         title: "Failed to send panic alert",
         description: e instanceof Error ? e.message : "Please try again.",
         variant: "destructive",
       });
     } finally {
-      setSending(false);
+      setSendPhase("idle");
       setShowLocationGate(false);
       setPendingLoc(null);
     }
   }
 
   async function onConfirmSend() {
-    setSending(true);
-    const loc = await probePanicLocationForSend();
-    setSending(false);
-    if (hasPanicCoordinates(loc)) {
-      await finishSend(loc);
-      return;
+    if (sendLockRef.current || sending) return;
+    sendLockRef.current = true;
+    setSendPhase("gps");
+    try {
+      const loc = await probePanicLocationForSend();
+      if (hasPanicCoordinates(loc)) {
+        await finishSend(loc);
+        return;
+      }
+      sendLockRef.current = false;
+      setSendPhase("idle");
+      setPendingLoc(loc);
+      setShowLocationGate(true);
+    } catch {
+      sendLockRef.current = false;
+      setSendPhase("idle");
     }
-    setPendingLoc(loc);
-    setShowLocationGate(true);
   }
 
   if (!open) return null;
@@ -125,16 +147,17 @@ export function PanicConfirmOverlay({ open, onOpenChange, confirmTestId, notifyH
             />
             <button
               type="button"
-              onClick={() => finishSend(pendingLoc)}
+              onClick={() => void finishSend(pendingLoc)}
               disabled={sending}
-              className="w-full h-12 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-sm transition-all disabled:opacity-60"
+              className="w-full h-12 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-sm transition-all disabled:opacity-60 touch-manipulation"
               data-testid={`${confirmTestId}-send-without-location`}
             >
-              {sending ? "Sending…" : "Send alert anyway (no GPS)"}
+              {sendPhase === "sending" ? "Sending — do not tap again" : "Send alert anyway (no GPS)"}
             </button>
             <button
               type="button"
               onClick={() => {
+                if (sending) return;
                 setShowLocationGate(false);
                 setPendingLoc(null);
               }}
@@ -168,8 +191,13 @@ export function PanicConfirmOverlay({ open, onOpenChange, confirmTestId, notifyH
             This will immediately alert <strong className="text-white">everyone</strong> in your organisation.
             Your GPS location will be shared.
           </p>
+          {sending && (
+            <p className="text-xs text-amber-300 font-medium">
+              One tap only — please wait until you see confirmation.
+            </p>
+          )}
         </div>
-        {locationProbe != null && !locationReady && (
+        {locationProbe != null && !locationReady && !sending && (
           <div className="w-full space-y-3">
             <div className="flex items-start gap-2 rounded-xl bg-red-500/20 border border-red-500/50 px-4 py-3 text-xs text-red-100 text-left">
               <MapPin className="h-4 w-4 shrink-0 mt-0.5" />
@@ -206,7 +234,7 @@ export function PanicConfirmOverlay({ open, onOpenChange, confirmTestId, notifyH
             data-testid={confirmTestId}
             className="w-full h-14 rounded-2xl bg-red-600 hover:bg-red-700 active:scale-[0.98] text-white font-bold text-base tracking-wide shadow-lg transition-all touch-manipulation disabled:opacity-60"
           >
-            {sending ? "Sending alert…" : "CONFIRM — Send Alert"}
+            {confirmButtonLabel()}
           </button>
           <button
             type="button"

@@ -2446,94 +2446,124 @@ export async function registerRoutes(
     const incidentDesc = hasCoords
       ? `🆘 Panic alert — ${fullName} · GPS: ${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}`
       : `🆘 Panic alert — ${fullName} · Location unavailable`;
-    let panicIncidentId: number | null = null;
-    try {
-      // Panic is created as a live incident so responders can join it via the
-      // standard /api/incidents/:id/join-live flow. The panicker's coordinates
-      // are also stored as the destination so joiners' Live Monitor map shows
-      // them as the route target. closePanic() ends the live state cleanly.
-      const panicIncident = await storage.createIncident(
-        {
-          incidentDate,
-          incidentTime,
-          categoryId: panicCategory.id,
-          description: incidentDesc,
-          latitude: hasCoords ? lat : null,
-          longitude: hasCoords ? lng : null,
-          isLive: true,
-          liveStartedAt: now,
-          liveStartLat: hasCoords ? lat : null,
-          liveStartLng: hasCoords ? lng : null,
-          destinationLat: hasCoords ? lat : null,
-          destinationLng: hasCoords ? lng : null,
-          destinationName: hasCoords ? `🆘 ${fullName}` : null,
-          // Stamp with active Command so panic appears in the same scope as the
-          // panicker's other incidents (Task #212 isolation).
-          commandId: panicCommandId,
-        },
-        orgId,
-        userId,
-      );
-      panicIncidentId = panicIncident.id;
-    } catch (err) {
-      console.error("[panic] incident create failed:", err);
+
+    const existingPanic = await storage.getOpenPanicIncidentForUser(orgId, userId);
+    let panicIncidentId: number | null = existingPanic?.id ?? null;
+    let deduped = false;
+
+    if (existingPanic) {
+      deduped = true;
+      if (hasCoords) {
+        await storage.updateIncident(
+          existingPanic.id,
+          {
+            description: incidentDesc,
+            latitude: lat,
+            longitude: lng,
+            liveStartLat: lat,
+            liveStartLng: lng,
+            destinationLat: lat,
+            destinationLng: lng,
+            destinationName: `🆘 ${fullName}`,
+          },
+          orgId,
+        ).catch((err) => console.error("[panic] dedupe update failed:", err));
+      }
+    } else {
+      try {
+        const panicIncident = await storage.createIncident(
+          {
+            incidentDate,
+            incidentTime,
+            categoryId: panicCategory.id,
+            description: incidentDesc,
+            latitude: hasCoords ? lat : null,
+            longitude: hasCoords ? lng : null,
+            isLive: true,
+            liveStartedAt: now,
+            liveStartLat: hasCoords ? lat : null,
+            liveStartLng: hasCoords ? lng : null,
+            destinationLat: hasCoords ? lat : null,
+            destinationLng: hasCoords ? lng : null,
+            destinationName: hasCoords ? `🆘 ${fullName}` : null,
+            commandId: panicCommandId,
+          },
+          orgId,
+          userId,
+        );
+        panicIncidentId = panicIncident.id;
+      } catch (err) {
+        console.error("[panic] incident create failed:", err);
+      }
     }
 
-    // Deep-link to live-incident join flow (same path native FCM and PWA use after rewrite).
     const notifUrl = panicIncidentId
       ? `/live-incident?join=${panicIncidentId}`
       : "/live-incident";
-    const payload = JSON.stringify({ type: "panic", title, body, incidentId: panicIncidentId, url: notifUrl });
-
     const allSubs = await storage.getPushSubscriptionsByOrg(orgId, userId, undefined, undefined);
     let sent = 0;
-    await Promise.allSettled(
-      dedupeByEndpoint(allSubs).map(async (sub) => {
-        try {
-          await webpush.sendNotification(
-            { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-            payload,
-            URGENT_PUSH,
-          );
-          sent++;
-          storage.createNotificationLog({
-            organizationId: orgId,
-            userId: sub.userId,
+
+    if (!deduped) {
+      const payload = JSON.stringify({ type: "panic", title, body, incidentId: panicIncidentId, url: notifUrl });
+      await Promise.allSettled(
+        dedupeByEndpoint(allSubs).map(async (sub) => {
+          try {
+            await webpush.sendNotification(
+              { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+              payload,
+              URGENT_PUSH,
+            );
+            sent++;
+            storage.createNotificationLog({
+              organizationId: orgId,
+              userId: sub.userId,
+              title,
+              body,
+              url: notifUrl,
+            }).catch(() => {});
+          } catch (err: unknown) {
+            const statusCode = typeof err === "object" && err !== null && "statusCode" in err
+              ? (err as { statusCode: number }).statusCode : 0;
+            if (statusCode === 410 || statusCode === 404) {
+              await storage.deletePushSubscription(sub.endpoint);
+            } else {
+              console.error("[push] panic notify failed (status=%d):", statusCode, err instanceof Error ? err.message : err);
+            }
+          }
+        }),
+      );
+      storage.getFcmTokensByOrg(orgId, userId).then((fcmSubs) => {
+        if (fcmSubs.length > 0) {
+          sendFcmBatch(fcmSubs.map((s) => s.token), {
             title,
             body,
-            url: notifUrl,
+            data: { type: "panic", incidentId: String(panicIncidentId ?? ""), url: notifUrl },
           }).catch(() => {});
-        } catch (err: unknown) {
-          const statusCode = typeof err === "object" && err !== null && "statusCode" in err
-            ? (err as { statusCode: number }).statusCode : 0;
-          if (statusCode === 410 || statusCode === 404) {
-            await storage.deletePushSubscription(sub.endpoint);
-          } else {
-            console.error("[push] panic notify failed (status=%d):", statusCode, err instanceof Error ? err.message : err);
-          }
         }
-      })
-    );
-    // FCM fan-out — native Android/iOS devices (all roles, exclude panicker)
-    storage.getFcmTokensByOrg(orgId, userId).then((fcmSubs) => {
-      if (fcmSubs.length > 0) {
-        sendFcmBatch(fcmSubs.map((s) => s.token), {
-          title,
-          body,
-          data: { type: "panic", incidentId: String(panicIncidentId ?? ""), url: notifUrl },
-        }).catch(() => {});
-      }
-    }).catch(() => {});
-    storage.createAuditLog({
-      organizationId: orgId,
-      userId,
-      action: "panic.alert",
-      entityType: "user",
-      entityId: userId,
-      description: `${fullName} triggered a panic alert${hasCoords ? ` from ${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}` : " (location unavailable)"}`,
-      changes: hasCoords ? { location: { from: null, to: { lat, lng } } } : undefined,
-    }).catch(() => {});
-    res.json({ sent, found: allSubs.length });
+      }).catch(() => {});
+      storage.createAuditLog({
+        organizationId: orgId,
+        userId,
+        action: "panic.alert",
+        entityType: "user",
+        entityId: userId,
+        description: `${fullName} triggered a panic alert${hasCoords ? ` from ${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}` : " (location unavailable)"}`,
+        changes: hasCoords ? { location: { from: null, to: { lat, lng } } } : undefined,
+      }).catch(() => {});
+    } else {
+      if (hasCoords) void broadcastPanicBannerRefresh(orgId, userId);
+      storage.createAuditLog({
+        organizationId: orgId,
+        userId,
+        action: "panic.alert.deduped",
+        entityType: "incident",
+        entityId: String(panicIncidentId ?? ""),
+        description: `${fullName} pressed panic again — merged into existing open panic #${panicIncidentId ?? "?"}`,
+        changes: hasCoords ? { location: { from: null, to: { lat, lng } } } : undefined,
+      }).catch(() => {});
+    }
+
+    res.json({ sent, found: allSubs.length, incidentId: panicIncidentId, deduped });
   });
 
   app.post("/api/incidents", async (req, res) => {
