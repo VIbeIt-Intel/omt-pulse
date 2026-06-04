@@ -10,6 +10,7 @@ import { HeartbeatLine } from "@/components/heartbeat-line";
 import { PanicBanner, type PanicAlert } from "@/components/panic-banner";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { acquirePanicLocation, appendPanicLocationNote, hasPanicCoordinates } from "@/lib/panic-location";
 import {
   PlusCircle,
   Radio,
@@ -487,28 +488,37 @@ export default function CommandDashboard() {
   async function sendPanic() {
     setPanicking(true);
     try {
-      let lat: number | undefined;
-      let lng: number | undefined;
-      try {
-        const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
-          navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000, maximumAge: 10000 })
-        );
-        lat = pos.coords.latitude;
-        lng = pos.coords.longitude;
-      } catch { /* GPS unavailable */ }
+      const loc = await acquirePanicLocation();
+      const lat = hasPanicCoordinates(loc) ? loc.lat : undefined;
+      const lng = hasPanicCoordinates(loc) ? loc.lng : undefined;
       const res = await apiRequest("POST", "/api/panic", { lat, lng });
       const { sent, found } = await res.json() as { sent: number; found: number };
       setPanicOpen(false);
       if (found === 0) {
         toast({
           title: "🆘 Panic alert stored",
-          description: "No team members have push notifications enabled.",
+          description: appendPanicLocationNote(
+            "No team members have push notifications enabled.",
+            loc,
+          ),
           variant: "destructive",
         });
       } else if (sent === 0) {
-        toast({ title: "🆘 Panic alert sent", description: "Alert dispatched — delivery may be delayed on some devices." });
+        toast({
+          title: "🆘 Panic alert sent",
+          description: appendPanicLocationNote(
+            "Alert dispatched — delivery may be delayed on some devices.",
+            loc,
+          ),
+        });
       } else {
-        toast({ title: "🆘 Panic alert sent", description: `Push notification delivered to ${sent} device${sent === 1 ? "" : "s"}.` });
+        toast({
+          title: "🆘 Panic alert sent",
+          description: appendPanicLocationNote(
+            `Push notification delivered to ${sent} device${sent === 1 ? "" : "s"}.`,
+            loc,
+          ),
+        });
       }
     } catch (e: unknown) {
       toast({

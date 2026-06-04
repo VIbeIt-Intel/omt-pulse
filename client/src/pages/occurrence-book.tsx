@@ -11,6 +11,7 @@ import { IncidentInvolvementSummary } from "@/components/incident-involvement-se
 import { IncidentLogMobileList } from "@/components/incident-log-mobile";
 import { IncidentLocationSheet } from "@/components/incident-location-sheet";
 import { resolveEffectiveSeverity, incidentHasViewableLocation, liveIncidentDestination, type IncidentWithMeta } from "@/lib/incident-display";
+import { acquirePanicLocation, appendPanicLocationNote, hasPanicCoordinates } from "@/lib/panic-location";
 
 type IncidentWithCount = IncidentWithMeta;
 import { Button } from "@/components/ui/button";
@@ -371,31 +372,37 @@ export default function OccurrenceBook() {
   async function sendPanic() {
     setPanicking(true);
     try {
-      let lat: number | undefined;
-      let lng: number | undefined;
-      try {
-        const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
-          navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000, maximumAge: 10000 })
-        );
-        lat = pos.coords.latitude;
-        lng = pos.coords.longitude;
-      } catch { /* GPS unavailable — alert fires anyway */ }
+      const loc = await acquirePanicLocation();
+      const lat = hasPanicCoordinates(loc) ? loc.lat : undefined;
+      const lng = hasPanicCoordinates(loc) ? loc.lng : undefined;
       const res = await apiRequest("POST", "/api/panic", { lat, lng });
       const { sent, found } = await res.json() as { sent: number; found: number };
       setPanicOpen(false);
       if (found === 0) {
         toast({
           title: "🆘 Panic alert stored",
-          description: "No team members have push notifications enabled — they will not receive a push alert. Ask your team to enable notifications in the app.",
+          description: appendPanicLocationNote(
+            "No team members have push notifications enabled — they will not receive a push alert. Ask your team to enable notifications in the app.",
+            loc,
+          ),
           variant: "destructive",
         });
       } else if (sent === 0) {
         toast({
           title: "🆘 Panic alert sent",
-          description: "Alert dispatched — delivery may be delayed on some devices. In-app alarms are active.",
+          description: appendPanicLocationNote(
+            "Alert dispatched — delivery may be delayed on some devices. In-app alarms are active.",
+            loc,
+          ),
         });
       } else {
-        toast({ title: "🆘 Panic alert sent", description: `Push notification delivered to ${sent} device${sent === 1 ? "" : "s"} in your organisation.` });
+        toast({
+          title: "🆘 Panic alert sent",
+          description: appendPanicLocationNote(
+            `Push notification delivered to ${sent} device${sent === 1 ? "" : "s"} in your organisation.`,
+            loc,
+          ),
+        });
       }
     } catch (e: unknown) {
       toast({
