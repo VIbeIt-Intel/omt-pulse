@@ -24,7 +24,7 @@ import {
   Download,
 } from "lucide-react";
 import omtLogo from "@/assets/omt-logo-v2.png";
-import { ProductPreviewsSection } from "@/components/marketing/product-previews";
+import { FieldGallerySection, ProductPreviewsSection } from "@/components/marketing/product-previews";
 import { INTELAFRI_URL, PLAY_STORE_URL } from "@/lib/site-links";
 
 const WHATSAPP_NUMBER = "27675351325";
@@ -221,52 +221,75 @@ export default function LandingPage() {
 
       {/* ── Hero ─────────────────────────────────────────────────────────── */}
       <section className="relative overflow-hidden">
-        <div className="absolute inset-0 -z-10 bg-gradient-to-b from-primary/5 via-background to-background" />
-        <div className="mx-auto max-w-6xl px-4 pb-16 pt-16 sm:px-6 sm:pb-24 sm:pt-24">
-          <div className="mx-auto max-w-3xl text-center">
-            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-border bg-card/60 px-3 py-1 text-xs font-medium text-muted-foreground">
-              <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-              For security teams that need to act, not paperwork
+        <div className="absolute inset-0 -z-10 bg-gradient-to-br from-primary/8 via-background to-background" />
+        <div className="mx-auto max-w-6xl px-4 pb-16 pt-12 sm:px-6 sm:pb-20 sm:pt-20">
+          <div className="grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
+            <div className="text-center lg:text-left">
+              <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-border bg-card/60 px-3 py-1 text-xs font-medium text-muted-foreground">
+                <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                For security teams that need to act, not paperwork
+              </div>
+              <h1
+                className="mb-5 text-4xl font-bold leading-tight tracking-tight sm:text-5xl lg:text-[3.25rem]"
+                data-testid="text-hero-title"
+              >
+                The occurrence book, panic button, and live response map your
+                security team will{" "}
+                <span className="text-primary">actually use.</span>
+              </h1>
+              <p
+                className="mb-9 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg lg:mx-0 mx-auto"
+                data-testid="text-hero-subtitle"
+              >
+                OMT Pulse turns radio chatter and paper logs into a single,
+                searchable record — with a one-tap SOS, live responder tracking,
+                and analytics your operations manager can read at a glance.
+              </p>
+              <div className="flex flex-col items-center justify-center gap-3 sm:flex-row lg:justify-start">
+                <a href="#contact">
+                  <Button size="lg" className="w-full sm:w-auto" data-testid="button-cta-contact">
+                    Contact us
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
+                </a>
+                <Link href="/login">
+                  <Button size="lg" variant="outline" className="w-full sm:w-auto" data-testid="button-cta-signin">
+                    Sign in
+                  </Button>
+                </Link>
+                <a href="#install">
+                  <Button size="lg" variant="ghost" className="w-full sm:w-auto" data-testid="button-cta-app">
+                    Get the app
+                  </Button>
+                </a>
+              </div>
             </div>
-            <h1
-              className="mb-5 text-4xl font-bold leading-tight tracking-tight sm:text-5xl md:text-6xl"
-              data-testid="text-hero-title"
-            >
-              The occurrence book, panic button, and live response map your
-              security team will{" "}
-              <span className="text-primary">actually use.</span>
-            </h1>
-            <p
-              className="mx-auto mb-9 max-w-2xl text-base leading-relaxed text-muted-foreground sm:text-lg"
-              data-testid="text-hero-subtitle"
-            >
-              OMT Pulse turns radio chatter and paper logs into a single,
-              searchable record — with a one-tap SOS, live responder tracking,
-              and analytics your operations manager can read at a glance.
-            </p>
-            <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
-              <a href="#contact">
-                <Button size="lg" className="w-full sm:w-auto" data-testid="button-cta-contact">
-                  Contact us
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </Button>
-              </a>
-              <Link href="/login">
-                <Button size="lg" variant="outline" className="w-full sm:w-auto" data-testid="button-cta-signin">
-                  Sign in
-                </Button>
-              </Link>
-              <a href="#install">
-                <Button size="lg" variant="ghost" className="w-full sm:w-auto" data-testid="button-cta-app">
-                  Get the app
-                </Button>
-              </a>
+            <div className="flex justify-center lg:justify-end">
+              <div className="relative w-full max-w-[300px]">
+                <div className="absolute -inset-4 -z-10 rounded-[2.5rem] bg-primary/15 blur-2xl" />
+                <div className="rounded-[1.75rem] border-[3px] border-foreground/10 bg-card p-2 shadow-xl shadow-primary/10">
+                  <div className="overflow-hidden rounded-[1.35rem] border border-border aspect-[9/16]">
+                    <img
+                      src="/marketing/panic-alert.png"
+                      alt="OMT Pulse panic alert — one tap SOS with live GPS for security responders"
+                      className="h-full w-full object-cover object-top"
+                      loading="eager"
+                      decoding="async"
+                    />
+                  </div>
+                </div>
+                <p className="mt-4 text-center text-xs text-muted-foreground">
+                  Real product — panic alert on a patrol phone
+                </p>
+              </div>
             </div>
           </div>
         </div>
       </section>
 
       <ProductPreviewsSection />
+
+      <FieldGallerySection />
 
       {/* ── Why OMT Pulse — exactly 4 cards ─────────────────────────────── */}
       <section id="features" className="mx-auto max-w-6xl px-4 pb-16 sm:px-6 sm:pb-24">
