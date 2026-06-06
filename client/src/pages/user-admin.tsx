@@ -16,7 +16,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { PLAY_TESTING_JOIN_URL } from "@/lib/site-links";
+import { buildOrgAdminAccessMessage } from "@/lib/onboarding-messages";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Category, Location, FormField as OrgFormField } from "@shared/schema";
 import { GeoLocationSheet, type GeoMapView } from "@/components/incident-location-sheet";
@@ -137,27 +137,12 @@ function PermissionsSection({ form }: { form: ReturnType<typeof useForm<UserForm
 type ShareInfo = { firstName: string; email: string; password?: string };
 
 function buildTesterWelcomeMessage(shareInfo: ShareInfo, orgName: string | null): string {
-  const installLine = PLAY_TESTING_JOIN_URL
-    ? `1) Install OMT Pulse (Android phone): ${PLAY_TESTING_JOIN_URL}`
-    : "1) Install OMT Pulse from the Play Store link your administrator sends you.";
-  const passwordLine = shareInfo.password
-    ? `   Password: ${shareInfo.password}`
-    : "";
-  return [
-    `Hi ${shareInfo.firstName},`,
-    "",
-    `You're set up on OMT Pulse (${orgName ?? "your organisation"}). On your Android phone:`,
-    "",
-    installLine,
-    "2) Open the app and sign in:",
-    `   Email: ${shareInfo.email}`,
-    passwordLine,
-    "",
-    "Use the same Gmail on your phone as that email. Allow notifications when asked.",
-    "Questions: support@intelafri.org",
-  ]
-    .filter(Boolean)
-    .join("\n");
+  return buildOrgAdminAccessMessage({
+    firstName: shareInfo.firstName,
+    email: shareInfo.email,
+    password: shareInfo.password,
+    orgName,
+  });
 }
 
 function ShareScreen({
@@ -172,16 +157,7 @@ function ShareScreen({
   onAddAnother: () => void;
 }) {
   const [copiedMsg, setCopiedMsg] = useState(false);
-  const [copiedPlayLink, setCopiedPlayLink] = useState(false);
   const message = buildTesterWelcomeMessage(shareInfo, orgName);
-
-  function handleCopyPlayLink() {
-    if (!PLAY_TESTING_JOIN_URL) return;
-    navigator.clipboard.writeText(PLAY_TESTING_JOIN_URL).then(() => {
-      setCopiedPlayLink(true);
-      setTimeout(() => setCopiedPlayLink(false), 2500);
-    });
-  }
 
   function handleCopyMsg() {
     navigator.clipboard.writeText(message).then(() => {
@@ -206,7 +182,7 @@ function ShareScreen({
         <div>
           <p className="font-semibold">{shareInfo.firstName} has been added</p>
           <p className="text-sm text-muted-foreground">
-            Copy this message to WhatsApp — install link + login details in one go.
+            Copy this message with web sign-in details. Mobile app install is arranged by IntelAfri.
           </p>
         </div>
       </div>
@@ -258,25 +234,6 @@ function ShareScreen({
             : <><Copy className="h-4 w-4" /> Copy message (SMS / email)</>}
         </Button>
       </div>
-
-      {PLAY_TESTING_JOIN_URL ? (
-        <div className="rounded-lg border bg-muted/30 px-3 py-2.5 flex items-center gap-2">
-          <Link2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-          <span className="flex-1 text-xs font-mono text-muted-foreground truncate">{PLAY_TESTING_JOIN_URL}</span>
-          <button
-            type="button"
-            onClick={handleCopyPlayLink}
-            className="shrink-0 text-xs text-muted-foreground hover:text-foreground transition-colors"
-            data-testid="button-copy-play-link"
-          >
-            {copiedPlayLink ? <CheckCheck className="h-3.5 w-3.5 text-green-600" /> : <Copy className="h-3.5 w-3.5" />}
-          </button>
-        </div>
-      ) : (
-        <p className="text-[11px] text-amber-700 dark:text-amber-400 rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-2">
-          Set <code className="text-[10px]">VITE_PLAY_TESTING_JOIN_URL</code> on the server so install links are included automatically.
-        </p>
-      )}
 
       <DialogFooter className="mt-auto gap-2 sm:gap-0">
         <Button variant="outline" onClick={onAddAnother} data-testid="button-add-another-user">
@@ -666,7 +623,7 @@ function UserDialog({
               {!isEdit && (
                 <div className="border-t pt-2.5 space-y-2">
                   <p className="text-xs text-muted-foreground">
-                    Set a login password now — you&apos;ll copy one WhatsApp message with install + sign-in details.
+                    Set a login password now — you&apos;ll copy a WhatsApp message with web sign-in details.
                   </p>
                   <FormField control={form.control} name="password" render={({ field }) => (
                     <FormItem>

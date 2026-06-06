@@ -15,7 +15,10 @@ import {
   UserCheck, UserX, Trash2, ChevronDown, ChevronRight, Plus, Building2,
   Pencil, ToggleLeft, ToggleRight, FileText, TrendingUp, UserPlus,
   Download, Activity, Paperclip, CalendarDays, UserRound, Bell, MapPin,
+  Share2,
 } from "lucide-react";
+import { ArchonOnboardingShare } from "@/components/archon-onboarding-share";
+import type { OnboardingUserInfo } from "@/lib/onboarding-messages";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -385,6 +388,8 @@ export default function ArchonDashboard() {
   const [deleteOrgConfirmName, setDeleteOrgConfirmName] = useState("");
   const [passwordTarget, setPasswordTarget] = useState<ArchonUser | null>(null);
   const [newPassword, setNewPassword] = useState("");
+  const [onboardingShare, setOnboardingShare] = useState<OnboardingUserInfo | null>(null);
+  const [showOnboardingShare, setShowOnboardingShare] = useState(false);
 
   // Form state
   const [newClientForm, setNewClientForm] = useState<NewClientForm>(emptyNewClient());
@@ -433,6 +438,14 @@ export default function ArchonDashboard() {
       queryClient.invalidateQueries({ queryKey: ["/api/archon/orgs"] });
       queryClient.invalidateQueries({ queryKey: ["/api/archon/users"] });
       toast({ title: `Client "${data.org.name}" created` });
+      const f = newClientForm;
+      setOnboardingShare({
+        firstName: f.adminFirstName,
+        email: f.adminEmail.trim().toLowerCase(),
+        password: f.adminPassword,
+        orgName: data.org.name,
+      });
+      setShowOnboardingShare(true);
       setShowNewClient(false);
       setNewClientForm(emptyNewClient());
     },
@@ -479,6 +492,14 @@ export default function ArchonDashboard() {
       queryClient.invalidateQueries({ queryKey: ["/api/archon/users"] });
       queryClient.invalidateQueries({ queryKey: ["/api/archon/orgs"] });
       toast({ title: "User added successfully" });
+      const f = newAdminForm;
+      setOnboardingShare({
+        firstName: f.firstName,
+        email: f.email.trim().toLowerCase(),
+        password: f.password,
+        orgName: newAdminTarget?.name ?? null,
+      });
+      setShowOnboardingShare(true);
       setNewAdminTarget(null);
       setNewAdminForm({ firstName: "", lastName: "", email: "", password: "", role: "administrator" });
     },
@@ -514,6 +535,15 @@ export default function ArchonDashboard() {
       (await apiRequest("PATCH", `/api/archon/users/${id}/password`, { password })).json(),
     onSuccess: () => {
       toast({ title: "Password updated" });
+      if (passwordTarget) {
+        setOnboardingShare({
+          firstName: passwordTarget.firstName,
+          email: passwordTarget.email,
+          password: newPassword,
+          orgName: passwordTarget.orgName,
+        });
+        setShowOnboardingShare(true);
+      }
       setPasswordTarget(null);
       setNewPassword("");
     },
@@ -852,6 +882,18 @@ export default function ArchonDashboard() {
                                   <td className="px-4 py-2 text-white/40 text-xs" data-testid={`text-archon-contact-${user.id}`}>{user.contactNumber ?? "—"}</td>
                                   <td className="px-4 py-2">
                                     <div className="flex items-center gap-1 justify-end">
+                                      <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-primary hover:text-primary/80 hover:bg-primary/10"
+                                        onClick={() => {
+                                          setOnboardingShare({
+                                            firstName: user.firstName,
+                                            email: user.email,
+                                            orgName: user.orgName,
+                                          });
+                                          setShowOnboardingShare(true);
+                                        }}
+                                        title="Send onboarding (install + login)" data-testid={`button-archon-onboard-${user.id}`}>
+                                        <Share2 className="h-3 w-3" />
+                                      </Button>
                                       <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-sky-400 hover:text-sky-300 hover:bg-sky-400/10"
                                         onClick={() => { setPasswordTarget(user); setNewPassword(""); }}
                                         title="Reset password" data-testid={`button-archon-password-${user.id}`}>
@@ -1269,6 +1311,13 @@ export default function ArchonDashboard() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <ArchonOnboardingShare
+        open={showOnboardingShare}
+        onOpenChange={setShowOnboardingShare}
+        user={onboardingShare}
+        panelBg={panelBg}
+      />
     </div>
   );
 }
