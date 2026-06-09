@@ -8,7 +8,7 @@ import { apiRequest } from "@/lib/queryClient";
 import type { Category } from "@shared/schema";
 import { quickPanicLocationCheck, hasPanicCoordinates, type PanicLocationResult } from "@/lib/panic-location";
 import { preloadLocationSettingsModule } from "@/lib/open-location-settings";
-import { OpenLocationSettingsButton } from "@/components/open-location-settings-button";
+import { LocationPermissionGuide } from "@/components/location-permission-guide";
 
 const LIVE_SEV_KEY = "omt_live_severity_sel";
 const LIVE_CAT_KEY = "omt_live_category_sel";
@@ -153,18 +153,10 @@ export default function LiveSeverityPage() {
       {/* Location status banner */}
       {locationProbe != null && !locationReady && (
         <div className="px-4 pt-3 space-y-2 shrink-0" data-testid="banner-severity-location-off">
-          <div className="flex items-start gap-2 rounded-lg border border-amber-500/50 bg-amber-500/15 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
-            <MapPin className="h-4 w-4 shrink-0 mt-0.5" />
-            <span>
-              <strong>Location is off or unavailable.</strong> Your position won't be tracked during this incident. Enable location now so responders can see where you are.
-            </span>
-          </div>
-          <OpenLocationSettingsButton
+          <LocationPermissionGuide
             variant="light"
-            testId="button-severity-open-location-settings"
-            onAfterOpen={() => {
-              void quickPanicLocationCheck().then(setLocationProbe);
-            }}
+            testIdPrefix="severity-location"
+            onLocationUpdated={(loc) => setLocationProbe(loc)}
           />
         </div>
       )}

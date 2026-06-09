@@ -28,7 +28,7 @@ import type { Incident, Category } from "@shared/schema";
 import { isCloseReclassifyType } from "@/lib/incident-categories";
 import { resolveJoinerNavDestination } from "@/lib/incident-display";
 import { usePanickerLocationSync } from "@/hooks/use-panicker-location-sync";
-import { OpenLocationSettingsButton } from "@/components/open-location-settings-button";
+import { LocationPermissionGuide } from "@/components/location-permission-guide";
 import { probePanicLocation } from "@/lib/panic-send";
 
 const LIVE_INCIDENT_KEY = "omt_live_incident_id";
@@ -2819,17 +2819,11 @@ export default function LiveIncidentPage() {
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {!panickerHasCoords && (
-            <div className="space-y-3" data-testid="banner-panicker-location-off">
-              <div className="flex items-start gap-2 rounded-lg border border-amber-500/50 bg-amber-500/15 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
-                <MapPin className="h-4 w-4 shrink-0 mt-0.5" />
-                <span>
-                  <strong>Location is off.</strong> Open settings to allow Location for OMT Pulse. We keep trying while this screen is open.
-                </span>
-              </div>
-              <OpenLocationSettingsButton
+            <div data-testid="banner-panicker-location-off">
+              <LocationPermissionGuide
                 variant="light"
-                testId="button-panicker-open-location-settings"
-                onAfterOpen={() => {
+                testIdPrefix="panicker-location"
+                onLocationUpdated={() => {
                   void probePanicLocation();
                   void queryClient.invalidateQueries({ queryKey: ["/api/incidents/live"] });
                 }}
