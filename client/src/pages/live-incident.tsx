@@ -30,6 +30,7 @@ import { resolveJoinerNavDestination } from "@/lib/incident-display";
 import { usePanickerLocationSync } from "@/hooks/use-panicker-location-sync";
 import { LocationPermissionGuide } from "@/components/location-permission-guide";
 import { probePanicLocation } from "@/lib/panic-send";
+import { acquirePanicLocation, hasPanicCoordinates } from "@/lib/panic-location";
 
 const LIVE_INCIDENT_KEY = "omt_live_incident_id";
 
@@ -441,6 +442,12 @@ export default function LiveIncidentPage() {
   const [isOffRoute, setIsOffRoute] = useState(false);
   const [navMode, setNavMode] = useState(false);
   const [speedKmh, setSpeedKmh] = useState<number | null>(null);
+  // Joiner navigation is gated on a real GPS fix — without the joiner's own
+  // position there is no route origin and dispatch can't track them. These
+  // drive the "Getting your location…" button state and the location-enable
+  // guide shown when a joiner taps Navigate with location off.
+  const [acquiringJoinerGps, setAcquiringJoinerGps] = useState(false);
+  const [joinerGpsBlocked, setJoinerGpsBlocked] = useState(false);
   // Mirrors navMode so interval callbacks (startStepTracking) always read the latest value.
   const navModeRef = useRef(false);
   // Guards the one-shot nav-mode auto-resume after PWA reopen / app kill.
@@ -2190,6 +2197,31 @@ export default function LiveIncidentPage() {
   async function dispatchJoinerInApp() {
     const dest = joinerNavDestination;
     if (!joinedId || !dest) return;
+
+    // ── Enforce location ON before a joiner can navigate ──────────────────
+    // Without the joiner's own position there is no route origin, dispatch
+    // can't track them, and the map just sits on the incident pin (the
+    // "GPS unavailable" dead-end). Require a real fix first; if we can't get
+    // one, surface the enable-location guide and do NOT enter nav mode.
+    let origin = lastPosRef.current;
+    if (!origin) {
+      setAcquiringJoinerGps(true);
+      const probe = await acquirePanicLocation();
+      setAcquiringJoinerGps(false);
+      if (!hasPanicCoordinates(probe)) {
+        setJoinerGpsBlocked(true);
+        toast({
+          title: "Turn on location to navigate",
+          description: "Navigation needs your live position. Enable Location for OMT Pulse, then tap Navigate again.",
+          variant: "destructive",
+        });
+        return;
+      }
+      origin = { lat: probe.lat, lng: probe.lng };
+      lastPosRef.current = origin; // seed route origin + live-tracking base
+    }
+    setJoinerGpsBlocked(false);
+
     localStorage.setItem(NAV_STARTED_KEY, String(joinedId));
     setNavStarted(true);
     announcedStepRef.current = -1;
@@ -2197,7 +2229,7 @@ export default function LiveIncidentPage() {
     arrivedAnnouncedRef.current = false;
     // Draw the route to the incident destination so the step panel, voice
     // announcements, and ETA all work for joiners — matching creator behaviour.
-    drawRoute(dest.lat, dest.lng, lastPosRef.current ?? undefined, true);
+    drawRoute(dest.lat, dest.lng, origin, true);
     // On native: wait briefly for DirectionsService to resolve before setNavMode(true)
     // so the tilt+seed useEffect finds stepsRef already populated.
     if (isNative) await new Promise(r => setTimeout(r, 600));
@@ -3192,20 +3224,44 @@ export default function LiveIncidentPage() {
                         <span className="truncate">Open in Google Maps (pauses GPS) — {joinerNavDestination.name}</span>
                       </button>
                     ) : (
-                      <Button
-                        size="lg"
-                        className="w-full flex-col h-auto py-3 gap-1 bg-blue-600 hover:bg-blue-700 text-white"
-                        onClick={dispatchJoinerInApp}
-                        data-testid="button-joiner-navigate"
-                      >
-                        <div className="flex items-center gap-2">
-                          <Navigation className="h-5 w-5 shrink-0" />
-                          <span className="text-base font-semibold">Navigate (keeps GPS active)</span>
-                        </div>
-                        <span className="text-xs font-normal opacity-80 max-w-full truncate px-2">
-                          {joinerNavDestination.name}
-                        </span>
-                      </Button>
+                      <>
+                        <Button
+                          size="lg"
+                          className="w-full flex-col h-auto py-3 gap-1 bg-blue-600 hover:bg-blue-700 text-white"
+                          onClick={dispatchJoinerInApp}
+                          disabled={acquiringJoinerGps}
+                          data-testid="button-joiner-navigate"
+                        >
+                          <div className="flex items-center gap-2">
+                            {acquiringJoinerGps ? (
+                              <Loader2 className="h-5 w-5 shrink-0 animate-spin" />
+                            ) : (
+                              <Navigation className="h-5 w-5 shrink-0" />
+                            )}
+                            <span className="text-base font-semibold">
+                              {acquiringJoinerGps ? "Getting your location…" : "Navigate (keeps GPS active)"}
+                            </span>
+                          </div>
+                          <span className="text-xs font-normal opacity-80 max-w-full truncate px-2">
+                            {joinerNavDestination.name}
+                          </span>
+                        </Button>
+                        {joinerGpsBlocked && (
+                          <div className="pt-1" data-testid="banner-joiner-location-off">
+                            <LocationPermissionGuide
+                              variant="light"
+                              testIdPrefix="joiner-location"
+                              onLocationUpdated={(loc) => {
+                                if (hasPanicCoordinates(loc)) {
+                                  lastPosRef.current = { lat: loc.lat, lng: loc.lng };
+                                  setJoinerGpsBlocked(false);
+                                  void dispatchJoinerInApp();
+                                }
+                              }}
+                            />
+                          </div>
+                        )}
+                      </>
                     )}
                     {routeInfo && (
                       <div className="flex gap-3 text-sm pt-0.5">
