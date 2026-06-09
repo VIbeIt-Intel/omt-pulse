@@ -288,7 +288,6 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
     // WebView the Google Maps JS-API map can be slow or unavailable, and the old
     // `if (!map) return` guard silently discarded the position, saving incidents
     // with no location. The visual map is now treated as optional confirmation.
-    setLocationError(null);
     setPendingLatLng({ lat, lng });
     form.setValue("latitude", lat);
     form.setValue("longitude", lng);
@@ -341,6 +340,12 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
   };
 
   const locationReady = locationProbe != null && hasPanicCoordinates(locationProbe);
+  const watchedLat = form.watch("latitude");
+  const watchedLng = form.watch("longitude");
+  const confirmCoords =
+    pendingLatLng ??
+    (locationReady ? { lat: locationProbe!.lat!, lng: locationProbe!.lng! } : null) ??
+    (watchedLat != null && watchedLng != null ? { lat: watchedLat, lng: watchedLng } : null);
 
   async function refreshLocationProbe(applyIfReady = false) {
     const loc = await quickPanicLocationCheck();
@@ -381,7 +386,11 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
     preloadLocationSettingsModule();
     let cancelled = false;
     void quickPanicLocationCheck().then((loc) => {
-      if (!cancelled) setLocationProbe(loc);
+      if (cancelled) return;
+      setLocationProbe(loc);
+      if (hasPanicCoordinates(loc)) {
+        applyGpsPosition(loc.lat, loc.lng);
+      }
     });
     const onVisible = () => {
       if (document.visibilityState !== "visible") return;
@@ -413,6 +422,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
       const existingLng = form.getValues("longitude");
       if (existingLat != null && existingLng != null) {
         const pos = { lat: existingLat, lng: existingLng };
+        setPendingLatLng(pos);
         map.setCenter(pos);
         map.setZoom(13);
         pinRef.current = new google.maps.Marker({ position: pos, map, title: "Selected location" });
@@ -732,8 +742,10 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
   };
 
   const openMapPicker = () => {
+    const lat = form.getValues("latitude");
+    const lng = form.getValues("longitude");
     setMapModalOpen(true);
-    setPendingLatLng(null);
+    setPendingLatLng(lat != null && lng != null ? { lat, lng } : null);
     setPendingAddress(null);
   };
 
@@ -1683,7 +1695,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                   data-testid="banner-incident-location-ready"
                 >
                   <MapPin className="h-4 w-4 shrink-0 mt-0.5" />
-                  <span>GPS ready — tap the crosshair or anywhere on the map to set the incident location.</span>
+                  <span>GPS ready — your position is selected. Tap <strong>Use This Location</strong> or move the pin on the map.</span>
                 </div>
               )}
               <div className="relative">
@@ -1706,9 +1718,9 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
               <p className="text-xs text-muted-foreground">
                 {mapLoading ? "Finding the nearest address..." : pendingAddress || "Tap anywhere on the map to pick the incident location."}
               </p>
-              {pendingLatLng && (
+              {confirmCoords && (
                 <p className="text-xs text-muted-foreground" data-testid="text-picked-coordinates">
-                  Selected: {pendingLatLng.lat.toFixed(5)}, {pendingLatLng.lng.toFixed(5)}
+                  Selected: {confirmCoords.lat.toFixed(5)}, {confirmCoords.lng.toFixed(5)}
                 </p>
               )}
               <div className="flex justify-end gap-2">
@@ -1717,17 +1729,17 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                 </Button>
                 <Button
                   onClick={() => {
-                    if (pendingLatLng) {
-                      form.setValue("latitude", pendingLatLng.lat);
-                      form.setValue("longitude", pendingLatLng.lng);
+                    if (confirmCoords) {
+                      form.setValue("latitude", confirmCoords.lat);
+                      form.setValue("longitude", confirmCoords.lng);
                       form.setValue("locationId", null);
                       if (!form.getValues("locationName")) {
-                        form.setValue("locationName", `Dropped pin (${pendingLatLng.lat.toFixed(5)}, ${pendingLatLng.lng.toFixed(5)})`);
+                        form.setValue("locationName", `Dropped pin (${confirmCoords.lat.toFixed(5)}, ${confirmCoords.lng.toFixed(5)})`);
                       }
                     }
                     setMapModalOpen(false);
                   }}
-                  disabled={!pendingLatLng}
+                  disabled={!confirmCoords}
                   data-testid="button-map-confirm"
                 >
                   Use This Location
