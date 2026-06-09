@@ -44,6 +44,9 @@ import { IncidentSapsSection, isSapsFormField } from "./incident-saps-section";
 import { IncidentDescriptionSection } from "./incident-description-section";
 import { CalendarIcon, Clock, MapPin, Upload, Paperclip, X, Loader2, Camera, Mic, Square, Globe, Map, LocateFixed } from "lucide-react";
 import { loadGoogleMaps } from "@/lib/google-maps-loader";
+import { quickPanicLocationCheck, hasPanicCoordinates, type PanicLocationResult } from "@/lib/panic-location";
+import { preloadLocationSettingsModule } from "@/lib/open-location-settings";
+import { OpenLocationSettingsButton } from "@/components/open-location-settings-button";
 import { AttachmentPreview, attachmentUploaderLabel } from "@/components/attachment-preview";
 import { IncidentEvidenceSection } from "@/components/incident-evidence-section";
 import { GeoLocationSheet, type GeoMapView } from "@/components/incident-location-sheet";
@@ -105,7 +108,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
   const [pendingAddress, setPendingAddress] = useState<string | null>(null);
   const [mapLoading, setMapLoading] = useState(false);
   const [gpsLoading, setGpsLoading] = useState(false);
-  const [locationError, setLocationError] = useState<string | null>(null);
+  const [locationProbe, setLocationProbe] = useState<PanicLocationResult | null>(null);
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const [existingAttachments, setExistingAttachments] = useState<AttachmentWithUploader[]>([]);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
@@ -337,35 +340,62 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
     }
   };
 
+  const locationReady = locationProbe != null && hasPanicCoordinates(locationProbe);
+
+  async function refreshLocationProbe(applyIfReady = false) {
+    const loc = await quickPanicLocationCheck();
+    setLocationProbe(loc);
+    if (applyIfReady && hasPanicCoordinates(loc) && mapInstanceRef.current) {
+      applyGpsPosition(loc.lat, loc.lng);
+    }
+    return loc;
+  }
+
   const handleUseMyLocation = () => {
     if (!navigator.geolocation) {
-      setLocationError("Location services are not available on this device.");
+      setLocationProbe({ issue: "unsupported" });
       return;
     }
     setGpsLoading(true);
-    setLocationError(null);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setGpsLoading(false);
-        applyGpsPosition(pos.coords.latitude, pos.coords.longitude);
+        const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        setLocationProbe(loc);
+        applyGpsPosition(loc.lat, loc.lng);
       },
       (err) => {
         setGpsLoading(false);
-        if (err.code === err.PERMISSION_DENIED) {
-          setLocationError("Location access was denied. Please enable location services in your device settings and try again.");
-        } else if (err.code === err.POSITION_UNAVAILABLE) {
-          setLocationError("Your location could not be determined. Please enable location services in your device settings and try again.");
-        } else {
-          setLocationError("Location request timed out. Please enable location services in your device settings and try again.");
-        }
+        const issue = err.code === 1 ? "denied" : err.code === 3 ? "timeout" : "unavailable";
+        setLocationProbe({ issue });
       },
-      { timeout: 10000, maximumAge: 60000 }
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
     );
   };
 
   useEffect(() => {
+    if (!mapModalOpen) {
+      setLocationProbe(null);
+      return;
+    }
+    preloadLocationSettingsModule();
+    let cancelled = false;
+    void quickPanicLocationCheck().then((loc) => {
+      if (!cancelled) setLocationProbe(loc);
+    });
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      void refreshLocationProbe(true);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [mapModalOpen]);
+
+  useEffect(() => {
     if (!mapModalOpen) return;
-    setLocationError(null);
     loadGoogleMaps().then(() => {
       if (!mapRef.current || mapInstanceRef.current) return;
       const map = new google.maps.Map(mapRef.current, {
@@ -386,16 +416,13 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
         map.setCenter(pos);
         map.setZoom(13);
         pinRef.current = new google.maps.Marker({ position: pos, map, title: "Selected location" });
-      } else if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-          (pos) => {
-            if (mapInstanceRef.current) {
-              applyGpsPosition(pos.coords.latitude, pos.coords.longitude);
-            }
-          },
-          () => {},
-          { timeout: 5000, maximumAge: 60000 }
-        );
+      } else {
+        void quickPanicLocationCheck().then((loc) => {
+          setLocationProbe(loc);
+          if (hasPanicCoordinates(loc) && mapInstanceRef.current) {
+            applyGpsPosition(loc.lat, loc.lng);
+          }
+        });
       }
 
       map.addListener("click", (e: google.maps.MapMouseEvent) => {
@@ -1635,6 +1662,30 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
               <DialogTitle>Pick Location on Map</DialogTitle>
             </DialogHeader>
             <div className="space-y-3">
+              {locationProbe != null && !locationReady && (
+                <div className="space-y-3" data-testid="banner-incident-location-off">
+                  <div className="flex items-start gap-2 rounded-lg border border-amber-500/50 bg-amber-500/15 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
+                    <MapPin className="h-4 w-4 shrink-0 mt-0.5" />
+                    <span>
+                      <strong>Location is off or unavailable.</strong> Open settings to turn on Location for OMT Pulse, then return here to centre the map on your position.
+                    </span>
+                  </div>
+                  <OpenLocationSettingsButton
+                    variant="light"
+                    testId="button-incident-open-location-settings"
+                    onAfterOpen={() => void refreshLocationProbe(true)}
+                  />
+                </div>
+              )}
+              {locationReady && (
+                <div
+                  className="flex items-start gap-2 rounded-lg border border-green-500/40 bg-green-500/10 px-4 py-3 text-sm text-green-800 dark:text-green-200"
+                  data-testid="banner-incident-location-ready"
+                >
+                  <MapPin className="h-4 w-4 shrink-0 mt-0.5" />
+                  <span>GPS ready — tap the crosshair or anywhere on the map to set the incident location.</span>
+                </div>
+              )}
               <div className="relative">
                 <div
                   ref={mapRef}
@@ -1653,11 +1704,8 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                 </button>
               </div>
               <p className="text-xs text-muted-foreground">
-                {mapLoading ? "Finding the nearest address..." : pendingAddress || (locationError ? "" : "Tap anywhere on the map to pick the incident location.")}
+                {mapLoading ? "Finding the nearest address..." : pendingAddress || "Tap anywhere on the map to pick the incident location."}
               </p>
-              {locationError && (
-                <p className="text-xs text-destructive" data-testid="text-location-error">{locationError}</p>
-              )}
               {pendingLatLng && (
                 <p className="text-xs text-muted-foreground" data-testid="text-picked-coordinates">
                   Selected: {pendingLatLng.lat.toFixed(5)}, {pendingLatLng.lng.toFixed(5)}
