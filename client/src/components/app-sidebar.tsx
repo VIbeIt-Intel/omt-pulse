@@ -261,7 +261,7 @@ export function AppSidebar({ user, onLogout, avatarPreview }: AppSidebarProps) {
     <Sidebar>
       <SidebarHeader className="p-4">
         <div className="flex flex-col items-center gap-2 pb-1">
-          <OmtShield className="w-14 h-14" />
+          <OmtShield variant="mark" className="h-14 w-14 rounded-2xl" />
           <div className="text-center">
             <div className="flex items-center justify-center gap-2">
               <h2 className="text-base font-bold tracking-tight" data-testid="text-app-title">OMT Pulse</h2>

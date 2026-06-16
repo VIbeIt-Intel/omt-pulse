@@ -622,18 +622,22 @@ export default function CommandDashboard() {
 
       <div className="p-4 md:p-6 pb-4 space-y-4 max-w-4xl mx-auto w-full">
 
-        <div className="flex flex-col items-center gap-1 pt-2 pb-1">
-          <OmtShield className="w-16 h-16" />
-          <div className="flex items-center justify-center gap-2">
-            <div style={{ transform: "scaleX(-1)" }}>
-              <HeartbeatLine className="w-16 h-4" />
+        <div className="flex flex-col items-center gap-2 pt-3 pb-1">
+          <OmtShield variant="hero" />
+          <div className="flex flex-col items-center gap-0.5">
+            <div className="flex items-center justify-center gap-2">
+              <div style={{ transform: "scaleX(-1)" }}>
+                <HeartbeatLine className="w-14 h-3.5 text-primary/70" />
+              </div>
+              <h1 className="text-2xl sm:text-[1.65rem] font-bold tracking-tight" data-testid="text-page-title">
+                OMT Pulse
+              </h1>
+              <HeartbeatLine className="w-14 h-3.5 text-primary/70" />
             </div>
-            <h1 className="text-2xl font-bold tracking-tight" data-testid="text-page-title">OMT Pulse</h1>
-            <HeartbeatLine className="w-16 h-4" />
+            <p className="text-sm text-muted-foreground">
+              {currentUser?.firstName ? `Welcome, ${currentUser.firstName}.` : "Welcome."}
+            </p>
           </div>
-          <p className="text-sm text-muted-foreground">
-            {currentUser?.firstName ? `Welcome, ${currentUser.firstName}.` : "Welcome."}
-          </p>
         </div>
 
         <PanicBanner

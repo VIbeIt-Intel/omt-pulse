@@ -718,10 +718,10 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
         <div className="flex flex-col flex-1 min-w-0 relative">
           {/* Full INTEL header — dashboard only */}
           {location === "/dashboard" && (
-          <header className="grid grid-cols-[1fr_auto_1fr] items-center p-2 border-b shrink-0 gap-2">
+          <header className="grid grid-cols-[1fr_auto_1fr] items-center p-2 border-b border-border bg-background text-foreground shrink-0 gap-2 z-40">
             {/* Left */}
-            <div className="flex items-center">
-              <SidebarTrigger data-testid="button-sidebar-toggle" />
+            <div className="flex items-center text-foreground">
+              <SidebarTrigger data-testid="button-sidebar-toggle" className="text-foreground" />
             </div>
 
             {/* Centre — online status + logo */}
@@ -730,13 +730,13 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
               <img
                 src={intelafriLogo}
                 alt="IntelAfri"
-                className="h-9 object-contain invert dark:invert-0 shrink-0"
+                className="h-9 object-contain shrink-0 dark:mix-blend-screen"
                 data-testid="img-header-logo"
               />
             </div>
 
             {/* Right — billing, theme, notifications, avatar */}
-            <div className="flex items-center gap-1 justify-end">
+            <div className="flex items-center gap-1 justify-end text-foreground">
               {user.role === "administrator" && (
                 <Tooltip>
                   <TooltipTrigger asChild>

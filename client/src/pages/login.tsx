@@ -74,7 +74,7 @@ export default function LoginPage() {
           {/* Left — branding */}
           <div className="flex-1 space-y-5 text-center md:text-left">
             <div className="flex flex-col items-center gap-4 md:flex-row md:items-start">
-              <OmtShield className="h-16 w-16 shrink-0" />
+              <OmtShield variant="mark" className="h-16 w-16 shrink-0 rounded-2xl" />
               <div>
                 <h1 className="text-3xl font-bold tracking-tight sm:text-4xl" data-testid="text-login-title">
                   OMT Pulse
