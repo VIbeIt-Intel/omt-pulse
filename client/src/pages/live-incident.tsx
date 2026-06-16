@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useLocation } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ import { useWakeLock } from "@/hooks/use-wake-lock";
 import { usePermissionStatus } from "@/hooks/use-permission-status";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Label } from "@/components/ui/label";
 import { apiRequest } from "@/lib/queryClient";
 import { loadGoogleMaps, resetGoogleMapsLoader } from "@/lib/google-maps-loader";
@@ -26,7 +27,23 @@ import { Capacitor } from '@capacitor/core';
 import CapacitorMap, { type CapacitorMapHandle } from '@/components/CapacitorMap';
 import type { Incident, Category } from "@shared/schema";
 import { isCloseReclassifyType } from "@/lib/incident-categories";
-import { resolveJoinerNavDestination } from "@/lib/incident-display";
+import { resolveJoinerNavDestination, resolveLiveNavTarget } from "@/lib/incident-display";
+import {
+  type JoinNavStyle,
+  bearingCardinal,
+  bearingDegrees,
+  GUIDED_REROUTE_COOLDOWN_MS,
+  haversineM,
+  minDistToPolylineM,
+  NAV_TRACK_INTERVAL_MS,
+  OFF_ROUTE_FALLBACK_STREAK,
+  OFF_ROUTE_POLYLINE_M,
+  ptSegDistM,
+  readStoredJoinNavStyle,
+  seedStepIndexFromPosition,
+  storeJoinNavStyle,
+} from "@/lib/join-nav";
+import { pathFromDirectionsRoute, type LatLngPoint } from "@/lib/decode-polyline";
 import { usePanickerLocationSync } from "@/hooks/use-panicker-location-sync";
 import { LocationPermissionGuide } from "@/components/location-permission-guide";
 import { probePanicLocation } from "@/lib/panic-send";
@@ -281,27 +298,6 @@ function ManeuverIcon({ maneuver, className }: { maneuver?: string | null; class
       return <ArrowUp className={cls} strokeWidth={2.5} />;
   }
 }
-function haversineM(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
-  const R = 6371000;
-  const dLat = (b.lat - a.lat) * Math.PI / 180;
-  const dLng = (b.lng - a.lng) * Math.PI / 180;
-  const sl = Math.sin(dLat / 2), sln = Math.sin(dLng / 2);
-  const x = sl * sl + Math.cos(a.lat * Math.PI / 180) * Math.cos(b.lat * Math.PI / 180) * sln * sln;
-  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
-}
-/** Distance (metres) from point p to the nearest point on segment a→b (planar approximation). */
-function ptSegDistM(
-  p: { lat: number; lng: number },
-  a: { lat: number; lng: number },
-  b: { lat: number; lng: number }
-): number {
-  const dLat = b.lat - a.lat, dLng = b.lng - a.lng;
-  const lenSq = dLat * dLat + dLng * dLng;
-  if (lenSq === 0) return haversineM(p, a);
-  const t = Math.max(0, Math.min(1, ((p.lat - a.lat) * dLat + (p.lng - a.lng) * dLng) / lenSq));
-  return haversineM(p, { lat: a.lat + t * dLat, lng: a.lng + t * dLng });
-}
-
 async function compressImageToBlob(file: File, maxPx = 1024, quality = 0.75): Promise<Blob> {
   return new Promise((resolve, reject) => {
     const blobUrl = URL.createObjectURL(file);
@@ -333,6 +329,98 @@ function openGoogleMapsNav(lat: number, lng: number) {
   try { localStorage.setItem("omt_return_url", window.location.pathname + window.location.search); } catch { /* ignore */ }
   const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`;
   window.open(url, "_blank");
+}
+
+function fmtTimeAgo(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const ms = Date.now() - new Date(iso).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return null;
+  const sec = Math.round(ms / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.round(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  return `${Math.round(min / 60)}h ago`;
+}
+
+type NavRosterEntry = {
+  userId: string;
+  firstName: string;
+  lastName: string;
+  role: "panicker" | "you" | "responder";
+  status: "live" | "ack";
+  joinedAt?: string | null;
+  lastPositionAt?: string | null;
+};
+
+function buildNavRoster(opts: {
+  incident: {
+    userId: string | null;
+    responderFirstName?: string | null;
+    responderLastName?: string | null;
+    responders?: Array<{
+      userId: string;
+      firstName: string;
+      lastName: string;
+      joinedAt: string;
+      lastPositionAt?: string | null;
+    }>;
+  };
+  meId?: string;
+  isJoiner: boolean;
+  isPanic: boolean;
+  acknowledgers: Array<{ userId: string; firstName: string; lastName: string }>;
+}): NavRosterEntry[] {
+  const { incident, meId, isJoiner, isPanic, acknowledgers } = opts;
+  const entries: NavRosterEntry[] = [];
+  const byUserId = new Map<string, NavRosterEntry>();
+
+  if (isJoiner && incident.userId) {
+    const row: NavRosterEntry = {
+      userId: incident.userId,
+      firstName: incident.responderFirstName ?? "Panicker",
+      lastName: incident.responderLastName ?? "",
+      role: "panicker",
+      status: "live",
+    };
+    byUserId.set(row.userId, row);
+    entries.push(row);
+  }
+
+  if (isPanic) {
+    for (const a of acknowledgers) {
+      if (byUserId.has(a.userId)) continue;
+      const row: NavRosterEntry = {
+        userId: a.userId,
+        firstName: a.firstName,
+        lastName: a.lastName,
+        role: a.userId === meId ? "you" : "responder",
+        status: "ack",
+      };
+      byUserId.set(a.userId, row);
+      entries.push(row);
+    }
+  }
+
+  for (const r of incident.responders ?? []) {
+    const existing = byUserId.get(r.userId);
+    const row: NavRosterEntry = {
+      userId: r.userId,
+      firstName: r.firstName,
+      lastName: r.lastName,
+      role: r.userId === meId ? "you" : "responder",
+      status: "live",
+      joinedAt: r.joinedAt,
+      lastPositionAt: r.lastPositionAt ?? null,
+    };
+    if (existing) {
+      Object.assign(existing, { ...row, role: existing.role === "panicker" ? "panicker" : row.role });
+    } else {
+      byUserId.set(r.userId, row);
+      entries.push(row);
+    }
+  }
+
+  return entries;
 }
 
 export default function LiveIncidentPage() {
@@ -377,6 +465,10 @@ export default function LiveIncidentPage() {
   const trackingIncidentIdRef = useRef<number | null>(null);
   const searchDebRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stepsRef = useRef<google.maps.DirectionsStep[]>([]);
+  /** Full route polyline for off-route detection (not step chords). */
+  const routePolylineRef = useRef<LatLngPoint[]>([]);
+  const offRouteStreakRef = useRef(0);
+  const activeNavStyleRef = useRef<JoinNavStyle>("direct");
   const announcedStepRef = useRef<number>(-1);       // step-advance voice (fires on index change)
   const approachingTurnAnnouncedRef = useRef<number>(-1); // 200 m "In X m, turn …" voice (per step)
   const arrivedAnnouncedRef = useRef<boolean>(false);
@@ -444,7 +536,12 @@ export default function LiveIncidentPage() {
   const [stepDist, setStepDist] = useState<number | null>(null);
   const [hasRoute, setHasRoute] = useState(false);
   const [isOffRoute, setIsOffRoute] = useState(false);
+  const [guidedOffRoute, setGuidedOffRoute] = useState(false);
   const [navMode, setNavMode] = useState(false);
+  /** Direct = bearing/distance to live target; Guided = turn-by-turn. */
+  const [activeNavStyle, setActiveNavStyle] = useState<JoinNavStyle>(() => readStoredJoinNavStyle());
+  const [directDist, setDirectDist] = useState<number | null>(null);
+  const [directBearing, setDirectBearing] = useState<number | null>(null);
   const [speedKmh, setSpeedKmh] = useState<number | null>(null);
   // Joiner navigation is gated on a real GPS fix — without the joiner's own
   // position there is no route origin and dispatch can't track them. These
@@ -463,6 +560,7 @@ export default function LiveIncidentPage() {
   const responderSeedDoneRef = useRef(false);
   // Name to flash when a new responder joins (auto-clears after 10s).
   const [newJoinerFlash, setNewJoinerFlash] = useState<string | null>(null);
+  const [respondersSheetOpen, setRespondersSheetOpen] = useState(false);
   // Timestamp of the last auto-reroute, for 30-second rate-limiting.
   const lastRerouteRef = useRef<number>(0);
   // Monotonic id so stale DirectionsService callbacks can't overwrite a newer route.
@@ -561,6 +659,9 @@ export default function LiveIncidentPage() {
   const joinerNavDestination = currentIncident && isJoinerMode
     ? resolveJoinerNavDestination(currentIncident)
     : null;
+  const liveNavTarget = currentIncident && isJoinerMode
+    ? resolveLiveNavTarget(currentIncident)
+    : null;
 
   // Screen Wake Lock — keep the screen on for the full duration of any live
   // incident (creator or joiner). Released automatically when the incident ends
@@ -636,46 +737,193 @@ export default function LiveIncidentPage() {
     }
   }
 
-  function stopGpsFallbackTracking() {
-    if (gpsFallbackIntervalRef.current !== null) {
-      clearInterval(gpsFallbackIntervalRef.current);
-      gpsFallbackIntervalRef.current = null;
+  function updateDirectNavMetrics() {
+    const pos = lastPosRef.current;
+    const target = destPositionRef.current;
+    if (!target || !pos) {
+      setDirectDist(null);
+      setDirectBearing(null);
+      return;
     }
+    setDirectDist(Math.round(haversineM(pos, target)));
+    setDirectBearing(Math.round(bearingDegrees(pos, target)));
+  }
+
+  function applyGuidedRouteResult(
+    steps: google.maps.DirectionsStep[],
+    distance: number,
+    duration: number,
+    path: LatLngPoint[],
+  ) {
+    stepsRef.current = steps;
+    routePolylineRef.current = path;
+    setRouteInfo({ distance, duration });
+    setHasRoute(true);
+    setIsOffRoute(false);
+    setGuidedOffRoute(false);
+    offRouteStreakRef.current = 0;
+    const pos = lastPosRef.current;
+    if (pos && steps.length > 0) {
+      const { idx, stepDist } = seedStepIndexFromPosition(pos, steps);
+      currentStepIndexRef.current = idx;
+      setCurrentStepIndex(idx);
+      setStepDist(stepDist);
+    } else {
+      setCurrentStepIndex(0);
+      setStepDist(steps[0]?.distance?.value ?? null);
+    }
+  }
+
+  async function clearGuidedRouteVisuals() {
+    routePolylineRef.current = [];
+    stepsRef.current = [];
+    setHasRoute(false);
+    setRouteInfo(null);
+    if (isNative && capMapRef.current) {
+      await capMapRef.current.clearRoute().catch(() => {});
+    }
+    if (directionsRendererRef.current) {
+      directionsRendererRef.current.setDirections({ routes: [] } as unknown as google.maps.DirectionsResult);
+    }
+  }
+
+  function switchToDirectNav(reason?: string) {
+    if (activeNavStyleRef.current === "direct") return;
+    storeJoinNavStyle("direct");
+    setActiveNavStyle("direct");
+    activeNavStyleRef.current = "direct";
+    void clearGuidedRouteVisuals();
+    setIsOffRoute(false);
+    setGuidedOffRoute(false);
+    offRouteStreakRef.current = 0;
+    void stopSpeaking();
+    updateDirectNavMetrics();
+    const target = destPositionRef.current;
+    if (target) {
+      void refreshDestMarker(target.lat, target.lng, (liveNavTarget ?? joinerNavDestination)?.name ?? "Destination");
+    }
+    if (reason) {
+      toast({ title: "Direct guidance", description: reason });
+    }
+  }
+
+  async function refreshDestMarker(dlat: number, dlng: number, title: string) {
+    if (isNative && capMapRef.current) {
+      const cap = capMapRef.current;
+      if (capDestMarkerIdRef.current) {
+        await cap.removeMarker(capDestMarkerIdRef.current).catch(() => {});
+        capDestMarkerIdRef.current = "";
+      }
+      cap.addMarker({ lat: dlat, lng: dlng, title, tintColor: { r: 239, g: 68, b: 68, a: 255 } })
+        .then((id) => { capDestMarkerIdRef.current = id; })
+        .catch(() => {});
+      return;
+    }
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    if (destMarkerRef.current) {
+      destMarkerRef.current.setMap(null);
+      destMarkerRef.current = null;
+    }
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="40" viewBox="0 0 32 40"><path d="M16 0C7.163 0 0 7.163 0 16c0 12 16 24 16 24S32 28 32 16C32 7.163 24.837 0 16 0z" fill="#ef4444" stroke="white" stroke-width="1.5"/><text x="16" y="21" text-anchor="middle" fill="white" font-family="sans-serif" font-size="14" font-weight="bold">B</text></svg>`;
+    destMarkerRef.current = new google.maps.Marker({
+      position: { lat: dlat, lng: dlng },
+      map,
+      icon: { url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`, scaledSize: new google.maps.Size(32, 40), anchor: new google.maps.Point(16, 40) },
+      title,
+      zIndex: 99,
+    });
+  }
+
+  function recalculateGuidedRoute() {
+    const target = isJoinerMode
+      ? (liveNavTarget ?? joinerNavDestination)
+      : destination ?? (currentIncident?.destinationLat != null && currentIncident?.destinationLng != null
+        ? { lat: Number(currentIncident.destinationLat), lng: Number(currentIncident.destinationLng) }
+        : null);
+    if (!target) return;
+    lastRerouteRef.current = Date.now();
+    offRouteStreakRef.current = 0;
+    drawRoute(target.lat, target.lng, lastPosRef.current ?? undefined, navModeRef.current);
+  }
+
+  function switchToGuidedNav() {
+    storeJoinNavStyle("guided");
+    setActiveNavStyle("guided");
+    activeNavStyleRef.current = "guided";
+    const target = liveNavTarget ?? joinerNavDestination ?? destPositionRef.current;
+    if (target && lastPosRef.current) {
+      drawRoute(target.lat, target.lng, lastPosRef.current, true);
+    }
+    toast({ title: "Turn-by-turn enabled", description: "Following Google's suggested route from your current position." });
   }
 
   function startStepTracking() {
     stopStepTracking();
+    const intervalMs = navModeRef.current ? NAV_TRACK_INTERVAL_MS : 5000;
     stepCheckIntervalRef.current = setInterval(() => {
       const pos = lastPosRef.current;
-      const steps = stepsRef.current;
-      if (!pos || steps.length === 0) {
+
+      // ── Direct mode: distance + bearing only, no route enforcement ──────
+      if (navModeRef.current && activeNavStyleRef.current === "direct") {
+        updateDirectNavMetrics();
         setIsOffRoute(false);
+        setGuidedOffRoute(false);
         return;
       }
 
-      // --- Route-deviation: minimum distance from pos to nearest point on any step segment ---
-      let minRouteDistM = Infinity;
-      for (const step of steps) {
-        const a = { lat: step.start_location.lat(), lng: step.start_location.lng() };
-        const b = { lat: step.end_location.lat(), lng: step.end_location.lng() };
-        const d = ptSegDistM(pos, a, b);
-        if (d < minRouteDistM) minRouteDistM = d;
+      const steps = stepsRef.current;
+      if (!pos || steps.length === 0) {
+        setIsOffRoute(false);
+        setGuidedOffRoute(false);
+        return;
       }
-      setIsOffRoute(minRouteDistM > 150);
 
-      // Auto-reroute in nav mode when off-course, rate-limited to once per 30 s.
-      if (navModeRef.current && minRouteDistM > 150 && destPositionRef.current) {
+      // --- Off-route: prefer full polyline; fall back to step segments ---
+      const polyline = routePolylineRef.current;
+      let minRouteDistM = polyline.length >= 2
+        ? minDistToPolylineM(pos, polyline)
+        : Infinity;
+      if (!Number.isFinite(minRouteDistM) || polyline.length < 2) {
+        minRouteDistM = Infinity;
+        for (const step of steps) {
+          const a = { lat: step.start_location.lat(), lng: step.start_location.lng() };
+          const b = { lat: step.end_location.lat(), lng: step.end_location.lng() };
+          const d = ptSegDistM(pos, a, b);
+          if (d < minRouteDistM) minRouteDistM = d;
+        }
+      }
+      const offRoute = minRouteDistM > OFF_ROUTE_POLYLINE_M;
+      setIsOffRoute(offRoute);
+      setGuidedOffRoute(offRoute && navModeRef.current);
+
+      if (offRoute) {
+        offRouteStreakRef.current += 1;
+      } else {
+        offRouteStreakRef.current = 0;
+      }
+
+      // Joiner on guided nav: fall back to Direct after sustained off-route
+      if (
+        navModeRef.current &&
+        activeNavStyleRef.current === "guided" &&
+        gpsEndpointRef.current === "joiner-position" &&
+        offRouteStreakRef.current >= OFF_ROUTE_FALLBACK_STREAK
+      ) {
+        switchToDirectNav("You left the suggested route — showing direct guidance to the panicker.");
+        return;
+      }
+
+      // Auto-reroute in guided nav when off-course
+      if (navModeRef.current && activeNavStyleRef.current === "guided" && offRoute && destPositionRef.current) {
         const now = Date.now();
-        if (now - lastRerouteRef.current > 30_000) {
+        if (now - lastRerouteRef.current > GUIDED_REROUTE_COOLDOWN_MS) {
           lastRerouteRef.current = now;
-          drawRoute(destPositionRef.current.lat, destPositionRef.current.lng, pos ?? undefined, navModeRef.current);
+          drawRoute(destPositionRef.current.lat, destPositionRef.current.lng, pos, true);
         }
       }
 
-      // --- Step advancement: forward-only snap at 30 m, then nearest-start fallback for initial fix ---
       let idx = currentStepIndexRef.current;
-      // Advance forward when within 60 m of the next step's start (wider radius handles
-      // urban GPS accuracy of 30–50 m without jumping steps on straight roads).
       while (idx < steps.length - 1) {
         const nextLoc = steps[idx + 1].start_location;
         if (haversineM(pos, { lat: nextLoc.lat(), lng: nextLoc.lng() }) <= 60) {
@@ -684,19 +932,11 @@ export default function LiveIncidentPage() {
           break;
         }
       }
-      // Initial-placement fallback: if still on step 0, jump to nearest start (handles GPS warm-up).
       if (idx === 0) {
-        let nearestIdx = 0;
-        let nearestDist = Infinity;
-        for (let i = 0; i < steps.length; i++) {
-          const loc = steps[i].start_location;
-          const d = haversineM(pos, { lat: loc.lat(), lng: loc.lng() });
-          if (d < nearestDist) { nearestDist = d; nearestIdx = i; }
-        }
-        if (nearestIdx > idx) idx = nearestIdx;
+        const seeded = seedStepIndexFromPosition(pos, steps);
+        idx = seeded.idx;
       }
 
-      // Voice announcement when step index advances (announce the newly entered step instruction).
       if (idx !== currentStepIndexRef.current && steps[idx]) {
         const advancedStep = steps[idx];
         if (idx !== announcedStepRef.current) {
@@ -707,24 +947,25 @@ export default function LiveIncidentPage() {
       currentStepIndexRef.current = idx;
       setCurrentStepIndex(idx);
 
-      // --- Step distance + 200 m approaching-turn warning (separate voice gate) ---
       const currStep = steps[idx];
       if (currStep) {
         const endLoc = currStep.end_location;
         const dist = Math.round(haversineM(pos, { lat: endLoc.lat(), lng: endLoc.lng() }));
         setStepDist(dist);
-        // Approaching-turn announcement uses its OWN ref so it doesn't interfere with
-        // the step-advance announcement and always fires once per step when within 200 m.
         if (dist <= 200 && idx !== approachingTurnAnnouncedRef.current) {
           approachingTurnAnnouncedRef.current = idx;
-          // Announce the UPCOMING maneuver (at the end of the current step =
-          // start of the next step), not the road already being driven. Falls
-          // back to currStep on the final step where no next maneuver exists.
           const turnInstr = steps[idx + 1]?.instructions ?? currStep.instructions;
           void speak(`In ${fmtDist(dist)}, ${stripHtml(turnInstr)}`);
         }
       }
-    }, 5000);
+    }, intervalMs);
+  }
+
+  function stopGpsFallbackTracking() {
+    if (gpsFallbackIntervalRef.current !== null) {
+      clearInterval(gpsFallbackIntervalRef.current);
+      gpsFallbackIntervalRef.current = null;
+    }
   }
 
   function stopTracking() {
@@ -1035,6 +1276,7 @@ export default function LiveIncidentPage() {
     setPendingActive(null);
     setLiveId(null);
     stepsRef.current = [];
+    routePolylineRef.current = [];
     drawRouteGenRef.current += 1;
     setRouteInfo(null);
     announcedStepRef.current = -1;
@@ -1045,6 +1287,10 @@ export default function LiveIncidentPage() {
     setCurrentStepIndex(0);
     setStepDist(null);
     setIsOffRoute(false);
+    setGuidedOffRoute(false);
+    setDirectDist(null);
+    setDirectBearing(null);
+    offRouteStreakRef.current = 0;
     setShowArrivalForm(false);
     setIsNearDestination(false);
     setArrivalCategoryId(null);
@@ -1086,6 +1332,12 @@ export default function LiveIncidentPage() {
     setRouteInfo(null);
     setHasRoute(false);
     stepsRef.current = [];
+    routePolylineRef.current = [];
+    setIsOffRoute(false);
+    setGuidedOffRoute(false);
+    setDirectDist(null);
+    setDirectBearing(null);
+    offRouteStreakRef.current = 0;
     setDestination(null);
     setSearch("");
     setSuggestions([]);
@@ -1774,13 +2026,32 @@ export default function LiveIncidentPage() {
     if (!navDest) return;
 
     autoResumedNavRef.current = true;
+    const storedStyle = readStoredJoinNavStyle();
+    if (isJoinerMode) {
+      setActiveNavStyle(storedStyle);
+      activeNavStyleRef.current = storedStyle;
+    } else {
+      setActiveNavStyle("guided");
+      activeNavStyleRef.current = "guided";
+    }
     (async () => {
+      if (isJoinerMode && storedStyle === "direct") {
+        const target = resolveLiveNavTarget(currentIncident) ?? joinerNavDestination;
+        if (target) {
+          destPositionRef.current = { lat: target.lat, lng: target.lng };
+          await refreshDestMarker(target.lat, target.lng, target.name);
+          updateDirectNavMetrics();
+        }
+        setNavMode(true);
+        startStepTracking();
+        return;
+      }
       if (stepsRef.current.length === 0) {
         drawRoute(navDest.lat, navDest.lng, lastPosRef.current ?? undefined, true);
-        // Give the native routing call time to resolve before entering nav mode.
         if (isNative) await new Promise((r) => setTimeout(r, 1500));
       }
       setNavMode(true);
+      startStepTracking();
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navStarted, mapsReady, nativeMapStatus, currentIncident?.id, navMode]);
@@ -1818,11 +2089,9 @@ export default function LiveIncidentPage() {
     }
   }, [active?.id, liveQueryLoaded]);
 
-  // Route drawing — only when the user (or joiner flow) has set an explicit destination.
-  // Do NOT fall back to incident.latitude/longitude — those may be stale import coords
-  // and produced cross-country routes when GPS hadn't fixed yet.
+  // Route drawing — creators only; joiners pick Direct/Guided at navigate time.
   useEffect(() => {
-    if (!mapsReady || !currentIncident) return;
+    if (!mapsReady || !currentIncident || isJoinerMode) return;
     if (stepsRef.current.length === 0) {
       const dest = isJoinerMode
         ? joinerNavDestination
@@ -1847,6 +2116,34 @@ export default function LiveIncidentPage() {
     mapsReady,
     isJoinerMode,
   ]);
+
+  // Keep panicker live GPS as the direct-mode target for joiners.
+  useEffect(() => {
+    if (!isJoinerMode || !currentIncident) return;
+    const t = resolveLiveNavTarget(currentIncident) ?? joinerNavDestination;
+    if (!t) return;
+    destPositionRef.current = { lat: t.lat, lng: t.lng };
+    if (navMode && activeNavStyle === "direct") {
+      void refreshDestMarker(t.lat, t.lng, t.name);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    currentIncident?.responderLat,
+    currentIncident?.responderLng,
+    currentIncident?.destinationLat,
+    currentIncident?.destinationLng,
+    isJoinerMode,
+    navMode,
+    activeNavStyle,
+  ]);
+
+  useEffect(() => { activeNavStyleRef.current = activeNavStyle; }, [activeNavStyle]);
+
+  useEffect(() => {
+    if (!navMode) return;
+    startStepTracking();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navMode, activeNavStyle]);
 
   // Keep destPositionRef in sync with the active incident's saved destination so
   // the sendPosition closure can check proximity without stale-closure issues.
@@ -2050,12 +2347,12 @@ export default function LiveIncidentPage() {
         .then(result => {
           if (gen !== drawRouteGenRef.current) return;
           if (!result) return;
-          stepsRef.current = result.steps as unknown as google.maps.DirectionsStep[];
-          setRouteInfo({ distance: result.distance, duration: result.duration });
-          setHasRoute(true);
-          setCurrentStepIndex(0);
-          setStepDist(result.steps[0]?.distance.value ?? null);
-          setIsOffRoute(false);
+          applyGuidedRouteResult(
+            result.steps as unknown as google.maps.DirectionsStep[],
+            result.distance,
+            result.duration,
+            result.path,
+          );
         }).catch((err) => {
           // Surface DirectionsService failures so the responder sees why the
           // route isn't drawing — previously silent, which made a missing
@@ -2105,12 +2402,8 @@ export default function LiveIncidentPage() {
           }
           const leg = result.routes[0]?.legs[0];
           if (leg) {
-            setRouteInfo({ distance: leg.distance?.value ?? 0, duration: leg.duration?.value ?? 0 });
-            stepsRef.current = leg.steps ?? [];
-            setHasRoute(true);
-            setCurrentStepIndex(0);
-            setStepDist(leg.steps?.[0]?.distance?.value ?? null);
-            setIsOffRoute(false);
+            const path = pathFromDirectionsRoute(result.routes[0], leg);
+            applyGuidedRouteResult(leg.steps ?? [], leg.distance?.value ?? 0, leg.duration?.value ?? 0, path);
           }
           if (effectiveSkip) {
             // Nav mode already active when route was drawn (joiner flow) — stay at street level
@@ -2220,6 +2513,8 @@ export default function LiveIncidentPage() {
         await new Promise(r => setTimeout(r, 600));
       }
       setNavMode(true);
+      setActiveNavStyle("guided");
+      activeNavStyleRef.current = "guided";
       toast({ title: "Navigation started", description: "GPS tracking continues — dispatch can see your position." });
     } catch (e: unknown) {
       toast({ title: "Navigation failed", description: e instanceof Error ? e.message : "Please try again.", variant: "destructive" });
@@ -2228,15 +2523,11 @@ export default function LiveIncidentPage() {
     }
   }
 
-  async function dispatchJoinerInApp() {
-    const dest = joinerNavDestination;
+  async function dispatchJoinerInApp(style: JoinNavStyle = "direct") {
+    const dest = liveNavTarget ?? joinerNavDestination;
     if (!joinedId || !dest) return;
 
     // ── Enforce location ON before a joiner can navigate ──────────────────
-    // Without the joiner's own position there is no route origin, dispatch
-    // can't track them, and the map just sits on the incident pin (the
-    // "GPS unavailable" dead-end). Require a real fix first; if we can't get
-    // one, surface the enable-location guide and do NOT enter nav mode.
     let origin = lastPosRef.current;
     if (!origin) {
       setAcquiringJoinerGps(true);
@@ -2252,28 +2543,42 @@ export default function LiveIncidentPage() {
         return;
       }
       origin = { lat: probe.lat, lng: probe.lng };
-      lastPosRef.current = origin; // seed route origin + live-tracking base
+      lastPosRef.current = origin;
     }
     setJoinerGpsBlocked(false);
 
+    storeJoinNavStyle(style);
+    setActiveNavStyle(style);
+    activeNavStyleRef.current = style;
     localStorage.setItem(NAV_STARTED_KEY, String(joinedId));
     setNavStarted(true);
     announcedStepRef.current = -1;
     approachingTurnAnnouncedRef.current = -1;
     arrivedAnnouncedRef.current = false;
-    // Draw the route to the incident destination so the step panel, voice
-    // announcements, and ETA all work for joiners — matching creator behaviour.
-    drawRoute(dest.lat, dest.lng, origin, true);
-    // On native: wait briefly for DirectionsService to resolve before setNavMode(true)
-    // so the tilt+seed useEffect finds stepsRef already populated.
-    if (isNative) await new Promise(r => setTimeout(r, 600));
-    // iOS Safari requires an explicit user-gesture permission call before
-    // DeviceOrientationEvent fires — request it here and proceed regardless.
+    destPositionRef.current = { lat: dest.lat, lng: dest.lng };
+
     if (typeof DeviceOrientationEvent !== "undefined" && typeof (DeviceOrientationEvent as any).requestPermission === "function") {
       try { await (DeviceOrientationEvent as any).requestPermission(); } catch { /* denied — proceed */ }
     }
+
+    if (style === "direct") {
+      await clearGuidedRouteVisuals();
+      await refreshDestMarker(dest.lat, dest.lng, dest.name);
+      updateDirectNavMetrics();
+      setNavMode(true);
+      startStepTracking();
+      toast({
+        title: "Direct guidance started",
+        description: "Distance and bearing to the panicker — take your own route. GPS tracking continues.",
+      });
+      return;
+    }
+
+    drawRoute(dest.lat, dest.lng, origin, true);
+    if (isNative) await new Promise(r => setTimeout(r, 600));
     setNavMode(true);
-    toast({ title: "Navigation started", description: "GPS tracking continues — dispatch can see your position." });
+    startStepTracking();
+    toast({ title: "Turn-by-turn started", description: "GPS tracking continues — dispatch can see your position." });
   }
 
   async function dispatch() {
@@ -2380,7 +2685,7 @@ export default function LiveIncidentPage() {
   // Nav strip shows distance/time still to go, not the initial full-leg totals
   // (which could be wrong if an early stale-GPS route raced a later reroute).
   const navRouteDisplay =
-    navMode && steps.length > 0
+    navMode && activeNavStyle === "guided" && steps.length > 0
       ? remainingFromSteps(steps, currentStepIndex)
       : routeInfo;
   const nonLiveCategories = categories.filter(isCloseReclassifyType);
@@ -2831,10 +3136,28 @@ export default function LiveIncidentPage() {
   };
   const { data: panicAlertsForView = [] } = useQuery<PanicAlertWithAcks[]>({
     queryKey: ["/api/panic/recent"],
-    enabled: isPanickerView,
-    refetchInterval: isPanickerView ? 5000 : false,
+    enabled: isPanickerView || (isPanicIncident && (navMode || isJoinerMode)),
+    refetchInterval: isPanickerView || (isPanicIncident && (navMode || isJoinerMode)) ? 5000 : false,
     refetchIntervalInBackground: true,
   });
+
+  const panicAcknowledgers = useMemo(() => {
+    if (!currentIncident || !isPanicIncident) return [];
+    return panicAlertsForView.find((p) => p.id === currentIncident.id)?.acknowledgedBy ?? [];
+  }, [currentIncident?.id, isPanicIncident, panicAlertsForView]);
+
+  const navRoster = useMemo(() => {
+    if (!currentIncident) return [];
+    return buildNavRoster({
+      incident: currentIncident,
+      meId: me?.id,
+      isJoiner: isJoinerMode,
+      isPanic: isPanicIncident,
+      acknowledgers: panicAcknowledgers,
+    });
+  }, [currentIncident, me?.id, isJoinerMode, isPanicIncident, panicAcknowledgers]);
+
+  const navRosterOthersCount = navRoster.filter((e) => e.role !== "you").length;
 
   const panickerHasCoords = currentIncident ? incidentHasPanicCoords(currentIncident) : false;
   usePanickerLocationSync(
@@ -3085,6 +3408,41 @@ export default function LiveIncidentPage() {
     );
   }
 
+  function navRespondersChipLabel(): string {
+    if (newJoinerFlash) return newJoinerFlash;
+    const others = navRoster.filter((e) => e.role !== "you");
+    if (others.length === 0) return "Responders";
+    if (others.length === 1) {
+      const o = others[0];
+      return o.role === "panicker" ? `${o.firstName} · SOS` : `${o.firstName} responding`;
+    }
+    return `${others.length} responding`;
+  }
+
+  function renderNavRespondersChip() {
+    if (!navMode || navRosterOthersCount === 0) return null;
+    return (
+      <button
+        type="button"
+        onClick={() => setRespondersSheetOpen(true)}
+        className={`pointer-events-auto ml-auto inline-flex items-center gap-1.5 rounded-full shadow-lg font-semibold transition-all duration-300 hover:brightness-110 active:scale-95 ${newJoinerFlash ? "bg-green-500 text-white px-3 py-1.5 text-sm ring-2 ring-white/70 animate-pulse" : "bg-black/55 text-white px-2.5 py-1 text-xs"}`}
+        data-testid="button-nav-responders"
+        aria-label="View who is responding"
+      >
+        <Users className={`shrink-0 ${newJoinerFlash ? "h-4 w-4" : "h-3 w-3"}`} />
+        <span>{navRespondersChipLabel()}</span>
+        <ChevronRight className="h-3 w-3 shrink-0 opacity-80" />
+      </button>
+    );
+  }
+
+  function rosterStatusLabel(entry: NavRosterEntry): string {
+    if (entry.role === "panicker") return "SOS — needs help";
+    if (entry.status === "ack") return "Acknowledged";
+    const gpsAgo = fmtTimeAgo(entry.lastPositionAt);
+    return gpsAgo ? `En route · GPS ${gpsAgo}` : "En route";
+  }
+
   return (
     <div className="flex flex-col h-full bg-background live-page-root">
       {/* v75: merged title + GPS status row. Single LIVE pill, inline GPS info,
@@ -3259,12 +3617,18 @@ export default function LiveIncidentPage() {
                       </button>
                     ) : (
                       <>
+                        <p className="text-xs text-muted-foreground truncate px-0.5">{joinerNavDestination.name}</p>
+                        {liveNavTarget && userLoc && (
+                          <p className="text-xs text-muted-foreground px-0.5">
+                            {fmtDist(Math.round(haversineM(userLoc, liveNavTarget)))} straight · {bearingCardinal(bearingDegrees(userLoc, liveNavTarget))}
+                          </p>
+                        )}
                         <Button
                           size="lg"
                           className="w-full flex-col h-auto py-3 gap-1 bg-blue-600 hover:bg-blue-700 text-white"
-                          onClick={dispatchJoinerInApp}
+                          onClick={() => void dispatchJoinerInApp("direct")}
                           disabled={acquiringJoinerGps}
-                          data-testid="button-joiner-navigate"
+                          data-testid="button-joiner-navigate-direct"
                         >
                           <div className="flex items-center gap-2">
                             {acquiringJoinerGps ? (
@@ -3273,13 +3637,42 @@ export default function LiveIncidentPage() {
                               <Navigation className="h-5 w-5 shrink-0" />
                             )}
                             <span className="text-base font-semibold">
-                              {acquiringJoinerGps ? "Getting your location…" : "Navigate (keeps GPS active)"}
+                              {acquiringJoinerGps ? "Getting your location…" : "Direct — I know the way"}
                             </span>
                           </div>
-                          <span className="text-xs font-normal opacity-80 max-w-full truncate px-2">
-                            {joinerNavDestination.name}
+                          <span className="text-xs font-normal opacity-80 px-2">
+                            Distance & bearing · take your own route
                           </span>
                         </Button>
+                        <Button
+                          size="lg"
+                          variant="outline"
+                          className="w-full flex-col h-auto py-2.5 gap-0.5"
+                          onClick={() => void dispatchJoinerInApp("guided")}
+                          disabled={acquiringJoinerGps}
+                          data-testid="button-joiner-navigate-guided"
+                        >
+                          <span className="text-sm font-semibold">Guided — turn-by-turn</span>
+                          <span className="text-xs font-normal text-muted-foreground px-2">
+                            Google route with voice prompts
+                          </span>
+                        </Button>
+                        {navRosterOthersCount > 0 && (
+                          <button
+                            type="button"
+                            className="w-full flex items-center justify-between gap-2 rounded-lg border bg-muted/40 px-3 py-2.5 text-sm hover:bg-muted/70 transition-colors"
+                            onClick={() => setRespondersSheetOpen(true)}
+                            data-testid="button-joiner-view-responders"
+                          >
+                            <span className="flex items-center gap-2 font-medium">
+                              <Users className="h-4 w-4 text-primary" />
+                              {navRosterOthersCount === 1
+                                ? navRespondersChipLabel()
+                                : `${navRosterOthersCount} people responding`}
+                            </span>
+                            <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                          </button>
+                        )}
                         {joinerGpsBlocked && (
                           <div className="pt-1" data-testid="banner-joiner-location-off">
                             <LocationPermissionGuide
@@ -3289,7 +3682,7 @@ export default function LiveIncidentPage() {
                                 if (hasPanicCoordinates(loc)) {
                                   lastPosRef.current = { lat: loc.lat, lng: loc.lng };
                                   setJoinerGpsBlocked(false);
-                                  void dispatchJoinerInApp();
+                                  void dispatchJoinerInApp("direct");
                                 }
                               }}
                             />
@@ -3297,7 +3690,7 @@ export default function LiveIncidentPage() {
                         )}
                       </>
                     )}
-                    {routeInfo && (
+                    {routeInfo && activeNavStyle === "guided" && (
                       <div className="flex gap-3 text-sm pt-0.5">
                         <div className="flex items-center gap-1.5 text-muted-foreground">
                           <Navigation className="h-3.5 w-3.5" />
@@ -3580,10 +3973,53 @@ export default function LiveIncidentPage() {
                 : "relative rounded-lg overflow-hidden min-h-[200px] flex-1 native-map-host"
             }
           >
-            {/* Nav mode: step banner overlaid at the top of the (tall in-flow) map.
-                Shows large maneuver arrow + instruction + distance, plus a "Then"
-                pill with the next step's arrow when available. */}
-            {navMode && currentStep && (
+            {/* Nav mode: Direct banner (bearing + distance) or Guided step banner */}
+            {navMode && activeNavStyle === "direct" && (liveNavTarget ?? joinerNavDestination) && (
+              <div
+                className="absolute top-0 left-0 right-0 z-10 px-3 pb-2 pointer-events-none"
+                style={{ paddingTop: "max(0.5rem, env(safe-area-inset-top))" }}
+              >
+                <div className="pointer-events-auto bg-primary text-primary-foreground rounded-2xl shadow-2xl px-4 py-3 flex items-center gap-3">
+                  <Navigation
+                    className="h-12 w-12 shrink-0 transition-transform duration-300"
+                    strokeWidth={2.5}
+                    style={{ transform: directBearing != null ? `rotate(${directBearing}deg)` : undefined }}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-2xl font-bold leading-tight tabular-nums" data-testid="text-direct-distance">
+                      {directDist != null ? fmtDist(directDist) : "—"}
+                    </p>
+                    <p className="text-base font-semibold opacity-90 leading-tight truncate" data-testid="text-direct-bearing">
+                      {directBearing != null ? `${bearingCardinal(directBearing)} · ${Math.round(directBearing)}°` : "—"}
+                      <span className="ml-2 text-xs opacity-70 font-normal">direct</span>
+                    </p>
+                    <p className="text-xs opacity-80 truncate mt-0.5">
+                      {(liveNavTarget ?? joinerNavDestination)?.name}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => { void stopSpeaking(); setNavMode(false); }}
+                    className="shrink-0 p-2 rounded-full bg-white/20 hover:bg-white/30 transition-colors"
+                    aria-label="Exit navigation"
+                    data-testid="button-exit-nav"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+                <div className="mt-1.5 flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="pointer-events-auto text-xs font-medium bg-black/55 text-white rounded-full px-3 py-1 shadow-lg hover:bg-black/70"
+                    onClick={() => switchToGuidedNav()}
+                    data-testid="button-switch-guided"
+                  >
+                    Turn-by-turn
+                  </button>
+                  {renderNavRespondersChip()}
+                </div>
+              </div>
+            )}
+            {navMode && activeNavStyle === "guided" && currentStep && (
               <div
                 className="absolute top-0 left-0 right-0 z-10 px-3 pb-2 pointer-events-none"
                 style={{ paddingTop: "max(0.5rem, env(safe-area-inset-top))" }}
@@ -3603,17 +4039,35 @@ export default function LiveIncidentPage() {
                       <span className="ml-2 text-xs opacity-70">{currentStepIndex + 1} / {steps.length}</span>
                     </p>
                   </div>
-                  <button
-                    onClick={() => { void stopSpeaking(); setNavMode(false); }}
-                    className="shrink-0 p-2 rounded-full bg-white/20 hover:bg-white/30 transition-colors"
-                    aria-label="Exit navigation"
-                    data-testid="button-exit-nav"
-                  >
-                    <X className="h-5 w-5" />
-                  </button>
+                  <div className="flex flex-col gap-1 shrink-0">
+                    {(guidedOffRoute || isOffRoute) && (
+                      <button
+                        type="button"
+                        onClick={() => recalculateGuidedRoute()}
+                        className="p-1.5 rounded-full bg-amber-400/90 text-amber-950 hover:bg-amber-300 transition-colors"
+                        aria-label="Recalculate route"
+                        data-testid="button-recalculate-nav"
+                      >
+                        <RotateCcw className="h-4 w-4" />
+                      </button>
+                    )}
+                    <button
+                      onClick={() => { void stopSpeaking(); setNavMode(false); }}
+                      className="p-2 rounded-full bg-white/20 hover:bg-white/30 transition-colors"
+                      aria-label="Exit navigation"
+                      data-testid="button-exit-nav"
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
+                  </div>
                 </div>
-                {/* Row: "Then" pill (left) + responder "en route" chip (right) */}
-                <div className="mt-1.5 flex items-center gap-2">
+                {/* Row: off-route hint / "Then" pill / en route chip */}
+                <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+                  {guidedOffRoute && (
+                    <div className="pointer-events-auto inline-flex items-center gap-1.5 bg-amber-500 text-amber-950 rounded-full pl-3 pr-3 py-1 shadow-lg text-xs font-semibold">
+                      Off suggested route
+                    </div>
+                  )}
                   {followingStep && (
                     <div className="pointer-events-auto inline-flex items-center gap-1.5 bg-primary text-primary-foreground rounded-full pl-3 pr-3 py-1 shadow-lg text-sm font-medium max-w-[60%]">
                       <span className="opacity-75">Then</span>
@@ -3626,21 +4080,17 @@ export default function LiveIncidentPage() {
                       </span>
                     </div>
                   )}
-                  {navResponders.length > 0 && (
-                    <div
-                      className={`pointer-events-none ml-auto inline-flex items-center gap-1.5 rounded-full shadow-lg font-semibold transition-all duration-300 ${newJoinerFlash ? "bg-green-500 text-white px-3 py-1.5 text-sm ring-2 ring-white/70 animate-pulse" : "bg-black/55 text-white px-2.5 py-1 text-xs"}`}
-                      data-testid="chip-nav-responders"
+                  {isJoinerMode && (
+                    <button
+                      type="button"
+                      className="pointer-events-auto text-xs font-medium bg-black/55 text-white rounded-full px-3 py-1 shadow-lg hover:bg-black/70"
+                      onClick={() => switchToDirectNav()}
+                      data-testid="button-switch-direct"
                     >
-                      <Users className={`shrink-0 ${newJoinerFlash ? "h-4 w-4" : "h-3 w-3"}`} />
-                      <span>
-                        {newJoinerFlash
-                          ? newJoinerFlash
-                          : navResponders.length === 1
-                            ? `${navResponders[0].firstName} en route`
-                            : `${navResponders.length} en route`}
-                      </span>
-                    </div>
+                      Direct mode
+                    </button>
                   )}
+                  {renderNavRespondersChip()}
                 </div>
               </div>
             )}
@@ -3714,7 +4164,18 @@ export default function LiveIncidentPage() {
                 {/* prominent red distance/ETA — same size — speed + chat right */}
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2 min-w-0">
-                    {navRouteDisplay && (
+                    {activeNavStyle === "direct" && directDist != null ? (
+                      <>
+                        <span className="text-lg font-bold text-red-600 dark:text-red-400 tabular-nums" data-testid="text-nav-distance">
+                          {fmtDist(directDist)}
+                        </span>
+                        <span className="text-lg font-bold text-red-600/60 dark:text-red-400/60">·</span>
+                        <span className="text-lg font-bold text-red-600 dark:text-red-400" data-testid="text-nav-bearing">
+                          {directBearing != null ? bearingCardinal(directBearing) : "—"}
+                        </span>
+                        <span className="text-xs text-muted-foreground ml-1">straight</span>
+                      </>
+                    ) : navRouteDisplay ? (
                       <>
                         <span className="text-lg font-bold text-red-600 dark:text-red-400 tabular-nums" data-testid="text-nav-distance">
                           {fmtDist(navRouteDisplay.distance)}
@@ -3724,7 +4185,7 @@ export default function LiveIncidentPage() {
                           ETA <span className="tabular-nums">{fmtDur(navRouteDisplay.duration)}</span>
                         </span>
                       </>
-                    )}
+                    ) : null}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <div className="flex items-center gap-1.5 text-muted-foreground" data-testid="nav-speed">
@@ -4243,6 +4704,64 @@ export default function LiveIncidentPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Sheet open={respondersSheetOpen} onOpenChange={setRespondersSheetOpen}>
+        <SheetContent side="bottom" className="max-h-[70vh] rounded-t-2xl" data-testid="sheet-nav-responders">
+          <SheetHeader className="text-left pb-2">
+            <SheetTitle>Who&apos;s responding</SheetTitle>
+            <SheetDescription>
+              {isPanicIncident
+                ? "People heading to the panic or who acknowledged the alert."
+                : "People joined on this live incident."}
+            </SheetDescription>
+          </SheetHeader>
+          <ul className="space-y-2 overflow-y-auto max-h-[50vh] pr-1">
+            {navRoster.length === 0 ? (
+              <li className="text-sm text-muted-foreground py-4 text-center">
+                No responders yet — your team has been alerted.
+              </li>
+            ) : (
+              navRoster.map((entry) => (
+                <li
+                  key={entry.userId}
+                  className="flex items-center gap-3 rounded-lg border bg-card px-3 py-2.5"
+                  data-testid={`nav-roster-${entry.userId}`}
+                >
+                  <div
+                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                      entry.role === "panicker"
+                        ? "bg-red-600 text-white"
+                        : entry.status === "live"
+                          ? "bg-green-600 text-white"
+                          : "bg-amber-500 text-white"
+                    }`}
+                  >
+                    {entry.role === "panicker" ? (
+                      <AlertTriangle className="h-4 w-4" />
+                    ) : (
+                      `${entry.firstName.charAt(0)}${entry.lastName.charAt(0) || ""}`.trim()
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-sm truncate">
+                      {entry.firstName} {entry.lastName}
+                      {entry.role === "you" ? (
+                        <span className="ml-1.5 text-xs font-normal text-muted-foreground">(you)</span>
+                      ) : null}
+                    </p>
+                    <p className={`text-xs truncate ${entry.role === "panicker" ? "text-red-600 dark:text-red-400 font-medium" : "text-muted-foreground"}`}>
+                      {rosterStatusLabel(entry)}
+                    </p>
+                  </div>
+                  {entry.status === "live" && entry.role !== "panicker" ? (
+                    <span className="h-2 w-2 shrink-0 rounded-full bg-green-500 animate-pulse" aria-hidden />
+                  ) : null}
+                </li>
+              ))
+            )}
+          </ul>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

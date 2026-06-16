@@ -48,6 +48,8 @@ export interface NativeRouteResult {
   steps: NativeStep[];
   distance: number;  // metres
   duration: number;  // seconds
+  /** Road-following path used for the drawn polyline (off-route detection). */
+  path: Array<{ lat: number; lng: number }>;
 }
 
 /** Methods exposed to live-incident.tsx via ref */
@@ -74,6 +76,7 @@ export interface CapacitorMapHandle {
     lat: number;
     lng: number;
     title?: string;
+    tintColor?: { r: number; g: number; b: number; a: number };
   }): Promise<string>;
 
   removeMarker(id: string): Promise<void>;
@@ -399,6 +402,7 @@ const CapacitorMap = forwardRef<CapacitorMapHandle, CapacitorMapProps>(
           steps,
           distance: leg.distance?.value ?? 0,
           duration: leg.duration?.value ?? 0,
+          path,
         };
       },
 

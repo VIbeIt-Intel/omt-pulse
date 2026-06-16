@@ -153,26 +153,27 @@ export default function OccurrenceBook() {
     lastPositionAt?: string | null;
   };
 
-  function mergeRespondersByUser(rows: IncidentResponder[]): IncidentResponder[] {
-    const map = new Map<string, IncidentResponder>();
-    for (const r of rows) {
-      const prev = map.get(r.userId);
-      if (!prev) {
-        map.set(r.userId, r);
-        continue;
-      }
-      map.set(r.userId, {
-        ...prev,
-        arrivedAt: prev.arrivedAt ?? r.arrivedAt,
-        arrivalNote: prev.arrivalNote ?? r.arrivalNote,
-        lastLat: r.lastLat ?? prev.lastLat,
-        lastLng: r.lastLng ?? prev.lastLng,
-        leftAt: prev.leftAt ?? r.leftAt,
-      });
-    }
-    return Array.from(map.values()).sort(
+  type ResponderVisit = IncidentResponder & { visitNumber: number; visitTotal: number };
+
+  /** One row per join session — never collapse rejoins into a single card. */
+  function annotateResponderVisits(rows: IncidentResponder[]): ResponderVisit[] {
+    const sorted = [...rows].sort(
       (a, b) => new Date(a.joinedAt).getTime() - new Date(b.joinedAt).getTime(),
     );
+    const visitTotalByUser = new Map<string, number>();
+    for (const r of sorted) {
+      visitTotalByUser.set(r.userId, (visitTotalByUser.get(r.userId) ?? 0) + 1);
+    }
+    const visitIndexByUser = new Map<string, number>();
+    return sorted.map((r) => {
+      const visitNumber = (visitIndexByUser.get(r.userId) ?? 0) + 1;
+      visitIndexByUser.set(r.userId, visitNumber);
+      return {
+        ...r,
+        visitNumber,
+        visitTotal: visitTotalByUser.get(r.userId) ?? 1,
+      };
+    });
   }
   const { data: viewingIncidentResponders = [] } = useQuery<IncidentResponder[]>({
     queryKey: ["/api/incidents", viewingIncident?.id, "responders"],
@@ -789,7 +790,7 @@ export default function OccurrenceBook() {
               ? liveDest.name
               : (isPlaceholderLiveLoc ? null : (locDisplay.label !== "-" ? locDisplay.label : null));
             const canOpenLocation = incidentHasViewableLocation(inc, locations);
-            const mergedResponders = mergeRespondersByUser(viewingIncidentResponders);
+            const responderVisits = annotateResponderVisits(viewingIncidentResponders);
             const effectiveSeverity = resolveEffectiveSeverity(inc, cat);
             const hasEvidence = inc.attachmentCount > 0;
             return (
@@ -1068,37 +1069,92 @@ export default function OccurrenceBook() {
                     </div>
                   )}
 
-                  {inc.liveStartedAt && mergedResponders.length > 0 && (
+                  {inc.liveStartedAt && responderVisits.length > 0 && (
                     <div className="pt-3 border-t border-border/40">
-                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">Responders</p>
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+                        Responders ({responderVisits.length} {responderVisits.length === 1 ? "visit" : "visits"})
+                      </p>
                       <div className="space-y-2">
-                        {mergedResponders.map((r) => (
-                          <div key={r.userId} className="text-sm rounded border border-border/60 px-2.5 py-2" data-testid={`ob-responder-${r.userId}`}>
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="font-medium">{`${r.firstName} ${r.lastName}`.trim()}</span>
-                              {r.arrivedAt && (
-                                <span className="text-[10px] text-muted-foreground shrink-0">
-                                  Arrived {new Date(r.arrivedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                                </span>
+                        {responderVisits.map((r) => {
+                          const fmtTime = (iso: string) =>
+                            new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+                          const joinedAt = new Date(r.joinedAt);
+                          const leftAt = r.leftAt ? new Date(r.leftAt) : null;
+                          const arrivedAt = r.arrivedAt ? new Date(r.arrivedAt) : null;
+                          const durationMin =
+                            leftAt != null
+                              ? Math.round((leftAt.getTime() - joinedAt.getTime()) / 60000)
+                              : null;
+                          return (
+                            <div
+                              key={r.id}
+                              className="text-sm rounded border border-border/60 px-2.5 py-2"
+                              data-testid={`ob-responder-${r.id}`}
+                            >
+                              <div className="flex items-center justify-between gap-2 flex-wrap">
+                                <span className="font-medium">{`${r.firstName} ${r.lastName}`.trim()}</span>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  {r.visitTotal > 1 && (
+                                    <span className="text-[10px] font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                                      Visit {r.visitNumber}/{r.visitTotal}
+                                    </span>
+                                  )}
+                                  {leftAt ? (
+                                    <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                                      Left
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] text-green-700 dark:text-green-400 bg-green-500/10 px-1.5 py-0.5 rounded">
+                                      Active
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="mt-1.5 grid grid-cols-3 gap-x-2 gap-y-1">
+                                <div>
+                                  <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wide">Joined</p>
+                                  <p className="text-xs">{fmtTime(r.joinedAt)}</p>
+                                </div>
+                                {arrivedAt && (
+                                  <div>
+                                    <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wide">Arrived</p>
+                                    <p className="text-xs">{fmtTime(r.arrivedAt!)}</p>
+                                  </div>
+                                )}
+                                {leftAt && (
+                                  <div>
+                                    <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wide">Left</p>
+                                    <p className="text-xs">
+                                      {fmtTime(r.leftAt!)}
+                                      {durationMin != null && (
+                                        <span className="text-muted-foreground ml-0.5">
+                                          · {durationMin < 1 ? "< 1 min" : `${durationMin} min`}
+                                        </span>
+                                      )}
+                                    </p>
+                                  </div>
+                                )}
+                              </div>
+                              {r.lastLat != null && r.lastLng != null && (
+                                <div className="mt-1.5">
+                                  <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wide">Last GPS</p>
+                                  <CoordinateLink
+                                    lat={r.lastLat}
+                                    lng={r.lastLng}
+                                    onOpenMap={setGeoMapView}
+                                    className="text-xs"
+                                    testId={`link-ob-responder-gps-${r.id}`}
+                                  />
+                                </div>
+                              )}
+                              {r.arrivalNote && (
+                                <p className="text-xs text-muted-foreground mt-1.5 border-t border-border/30 pt-1 italic">
+                                  &ldquo;{r.arrivalNote}&rdquo;
+                                </p>
                               )}
                             </div>
-                            {r.lastLat != null && r.lastLng != null && (
-                              <div className="mt-1">
-                                <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wide">Last GPS</p>
-                                <CoordinateLink
-                                  lat={r.lastLat}
-                                  lng={r.lastLng}
-                                  onOpenMap={setGeoMapView}
-                                  className="text-xs"
-                                  testId={`link-ob-responder-gps-${r.userId}`}
-                                />
-                              </div>
-                            )}
-                            {r.arrivalNote && (
-                              <p className="text-xs text-muted-foreground mt-0.5">{r.arrivalNote}</p>
-                            )}
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   )}
