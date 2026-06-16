@@ -220,9 +220,19 @@ export async function syncNativePushIfNeeded(): Promise<NativePushStatus> {
 
   try {
     const { PushNotifications } = await import("@capacitor/push-notifications");
+    const serverRegistered = await fetchFcmRegisteredOnServer();
+    if (!serverRegistered) {
+      // Permission may be granted on-device while the server never received a token
+      // (failed POST, stale local cache, first login after install).
+      try {
+        localStorage.removeItem(LAST_FCM_TOKEN_KEY);
+      } catch {
+        /* ignore storage errors */
+      }
+    }
     const token = await waitForFcmToken(PushNotifications);
     const changed = token !== readLastSyncedToken();
-    if (changed || !(await fetchFcmRegisteredOnServer())) {
+    if (changed || !serverRegistered) {
       await registerNativePushToken(token);
       rememberSyncedToken(token);
     }

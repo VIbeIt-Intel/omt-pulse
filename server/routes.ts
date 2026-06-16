@@ -1493,19 +1493,21 @@ export async function registerRoutes(
   // User management routes (admin only)
   app.get("/api/users", requireAdmin, async (req, res) => {
     const orgId = req.currentUser!.organizationId;
-    const [orgUsers, subscribedUserIds] = await Promise.all([
+    const [orgUsers, pushRegistrationByUser] = await Promise.all([
       storage.getUsersByOrg(orgId),
-      storage.getOrgPushSubscribedUserIds(orgId),
+      storage.getOrgPushRegistrationByUser(orgId),
     ]);
     // Attach Command memberships per user so the User Admin table can show
     // which Command each user belongs to and flag users with no assignment.
     const withCommands = await Promise.all(orgUsers.map(async (u) => {
       const { password: _pw, ...safe } = u;
       const cmds = await storage.getUserCommands(u.id);
+      const pushRegistration = pushRegistrationByUser.get(u.id) ?? { fcm: false, web: false };
       return {
         ...safe,
         commands: cmds.map(c => ({ id: c.id, name: c.name, isCentral: c.isCentral })),
-        hasPushSubscription: subscribedUserIds.has(u.id),
+        hasPushSubscription: pushRegistration.fcm || pushRegistration.web,
+        pushRegistration,
       };
     }));
     res.json(withCommands);

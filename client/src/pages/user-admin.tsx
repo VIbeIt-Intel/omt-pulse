@@ -44,6 +44,7 @@ type OrgUser = {
   inviteTokenExpiresAt?: string | null;
   commands?: OrgCommand[];
   hasPushSubscription?: boolean;
+  pushRegistration?: { fcm: boolean; web: boolean };
 };
 
 const ROLES = [
@@ -1611,16 +1612,22 @@ function UserStatusBadge({ user }: { user: OrgUser }) {
 }
 
 function UserPushIcon({ user }: { user: OrgUser }) {
+  const reg = user.pushRegistration;
   if (user.hasPushSubscription) {
+    const via = reg?.fcm && reg?.web
+      ? "App (FCM) and browser"
+      : reg?.fcm
+        ? "App (FCM)"
+        : "Browser";
     return (
-      <span title="Push notifications enabled" data-testid={`icon-push-on-${user.id}`} className="inline-flex items-center justify-center">
+      <span title={`Push notifications enabled — ${via}`} data-testid={`icon-push-on-${user.id}`} className="inline-flex items-center justify-center">
         <Bell className="h-4 w-4 text-green-600 dark:text-green-400 fill-green-600 dark:fill-green-400" />
       </span>
     );
   }
   return (
     <span
-      title="Push notifications not enabled"
+      title="Not registered on server — user may need to open the app and enable alerts (OS permission alone is not enough)"
       data-testid={`icon-push-off-${user.id}`}
       className="inline-flex items-center justify-center"
     >

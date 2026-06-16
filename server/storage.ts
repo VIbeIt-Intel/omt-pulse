@@ -195,6 +195,7 @@ export interface IStorage {
   getPushSubscriptionsByOrg(orgId: string, excludeUserId?: string, roles?: string[], commandIds?: number[]): Promise<Array<{ endpoint: string; p256dh: string; auth: string; userId: string }>>;
   getPushSubscriptionsByUser(userId: string): Promise<Array<{ endpoint: string; p256dh: string; auth: string }>>;
   getOrgPushSubscribedUserIds(orgId: string): Promise<Set<string>>;
+  getOrgPushRegistrationByUser(orgId: string): Promise<Map<string, { fcm: boolean; web: boolean }>>;
 
   // FCM Tokens (native push)
   upsertFcmToken(orgId: string, userId: string, token: string): Promise<void>;
@@ -1692,10 +1693,33 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getOrgPushSubscribedUserIds(orgId: string): Promise<Set<string>> {
-    const rows = await db.selectDistinct({ userId: pushSubscriptions.userId })
-      .from(pushSubscriptions)
-      .where(eq(pushSubscriptions.organizationId, orgId));
-    return new Set(rows.map(r => r.userId));
+    const byUser = await this.getOrgPushRegistrationByUser(orgId);
+    return new Set([...byUser.entries()].filter(([, r]) => r.fcm || r.web).map(([id]) => id));
+  }
+
+  async getOrgPushRegistrationByUser(orgId: string): Promise<Map<string, { fcm: boolean; web: boolean }>> {
+    const [webRows, fcmRows] = await Promise.all([
+      db.selectDistinct({ userId: pushSubscriptions.userId })
+        .from(pushSubscriptions)
+        .innerJoin(users, eq(pushSubscriptions.userId, users.id))
+        .where(eq(users.organizationId, orgId)),
+      db.selectDistinct({ userId: fcmTokens.userId })
+        .from(fcmTokens)
+        .innerJoin(users, eq(fcmTokens.userId, users.id))
+        .where(eq(users.organizationId, orgId)),
+    ]);
+    const map = new Map<string, { fcm: boolean; web: boolean }>();
+    for (const r of webRows) {
+      const cur = map.get(r.userId) ?? { fcm: false, web: false };
+      cur.web = true;
+      map.set(r.userId, cur);
+    }
+    for (const r of fcmRows) {
+      const cur = map.get(r.userId) ?? { fcm: false, web: false };
+      cur.fcm = true;
+      map.set(r.userId, cur);
+    }
+    return map;
   }
 
   // --- FCM Tokens ---
