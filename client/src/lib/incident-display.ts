@@ -77,6 +77,26 @@ export function resolveJoinerNavDestination(
   return null;
 }
 
+/**
+ * Live navigation target for joiners — prefers the panicker's current GPS on
+ * panic incidents so Direct / fallback guidance tracks a moving target.
+ */
+export function resolveLiveNavTarget(
+  incident: JoinerNavIncident,
+): { lat: number; lng: number; name: string } | null {
+  const base = resolveJoinerNavDestination(incident);
+  if (!base) return null;
+
+  const isPanic = (incident.categoryName ?? "").toLowerCase().includes("panic");
+  if (isPanic) {
+    const live = finiteCoordPair(incident.responderLat, incident.responderLng);
+    if (live) {
+      return { ...live, name: base.name };
+    }
+  }
+  return base;
+}
+
 /** Destination set during a live incident (excludes placeholder locationName). */
 export function liveIncidentDestination(
   incident: Pick<Incident, "destinationName" | "destinationLat" | "destinationLng">,
