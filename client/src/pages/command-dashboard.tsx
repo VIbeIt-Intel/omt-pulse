@@ -432,19 +432,19 @@ function StatTile({
 }) {
   const inner = (
     <>
-      <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium mb-1">{label}</p>
+      <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wide font-medium mb-1">{label}</p>
       <p
-        className={`text-3xl font-bold tabular-nums ${highlight ? "text-green-600 dark:text-green-400" : ""}`}
+        className={`text-2xl sm:text-3xl font-bold tabular-nums ${highlight ? "text-green-600 dark:text-green-400" : ""}`}
         data-testid={testId}
       >
         {value}
       </p>
-      <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
+      <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5 flex items-center gap-1 leading-snug">
         {sublabel}
-        {onClick && <ChevronRight className="h-3.5 w-3.5" />}
+        {onClick && <ChevronRight className="h-3 w-3 sm:h-3.5 sm:w-3.5 shrink-0" />}
       </p>
-                                      </>
-                                    );
+    </>
+  );
 
   if (!onClick) {
     return (
@@ -461,7 +461,7 @@ function StatTile({
       className="text-left w-full rounded-xl border bg-card shadow-sm hover:bg-muted/40 active:scale-[0.99] transition-all touch-manipulation"
       data-testid={`${testId}-button`}
     >
-      <div className="p-4">{inner}</div>
+      <div className="p-3 sm:p-4">{inner}</div>
     </button>
   );
 }
@@ -702,56 +702,58 @@ export default function CommandDashboard() {
         </div>
       </div>
 
-      <div className="p-4 md:p-6 pt-1 pb-28 space-y-4 max-w-4xl mx-auto w-full">
-        <div className="flex justify-center">
-          <div className="flex items-center rounded-lg border border-border overflow-hidden text-sm">
-            <button
-              onClick={() => setPeriod("day")}
-              className={`px-4 py-1.5 font-medium transition-colors ${period === "day" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted"}`}
-              data-testid="toggle-period-day"
-            >
-              Today
-            </button>
-            <button
-              onClick={() => setPeriod("week")}
-              className={`px-4 py-1.5 font-medium transition-colors border-l border-border ${period === "week" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted"}`}
-              data-testid="toggle-period-week"
-            >
-              This Week
-            </button>
+      <div className="p-4 md:p-6 pt-1 pb-28 max-w-4xl mx-auto w-full">
+        <div className="space-y-3">
+          <div className="flex justify-center">
+            <div className="flex items-center rounded-lg border border-border overflow-hidden text-sm">
+              <button
+                onClick={() => setPeriod("day")}
+                className={`px-4 py-1.5 font-medium transition-colors ${period === "day" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted"}`}
+                data-testid="toggle-period-day"
+              >
+                Today
+              </button>
+              <button
+                onClick={() => setPeriod("week")}
+                className={`px-4 py-1.5 font-medium transition-colors border-l border-border ${period === "week" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted"}`}
+                data-testid="toggle-period-week"
+              >
+                This Week
+              </button>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:gap-3">
+            {isLoading ? (
+              <>
+                <Skeleton className="h-24 w-full rounded-xl" />
+                <Skeleton className="h-24 w-full rounded-xl" />
+              </>
+            ) : (
+              <>
+                <StatTile
+                  label={periodLabel}
+                  value={data?.totalIncidents ?? 0}
+                  sublabel={incidentSublabel}
+                  onClick={openIncidentsList}
+                  testId="stat-total-incidents"
+                />
+                <StatTile
+                  label="Currently Live"
+                  value={liveCountDisplay}
+                  sublabel={
+                    liveCountDisplay > 0
+                      ? `active · tap to open`
+                      : "no active incidents"
+                  }
+                  onClick={openLiveView}
+                  highlight={liveCountDisplay > 0}
+                  testId="stat-live-count"
+                />
+              </>
+            )}
           </div>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {isLoading ? (
-            <>
-              <Skeleton className="h-24 w-full rounded-xl" />
-              <Skeleton className="h-24 w-full rounded-xl" />
-            </>
-              ) : (
-                <>
-              <StatTile
-                label={periodLabel}
-                value={data?.totalIncidents ?? 0}
-                sublabel={incidentSublabel}
-                onClick={openIncidentsList}
-                testId="stat-total-incidents"
-              />
-              <StatTile
-                label="Currently Live"
-                value={liveCountDisplay}
-                sublabel={
-                  liveCountDisplay > 0
-                    ? `active · tap to open`
-                    : "no active incidents"
-                }
-                onClick={openLiveView}
-                highlight={liveCountDisplay > 0}
-                testId="stat-live-count"
-              />
-                </>
-              )}
-        </div>
-              </div>
+      </div>
 
       <IncidentDialog open={logIncidentOpen} onOpenChange={setLogIncidentOpen} />
 

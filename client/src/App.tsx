@@ -724,19 +724,19 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
               <SidebarTrigger data-testid="button-sidebar-toggle" className="text-foreground" />
             </div>
 
-            {/* Centre — online status + logo */}
-            <div className="flex items-center justify-center gap-2 min-w-0">
-              <ConnectivityBadge className="shrink-0" />
+            {/* Centre — logo */}
+            <div className="flex items-center justify-center min-w-0">
               <img
                 src={intelafriLogo}
                 alt="IntelAfri"
-                className="h-9 object-contain shrink-0 mix-blend-screen"
+                className="h-9 object-contain shrink-0 invert dark:invert-0"
                 data-testid="img-header-logo"
               />
             </div>
 
-            {/* Right — billing, theme, notifications, avatar */}
-            <div className="flex items-center gap-1 justify-end text-foreground">
+            {/* Right — online, billing, theme, notifications, avatar */}
+            <div className="flex items-center gap-1.5 justify-end text-foreground">
+              <ConnectivityBadge className="shrink-0" />
               {user.role === "administrator" && (
                 <Tooltip>
                   <TooltipTrigger asChild>
