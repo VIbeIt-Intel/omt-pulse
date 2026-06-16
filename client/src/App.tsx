@@ -718,25 +718,25 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
         <div className="flex flex-col flex-1 min-w-0 relative">
           {/* Full INTEL header — dashboard only */}
           {location === "/dashboard" && (
-          <header className="grid grid-cols-[1fr_auto_1fr] items-center p-2 border-b border-border bg-background text-foreground shrink-0 gap-2 z-40">
+          <header className="relative grid grid-cols-[1fr_auto_1fr] items-center p-2 border-b border-border bg-background text-foreground shrink-0 gap-2 z-40 min-h-[3rem]">
             {/* Left */}
-            <div className="flex items-center text-foreground">
+            <div className="flex items-center text-foreground z-10">
               <SidebarTrigger data-testid="button-sidebar-toggle" className="text-foreground" />
             </div>
 
-            {/* Centre — logo */}
-            <div className="flex items-center justify-center min-w-0">
+            {/* Centre — online pill left of Intel logo (logo at true header centre) */}
+            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center pointer-events-none">
+              <ConnectivityBadge className="absolute right-full mr-1.5 shrink-0 pointer-events-auto" />
               <img
                 src={intelafriLogo}
                 alt="IntelAfri"
-                className="h-9 object-contain shrink-0 invert dark:invert-0"
+                className="relative h-9 object-contain shrink-0 invert dark:invert-0 pointer-events-auto"
                 data-testid="img-header-logo"
               />
             </div>
 
-            {/* Right — online, billing, theme, notifications, avatar */}
-            <div className="flex items-center gap-1.5 justify-end text-foreground">
-              <ConnectivityBadge className="shrink-0" />
+            {/* Right — billing, theme, notifications, avatar */}
+            <div className="flex items-center gap-1.5 justify-end text-foreground z-10 col-start-3">
               {user.role === "administrator" && (
                 <Tooltip>
                   <TooltipTrigger asChild>

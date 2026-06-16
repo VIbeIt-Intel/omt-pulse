@@ -51,6 +51,7 @@ import { AttachmentPreview, attachmentUploaderLabel } from "@/components/attachm
 import { IncidentEvidenceSection } from "@/components/incident-evidence-section";
 import { GeoLocationSheet, type GeoMapView } from "@/components/incident-location-sheet";
 import { CoordinateLink } from "@/components/coordinate-link";
+import { cn } from "@/lib/utils";
 
 const incidentFormSchema = z.object({
   incidentDate: z.string().min(1, "Date is required"),
@@ -799,10 +800,12 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
   return (
     <>
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl p-0 flex flex-col" style={{ maxHeight: "calc(100dvh - 2rem)" }}>
-        <div className="overflow-y-auto flex-1 p-6" style={{ WebkitOverflowScrolling: "touch" } as React.CSSProperties}>
-        <DialogHeader>
-          <DialogTitle className="text-lg font-semibold flex items-center gap-2 flex-wrap" data-testid="text-dialog-title">
+      <DialogContent className="max-w-4xl p-0 flex flex-col gap-0 overflow-hidden" style={{ maxHeight: "calc(100dvh - 2rem)" }}>
+        <DialogHeader className="shrink-0 px-6 pt-5 pb-4 border-b border-border/50 text-center sm:text-center space-y-0">
+          <DialogTitle
+            className="text-xl font-semibold tracking-tight text-center flex items-center justify-center gap-2 flex-wrap"
+            data-testid="text-dialog-title"
+          >
             {incident ? "Edit Incident" : "Report New Incident"}
             {incident?.liveStartedAt && (
               <span className="inline-flex items-center gap-1 rounded-full bg-green-500/15 text-green-600 dark:text-green-400 border border-green-500/25 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide" data-testid="badge-live-incident">
@@ -813,10 +816,11 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
           </DialogTitle>
         </DialogHeader>
 
+        <div className="overflow-y-auto flex-1 px-6 py-5" style={{ WebkitOverflowScrolling: "touch" } as React.CSSProperties}>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          <form id="incident-report-form" onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
             {(showDate || showTime) && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-3">
                 {showDate && (
                   <FormFieldComponent
                     control={form.control}
@@ -1282,180 +1286,6 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
               </div>
             )}
 
-            <div className="space-y-4 border border-border rounded-lg p-4 bg-muted/30">
-              <div className="flex items-center gap-2">
-                <Paperclip className="h-4 w-4 text-muted-foreground" />
-                <h3 className="text-sm font-medium">Evidence</h3>
-              </div>
-
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
-                className="hidden"
-                data-testid="input-file-upload"
-                onChange={(e) => {
-                  if (e.target.files?.length) {
-                    setAttachmentError(null);
-                    handleAttachmentUpload(e.target.files);
-                  }
-                  e.target.value = "";
-                }}
-              />
-              <input
-                ref={cameraInputRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="hidden"
-                data-testid="input-camera-upload"
-                onChange={(e) => {
-                  if (e.target.files?.length) {
-                    setAttachmentError(null);
-                    handleAttachmentUpload(e.target.files, "camera");
-                  }
-                  e.target.value = "";
-                }}
-              />
-
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => { setAttachmentError(null); fileInputRef.current?.click(); }}
-                  disabled={uploadingAttachment || isRecording}
-                  data-testid="button-upload-file"
-                  className="gap-1.5"
-                >
-                  {uploadingAttachment && uploadSource === "file" ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Upload className="h-3.5 w-3.5" />
-                  )}
-                  Upload File
-                </Button>
-
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleTakePhoto}
-                  disabled={uploadingAttachment || isRecording}
-                  data-testid="button-take-photo"
-                  className="gap-1.5"
-                >
-                  {uploadingAttachment && uploadSource === "camera" ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Camera className="h-3.5 w-3.5" />
-                  )}
-                  Take Photo
-                </Button>
-
-                {!isRecording ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => { setAttachmentError(null); startRecording(); }}
-                    disabled={uploadingAttachment}
-                    data-testid="button-start-recording"
-                    className="gap-1.5"
-                  >
-                    {uploadingAttachment && uploadSource === "voice" ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Mic className="h-3.5 w-3.5" />
-                    )}
-                    {uploadingAttachment && uploadSource === "voice" ? "Saving…" : "Record Voice"}
-                  </Button>
-                ) : (
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    size="sm"
-                    onClick={stopRecording}
-                    data-testid="button-stop-recording"
-                    className="gap-1.5 animate-pulse"
-                  >
-                    <Square className="h-3.5 w-3.5" />
-                    Stop ({Math.floor(recordingSeconds / 60)}:{String(recordingSeconds % 60).padStart(2, "0")})
-                  </Button>
-                )}
-              </div>
-
-              {attachmentError && (
-                <p className="text-xs text-destructive" data-testid="text-attachment-error">
-                  {attachmentError}
-                </p>
-              )}
-
-              {existingAttachments.length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-xs text-muted-foreground font-medium">Saved Evidence</p>
-                  <div className="flex flex-wrap gap-2">
-                    {existingAttachments.map((att) => (
-                      <div
-                        key={att.id}
-                        className="relative border border-border rounded-md overflow-hidden w-28"
-                        data-testid={`card-existing-attachment-${att.id}`}
-                      >
-                        <AttachmentPreview url={att.url} alt={att.filename} mimeType={att.mimeType} filename={att.filename} />
-                        <div className="p-1 text-xs bg-background border-t border-border space-y-0.5">
-                          <p className="truncate">{att.filename}</p>
-                          <p className="text-[10px] text-muted-foreground leading-tight">
-                            {attachmentUploaderLabel(att)}
-                          </p>
-                        </div>
-                        {isAdmin && (
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteExistingAttachment(att.id)}
-                            className="absolute top-1 right-1 bg-destructive text-destructive-foreground rounded-full p-0.5 hover:opacity-80"
-                            data-testid={`button-delete-existing-attachment-${att.id}`}
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {pendingAttachments.length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-xs text-muted-foreground font-medium">
-                    Pending Evidence ({pendingAttachments.length})
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {pendingAttachments.map((att, i) => (
-                      <div
-                        key={i}
-                        className="relative border border-border rounded-md overflow-hidden w-28"
-                        data-testid={`card-pending-attachment-${i}`}
-                      >
-                        <AttachmentPreview url={att.url} alt={att.filename} mimeType={att.mimeType} filename={att.filename} />
-                        <div className="p-1 text-xs text-center truncate bg-background border-t border-border">
-                          {att.filename}
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setPendingAttachments((prev) => prev.filter((_, idx) => idx !== i))}
-                          className="absolute top-1 right-1 bg-destructive text-destructive-foreground rounded-full p-0.5 hover:opacity-80"
-                          data-testid={`button-remove-pending-attachment-${i}`}
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
             {incident?.liveStartedAt && (
               <div className="rounded-md border border-border bg-muted/30 p-4 space-y-3" data-testid="section-live-timeline">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
@@ -1650,17 +1480,215 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
               </div>
             )}
 
-            <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)} data-testid="button-cancel-incident">
-                Cancel
-              </Button>
-              <Button type="submit" data-testid="button-submit-incident" disabled={mutation.isPending}>
-                {mutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-                {incident ? "Update Incident" : "Report Incident"}
-              </Button>
-            </div>
+            <section className="pt-5 mt-2 border-t border-border/60 space-y-4" data-testid="section-evidence">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Paperclip className="h-3.5 w-3.5 text-primary/70 shrink-0" />
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Scene evidence</h3>
+                </div>
+                <p className="text-[11px] text-muted-foreground/90 leading-relaxed">
+                  Photos, files, or voice notes — optional, attached when you submit.
+                </p>
+              </div>
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
+                className="hidden"
+                data-testid="input-file-upload"
+                onChange={(e) => {
+                  if (e.target.files?.length) {
+                    setAttachmentError(null);
+                    handleAttachmentUpload(e.target.files);
+                  }
+                  e.target.value = "";
+                }}
+              />
+              <input
+                ref={cameraInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                data-testid="input-camera-upload"
+                onChange={(e) => {
+                  if (e.target.files?.length) {
+                    setAttachmentError(null);
+                    handleAttachmentUpload(e.target.files, "camera");
+                  }
+                  e.target.value = "";
+                }}
+              />
+
+              <div className="grid grid-cols-3 gap-2">
+                {isRecording ? (
+                  <button
+                    type="button"
+                    onClick={stopRecording}
+                    data-testid="button-stop-recording"
+                    className={cn(
+                      "col-span-3 flex items-center justify-center gap-2 rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-3.5",
+                      "text-destructive animate-pulse active:scale-[0.99] transition-all touch-manipulation",
+                    )}
+                  >
+                    <Square className="h-4 w-4 shrink-0" />
+                    <span className="text-sm font-semibold">
+                      Stop recording ({Math.floor(recordingSeconds / 60)}:{String(recordingSeconds % 60).padStart(2, "0")})
+                    </span>
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => { setAttachmentError(null); fileInputRef.current?.click(); }}
+                      disabled={uploadingAttachment}
+                      data-testid="button-upload-file"
+                      className={cn(
+                        "flex flex-col items-center justify-center gap-2 rounded-xl border border-border/70 bg-card px-2 py-3.5",
+                        "hover:border-primary/35 hover:bg-muted/35 active:scale-[0.98] transition-all touch-manipulation",
+                        "disabled:opacity-50 disabled:pointer-events-none min-h-[4.75rem]",
+                      )}
+                    >
+                      <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary">
+                        {uploadingAttachment && uploadSource === "file" ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Upload className="h-4 w-4" />
+                        )}
+                      </span>
+                      <span className="text-[11px] font-medium leading-tight text-center">Upload</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleTakePhoto}
+                      disabled={uploadingAttachment}
+                      data-testid="button-take-photo"
+                      className={cn(
+                        "flex flex-col items-center justify-center gap-2 rounded-xl border border-border/70 bg-card px-2 py-3.5",
+                        "hover:border-primary/35 hover:bg-muted/35 active:scale-[0.98] transition-all touch-manipulation",
+                        "disabled:opacity-50 disabled:pointer-events-none min-h-[4.75rem]",
+                      )}
+                    >
+                      <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary">
+                        {uploadingAttachment && uploadSource === "camera" ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Camera className="h-4 w-4" />
+                        )}
+                      </span>
+                      <span className="text-[11px] font-medium leading-tight text-center">Photo</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => { setAttachmentError(null); startRecording(); }}
+                      disabled={uploadingAttachment}
+                      data-testid="button-start-recording"
+                      className={cn(
+                        "flex flex-col items-center justify-center gap-2 rounded-xl border border-border/70 bg-card px-2 py-3.5",
+                        "hover:border-primary/35 hover:bg-muted/35 active:scale-[0.98] transition-all touch-manipulation",
+                        "disabled:opacity-50 disabled:pointer-events-none min-h-[4.75rem]",
+                      )}
+                    >
+                      <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary">
+                        {uploadingAttachment && uploadSource === "voice" ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Mic className="h-4 w-4" />
+                        )}
+                      </span>
+                      <span className="text-[11px] font-medium leading-tight text-center">
+                        {uploadingAttachment && uploadSource === "voice" ? "Saving…" : "Voice"}
+                      </span>
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {attachmentError && (
+                <p className="text-xs text-destructive" data-testid="text-attachment-error">
+                  {attachmentError}
+                </p>
+              )}
+
+              {existingAttachments.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Saved</p>
+                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                    {existingAttachments.map((att) => (
+                      <div
+                        key={att.id}
+                        className="relative rounded-lg border border-border/80 overflow-hidden bg-card shadow-sm"
+                        data-testid={`card-existing-attachment-${att.id}`}
+                      >
+                        <AttachmentPreview url={att.url} alt={att.filename} mimeType={att.mimeType} filename={att.filename} />
+                        <div className="p-1.5 text-[10px] bg-background border-t border-border/60 space-y-0.5">
+                          <p className="truncate font-medium">{att.filename}</p>
+                          <p className="text-muted-foreground leading-tight truncate">
+                            {attachmentUploaderLabel(att)}
+                          </p>
+                        </div>
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteExistingAttachment(att.id)}
+                            className="absolute top-1 right-1 bg-destructive text-destructive-foreground rounded-full p-0.5 hover:opacity-80"
+                            data-testid={`button-delete-existing-attachment-${att.id}`}
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {pendingAttachments.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Ready to submit ({pendingAttachments.length})
+                  </p>
+                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                    {pendingAttachments.map((att, i) => (
+                      <div
+                        key={i}
+                        className="relative rounded-lg border border-primary/25 overflow-hidden bg-card shadow-sm"
+                        data-testid={`card-pending-attachment-${i}`}
+                      >
+                        <AttachmentPreview url={att.url} alt={att.filename} mimeType={att.mimeType} filename={att.filename} />
+                        <div className="p-1.5 text-[10px] text-center truncate bg-background border-t border-border/60 font-medium">
+                          {att.filename}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setPendingAttachments((prev) => prev.filter((_, idx) => idx !== i))}
+                          className="absolute top-1 right-1 bg-destructive text-destructive-foreground rounded-full p-0.5 hover:opacity-80"
+                          data-testid={`button-remove-pending-attachment-${i}`}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </section>
           </form>
         </Form>
+        </div>
+
+        <div className="shrink-0 flex justify-end gap-2 px-6 py-4 border-t border-border/50 bg-muted/20">
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} data-testid="button-cancel-incident">
+            Cancel
+          </Button>
+          <Button type="submit" form="incident-report-form" data-testid="button-submit-incident" disabled={mutation.isPending}>
+            {mutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+            {incident ? "Update Incident" : "Report Incident"}
+          </Button>
         </div>
       </DialogContent>
     </Dialog>
