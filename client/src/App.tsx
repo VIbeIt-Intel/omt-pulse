@@ -732,9 +732,8 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
               />
             </div>
 
-            {/* Right — connectivity, billing, theme, avatar */}
-            <div className="flex items-center gap-1.5 justify-end">
-              <ConnectivityBadge />
+            {/* Right — billing, theme, notifications, avatar + connectivity */}
+            <div className="flex items-start gap-1.5 justify-end">
               {user.role === "administrator" && (
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -780,6 +779,7 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
                 onMarkAllRead={() => { markAllRead(); qc.invalidateQueries({ queryKey: ["/api/notifications"] }); setNotifLastSeen(Date.now()); }}
               />
 
+              <div className="flex flex-col items-center gap-1 shrink-0">
               {/* Avatar dropdown */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -829,6 +829,8 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+              <ConnectivityBadge />
+              </div>
               <input
                 ref={avatarInputRef}
                 type="file"

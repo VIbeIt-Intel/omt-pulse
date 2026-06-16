@@ -376,7 +376,7 @@ function ActionTile({
   testId,
 }: {
   title: string;
-  subtitle: string;
+  subtitle?: string;
   icon: LucideIcon;
   onClick: () => void;
   variant?: "primary" | "live" | "panic";
@@ -390,6 +390,8 @@ function ActionTile({
       : "bg-gradient-to-br from-primary to-primary/85 text-primary-foreground shadow-lg shadow-primary/20";
   const subtitleClass =
     variant === "live" || variant === "panic" ? "text-white/85" : "text-primary-foreground/80";
+  const titleClass =
+    variant === "panic" ? "font-bold text-xl sm:text-2xl leading-tight tracking-tight" : "font-bold text-base leading-tight";
 
   return (
     <button
@@ -403,8 +405,10 @@ function ActionTile({
         <Icon className="relative h-6 w-6 action-tile-icon-pulse" strokeWidth={2.25} />
                                     </div>
       <div className="flex-1 min-w-0">
-        <p className="font-bold text-base leading-tight">{title}</p>
-        <p className={`text-sm mt-0.5 ${subtitleClass}`}>{subtitle}</p>
+        <p className={titleClass}>{title}</p>
+        {subtitle ? (
+          <p className={`text-sm mt-0.5 ${subtitleClass}`}>{subtitle}</p>
+        ) : null}
                                     </div>
       <ChevronRight className="h-5 w-5 shrink-0 opacity-75" />
     </button>
@@ -669,8 +673,7 @@ export default function CommandDashboard() {
 
         <div className="flex flex-col gap-3">
           <ActionTile
-            title="Panic"
-            subtitle="Worst-case emergency — send SOS immediately"
+            title="Panic/SOS"
             icon={Siren}
             variant="panic"
             onClick={() => setPanicOpen(true)}
