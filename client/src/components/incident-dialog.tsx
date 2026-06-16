@@ -52,6 +52,19 @@ import { IncidentEvidenceSection } from "@/components/incident-evidence-section"
 import { GeoLocationSheet, type GeoMapView } from "@/components/incident-location-sheet";
 import { CoordinateLink } from "@/components/coordinate-link";
 import { cn } from "@/lib/utils";
+import {
+  createAudioMediaRecorder,
+  openMicStream,
+  recorderMimeType,
+  recordingErrorMessage,
+} from "@/lib/voice-recorder";
+import {
+  cancelNativeRecording,
+  getNativeRecordingMode,
+  startNativeRecording,
+  stopNativeRecording,
+} from "@/lib/native-audio-recorder";
+import { nativeMicDeniedHint, nativeVoiceApkUpdateHint } from "@/lib/native-mic-hint";
 
 const incidentFormSchema = z.object({
   incidentDate: z.string().min(1, "Date is required"),
@@ -123,7 +136,9 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
   const geocoderRef = useRef<google.maps.Geocoder | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const recordingStreamRef = useRef<MediaStream | null>(null);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const useNativeRecorder = getNativeRecordingMode() === "plugin";
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
@@ -212,18 +227,21 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
   });
 
   useEffect(() => {
-    if (!open && isRecording) {
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
-        mediaRecorderRef.current.stop();
-      }
-      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
-      setIsRecording(false);
-      setRecordingSeconds(0);
-    }
     if (!open) {
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+      if (isRecording) {
+        if (mediaRecorderRef.current?.state !== "inactive") {
+          mediaRecorderRef.current?.stop();
+        }
+        if (useNativeRecorder) void cancelNativeRecording();
+        recordingStreamRef.current?.getTracks().forEach((t) => t.stop());
+        recordingStreamRef.current = null;
+        setIsRecording(false);
+        setRecordingSeconds(0);
+      }
       setAttachmentError(null);
     }
-  }, [open]);
+  }, [open, isRecording, useNativeRecorder]);
 
   useEffect(() => {
     setPendingAttachments([]);
@@ -703,29 +721,60 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
     cameraInputRef.current?.click();
   };
 
+  function voiceErrorDescription(description: string): string {
+    if (description === "mic-denied") return nativeMicDeniedHint();
+    if (description === "needs-apk-update") return nativeVoiceApkUpdateHint();
+    return description;
+  }
+
+  function voiceBlobToFile(blob: Blob, mimeType: string): File {
+    const ext = mimeType.includes("mp4") ? "m4a" : mimeType.includes("ogg") ? "ogg" : "webm";
+    return new File([blob], `voice-note-${Date.now()}.${ext}`, { type: mimeType });
+  }
+
   const startRecording = async () => {
+    if (isRecording || uploadingAttachment) return;
+    setAttachmentError(null);
+
+    if (useNativeRecorder) {
+      try {
+        await startNativeRecording();
+        setRecordingSeconds(0);
+        setIsRecording(true);
+        recordingTimerRef.current = setInterval(() => {
+          setRecordingSeconds((s) => s + 1);
+        }, 1000);
+      } catch (err: unknown) {
+        setIsRecording(false);
+        setRecordingSeconds(0);
+        const { title, description } = recordingErrorMessage(err);
+        toast({
+          title,
+          description: voiceErrorDescription(description),
+          variant: "destructive",
+        });
+      }
+      return;
+    }
+
     let stream: MediaStream | null = null;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const supportedType = ["audio/webm", "audio/ogg", "audio/mp4"].find((t) =>
-        MediaRecorder.isTypeSupported(t)
-      );
-      if (!supportedType) {
-        stream.getTracks().forEach((t) => t.stop());
-        toast({ title: "Recording not supported", description: "Your browser does not support audio recording.", variant: "destructive" });
-        return;
-      }
-      const recorder = new MediaRecorder(stream, { mimeType: supportedType });
+      stream = await openMicStream();
+      recordingStreamRef.current = stream;
       audioChunksRef.current = [];
+      const recorder = createAudioMediaRecorder(stream);
+      const mimeType = recorderMimeType(recorder);
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) audioChunksRef.current.push(e.data);
       };
       recorder.onstop = () => {
         stream!.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(audioChunksRef.current, { type: supportedType });
-        const ext = supportedType.split("/")[1] ?? "webm";
-        const file = new File([blob], `voice-note-${Date.now()}.${ext}`, { type: supportedType });
-        handleAttachmentUpload([file], "voice");
+        recordingStreamRef.current = null;
+        const blob = new Blob(audioChunksRef.current, { type: mimeType });
+        if (blob.size > 0) {
+          void handleAttachmentUpload([voiceBlobToFile(blob, mimeType)], "voice");
+        }
+        mediaRecorderRef.current = null;
         if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
         setIsRecording(false);
         setRecordingSeconds(0);
@@ -739,13 +788,14 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
       }, 1000);
     } catch (err: unknown) {
       if (stream) stream.getTracks().forEach((t) => t.stop());
-      const isDenied = err instanceof DOMException && (err.name === "NotAllowedError" || err.name === "PermissionDeniedError");
-      if (isDenied) {
-        setAttachmentError("Microphone access was denied. Please enable microphone access in your device settings and try again.");
+      recordingStreamRef.current = null;
+      const { title, description } = recordingErrorMessage(err);
+      if (description === "mic-denied") {
+        setAttachmentError(voiceErrorDescription(description));
       } else {
         toast({
-          title: "Recording failed",
-          description: "Could not start recording. Please try again.",
+          title,
+          description: voiceErrorDescription(description),
           variant: "destructive",
         });
       }
@@ -753,8 +803,37 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
   };
 
   const stopRecording = () => {
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+
+    if (useNativeRecorder && isRecording) {
+      setIsRecording(false);
+      setRecordingSeconds(0);
+      void stopNativeRecording()
+        .then(({ blob, mimeType }) => {
+          if (blob.size === 0) throw new Error("Recording was empty");
+          return handleAttachmentUpload([voiceBlobToFile(blob, mimeType)], "voice");
+        })
+        .catch((err: unknown) => {
+          const { title, description } = recordingErrorMessage(err);
+          toast({
+            title,
+            description: voiceErrorDescription(description),
+            variant: "destructive",
+          });
+        });
+      return;
+    }
+
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       mediaRecorderRef.current.stop();
+    } else {
+      recordingStreamRef.current?.getTracks().forEach((t) => t.stop());
+      recordingStreamRef.current = null;
+      setIsRecording(false);
+      setRecordingSeconds(0);
     }
   };
 
