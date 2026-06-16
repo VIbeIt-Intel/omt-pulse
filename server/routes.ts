@@ -385,48 +385,48 @@ async function dispatchReportIncidentPush(orgId: string, triggerUserId: string, 
     );
   }
 
-  storage.getFcmTokensByOrg(orgId, triggerUserId, [...DISPATCH_STAFF_ROLES], commandIds).then((fcmSubs) => {
-    if (fcmSubs.length === 0) return;
-    sendFcmBatch(fcmSubs.map((s) => s.token), {
-      title,
-      body,
-      data: {
-        type: "incident_reported",
-        incidentId: String(incident.id),
-        url: detailUrl,
-      },
-      notificationTag: `report-${incident.id}`,
-    }).catch(() => {});
-    for (const s of fcmSubs) pushedUserIds.add(s.userId);
-  }).catch(() => {});
+  try {
+    const fcmSubs = await storage.getFcmTokensByOrg(orgId, triggerUserId, [...DISPATCH_STAFF_ROLES], commandIds);
+    if (fcmSubs.length > 0) {
+      await sendFcmBatch(fcmSubs.map((s) => s.token), {
+        title,
+        body,
+        data: {
+          type: "incident_reported",
+          incidentId: String(incident.id),
+          url: detailUrl,
+        },
+        notificationTag: `report-${incident.id}`,
+      }).catch(() => {});
+      for (const s of fcmSubs) pushedUserIds.add(s.userId);
+    }
+  } catch { /* best-effort */ }
 
-  (async () => {
-    try {
-      const allActive = await storage.getActiveUsersByOrg(orgId);
-      const commandMemberIds = commandIds
-        ? await storage.getUserIdsInCommands(orgId, commandIds)
-        : null;
-      const noPushUsers = allActive.filter(
-        (u) =>
-          u.id !== triggerUserId &&
-          (u.role === "administrator" || u.role === "supervisor") &&
-          !pushedUserIds.has(u.id) &&
-          (!commandMemberIds || commandMemberIds.has(u.id)),
-      );
-      await Promise.allSettled(
-        noPushUsers.map((u) =>
-          storage.createNotificationLog({
-            organizationId: orgId,
-            userId: u.id,
-            title,
-            body,
-            url: detailUrl,
-            incidentId: incident.id,
-          }).catch(() => {}),
-        ),
-      );
-    } catch { /* best-effort */ }
-  })();
+  try {
+    const allActive = await storage.getActiveUsersByOrg(orgId);
+    const commandMemberIds = commandIds
+      ? await storage.getUserIdsInCommands(orgId, commandIds)
+      : null;
+    const noPushUsers = allActive.filter(
+      (u) =>
+        u.id !== triggerUserId &&
+        (u.role === "administrator" || u.role === "supervisor") &&
+        !pushedUserIds.has(u.id) &&
+        (!commandMemberIds || commandMemberIds.has(u.id)),
+    );
+    await Promise.allSettled(
+      noPushUsers.map((u) =>
+        storage.createNotificationLog({
+          organizationId: orgId,
+          userId: u.id,
+          title,
+          body,
+          url: detailUrl,
+          incidentId: incident.id,
+        }).catch(() => {}),
+      ),
+    );
+  } catch { /* best-effort */ }
 }
 
 /** Replace stale live-incident FCM alerts on native devices when an incident closes. */

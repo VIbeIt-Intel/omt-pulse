@@ -615,11 +615,32 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
   });
 
   const onSubmit = async (data: IncidentFormValues) => {
+    if (isFieldVisible(formFields, "categoryId", fieldsLoaded) && data.categoryId == null) {
+      form.setError("categoryId", { message: "Please select an incident type" });
+      return;
+    }
     const selectedCategory = categories.find((c) => c.id === data.categoryId);
     const isOtherSelected = data.categoryId === -1 || selectedCategory?.isOther;
     if (isOtherSelected && !data.otherCategoryNote?.trim()) {
       form.setError("otherCategoryNote", { message: "Please specify the occurrence type" });
       return;
+    }
+    if (isFieldVisible(formFields, "location", fieldsLoaded)) {
+      if (locationMode === "customMap") {
+        if (data.customMapId == null || data.customMapX == null || data.customMapY == null) {
+          form.setError("customMapId", { message: "Please select a map and place a pin" });
+          return;
+        }
+      } else {
+        const hasLocation =
+          data.locationId != null
+          || (data.latitude != null && data.longitude != null)
+          || Boolean(data.locationName?.trim());
+        if (!hasLocation) {
+          form.setError("locationId", { message: "Please set a location using GPS, the map, or a predefined site" });
+          return;
+        }
+      }
     }
     let normalizedData = data;
     if (locationMode === "customMap") {

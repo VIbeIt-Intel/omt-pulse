@@ -159,12 +159,16 @@ function legacyVehicleFromFields(cf: InvolvementValues): VehicleEntry {
   };
 }
 
+function involvementFlagOn(value: string | number | null | undefined): boolean {
+  return value === "yes" || value === 1 || value === "1";
+}
+
 export function parsePersons(cf: InvolvementValues | null | undefined): PersonEntry[] {
   const data = cf ?? {};
   const fromJson = parseJsonEntries(data.personsJson, normalizePerson);
   if (fromJson && fromJson.length > 0) return fromJson;
 
-  const flag = data.personInvolved === "yes" || data.personInvolved === true;
+  const flag = involvementFlagOn(data.personInvolved);
   const legacy = legacyPersonFromFields(data);
   if (flag || personEntryHasData(legacy)) return [legacy];
   return [];
@@ -175,7 +179,7 @@ export function parseVehicles(cf: InvolvementValues | null | undefined): Vehicle
   const fromJson = parseJsonEntries(data.vehiclesJson, normalizeVehicle);
   if (fromJson && fromJson.length > 0) return fromJson;
 
-  const flag = data.vehicleInvolved === "yes" || data.vehicleInvolved === true;
+  const flag = involvementFlagOn(data.vehicleInvolved);
   const legacy = legacyVehicleFromFields(data);
   if (flag || vehicleEntryHasData(legacy)) return [legacy];
   return [];
