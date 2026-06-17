@@ -10,6 +10,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Shield } from "lucide-react";
+import { cn } from "@/lib/utils";
 import {
   incidentOptionTileClass,
   incidentOptionTileIconClass,
@@ -45,18 +46,71 @@ function clearSapsFields(
   return next;
 }
 
+export function clearSapsCustomFields(
+  fields: Array<{ fieldKey: string }>,
+  customFields: SapsCustomValues,
+): SapsCustomValues {
+  return clearSapsFields(customFields, fields);
+}
+
 type Props = {
   fields: FormField[];
   customFields: SapsCustomValues;
   onChange: (next: SapsCustomValues) => void;
+  /** Hide toggle tile — use when tile is rendered in the Person/Vehicle grid row. */
+  hideTile?: boolean;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 };
 
-export function IncidentSapsSection({ fields, customFields, onChange }: Props) {
-  const [open, setOpen] = useState(() => hasSapsCaseData(fields, customFields));
+export function SapsCaseTile({
+  open,
+  onToggle,
+  className,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className={cn(incidentOptionTileClass(open), className)}
+      data-testid="toggle-saps-case"
+    >
+      <span className={incidentOptionTileIconWrap(open)}>
+        <Shield className={incidentOptionTileIconClass} />
+      </span>
+      <span className={incidentOptionTileLabelClass}>
+        SAPS case
+        <span className={incidentOptionTileSubLabelClass}>optional</span>
+      </span>
+    </button>
+  );
+}
+
+export function IncidentSapsSection({
+  fields,
+  customFields,
+  onChange,
+  hideTile = false,
+  open: controlledOpen,
+  onOpenChange,
+}: Props) {
+  const [internalOpen, setInternalOpen] = useState(() => hasSapsCaseData(fields, customFields));
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = (next: boolean) => {
+    onOpenChange?.(next);
+    if (controlledOpen === undefined) setInternalOpen(next);
+  };
 
   useEffect(() => {
-    if (hasSapsCaseData(fields, customFields)) setOpen(true);
-  }, [fields, customFields]);
+    if (hasSapsCaseData(fields, customFields)) {
+      if (controlledOpen === undefined) setInternalOpen(true);
+      else onOpenChange?.(true);
+    }
+  }, [fields, customFields, controlledOpen, onOpenChange]);
 
   if (fields.length === 0) return null;
 
@@ -64,26 +118,15 @@ export function IncidentSapsSection({ fields, customFields, onChange }: Props) {
     onChange({ ...customFields, [key]: value.trim() ? value : null });
   };
 
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    if (!next) onChange(clearSapsFields(customFields, fields));
+  };
+
   return (
-    <div className="space-y-3">
-      <button
-        type="button"
-        onClick={() => {
-          const next = !open;
-          setOpen(next);
-          if (!next) onChange(clearSapsFields(customFields, fields));
-        }}
-        className={incidentOptionTileClass(open)}
-        data-testid="toggle-saps-case"
-      >
-        <span className={incidentOptionTileIconWrap(open)}>
-          <Shield className={incidentOptionTileIconClass} />
-        </span>
-        <span className={incidentOptionTileLabelClass}>
-          SAPS case
-          <span className={incidentOptionTileSubLabelClass}>optional</span>
-        </span>
-      </button>
+    <div className={cn(!hideTile && "space-y-3")}>
+      {!hideTile && <SapsCaseTile open={open} onToggle={toggle} />}
 
       {open && (
         <div
