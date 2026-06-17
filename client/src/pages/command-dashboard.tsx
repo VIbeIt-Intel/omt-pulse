@@ -11,7 +11,7 @@ import { PanicBanner, type PanicAlert } from "@/components/panic-banner";
 import { PanicConfirmOverlay } from "@/components/panic-confirm-overlay";
 import { useToast } from "@/hooks/use-toast";
 import {
-  PlusCircle,
+  ClipboardList,
   Radio,
   ChevronRight,
   Siren,
@@ -694,7 +694,7 @@ export default function CommandDashboard() {
           <ActionTile
             title="Report Incident"
             subtitle="Log an occurrence to the book"
-            icon={PlusCircle}
+            icon={ClipboardList}
             variant="primary"
             onClick={() => setLogIncidentOpen(true)}
             testId="button-report-incident"

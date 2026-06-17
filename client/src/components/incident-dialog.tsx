@@ -44,7 +44,9 @@ import { IncidentSapsSection, isSapsFormField, SapsCaseTile, hasSapsCaseData, cl
 import { IncidentReportDescriptionField } from "./incident-report-description-field";
 import { IncidentReportSuccess } from "./incident-report-success";
 import { IncidentReportMoreDetailsSection } from "./incident-report-more-details-section";
-import { CalendarIcon, Clock, MapPin, Upload, Paperclip, X, Loader2, Camera, Mic, Square, Globe, Map, LocateFixed } from "lucide-react";
+import { IncidentReportSceneEvidenceSection } from "./incident-report-scene-evidence-section";
+import { normalizeAudioMimeType, resolveAttachmentKind } from "@/lib/attachment-kind";
+import { CalendarIcon, Clock, MapPin, Upload, X, Loader2, Camera, Mic, Square, Globe, Map, LocateFixed } from "lucide-react";
 import { loadGoogleMaps } from "@/lib/google-maps-loader";
 import { quickPanicLocationCheck, acquirePanicLocation, hasPanicCoordinates, panicLocationWarning, type PanicLocationResult } from "@/lib/panic-location";
 import { preloadLocationSettingsModule } from "@/lib/open-location-settings";
@@ -739,10 +741,14 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
       for (const file of arr) {
         // Compress images before uploading to keep storage size small
         const uploadFile = file.type.startsWith("image/") ? await compressImageFile(file) : file;
+        let uploadMime = uploadFile.type || "application/octet-stream";
+        if (source === "voice" || uploadFile.name.includes("voice-note")) {
+          uploadMime = normalizeAudioMimeType(uploadMime, uploadFile.name);
+        }
         const urlResp = await fetch("/api/uploads", {
           method: "POST",
-          headers: { "Content-Type": uploadFile.type || "application/octet-stream" },
-          body: uploadFile,
+          headers: { "Content-Type": uploadMime },
+          body: uploadFile.type.startsWith("image/") ? uploadFile : new File([uploadFile], uploadFile.name, { type: uploadMime }),
           credentials: "include",
         });
         if (!urlResp.ok) {
@@ -750,7 +756,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
           throw new Error(errData.message || "Failed to upload file");
         }
         const { objectUrl } = await urlResp.json();
-        setPendingAttachments(prev => [...prev, { url: objectUrl, filename: uploadFile.name, mimeType: uploadFile.type || "application/octet-stream" }]);
+        setPendingAttachments(prev => [...prev, { url: objectUrl, filename: uploadFile.name, mimeType: uploadMime }]);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Could not upload the file. Please try again.";
@@ -779,7 +785,9 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
 
   function voiceBlobToFile(blob: Blob, mimeType: string): File {
     const ext = mimeType.includes("mp4") ? "m4a" : mimeType.includes("ogg") ? "ogg" : "webm";
-    return new File([blob], `voice-note-${Date.now()}.${ext}`, { type: mimeType });
+    const name = `voice-note-${Date.now()}.${ext}`;
+    const type = normalizeAudioMimeType(mimeType || blob.type, name);
+    return new File([blob], name, { type });
   }
 
   const startRecording = async () => {
@@ -1462,23 +1470,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
               />
             )}
 
-            <section
-              className={cn(
-                "space-y-3",
-                isNewQuickReport ? "pt-1" : "pt-5 mt-2 border-t border-border/60",
-              )}
-              data-testid="section-evidence"
-            >
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <Paperclip className="h-3.5 w-3.5 text-primary/70 shrink-0" />
-                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Scene evidence</h3>
-                </div>
-                <p className="text-[11px] text-muted-foreground/90 leading-relaxed">
-                  Snap a photo or attach a file — optional.
-                </p>
-              </div>
-
+            <IncidentReportSceneEvidenceSection>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -1641,30 +1633,43 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                     Ready to submit ({pendingAttachments.length})
                   </p>
                   <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-                    {pendingAttachments.map((att, i) => (
+                    {pendingAttachments.map((att, i) => {
+                      const isAudio = resolveAttachmentKind(att.mimeType, att.filename) === "audio";
+                      return (
                       <div
                         key={i}
-                        className="relative rounded-lg border border-primary/25 overflow-hidden bg-card shadow-sm"
+                        className={cn(
+                          "relative rounded-lg border border-primary/25 overflow-hidden bg-card shadow-sm",
+                          isAudio && "col-span-3 sm:col-span-4",
+                        )}
                         data-testid={`card-pending-attachment-${i}`}
                       >
-                        <AttachmentPreview url={att.url} alt={att.filename} mimeType={att.mimeType} filename={att.filename} />
+                        <AttachmentPreview
+                          url={att.url}
+                          alt={att.filename}
+                          mimeType={att.mimeType}
+                          filename={att.filename}
+                          compact={!isAudio}
+                        />
+                        {!isAudio && (
                         <div className="p-1.5 text-[10px] text-center truncate bg-background border-t border-border/60 font-medium">
                           {att.filename}
                         </div>
+                        )}
                         <button
                           type="button"
                           onClick={() => setPendingAttachments((prev) => prev.filter((_, idx) => idx !== i))}
-                          className="absolute top-1 right-1 bg-destructive text-destructive-foreground rounded-full p-0.5 hover:opacity-80"
+                          className="absolute top-1 right-1 bg-destructive text-destructive-foreground rounded-full p-0.5 hover:opacity-80 z-10"
                           data-testid={`button-remove-pending-attachment-${i}`}
                         >
                           <X className="h-3 w-3" />
                         </button>
                       </div>
-                    ))}
+                    );})}
                   </div>
                 </div>
               )}
-            </section>
+            </IncidentReportSceneEvidenceSection>
 
             <IncidentReportMoreDetailsSection enrichMode={Boolean(enrichIncident)}>
               <IncidentInvolvementSection
