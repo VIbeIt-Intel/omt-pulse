@@ -20,6 +20,7 @@ import {
   incidentOptionTileIconClass,
   incidentOptionTileIconWrap,
   incidentOptionTileLabelClass,
+  incidentOptionTileSubLabelClass,
   incidentOptionTileClass,
   incidentOptionTileInactive,
 } from "@/components/incident-option-tile-styles";
@@ -969,7 +970,10 @@ export function IncidentInvolvementSection({
           <span className={incidentOptionTileIconWrap(personInvolved)}>
             <User className={incidentOptionTileIconClass} />
           </span>
-          <span className={incidentOptionTileLabelClass}>Person</span>
+          <span className={incidentOptionTileLabelClass}>
+            Person
+            <span className={incidentOptionTileSubLabelClass}>optional</span>
+          </span>
         </button>
         <button
           type="button"
@@ -989,7 +993,10 @@ export function IncidentInvolvementSection({
           <span className={incidentOptionTileIconWrap(vehicleInvolved)}>
             <Car className={incidentOptionTileIconClass} />
           </span>
-          <span className={incidentOptionTileLabelClass}>Vehicle</span>
+          <span className={incidentOptionTileLabelClass}>
+            Vehicle
+            <span className={incidentOptionTileSubLabelClass}>optional</span>
+          </span>
         </button>
       </div>
 

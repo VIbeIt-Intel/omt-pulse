@@ -15,6 +15,7 @@ import {
   incidentOptionTileIconClass,
   incidentOptionTileIconWrap,
   incidentOptionTileLabelClass,
+  incidentOptionTileSubLabelClass,
 } from "@/components/incident-option-tile-styles";
 
 export type SapsCustomValues = Record<string, string | number | null | undefined>;
@@ -78,7 +79,10 @@ export function IncidentSapsSection({ fields, customFields, onChange }: Props) {
         <span className={incidentOptionTileIconWrap(open)}>
           <Shield className={incidentOptionTileIconClass} />
         </span>
-        <span className={incidentOptionTileLabelClass}>SAPS case</span>
+        <span className={incidentOptionTileLabelClass}>
+          SAPS case
+          <span className={incidentOptionTileSubLabelClass}>optional</span>
+        </span>
       </button>
 
       {open && (
