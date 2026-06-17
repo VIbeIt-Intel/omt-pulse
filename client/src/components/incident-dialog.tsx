@@ -41,8 +41,8 @@ import {
   readInvolvement,
 } from "./incident-involvement-section";
 import { IncidentSapsSection, isSapsFormField } from "./incident-saps-section";
-import { IncidentDescriptionSection } from "./incident-description-section";
-import { incidentOptionTileGridClass } from "./incident-option-tile-styles";
+import { IncidentReportDescriptionField } from "./incident-report-description-field";
+import { IncidentReportSuccess } from "./incident-report-success";
 import { CalendarIcon, Clock, MapPin, Upload, Paperclip, X, Loader2, Camera, Mic, Square, Globe, Map, LocateFixed } from "lucide-react";
 import { loadGoogleMaps } from "@/lib/google-maps-loader";
 import { quickPanicLocationCheck, acquirePanicLocation, hasPanicCoordinates, panicLocationWarning, type PanicLocationResult } from "@/lib/panic-location";
@@ -187,15 +187,29 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
   });
   const fieldsLoaded = !fieldsLoading;
 
+  const [personInvolved, setPersonInvolved] = useState(false);
+  const [vehicleInvolved, setVehicleInvolved] = useState(false);
+  const [geoMapView, setGeoMapView] = useState<GeoMapView | null>(null);
+  /** After a fast new report — success screen before optional enrich. */
+  const [reportSuccess, setReportSuccess] = useState<Incident | null>(null);
+  /** Re-open form to add Person / Vehicle / SAPS after initial submit. */
+  const [enrichIncident, setEnrichIncident] = useState<Incident | null>(null);
+  /** Progressive disclosure — show Person / Vehicle / SAPS on first report. */
+  const [showOptionalDetails, setShowOptionalDetails] = useState(false);
+
+  const activeIncident = incident ?? enrichIncident;
+  const isSuccessView = reportSuccess != null;
+  const isNewQuickReport = !incident && !enrichIncident && !isSuccessView;
+
   type IncidentResponder = { id: number; userId: string; firstName: string; lastName: string; joinedAt: string; leftAt: string | null; arrivedAt: string | null; arrivalNote: string | null; lastLat: number | null; lastLng: number | null };
   const { data: incidentResponders = [] } = useQuery<IncidentResponder[]>({
-    queryKey: ["/api/incidents", incident?.id, "responders"],
+    queryKey: ["/api/incidents", activeIncident?.id, "responders"],
     queryFn: async () => {
-      const res = await fetch(`/api/incidents/${incident!.id}/responders`, { credentials: "include" });
+      const res = await fetch(`/api/incidents/${activeIncident!.id}/responders`, { credentials: "include" });
       if (!res.ok) return [];
       return res.json();
     },
-    enabled: !!incident?.id && !!incident?.liveStartedAt,
+    enabled: !!activeIncident?.id && !!activeIncident?.liveStartedAt,
     staleTime: 0,
   });
 
@@ -204,9 +218,6 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
   );
   const sapsCustomFields = orgCustomFields.filter(isSapsFormField);
   const otherOrgCustomFields = orgCustomFields.filter((f) => !isSapsFormField(f));
-  const [personInvolved, setPersonInvolved] = useState(false);
-  const [vehicleInvolved, setVehicleInvolved] = useState(false);
-  const [geoMapView, setGeoMapView] = useState<GeoMapView | null>(null);
 
   const form = useForm<IncidentFormValues>({
     resolver: zodResolver(incidentFormSchema),
@@ -245,31 +256,41 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
   }, [open, isRecording, useNativeRecorder]);
 
   useEffect(() => {
+    if (!open) {
+      setReportSuccess(null);
+      setEnrichIncident(null);
+      setShowOptionalDetails(false);
+    } else if (enrichIncident) {
+      setShowOptionalDetails(true);
+    }
+  }, [open, enrichIncident]);
+
+  useEffect(() => {
     setPendingAttachments([]);
-    if (incident) {
-      const hasCustomMap = incident.customMapId != null;
+    if (activeIncident) {
+      const hasCustomMap = activeIncident.customMapId != null;
       const mode: LocationMode = hasCustomMap ? "customMap" : "geographic";
       setLocationMode(mode);
-      setSelectedCustomMapId(incident.customMapId ?? null);
+      setSelectedCustomMapId(activeIncident.customMapId ?? null);
       form.reset({
-        incidentDate: incident.incidentDate,
-        incidentTime: incident.incidentTime,
-        locationId: incident.locationId,
-        locationName: incident.locationName,
-        latitude: incident.latitude,
-        longitude: incident.longitude,
-        customMapId: incident.customMapId ?? null,
-        customMapX: incident.customMapX ?? null,
-        customMapY: incident.customMapY ?? null,
-        categoryId: incident.categoryId,
-        otherCategoryNote: incident.otherCategoryNote,
-        description: incident.description,
-        customFields: (incident.customFields as Record<string, string | number | null>) || {},
+        incidentDate: activeIncident.incidentDate,
+        incidentTime: activeIncident.incidentTime,
+        locationId: activeIncident.locationId,
+        locationName: activeIncident.locationName,
+        latitude: activeIncident.latitude,
+        longitude: activeIncident.longitude,
+        customMapId: activeIncident.customMapId ?? null,
+        customMapX: activeIncident.customMapX ?? null,
+        customMapY: activeIncident.customMapY ?? null,
+        categoryId: activeIncident.categoryId,
+        otherCategoryNote: activeIncident.otherCategoryNote,
+        description: activeIncident.description,
+        customFields: (activeIncident.customFields as Record<string, string | number | null>) || {},
       });
-      const inv = readInvolvement(incident.customFields as Record<string, string | number | null>);
+      const inv = readInvolvement(activeIncident.customFields as Record<string, string | number | null>);
       setPersonInvolved(inv.personInvolved);
       setVehicleInvolved(inv.vehicleInvolved);
-      fetch(`/api/incidents/${incident.id}/attachments`, { credentials: "include" })
+      fetch(`/api/incidents/${activeIncident.id}/attachments`, { credentials: "include" })
         .then(r => r.json())
         .then(data => setExistingAttachments(data))
         .catch(() => setExistingAttachments([]));
@@ -299,7 +320,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
         customFields: defaults,
       });
     }
-  }, [incident, open]);
+  }, [activeIncident, open]);
 
   const applyGpsPosition = (lat: number, lng: number) => {
     // Capture the GPS fix UNCONDITIONALLY. The raw lat/lng is what the incident
@@ -569,10 +590,10 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
         queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
       }
       let savedIncident: Incident;
-      if (incident) {
+      if (activeIncident) {
         // If converting a live incident, try to capture the reporter's current GPS position
         let convertCoords: { liveConvertLat?: number; liveConvertLng?: number } = {};
-        if (incident.isLive) {
+        if (activeIncident.isLive) {
           try {
             const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
               navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000, maximumAge: 10000 });
@@ -582,7 +603,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
             // geolocation unavailable or denied — submit without it
           }
         }
-        const resp = await apiRequest("PATCH", `/api/incidents/${incident.id}`, { ...resolvedData, ...convertCoords });
+        const resp = await apiRequest("PATCH", `/api/incidents/${activeIncident.id}`, { ...resolvedData, ...convertCoords });
         savedIncident = await resp.json();
       } else {
         const resp = await apiRequest("POST", "/api/incidents", resolvedData);
@@ -595,15 +616,22 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
       }
       return savedIncident;
     },
-    onSuccess: () => {
+    onSuccess: (savedIncident) => {
       queryClient.invalidateQueries({ queryKey: ["/api/incidents"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
       setPendingAttachments([]);
-      toast({
-        title: incident ? "Incident updated" : "Incident reported",
-        description: incident ? "The incident has been updated successfully." : "A new incident has been recorded in the occurrence book.",
-      });
-      onOpenChange(false);
+      if (activeIncident) {
+        toast({
+          title: incident ? "Incident updated" : "Details saved",
+          description: incident
+            ? "The incident has been updated successfully."
+            : "Extra details have been added to your report.",
+        });
+        setEnrichIncident(null);
+        onOpenChange(false);
+        return;
+      }
+      setReportSuccess(savedIncident);
     },
     onError: (error: Error) => {
       toast({
@@ -936,17 +964,35 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
   const watchedCustomMapX = form.watch("customMapX");
   const watchedCustomMapY = form.watch("customMapY");
 
+  const successTypeLabel = reportSuccess?.categoryId
+    ? categories.find((c) => c.id === reportSuccess.categoryId)?.name ?? null
+    : reportSuccess?.otherCategoryNote?.trim() ?? null;
+
+  function handleDialogOpenChange(next: boolean) {
+    if (!next) {
+      setReportSuccess(null);
+      setEnrichIncident(null);
+    }
+    onOpenChange(next);
+  }
+
+  function handleAddMoreDetails() {
+    if (!reportSuccess) return;
+    setEnrichIncident(reportSuccess);
+    setReportSuccess(null);
+  }
+
   return (
     <>
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent className="max-w-4xl p-0 flex flex-col gap-0 overflow-hidden" style={{ maxHeight: "calc(100dvh - 2rem)" }}>
         <DialogHeader className="shrink-0 px-6 pt-5 pb-4 border-b border-border/50 text-center sm:text-center space-y-0">
           <DialogTitle
             className="text-xl font-semibold tracking-tight text-center flex items-center justify-center gap-2 flex-wrap"
             data-testid="text-dialog-title"
           >
-            {incident ? "Edit Incident" : "Report New Incident"}
-            {incident?.liveStartedAt && (
+            {incident ? "Edit Incident" : enrichIncident ? "Add more details" : isSuccessView ? "Report sent" : "Report New Incident"}
+            {activeIncident?.liveStartedAt && (
               <span className="inline-flex items-center gap-1 rounded-full bg-green-500/15 text-green-600 dark:text-green-400 border border-green-500/25 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide" data-testid="badge-live-incident">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-500 shrink-0" />
                 Live Incident
@@ -956,6 +1002,14 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
         </DialogHeader>
 
         <div className="overflow-y-auto flex-1 px-6 py-5" style={{ WebkitOverflowScrolling: "touch" } as React.CSSProperties}>
+        {isSuccessView && reportSuccess ? (
+          <IncidentReportSuccess
+            incident={reportSuccess}
+            typeLabel={successTypeLabel}
+            onAddDetails={handleAddMoreDetails}
+            onDone={() => handleDialogOpenChange(false)}
+          />
+        ) : (
         <Form {...form}>
           <form id="incident-report-form" onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
             {(showDate || showTime) && (
@@ -1195,35 +1249,75 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                     </div>
 
                     <p className="text-xs text-muted-foreground">
-                      Use current location for a quick GPS fix, pick on the map to adjust, or choose a predefined site below.
+                      {isNewQuickReport
+                        ? "Tap green for GPS, or red to adjust on the map."
+                        : "Use current location for a quick GPS fix, pick on the map to adjust, or choose a predefined site below."}
                     </p>
 
-                    <FormFieldComponent
-                      control={form.control}
-                      name="locationId"
-                      render={({ field }) => (
-                        <FormItem>
-                          <Select
-                            onValueChange={(val) => handleLocationSelect(parseInt(val))}
-                            value={field.value?.toString() || ""}
-                          >
-                            <FormControl>
-                              <SelectTrigger data-testid="select-location">
-                                <SelectValue placeholder="Select predefined location" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {allowedLocations.map((loc) => (
-                                <SelectItem key={loc.id} value={loc.id.toString()}>
-                                  {loc.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                    {allowedLocations.length > 0 && (
+                      isNewQuickReport ? (
+                        <details className="group">
+                          <summary className="text-xs text-muted-foreground cursor-pointer list-none flex items-center gap-1 hover:text-foreground">
+                            <span className="underline-offset-2 group-open:underline">Or choose a predefined site</span>
+                          </summary>
+                          <div className="pt-2">
+                            <FormFieldComponent
+                              control={form.control}
+                              name="locationId"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <Select
+                                    onValueChange={(val) => handleLocationSelect(parseInt(val))}
+                                    value={field.value?.toString() || ""}
+                                  >
+                                    <FormControl>
+                                      <SelectTrigger data-testid="select-location">
+                                        <SelectValue placeholder="Select predefined location" />
+                                      </SelectTrigger>
+                                    </FormControl>
+                                    <SelectContent>
+                                      {allowedLocations.map((loc) => (
+                                        <SelectItem key={loc.id} value={loc.id.toString()}>
+                                          {loc.name}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                          </div>
+                        </details>
+                      ) : (
+                        <FormFieldComponent
+                          control={form.control}
+                          name="locationId"
+                          render={({ field }) => (
+                            <FormItem>
+                              <Select
+                                onValueChange={(val) => handleLocationSelect(parseInt(val))}
+                                value={field.value?.toString() || ""}
+                              >
+                                <FormControl>
+                                  <SelectTrigger data-testid="select-location">
+                                    <SelectValue placeholder="Select predefined location" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {allowedLocations.map((loc) => (
+                                    <SelectItem key={loc.id} value={loc.id.toString()}>
+                                      {loc.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      )
+                    )}
 
                     {form.watch("latitude") != null && form.watch("longitude") != null && (
                       <div className="rounded-xl border border-primary/25 bg-primary/5 px-3 py-2.5 space-y-1" data-testid="banner-location-set">
@@ -1348,314 +1442,39 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
               </div>
             )}
 
-            <IncidentInvolvementSection
-              customFields={(form.watch("customFields") as Record<string, string | number | null>) || {}}
-              onChange={(next) => form.setValue("customFields", next)}
-              personInvolved={personInvolved}
-              vehicleInvolved={vehicleInvolved}
-              onPersonInvolvedChange={setPersonInvolved}
-              onVehicleInvolvedChange={setVehicleInvolved}
-            />
-
-            {(sapsCustomFields.length > 0 || showDescription) && (
-              <div
-                className={cn(
-                  incidentOptionTileGridClass,
-                  !(sapsCustomFields.length > 0 && showDescription) && "grid-cols-1",
-                )}
-              >
-                {sapsCustomFields.length > 0 && (
-                  <IncidentSapsSection
-                    fields={sapsCustomFields}
-                    customFields={(form.watch("customFields") as Record<string, string | number | null>) || {}}
-                    onChange={(next) => form.setValue("customFields", next)}
+            {showDescription && (
+              <FormFieldComponent
+                control={form.control}
+                name="description"
+                render={({ field, fieldState }) => (
+                  <IncidentReportDescriptionField
+                    value={field.value || ""}
+                    onChange={(v) => field.onChange(v)}
+                    error={fieldState.error?.message}
+                    isRecording={isRecording}
+                    recordingSeconds={recordingSeconds}
+                    onStartVoice={startRecording}
+                    onStopVoice={stopRecording}
+                    voiceBusy={uploadingAttachment && uploadSource === "voice"}
                   />
                 )}
-
-                {showDescription && (
-                  <FormFieldComponent
-                    control={form.control}
-                    name="description"
-                    render={({ field, fieldState }) => (
-                      <IncidentDescriptionSection
-                        value={field.value || ""}
-                        onChange={(v) => field.onChange(v)}
-                        error={fieldState.error?.message}
-                      />
-                    )}
-                  />
-                )}
-              </div>
+              />
             )}
 
-            {otherOrgCustomFields.length > 0 && (
-              <div className="space-y-4">
-                <h3 className="text-sm font-medium text-muted-foreground">Additional Fields</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {otherOrgCustomFields.map((cf) => {
-                    const currentCustomFields = form.watch("customFields") || {};
-                    const value = currentCustomFields[cf.fieldKey] ?? "";
-
-                    if (cf.fieldType === "select") {
-                      const opts = (cf.options || "").split(",").map((o) => o.trim()).filter(Boolean);
-                      return (
-                        <FormFieldComponent
-                          key={cf.id}
-                          control={form.control}
-                          name={`customFields.${cf.fieldKey}` as any}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>{cf.label}</FormLabel>
-                              <Select
-                                value={(field.value as string) || ""}
-                                onValueChange={(val) => field.onChange(val)}
-                              >
-                                <FormControl>
-                                  <SelectTrigger data-testid={`select-custom-field-${cf.fieldKey}`}>
-                                    <SelectValue placeholder={`Select ${cf.label.toLowerCase()}`} />
-                                  </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                  {opts.map((opt) => (
-                                    <SelectItem key={opt} value={opt}>{opt}</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      );
-                    }
-
-                    return (
-                      <FormFieldComponent
-                        key={cf.id}
-                        control={form.control}
-                        name={`customFields.${cf.fieldKey}` as any}
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>{cf.label}</FormLabel>
-                            <FormControl>
-                              <Textarea
-                                value={field.value ?? ""}
-                                onChange={(e) => field.onChange(e.target.value)}
-                                className="min-h-[80px]"
-                                data-testid={`input-custom-field-${cf.fieldKey}`}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {incident?.liveStartedAt && (
-              <div className="rounded-md border border-border bg-muted/30 p-4 space-y-3" data-testid="section-live-timeline">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
-                  Live Incident Timeline
-                </p>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Live Started</p>
-                    <p className="text-sm mt-0.5" data-testid="text-live-started">{new Date(incident.liveStartedAt).toLocaleString()}</p>
-                  </div>
-                  {incident.responderArrivedAt && (
-                    <div>
-                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Responder Arrived</p>
-                      <p className="text-sm mt-0.5" data-testid="text-responder-arrived">{new Date(incident.responderArrivedAt).toLocaleString()}</p>
-                    </div>
-                  )}
-                  {incident.liveStartLat != null && incident.liveStartLng != null && (
-                    <div>
-                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Origin Coordinates</p>
-                      <div className="mt-0.5">
-                        <CoordinateLink
-                          lat={incident.liveStartLat}
-                          lng={incident.liveStartLng}
-                          onOpenMap={setGeoMapView}
-                          className="text-sm"
-                          testId="link-live-origin"
-                        />
-                      </div>
-                    </div>
-                  )}
-                  {(incident as any).destinationName && (
-                    <div>
-                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Destination</p>
-                      {(incident as any).destinationLat != null && (incident as any).destinationLng != null ? (
-                        <div className="mt-0.5">
-                          <CoordinateLink
-                            lat={Number((incident as any).destinationLat)}
-                            lng={Number((incident as any).destinationLng)}
-                            label={(incident as any).destinationName}
-                            onOpenMap={setGeoMapView}
-                            className="text-sm"
-                            testId="link-live-destination"
-                          />
-                        </div>
-                      ) : (
-                        <p className="text-sm mt-0.5" data-testid="text-live-destination">{(incident as any).destinationName}</p>
-                      )}
-                    </div>
-                  )}
-                  {incident.responderArrivedAt && (() => {
-                    const mins = (new Date(incident.responderArrivedAt).getTime() - new Date(incident.liveStartedAt).getTime()) / 60000;
-                    const label = mins < 1 ? "< 1 min" : `${Math.round(mins)} min`;
-                    return (
-                      <div>
-                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Response Time</p>
-                        <p className="text-sm mt-0.5 font-medium" data-testid="text-response-time">{label}</p>
-                      </div>
-                    );
-                  })()}
-                  {incident.liveEndedAt && (
-                    <div>
-                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Closed</p>
-                      <p className="text-sm mt-0.5" data-testid="text-live-ended">{new Date(incident.liveEndedAt).toLocaleString()}</p>
-                    </div>
-                  )}
-                  {incident.liveEndedAt && (
-                    <div>
-                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">End Type</p>
-                      <p className="text-sm mt-0.5 font-medium" data-testid="text-live-end-type">
-                        {incident.liveClosedManually ? "Manually closed" : "Converted to incident"}
-                      </p>
-                    </div>
-                  )}
-                  {(incident as any).closedByName && incident.liveEndedAt && (
-                    <div>
-                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Closed by</p>
-                      <p className="text-sm mt-0.5 font-medium" data-testid="text-live-closed-by">{(incident as any).closedByName}</p>
-                    </div>
-                  )}
-                  {incident.liveEndedAt && (() => {
-                    const totalMs = new Date(incident.liveEndedAt).getTime() - new Date(incident.liveStartedAt).getTime();
-                    const totalSecs = Math.floor(totalMs / 1000);
-                    const hours = Math.floor(totalSecs / 3600);
-                    const mins = Math.floor((totalSecs % 3600) / 60);
-                    const secs = totalSecs % 60;
-                    const parts: string[] = [];
-                    if (hours > 0) parts.push(`${hours} hour${hours !== 1 ? "s" : ""}`);
-                    if (mins > 0) parts.push(`${mins} minute${mins !== 1 ? "s" : ""}`);
-                    if (secs > 0 || parts.length === 0) parts.push(`${secs} second${secs !== 1 ? "s" : ""}`);
-                    return (
-                      <div>
-                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Duration</p>
-                        <p className="text-sm mt-0.5 font-medium" data-testid="text-live-duration">{parts.join(" ")}</p>
-                      </div>
-                    );
-                  })()}
-                  {incident.liveEndedAt && !incident.liveClosedManually && incident.liveConvertLat != null && incident.liveConvertLng != null && (
-                    <div>
-                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Location at Submission</p>
-                      <div className="mt-0.5">
-                        <CoordinateLink
-                          lat={incident.liveConvertLat}
-                          lng={incident.liveConvertLng}
-                          onOpenMap={setGeoMapView}
-                          className="text-sm"
-                          testId="link-live-convert-location"
-                        />
-                      </div>
-                    </div>
-                  )}
-                  {incident.liveEndedAt && incident.liveClosedManually && (incident as any).liveEndLat != null && (incident as any).liveEndLng != null && (
-                    <div>
-                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Closed From</p>
-                      <div className="mt-0.5">
-                        <CoordinateLink
-                          lat={Number((incident as any).liveEndLat)}
-                          lng={Number((incident as any).liveEndLng)}
-                          onOpenMap={setGeoMapView}
-                          className="text-sm"
-                          testId="link-live-end-location"
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {incidentResponders.length > 0 && (
-                  <div className="border-t border-border/40 pt-3 space-y-2" data-testid="section-live-responders">
-                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
-                      Responders ({incidentResponders.length})
-                    </p>
-                    <div className="space-y-2">
-                      {incidentResponders.map((r) => {
-                        const name = `${r.firstName} ${r.lastName}`.trim();
-                        const joinedAt = new Date(r.joinedAt);
-                        const leftAt = r.leftAt ? new Date(r.leftAt) : null;
-                        const arrivedAt = r.arrivedAt ? new Date(r.arrivedAt) : null;
-                        const durationMs = leftAt ? leftAt.getTime() - joinedAt.getTime() : null;
-                        const durationMin = durationMs != null ? Math.round(durationMs / 60000) : null;
-                        const fmt = (d: Date) => d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-                        return (
-                          <div key={r.id} className="rounded border border-border bg-background px-3 py-2 space-y-1" data-testid={`responder-row-${r.id}`}>
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-sm font-medium">{name}</span>
-                              {leftAt ? (
-                                <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">Left</span>
-                              ) : (
-                                <span className="text-[10px] text-green-600 dark:text-green-400 bg-green-500/10 px-1.5 py-0.5 rounded">Active</span>
-                              )}
-                            </div>
-                            <div className="grid grid-cols-3 gap-x-3 gap-y-0.5">
-                              <div>
-                                <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wide">Joined</p>
-                                <p className="text-xs">{fmt(joinedAt)}</p>
-                              </div>
-                              {arrivedAt && (
-                                <div>
-                                  <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wide">Arrived</p>
-                                  <p className="text-xs">{fmt(arrivedAt)}</p>
-                                </div>
-                              )}
-                              {leftAt && (
-                                <div>
-                                  <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wide">Left</p>
-                                  <p className="text-xs">{fmt(leftAt)}{durationMin != null && <span className="text-muted-foreground ml-1">· {durationMin < 1 ? "< 1 min" : `${durationMin} min`}</span>}</p>
-                                </div>
-                              )}
-                              {r.lastLat != null && r.lastLng != null && (
-                                <div className="col-span-3">
-                                  <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wide">Last GPS</p>
-                                  <CoordinateLink
-                                    lat={r.lastLat}
-                                    lng={r.lastLng}
-                                    onOpenMap={setGeoMapView}
-                                    className="text-xs"
-                                    testId={`link-responder-gps-${r.id}`}
-                                  />
-                                </div>
-                              )}
-                            </div>
-                            {r.arrivalNote && (
-                              <p className="text-xs text-muted-foreground italic border-t border-border/30 pt-1">"{r.arrivalNote}"</p>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            <section className="pt-5 mt-2 border-t border-border/60 space-y-4" data-testid="section-evidence">
+            <section
+              className={cn(
+                "space-y-3",
+                isNewQuickReport ? "pt-1" : "pt-5 mt-2 border-t border-border/60",
+              )}
+              data-testid="section-evidence"
+            >
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <Paperclip className="h-3.5 w-3.5 text-primary/70 shrink-0" />
                   <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Scene evidence</h3>
                 </div>
                 <p className="text-[11px] text-muted-foreground/90 leading-relaxed">
-                  Photos, files, or voice notes — optional, attached when you submit.
+                  Snap a photo or attach a file — optional.
                 </p>
               </div>
 
@@ -1845,19 +1664,324 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                 </div>
               )}
             </section>
+
+            {(enrichIncident || !isNewQuickReport || showOptionalDetails) && (
+              <section className="pt-5 mt-2 border-t border-border/60 space-y-4" data-testid="section-optional-details">
+                <div className="space-y-1">
+                  <h3 className="text-sm font-semibold text-foreground">More details</h3>
+                  <p className="text-xs text-muted-foreground">
+                    {enrichIncident
+                      ? "Add person, vehicle, or SAPS case information for investigations."
+                      : "Optional — tap to expand if someone or a vehicle was involved."}
+                  </p>
+                </div>
+
+                <IncidentInvolvementSection
+                  customFields={(form.watch("customFields") as Record<string, string | number | null>) || {}}
+                  onChange={(next) => form.setValue("customFields", next)}
+                  personInvolved={personInvolved}
+                  vehicleInvolved={vehicleInvolved}
+                  onPersonInvolvedChange={setPersonInvolved}
+                  onVehicleInvolvedChange={setVehicleInvolved}
+                />
+
+                {sapsCustomFields.length > 0 && (
+                  <IncidentSapsSection
+                    fields={sapsCustomFields}
+                    customFields={(form.watch("customFields") as Record<string, string | number | null>) || {}}
+                    onChange={(next) => form.setValue("customFields", next)}
+                  />
+                )}
+              </section>
+            )}
+
+            {isNewQuickReport && !showOptionalDetails && (
+              <button
+                type="button"
+                onClick={() => setShowOptionalDetails(true)}
+                className="w-full text-left text-sm text-primary font-medium underline-offset-2 hover:underline py-1"
+                data-testid="button-show-optional-details"
+              >
+                + Add person, vehicle, or SAPS details (optional)
+              </button>
+            )}
+
+            {otherOrgCustomFields.length > 0 && (
+              <div className="space-y-4">
+                <h3 className="text-sm font-medium text-muted-foreground">Additional Fields</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {otherOrgCustomFields.map((cf) => {
+                    const currentCustomFields = form.watch("customFields") || {};
+                    const value = currentCustomFields[cf.fieldKey] ?? "";
+
+                    if (cf.fieldType === "select") {
+                      const opts = (cf.options || "").split(",").map((o) => o.trim()).filter(Boolean);
+                      return (
+                        <FormFieldComponent
+                          key={cf.id}
+                          control={form.control}
+                          name={`customFields.${cf.fieldKey}` as any}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>{cf.label}</FormLabel>
+                              <Select
+                                value={(field.value as string) || ""}
+                                onValueChange={(val) => field.onChange(val)}
+                              >
+                                <FormControl>
+                                  <SelectTrigger data-testid={`select-custom-field-${cf.fieldKey}`}>
+                                    <SelectValue placeholder={`Select ${cf.label.toLowerCase()}`} />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {opts.map((opt) => (
+                                    <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      );
+                    }
+
+                    return (
+                      <FormFieldComponent
+                        key={cf.id}
+                        control={form.control}
+                        name={`customFields.${cf.fieldKey}` as any}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{cf.label}</FormLabel>
+                            <FormControl>
+                              <Textarea
+                                value={field.value ?? ""}
+                                onChange={(e) => field.onChange(e.target.value)}
+                                className="min-h-[80px]"
+                                data-testid={`input-custom-field-${cf.fieldKey}`}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {activeIncident?.liveStartedAt && (
+              <div className="rounded-md border border-border bg-muted/30 p-4 space-y-3" data-testid="section-live-timeline">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
+                  Live Incident Timeline
+                </p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Live Started</p>
+                    <p className="text-sm mt-0.5" data-testid="text-live-started">{new Date(activeIncident.liveStartedAt).toLocaleString()}</p>
+                  </div>
+                  {activeIncident.responderArrivedAt && (
+                    <div>
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Responder Arrived</p>
+                      <p className="text-sm mt-0.5" data-testid="text-responder-arrived">{new Date(activeIncident.responderArrivedAt).toLocaleString()}</p>
+                    </div>
+                  )}
+                  {activeIncident.liveStartLat != null && activeIncident.liveStartLng != null && (
+                    <div>
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Origin Coordinates</p>
+                      <div className="mt-0.5">
+                        <CoordinateLink
+                          lat={activeIncident.liveStartLat}
+                          lng={activeIncident.liveStartLng}
+                          onOpenMap={setGeoMapView}
+                          className="text-sm"
+                          testId="link-live-origin"
+                        />
+                      </div>
+                    </div>
+                  )}
+                  {(activeIncident as any).destinationName && (
+                    <div>
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Destination</p>
+                      {(activeIncident as any).destinationLat != null && (activeIncident as any).destinationLng != null ? (
+                        <div className="mt-0.5">
+                          <CoordinateLink
+                            lat={Number((activeIncident as any).destinationLat)}
+                            lng={Number((activeIncident as any).destinationLng)}
+                            label={(activeIncident as any).destinationName}
+                            onOpenMap={setGeoMapView}
+                            className="text-sm"
+                            testId="link-live-destination"
+                          />
+                        </div>
+                      ) : (
+                        <p className="text-sm mt-0.5" data-testid="text-live-destination">{(activeIncident as any).destinationName}</p>
+                      )}
+                    </div>
+                  )}
+                  {activeIncident.responderArrivedAt && (() => {
+                    const mins = (new Date(activeIncident.responderArrivedAt).getTime() - new Date(activeIncident.liveStartedAt!).getTime()) / 60000;
+                    const label = mins < 1 ? "< 1 min" : `${Math.round(mins)} min`;
+                    return (
+                      <div>
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Response Time</p>
+                        <p className="text-sm mt-0.5 font-medium" data-testid="text-response-time">{label}</p>
+                      </div>
+                    );
+                  })()}
+                  {activeIncident.liveEndedAt && (
+                    <div>
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Closed</p>
+                      <p className="text-sm mt-0.5" data-testid="text-live-ended">{new Date(activeIncident.liveEndedAt).toLocaleString()}</p>
+                    </div>
+                  )}
+                  {activeIncident.liveEndedAt && (
+                    <div>
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">End Type</p>
+                      <p className="text-sm mt-0.5 font-medium" data-testid="text-live-end-type">
+                        {activeIncident.liveClosedManually ? "Manually closed" : "Converted to incident"}
+                      </p>
+                    </div>
+                  )}
+                  {(activeIncident as any).closedByName && activeIncident.liveEndedAt && (
+                    <div>
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Closed by</p>
+                      <p className="text-sm mt-0.5 font-medium" data-testid="text-live-closed-by">{(activeIncident as any).closedByName}</p>
+                    </div>
+                  )}
+                  {activeIncident.liveEndedAt && (() => {
+                    const totalMs = new Date(activeIncident.liveEndedAt).getTime() - new Date(activeIncident.liveStartedAt!).getTime();
+                    const totalSecs = Math.floor(totalMs / 1000);
+                    const hours = Math.floor(totalSecs / 3600);
+                    const mins = Math.floor((totalSecs % 3600) / 60);
+                    const secs = totalSecs % 60;
+                    const parts: string[] = [];
+                    if (hours > 0) parts.push(`${hours} hour${hours !== 1 ? "s" : ""}`);
+                    if (mins > 0) parts.push(`${mins} minute${mins !== 1 ? "s" : ""}`);
+                    if (secs > 0 || parts.length === 0) parts.push(`${secs} second${secs !== 1 ? "s" : ""}`);
+                    return (
+                      <div>
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Duration</p>
+                        <p className="text-sm mt-0.5 font-medium" data-testid="text-live-duration">{parts.join(" ")}</p>
+                      </div>
+                    );
+                  })()}
+                  {activeIncident.liveEndedAt && !activeIncident.liveClosedManually && activeIncident.liveConvertLat != null && activeIncident.liveConvertLng != null && (
+                    <div>
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Location at Submission</p>
+                      <div className="mt-0.5">
+                        <CoordinateLink
+                          lat={activeIncident.liveConvertLat}
+                          lng={activeIncident.liveConvertLng}
+                          onOpenMap={setGeoMapView}
+                          className="text-sm"
+                          testId="link-live-convert-location"
+                        />
+                      </div>
+                    </div>
+                  )}
+                  {activeIncident.liveEndedAt && activeIncident.liveClosedManually && (activeIncident as any).liveEndLat != null && (activeIncident as any).liveEndLng != null && (
+                    <div>
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Closed From</p>
+                      <div className="mt-0.5">
+                        <CoordinateLink
+                          lat={Number((activeIncident as any).liveEndLat)}
+                          lng={Number((activeIncident as any).liveEndLng)}
+                          onOpenMap={setGeoMapView}
+                          className="text-sm"
+                          testId="link-live-end-location"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {incidentResponders.length > 0 && (
+                  <div className="border-t border-border/40 pt-3 space-y-2" data-testid="section-live-responders">
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
+                      Responders ({incidentResponders.length})
+                    </p>
+                    <div className="space-y-2">
+                      {incidentResponders.map((r) => {
+                        const name = `${r.firstName} ${r.lastName}`.trim();
+                        const joinedAt = new Date(r.joinedAt);
+                        const leftAt = r.leftAt ? new Date(r.leftAt) : null;
+                        const arrivedAt = r.arrivedAt ? new Date(r.arrivedAt) : null;
+                        const durationMs = leftAt ? leftAt.getTime() - joinedAt.getTime() : null;
+                        const durationMin = durationMs != null ? Math.round(durationMs / 60000) : null;
+                        const fmt = (d: Date) => d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+                        return (
+                          <div key={r.id} className="rounded border border-border bg-background px-3 py-2 space-y-1" data-testid={`responder-row-${r.id}`}>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm font-medium">{name}</span>
+                              {leftAt ? (
+                                <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">Left</span>
+                              ) : (
+                                <span className="text-[10px] text-green-600 dark:text-green-400 bg-green-500/10 px-1.5 py-0.5 rounded">Active</span>
+                              )}
+                            </div>
+                            <div className="grid grid-cols-3 gap-x-3 gap-y-0.5">
+                              <div>
+                                <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wide">Joined</p>
+                                <p className="text-xs">{fmt(joinedAt)}</p>
+                              </div>
+                              {arrivedAt && (
+                                <div>
+                                  <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wide">Arrived</p>
+                                  <p className="text-xs">{fmt(arrivedAt)}</p>
+                                </div>
+                              )}
+                              {leftAt && (
+                                <div>
+                                  <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wide">Left</p>
+                                  <p className="text-xs">{fmt(leftAt)}{durationMin != null && <span className="text-muted-foreground ml-1">· {durationMin < 1 ? "< 1 min" : `${durationMin} min`}</span>}</p>
+                                </div>
+                              )}
+                              {r.lastLat != null && r.lastLng != null && (
+                                <div className="col-span-3">
+                                  <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wide">Last GPS</p>
+                                  <CoordinateLink
+                                    lat={r.lastLat}
+                                    lng={r.lastLng}
+                                    onOpenMap={setGeoMapView}
+                                    className="text-xs"
+                                    testId={`link-responder-gps-${r.id}`}
+                                  />
+                                </div>
+                              )}
+                            </div>
+                            {r.arrivalNote && (
+                              <p className="text-xs text-muted-foreground italic border-t border-border/30 pt-1">"{r.arrivalNote}"</p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
           </form>
         </Form>
+        )}
         </div>
 
+        {!isSuccessView && (
         <div className="shrink-0 flex justify-end gap-2 px-6 py-4 border-t border-border/50 bg-muted/20">
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} data-testid="button-cancel-incident">
+          <Button type="button" variant="outline" onClick={() => handleDialogOpenChange(false)} data-testid="button-cancel-incident">
             Cancel
           </Button>
           <Button type="submit" form="incident-report-form" data-testid="button-submit-incident" disabled={mutation.isPending}>
             {mutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-            {incident ? "Update Incident" : "Report Incident"}
+            {incident ? "Update Incident" : enrichIncident ? "Save details" : "Report Incident"}
           </Button>
         </div>
+        )}
       </DialogContent>
     </Dialog>
 
