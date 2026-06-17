@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import {
   incidentOptionTileBase,
   incidentOptionTileGridClass,
+  incidentOptionTileGridThreeClass,
   incidentOptionTileIconClass,
   incidentOptionTileIconWrap,
   incidentOptionTileLabelClass,
@@ -903,6 +904,9 @@ type Props = {
   vehicleInvolved: boolean;
   onPersonInvolvedChange: (on: boolean) => void;
   onVehicleInvolvedChange: (on: boolean) => void;
+  /** Render Person / Vehicle / SAPS tiles on one row. */
+  threeColumnTiles?: boolean;
+  thirdColumnTile?: ReactNode;
 };
 
 export function IncidentInvolvementSection({
@@ -912,6 +916,8 @@ export function IncidentInvolvementSection({
   vehicleInvolved,
   onPersonInvolvedChange,
   onVehicleInvolvedChange,
+  threeColumnTiles = false,
+  thirdColumnTile,
 }: Props) {
   const persons = parsePersons(customFields);
   const vehicles = parseVehicles(customFields);
@@ -951,7 +957,7 @@ export function IncidentInvolvementSection({
 
   return (
     <div className="space-y-4">
-      <div className={incidentOptionTileGridClass}>
+      <div className={threeColumnTiles ? incidentOptionTileGridThreeClass : incidentOptionTileGridClass}>
         <button
           type="button"
           onClick={() => {
@@ -998,6 +1004,7 @@ export function IncidentInvolvementSection({
             <span className={incidentOptionTileSubLabelClass}>optional</span>
           </span>
         </button>
+        {thirdColumnTile}
       </div>
 
       {personInvolved && persons.length > 0 && (

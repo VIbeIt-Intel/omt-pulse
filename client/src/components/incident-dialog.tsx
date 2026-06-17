@@ -40,9 +40,10 @@ import {
   INVOLVEMENT_FIELD_KEYS,
   readInvolvement,
 } from "./incident-involvement-section";
-import { IncidentSapsSection, isSapsFormField } from "./incident-saps-section";
+import { IncidentSapsSection, isSapsFormField, SapsCaseTile, hasSapsCaseData, clearSapsCustomFields } from "./incident-saps-section";
 import { IncidentReportDescriptionField } from "./incident-report-description-field";
 import { IncidentReportSuccess } from "./incident-report-success";
+import { IncidentReportMoreDetailsSection } from "./incident-report-more-details-section";
 import { CalendarIcon, Clock, MapPin, Upload, Paperclip, X, Loader2, Camera, Mic, Square, Globe, Map, LocateFixed } from "lucide-react";
 import { loadGoogleMaps } from "@/lib/google-maps-loader";
 import { quickPanicLocationCheck, acquirePanicLocation, hasPanicCoordinates, panicLocationWarning, type PanicLocationResult } from "@/lib/panic-location";
@@ -194,8 +195,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
   const [reportSuccess, setReportSuccess] = useState<Incident | null>(null);
   /** Re-open form to add Person / Vehicle / SAPS after initial submit. */
   const [enrichIncident, setEnrichIncident] = useState<Incident | null>(null);
-  /** Progressive disclosure — show Person / Vehicle / SAPS on first report. */
-  const [showOptionalDetails, setShowOptionalDetails] = useState(false);
+  const [sapsSectionOpen, setSapsSectionOpen] = useState(false);
 
   const activeIncident = incident ?? enrichIncident;
   const isSuccessView = reportSuccess != null;
@@ -259,11 +259,9 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
     if (!open) {
       setReportSuccess(null);
       setEnrichIncident(null);
-      setShowOptionalDetails(false);
-    } else if (enrichIncident) {
-      setShowOptionalDetails(true);
+      setSapsSectionOpen(false);
     }
-  }, [open, enrichIncident]);
+  }, [open]);
 
   useEffect(() => {
     setPendingAttachments([]);
@@ -290,6 +288,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
       const inv = readInvolvement(activeIncident.customFields as Record<string, string | number | null>);
       setPersonInvolved(inv.personInvolved);
       setVehicleInvolved(inv.vehicleInvolved);
+      setSapsSectionOpen(hasSapsCaseData(sapsCustomFields, activeIncident.customFields as Record<string, string | number | null>));
       fetch(`/api/incidents/${activeIncident.id}/attachments`, { credentials: "include" })
         .then(r => r.json())
         .then(data => setExistingAttachments(data))
@@ -304,6 +303,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
       });
       setPersonInvolved(false);
       setVehicleInvolved(false);
+      setSapsSectionOpen(false);
       form.reset({
         incidentDate: new Date().toISOString().split("T")[0],
         incidentTime: new Date().toTimeString().slice(0, 5),
@@ -963,6 +963,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
   const activeCustomMap = customMaps.find((m) => m.id === selectedCustomMapId) ?? null;
   const watchedCustomMapX = form.watch("customMapX");
   const watchedCustomMapY = form.watch("customMapY");
+  const watchedCustomFields = (form.watch("customFields") as Record<string, string | number | null>) || {};
 
   const successTypeLabel = reportSuccess?.categoryId
     ? categories.find((c) => c.id === reportSuccess.categoryId)?.name ?? null
@@ -1665,46 +1666,45 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
               )}
             </section>
 
-            {(enrichIncident || !isNewQuickReport || showOptionalDetails) && (
-              <section className="pt-5 mt-2 border-t border-border/60 space-y-4" data-testid="section-optional-details">
-                <div className="space-y-1">
-                  <h3 className="text-sm font-semibold text-foreground">More details</h3>
-                  <p className="text-xs text-muted-foreground">
-                    {enrichIncident
-                      ? "Add person, vehicle, or SAPS case information for investigations."
-                      : "Optional — tap to expand if someone or a vehicle was involved."}
-                  </p>
-                </div>
+            <IncidentReportMoreDetailsSection enrichMode={Boolean(enrichIncident)}>
+              <IncidentInvolvementSection
+                customFields={watchedCustomFields}
+                onChange={(next) => form.setValue("customFields", next)}
+                personInvolved={personInvolved}
+                vehicleInvolved={vehicleInvolved}
+                onPersonInvolvedChange={setPersonInvolved}
+                onVehicleInvolvedChange={setVehicleInvolved}
+                threeColumnTiles={sapsCustomFields.length > 0}
+                thirdColumnTile={
+                  sapsCustomFields.length > 0 ? (
+                    <SapsCaseTile
+                      open={sapsSectionOpen}
+                      onToggle={() => {
+                        const next = !sapsSectionOpen;
+                        setSapsSectionOpen(next);
+                        if (!next) {
+                          form.setValue(
+                            "customFields",
+                            clearSapsCustomFields(sapsCustomFields, watchedCustomFields),
+                          );
+                        }
+                      }}
+                    />
+                  ) : undefined
+                }
+              />
 
-                <IncidentInvolvementSection
-                  customFields={(form.watch("customFields") as Record<string, string | number | null>) || {}}
+              {sapsCustomFields.length > 0 && (
+                <IncidentSapsSection
+                  fields={sapsCustomFields}
+                  customFields={watchedCustomFields}
                   onChange={(next) => form.setValue("customFields", next)}
-                  personInvolved={personInvolved}
-                  vehicleInvolved={vehicleInvolved}
-                  onPersonInvolvedChange={setPersonInvolved}
-                  onVehicleInvolvedChange={setVehicleInvolved}
+                  hideTile
+                  open={sapsSectionOpen}
+                  onOpenChange={setSapsSectionOpen}
                 />
-
-                {sapsCustomFields.length > 0 && (
-                  <IncidentSapsSection
-                    fields={sapsCustomFields}
-                    customFields={(form.watch("customFields") as Record<string, string | number | null>) || {}}
-                    onChange={(next) => form.setValue("customFields", next)}
-                  />
-                )}
-              </section>
-            )}
-
-            {isNewQuickReport && !showOptionalDetails && (
-              <button
-                type="button"
-                onClick={() => setShowOptionalDetails(true)}
-                className="w-full text-left text-sm text-primary font-medium underline-offset-2 hover:underline py-1"
-                data-testid="button-show-optional-details"
-              >
-                + Add person, vehicle, or SAPS details (optional)
-              </button>
-            )}
+              )}
+            </IncidentReportMoreDetailsSection>
 
             {otherOrgCustomFields.length > 0 && (
               <div className="space-y-4">
@@ -1972,11 +1972,20 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
         </div>
 
         {!isSuccessView && (
-        <div className="shrink-0 flex justify-end gap-2 px-6 py-4 border-t border-border/50 bg-muted/20">
-          <Button type="button" variant="outline" onClick={() => handleDialogOpenChange(false)} data-testid="button-cancel-incident">
+        <div className="shrink-0 flex flex-col-reverse sm:flex-row sm:justify-end gap-2 px-6 py-4 border-t border-border/50 bg-muted/20">
+          <Button type="button" variant="outline" onClick={() => handleDialogOpenChange(false)} data-testid="button-cancel-incident" className="h-11 sm:min-w-[6.5rem]">
             Cancel
           </Button>
-          <Button type="submit" form="incident-report-form" data-testid="button-submit-incident" disabled={mutation.isPending}>
+          <Button
+            type="submit"
+            form="incident-report-form"
+            data-testid="button-submit-incident"
+            disabled={mutation.isPending}
+            className={cn(
+              "h-12 text-base font-semibold shadow-sm",
+              !incident && "flex-1 sm:flex-none sm:min-w-[11rem] bg-primary hover:bg-primary/90 text-primary-foreground",
+            )}
+          >
             {mutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
             {incident ? "Update Incident" : enrichIncident ? "Save details" : "Report Incident"}
           </Button>

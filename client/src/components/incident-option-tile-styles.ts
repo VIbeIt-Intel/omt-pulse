@@ -32,3 +32,6 @@ export const incidentOptionTileSubLabelClass =
   "block text-[11px] font-normal text-muted-foreground mt-0.5";
 
 export const incidentOptionTileGridClass = "grid grid-cols-2 gap-2.5";
+
+/** Person + Vehicle + SAPS tiles on one row (Report Incident). */
+export const incidentOptionTileGridThreeClass = "grid grid-cols-3 gap-2.5";
