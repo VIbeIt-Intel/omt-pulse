@@ -9,6 +9,7 @@ import { OmtShield } from "@/components/omt-shield";
 import { HeartbeatLine } from "@/components/heartbeat-line";
 import { PanicBanner, type PanicAlert } from "@/components/panic-banner";
 import { PanicConfirmOverlay } from "@/components/panic-confirm-overlay";
+import { OperationsDashboard } from "@/components/operations-dashboard";
 import { useToast } from "@/hooks/use-toast";
 import {
   ClipboardList,
@@ -598,7 +599,19 @@ export default function CommandDashboard() {
     ? `my incident${(data?.totalIncidents ?? 0) === 1 ? "" : "s"} · tap to view`
     : `incident${(data?.totalIncidents ?? 0) === 1 ? "" : "s"} · tap to view`;
 
-  return (
+  function openLiveMonitor(incidentId?: number) {
+    if (incidentId != null) {
+      navigate(`/live-monitor?incidentId=${incidentId}`);
+      return;
+    }
+    if (liveCountDisplay === 0) {
+      toast({ title: "No live incidents", description: "There are no active live incidents right now." });
+      return;
+    }
+    navigate("/live-monitor");
+  }
+
+  const mobileDashboard = (
     <div className="h-full overflow-y-auto bg-background">
       {visibleLiveIncidents.length > 0 && (
         <div
@@ -754,6 +767,37 @@ export default function CommandDashboard() {
           </div>
         </div>
       </div>
+    </div>
+  );
+
+  return (
+    <>
+      {isDispatch && (
+        <div className="hidden lg:flex lg:flex-col h-full min-h-0 overflow-hidden">
+          <OperationsDashboard
+            currentUser={currentUser}
+            liveIncidents={liveIncidents}
+            panicAlerts={panicAlerts}
+            dismissedPanicIds={dismissedPanicIds}
+            onDismissPanic={dismissPanic}
+            locations={locations}
+            period={period}
+            onPeriodChange={setPeriod}
+            dashboardData={data}
+            dashboardLoading={isLoading}
+            totalUnread={totalUnread}
+            unreadSenders={unreadSenders}
+            onOpenChat={() => navigate("/chat")}
+            onOpenLiveMonitor={openLiveMonitor}
+            onOpenOccurrenceBook={openIncidentsList}
+            onPanic={() => setPanicOpen(true)}
+            onStartLive={() => navigate("/live-severity")}
+            onReportIncident={() => setLogIncidentOpen(true)}
+          />
+        </div>
+      )}
+
+      <div className={isDispatch ? "lg:hidden h-full" : "h-full"}>{mobileDashboard}</div>
 
       <IncidentDialog open={logIncidentOpen} onOpenChange={setLogIncidentOpen} />
 
@@ -762,6 +806,6 @@ export default function CommandDashboard() {
         onOpenChange={setPanicOpen}
         confirmTestId="button-confirm-panic-dashboard"
       />
-    </div>
+    </>
   );
 }
