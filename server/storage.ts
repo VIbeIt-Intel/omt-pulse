@@ -18,7 +18,24 @@ import {
   type CommandVisibilityRequest, type InsertCommandVisibilityRequest,
   users, organizations, locations, incidentCategories, incidents, formFields, userLocationAssignments, incidentAttachments, incidentEvidenceNotes, auditLogs, customMaps, importBatches, pushSubscriptions, notificationLogs, liveResponders, chatMessages, chatReads, panicAcknowledgers, fcmTokens,
   commands, commandUsers, commandVisibilityGrants, commandVisibilityRequests,
+  trackerDevices,
 } from "@shared/schema";
+
+export type TrackerDeviceSummary = {
+  id: number;
+  imei: string;
+  label: string | null;
+  commandId: number | null;
+  commandName: string | null;
+  lastLat: number | null;
+  lastLng: number | null;
+  lastSpeedKph: number | null;
+  lastHeading: number | null;
+  lastIgnitionOn: boolean | null;
+  lastGpsValid: boolean | null;
+  lastPositionAt: string | null;
+  lastSeenAt: string | null;
+};
 
 export type LiveResponderSummary = {
   id: number;
@@ -224,6 +241,8 @@ export interface IStorage {
   clearGroupChatMessages(orgId: string): Promise<number>;
   getChatConversations(orgId: string, userId: string): Promise<Array<{ recipientId: string | null; recipientFirstName: string | null; recipientLastName: string | null; recipientAvatarUrl: string | null; lastMessage: string | null; lastMessageAt: string | null; unreadCount: number }>>;
   markThreadRead(orgId: string, userId: string, recipientId: string | null): Promise<void>;
+
+  getTrackerDevices(orgId: string, commandFilter?: number[]): Promise<TrackerDeviceSummary[]>;
 
   // Dashboard
   getDashboardSummary(orgId: string, period: 'day' | 'week', restrictToLocationIds?: number[], commandFilter?: number[], restrictToUserId?: string): Promise<{
@@ -1953,6 +1972,51 @@ export class DatabaseStorage implements IStorage {
         DO UPDATE SET last_read_at = ${now}
       `);
     }
+  }
+
+  // --- Vehicle trackers (GT06 / fleet) ---
+  async getTrackerDevices(orgId: string, commandFilter?: number[]): Promise<TrackerDeviceSummary[]> {
+    const conditions = [eq(trackerDevices.organizationId, orgId)];
+    if (commandFilter && commandFilter.length > 0) {
+      conditions.push(inArray(trackerDevices.commandId, commandFilter));
+    }
+
+    const rows = await db
+      .select({
+        id: trackerDevices.id,
+        imei: trackerDevices.imei,
+        label: trackerDevices.label,
+        commandId: trackerDevices.commandId,
+        commandName: commands.name,
+        lastLat: trackerDevices.lastLat,
+        lastLng: trackerDevices.lastLng,
+        lastSpeedKph: trackerDevices.lastSpeedKph,
+        lastHeading: trackerDevices.lastHeading,
+        lastIgnitionOn: trackerDevices.lastIgnitionOn,
+        lastGpsValid: trackerDevices.lastGpsValid,
+        lastPositionAt: trackerDevices.lastPositionAt,
+        lastSeenAt: trackerDevices.lastSeenAt,
+      })
+      .from(trackerDevices)
+      .leftJoin(commands, eq(trackerDevices.commandId, commands.id))
+      .where(and(...conditions))
+      .orderBy(desc(trackerDevices.lastSeenAt));
+
+    return rows.map((r) => ({
+      id: r.id,
+      imei: r.imei,
+      label: r.label,
+      commandId: r.commandId,
+      commandName: r.commandName,
+      lastLat: r.lastLat,
+      lastLng: r.lastLng,
+      lastSpeedKph: r.lastSpeedKph,
+      lastHeading: r.lastHeading,
+      lastIgnitionOn: r.lastIgnitionOn,
+      lastGpsValid: r.lastGpsValid,
+      lastPositionAt: r.lastPositionAt?.toISOString() ?? null,
+      lastSeenAt: r.lastSeenAt?.toISOString() ?? null,
+    }));
   }
 
   // --- Dashboard ---

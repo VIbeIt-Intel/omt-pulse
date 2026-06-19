@@ -3710,6 +3710,16 @@ export async function registerRoutes(
     res.json(summary);
   });
 
+  app.get("/api/trackers", async (req, res) => {
+    const { organizationId: orgId, role } = req.currentUser!;
+    if (role !== "administrator" && role !== "supervisor") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+    const { commandFilter } = await getCommandScope(req);
+    const devices = await storage.getTrackerDevices(orgId, commandFilter);
+    res.json(devices);
+  });
+
   // Stats
   app.get("/api/stats", async (req, res) => {
     const { organizationId: orgId, role, id: userId } = req.currentUser!;
