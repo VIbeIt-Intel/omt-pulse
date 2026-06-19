@@ -4,7 +4,7 @@ import type { Location } from "@shared/schema";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { PanicBanner, type PanicAlert } from "@/components/panic-banner";
-import { LiveIncidentsMap, SA_MAP_DEFAULT, type LiveIncidentMapItem, type OnlineUserMapMarker } from "@/components/live-incidents-map";
+import { LiveIncidentsMap, SA_MAP_DEFAULT, type LiveIncidentMapItem, type OnlineUserMapMarker, type TrackerMapMarker } from "@/components/live-incidents-map";
 import { cn } from "@/lib/utils";
 import {
   ClipboardList,
@@ -18,6 +18,7 @@ import {
   ExternalLink,
   CheckCircle2,
   Shield,
+  Car,
 } from "lucide-react";
 
 type Period = "day" | "week";
@@ -44,6 +45,22 @@ type DashboardData = {
   users: DashboardUserSummary[];
 };
 
+export type TrackerDeviceSummary = {
+  id: number;
+  imei: string;
+  label: string | null;
+  commandId: number | null;
+  commandName: string | null;
+  lastLat: number | null;
+  lastLng: number | null;
+  lastSpeedKph: number | null;
+  lastHeading: number | null;
+  lastIgnitionOn: boolean | null;
+  lastGpsValid: boolean | null;
+  lastPositionAt: string | null;
+  lastSeenAt: string | null;
+};
+
 type LiveQueueItem = LiveIncidentMapItem & {
   locationId?: number | null;
 };
@@ -51,6 +68,7 @@ type LiveQueueItem = LiveIncidentMapItem & {
 type ResponderFilter = "all" | "responding" | "available";
 
 const ONLINE_WINDOW_MS = 30 * 60 * 1000;
+const TRACKER_ACTIVE_MS = 30 * 60 * 1000;
 
 function severityBadgeClass(severity: string | null): string {
   if (severity === "red") return "bg-red-500/20 text-red-300 border-red-500/40";
@@ -93,6 +111,20 @@ function hasMapPosition(user: DashboardUserSummary): boolean {
     if (age > ONLINE_WINDOW_MS) return false;
   }
   return true;
+}
+
+function isTrackerLive(device: TrackerDeviceSummary): boolean {
+  if (!device.lastSeenAt) return false;
+  return Date.now() - new Date(device.lastSeenAt).getTime() < TRACKER_ACTIVE_MS;
+}
+
+function hasTrackerMapPosition(device: TrackerDeviceSummary): boolean {
+  if (device.lastLat == null || device.lastLng == null) return false;
+  return isTrackerLive(device);
+}
+
+function trackerDisplayName(device: TrackerDeviceSummary): string {
+  return device.label?.trim() || `Vehicle …${device.imei.slice(-4)}`;
 }
 
 function formatLastSeen(ts: string | Date | null | undefined): string {
@@ -230,6 +262,7 @@ export function OperationsDashboard({
   onReportIncident,
 }: Props) {
   const [highlightId, setHighlightId] = useState<number | null>(null);
+  const [highlightTrackerId, setHighlightTrackerId] = useState<number | null>(null);
   const [responderFilter, setResponderFilter] = useState<ResponderFilter>("all");
   const [clock, setClock] = useState(() => new Date());
   const [lastRefresh, setLastRefresh] = useState(() => new Date());
@@ -244,6 +277,16 @@ export function OperationsDashboard({
     refetchInterval: 30_000,
   });
 
+  const { data: trackers = [], isLoading: trackersLoading } = useQuery<TrackerDeviceSummary[]>({
+    queryKey: ["/api/trackers"],
+    queryFn: async () => {
+      const res = await fetch("/api/trackers", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load trackers");
+      return res.json();
+    },
+    refetchInterval: 20_000,
+  });
+
   useEffect(() => {
     const t = setInterval(() => setClock(new Date()), 1000);
     return () => clearInterval(t);
@@ -251,7 +294,7 @@ export function OperationsDashboard({
 
   useEffect(() => {
     setLastRefresh(new Date());
-  }, [liveIncidents, panicAlerts, dayDashboard]);
+  }, [liveIncidents, panicAlerts, dayDashboard, trackers]);
 
   const { data: commandsData } = useQuery<{
     commands: Array<{ id: number; name: string; isCentral: boolean }>;
@@ -330,6 +373,40 @@ export function OperationsDashboard({
           : null,
       }));
   }, [teamUsers]);
+
+  const liveTrackers = useMemo(
+    () => trackers.filter(hasTrackerMapPosition),
+    [trackers],
+  );
+
+  const trackerMapMarkers = useMemo((): TrackerMapMarker[] => {
+    return liveTrackers.map((t) => ({
+      id: t.id,
+      label: trackerDisplayName(t),
+      imei: t.imei,
+      lat: t.lastLat!,
+      lng: t.lastLng!,
+      speedKph: t.lastSpeedKph,
+      heading: t.lastHeading,
+      ignitionOn: t.lastIgnitionOn,
+      lastPositionAt: t.lastPositionAt,
+      lastSeenAt: t.lastSeenAt,
+    }));
+  }, [liveTrackers]);
+
+  const vehiclesKpiHint = useMemo(() => {
+    if (trackers.length === 0) return "no devices registered";
+    if (liveTrackers.length === 0) {
+      const latest = trackers.find((t) => t.lastSeenAt);
+      if (latest?.lastSeenAt) {
+        const age = formatGpsAge(latest.lastSeenAt);
+        return age ? `last seen ${age}` : "awaiting GPS";
+      }
+      return "awaiting GPS";
+    }
+    if (liveTrackers.length === 1) return "1 vehicle live";
+    return `${liveTrackers.length} vehicles live`;
+  }, [trackers, liveTrackers]);
 
   return (
     <div
@@ -506,10 +583,11 @@ export function OperationsDashboard({
           />
           <KpiCard
             label="Vehicles Tracked"
-            value={0}
-            hint="fleet tracking inactive"
-            accent="slate"
+            value={liveTrackers.length}
+            hint={vehiclesKpiHint}
+            accent={liveTrackers.length > 0 ? "blue" : "slate"}
             testId="ops-kpi-vehicles"
+            loading={trackersLoading}
           />
         </div>
       </div>
@@ -619,8 +697,11 @@ export function OperationsDashboard({
           <LiveIncidentsMap
             incidents={liveIncidents as LiveIncidentMapItem[]}
             onlineUsers={onlineMapUsers}
+            trackers={trackerMapMarkers}
             highlightId={highlightId}
+            highlightTrackerId={highlightTrackerId}
             onIncidentMarkerClick={setHighlightId}
+            onTrackerMarkerClick={setHighlightTrackerId}
             className="absolute inset-0"
             testId="map-ops-dashboard"
             darkTheme
@@ -629,11 +710,12 @@ export function OperationsDashboard({
           />
         </div>
 
-        {/* Right: team panel */}
+        {/* Right: team + fleet */}
         <div
           className="w-[24%] min-w-[200px] max-w-xs flex flex-col border-l border-slate-800/80 bg-[#131a22]"
           data-testid="ops-team-panel"
         >
+          <div className="flex flex-col flex-1 min-h-0">
           <div className="shrink-0 px-3 py-2 border-b border-slate-800/80">
             <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Team</p>
             <div className="flex gap-1 mt-2">
@@ -716,6 +798,87 @@ export function OperationsDashboard({
                 })}
               </ul>
             )}
+          </div>
+          </div>
+
+          <div
+            className="shrink-0 flex flex-col border-t border-slate-800/80 max-h-[38%] min-h-0"
+            data-testid="ops-fleet-panel"
+          >
+            <div className="shrink-0 px-3 py-2 border-b border-slate-800/80 flex items-center justify-between">
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Fleet</p>
+              <span className="text-[10px] text-slate-500 tabular-nums">
+                {liveTrackers.length}/{trackers.length}
+              </span>
+            </div>
+            <div className="flex-1 overflow-y-auto ops-scroll">
+              {trackersLoading ? (
+                <div className="p-3 space-y-2">
+                  <Skeleton className="h-10 bg-slate-800" />
+                </div>
+              ) : trackers.length === 0 ? (
+                <p className="text-xs text-slate-600 text-center py-6 px-3">No GPS trackers linked.</p>
+              ) : (
+                <ul className="divide-y divide-slate-800/80">
+                  {trackers.map((device) => {
+                    const live = hasTrackerMapPosition(device);
+                    const name = trackerDisplayName(device);
+                    const isHighlighted = highlightTrackerId === device.id;
+                    const speed =
+                      device.lastSpeedKph != null ? `${Math.round(device.lastSpeedKph)} km/h` : null;
+                    const seen = device.lastSeenAt ? formatGpsAge(device.lastSeenAt) : null;
+
+                    return (
+                      <li key={device.id}>
+                        <button
+                          type="button"
+                          disabled={!live}
+                          onClick={() => {
+                            setHighlightTrackerId(device.id);
+                            setHighlightId(null);
+                          }}
+                          className={cn(
+                            "w-full text-left px-3 py-2.5 transition-colors",
+                            live ? "hover:bg-slate-800/50" : "opacity-60",
+                            isHighlighted && "bg-slate-800/70 ring-1 ring-inset ring-blue-500/40",
+                          )}
+                          data-testid={`ops-fleet-row-${device.id}`}
+                        >
+                          <div className="flex items-start gap-2">
+                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-950/60 border border-blue-800/40">
+                              <Car className="h-3.5 w-3.5 text-blue-400" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium text-slate-200 truncate">{name}</p>
+                              <p className="text-[10px] text-slate-500 truncate">…{device.imei.slice(-6)}</p>
+                              <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                                <span
+                                  className={cn(
+                                    "inline-flex rounded border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
+                                    live
+                                      ? "text-blue-300 bg-blue-950/50 border-blue-800/50"
+                                      : "text-slate-500 bg-slate-800/50 border-slate-700/50",
+                                  )}
+                                >
+                                  {live ? "Live" : "Offline"}
+                                </span>
+                                {device.lastIgnitionOn === true && (
+                                  <span className="text-[9px] text-amber-400/90 font-medium">ACC on</span>
+                                )}
+                              </div>
+                              <p className="text-[10px] text-slate-500 mt-1 truncate">
+                                {speed ? `${speed}` : "No speed"}
+                                {seen ? ` · ${seen}` : ""}
+                              </p>
+                            </div>
+                          </div>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
           </div>
         </div>
       </div>

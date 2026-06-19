@@ -13,6 +13,19 @@ export type OnlineUserMapMarker = {
   lastPositionAt: string | null;
 };
 
+export type TrackerMapMarker = {
+  id: number;
+  label: string;
+  imei: string;
+  lat: number;
+  lng: number;
+  speedKph: number | null;
+  heading: number | null;
+  ignitionOn: boolean | null;
+  lastPositionAt: string | null;
+  lastSeenAt: string | null;
+};
+
 export type LiveIncidentMapResponder = {
   userId: string;
   firstName: string;
@@ -265,6 +278,56 @@ function buildTeamInfoHtml(name: string, gpsTime: string, darkTheme: boolean): s
   </div>`;
 }
 
+function makeVehicleMarkerIcon(): google.maps.Icon {
+  const size = 38;
+  const cx = size / 2;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+    <circle cx="${cx}" cy="${cx}" r="16" fill="#3b82f6" opacity="0.14"/>
+    <circle cx="${cx}" cy="${cx}" r="13" fill="#0c1220" stroke="#60a5fa" stroke-width="1.75"/>
+    <path d="M12 22h2l.8-2h10.4l.8 2h2l-1.1-3a1.8 1.8 0 0 0-1.7-1.2H14.8a1.8 1.8 0 0 0-1.7 1.2L12 22zm1.8-5.2h12.4l1.2-3.2a1.2 1.2 0 0 0-1.1-.8H13.7a1.2 1.2 0 0 0-1.1.8l1.2 3.2zM15.5 22.8a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 0 0 0 2.4zm7 0a1.2 1.2 0 1 0 0-2.4 1.2 1.2 0 0 0 0 2.4z" fill="#93c5fd"/>
+  </svg>`;
+  return {
+    url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
+    scaledSize: new google.maps.Size(size, size),
+    anchor: new google.maps.Point(cx, cx),
+  };
+}
+
+function buildVehicleInfoHtml(
+  label: string,
+  imei: string,
+  speedKph: number | null,
+  ignitionOn: boolean | null,
+  gpsTime: string,
+  darkTheme: boolean,
+): string {
+  const safeLabel = label.replace(/[<>&]/g, "");
+  const safeImei = imei.replace(/[<>&]/g, "");
+  const speedLine =
+    speedKph != null ? `${Math.round(speedKph)} km/h` : "Speed unknown";
+  const accLine =
+    ignitionOn === true ? "Ignition on" : ignitionOn === false ? "Ignition off" : "ACC unknown";
+  if (darkTheme) {
+    return `<div class="omt-map-iw-card" style="background:#0c1220;border:1px solid #2d3a4f;border-radius:10px;padding:11px 13px;min-width:188px;box-shadow:0 10px 28px rgba(0,0,0,0.5);font-family:system-ui,-apple-system,sans-serif;">
+      <p style="margin:0 0 4px;font-size:13px;font-weight:600;color:#f1f5f9;letter-spacing:-0.01em;line-height:1.3">${safeLabel}</p>
+      <p style="margin:0 0 8px;font-size:10px;color:#64748b;font-variant-numeric:tabular-nums">IMEI ${safeImei}</p>
+      <div style="display:inline-flex;align-items:center;gap:5px;padding:3px 8px 3px 6px;border-radius:999px;background:rgba(59,130,246,0.12);border:1px solid rgba(96,165,250,0.35);margin-bottom:7px">
+        <span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:#60a5fa;box-shadow:0 0 6px rgba(96,165,250,0.8)"></span>
+        <span style="font-size:9px;font-weight:700;color:#93c5fd;text-transform:uppercase;letter-spacing:0.08em">Vehicle</span>
+      </div>
+      <p style="margin:0 0 3px;font-size:10px;color:#94a3b8">${speedLine} · ${accLine}</p>
+      <p style="margin:0;font-size:10px;color:#64748b;font-variant-numeric:tabular-nums">GPS · ${gpsTime}</p>
+    </div>`;
+  }
+  return `<div style="min-width:168px;font-family:system-ui,sans-serif;font-size:13px;line-height:1.5;padding:2px 0">
+    <div style="font-weight:700;margin-bottom:2px;font-size:14px;color:#111827">${safeLabel}</div>
+    <div style="color:#6b7280;font-size:11px;margin-bottom:4px">IMEI ${safeImei}</div>
+    <div style="color:#2563eb;font-size:11px;font-weight:600">Vehicle</div>
+    <div style="color:#6b7280;font-size:11px">${speedLine} · ${accLine}</div>
+    <div style="color:#6b7280;font-size:11px">GPS · ${gpsTime}</div>
+  </div>`;
+}
+
 function ensureDarkInfoWindowStyles(): void {
   const id = "omt-map-iw-dark";
   if (document.getElementById(id)) return;
@@ -283,8 +346,11 @@ function ensureDarkInfoWindowStyles(): void {
 type Props = {
   incidents: LiveIncidentMapItem[];
   onlineUsers?: OnlineUserMapMarker[];
+  trackers?: TrackerMapMarker[];
   highlightId?: number | null;
+  highlightTrackerId?: number | null;
   onIncidentMarkerClick?: (incidentId: number) => void;
+  onTrackerMarkerClick?: (trackerId: number) => void;
   className?: string;
   testId?: string;
   showMapControls?: boolean;
@@ -312,8 +378,11 @@ export const SA_MAP_DEFAULT = { lat: -29.0, lng: 25.0, zoom: 6 };
 export function LiveIncidentsMap({
   incidents,
   onlineUsers = [],
+  trackers = [],
   highlightId,
+  highlightTrackerId,
   onIncidentMarkerClick,
+  onTrackerMarkerClick,
   className,
   testId = "map-live-incidents",
   showMapControls = false,
@@ -335,6 +404,8 @@ export function LiveIncidentsMap({
   const joinerRouteLinesRef = useRef<Map<string, google.maps.Polyline>>(new Map());
   const teamMarkersRef = useRef<Map<string, google.maps.Marker>>(new Map());
   const teamInfoRef = useRef<Map<string, string>>(new Map());
+  const vehicleMarkersRef = useRef<Map<number, google.maps.Marker>>(new Map());
+  const vehicleInfoRef = useRef<Map<number, string>>(new Map());
   const infoWindowRef = useRef<google.maps.InfoWindow | null>(null);
   const trafficLayerRef = useRef<google.maps.TrafficLayer | null>(null);
   const lastFitSignatureRef = useRef<string>("");
@@ -878,6 +949,66 @@ export function LiveIncidentsMap({
   }, [onlineUsers, mapsReady, darkTheme]);
 
   useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapsReady) return;
+
+    const vehicleMap = vehicleMarkersRef.current;
+    const vehicleInfo = vehicleInfoRef.current;
+    const activeIds = new Set(trackers.map((t) => t.id));
+
+    for (const [id, marker] of Array.from(vehicleMap.entries())) {
+      if (!activeIds.has(id)) {
+        marker.setMap(null);
+        vehicleMap.delete(id);
+        vehicleInfo.delete(id);
+      }
+    }
+
+    const icon = makeVehicleMarkerIcon();
+    for (const tracker of trackers) {
+      const pos = { lat: tracker.lat, lng: tracker.lng };
+      const updated = tracker.lastPositionAt
+        ? formatTime(tracker.lastPositionAt)
+        : tracker.lastSeenAt
+          ? formatTime(tracker.lastSeenAt)
+          : "Recently";
+      const html = buildVehicleInfoHtml(
+        tracker.label,
+        tracker.imei,
+        tracker.speedKph,
+        tracker.ignitionOn,
+        updated,
+        darkTheme,
+      );
+      vehicleInfo.set(tracker.id, html);
+
+      const existing = vehicleMap.get(tracker.id);
+      if (existing) {
+        existing.setPosition(pos);
+        existing.setIcon(icon);
+      } else {
+        const marker = new google.maps.Marker({
+          position: pos,
+          map,
+          icon,
+          title: tracker.label,
+          zIndex: 38,
+        });
+        marker.addListener("click", () => {
+          onTrackerMarkerClick?.(tracker.id);
+          const iw = infoWindowRef.current;
+          const content = vehicleInfo.get(tracker.id);
+          if (iw && content) {
+            iw.setContent(content);
+            iw.open(map, marker);
+          }
+        });
+        vehicleMap.set(tracker.id, marker);
+      }
+    }
+  }, [trackers, mapsReady, darkTheme, onTrackerMarkerClick]);
+
+  useEffect(() => {
     if (highlightId == null) return;
     const map = mapInstanceRef.current;
     const marker = markersRef.current.get(highlightId);
@@ -885,6 +1016,21 @@ export function LiveIncidentsMap({
     map.panTo(marker.getPosition()!);
     if ((map.getZoom() ?? 0) < 12) map.setZoom(12);
   }, [highlightId, incidents]);
+
+  useEffect(() => {
+    if (highlightTrackerId == null) return;
+    const map = mapInstanceRef.current;
+    const marker = vehicleMarkersRef.current.get(highlightTrackerId);
+    if (!map || !marker) return;
+    map.panTo(marker.getPosition()!);
+    if ((map.getZoom() ?? 0) < 14) map.setZoom(14);
+    const iw = infoWindowRef.current;
+    const content = vehicleInfoRef.current.get(highlightTrackerId);
+    if (iw && content) {
+      iw.setContent(content);
+      iw.open(map, marker);
+    }
+  }, [highlightTrackerId, trackers]);
 
   const resetToDefaultView = () => {
     const map = mapInstanceRef.current;
@@ -939,7 +1085,7 @@ export function LiveIncidentsMap({
         </div>
       )}
       <div ref={mapRef} className="w-full h-full" />
-      {mapsReady && !mapsError && incidents.length === 0 && onlineUsers.length === 0 && (
+      {mapsReady && !mapsError && incidents.length === 0 && onlineUsers.length === 0 && trackers.length === 0 && (
         <div
           className={cn(
             "absolute z-[5] pointer-events-none",
