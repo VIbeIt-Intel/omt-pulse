@@ -166,18 +166,20 @@ function OpsCollapsibleSection({
   return (
     <section
       className={cn(
-        "flex flex-col min-h-0",
-        open && "flex-1",
-        borderClass || "border-b border-slate-800/80",
+        "flex flex-col min-h-0 border-t",
+        open ? "flex-1" : "shrink-0",
+        borderClass || "border-slate-800/80",
       )}
       data-testid={testId}
     >
+      {open && <div className="flex-1 min-h-0 overflow-hidden flex flex-col">{children}</div>}
+      {headerExtra}
       <button
         type="button"
         onClick={onToggle}
         className={cn(
-          "shrink-0 w-full px-3 py-2.5 flex items-center gap-2 text-left transition-colors hover:bg-slate-800/40",
-          accentClass,
+          "shrink-0 w-full px-3 py-2.5 flex items-center gap-2 text-left transition-colors",
+          open ? accentClass : "hover:bg-slate-800/50",
         )}
       >
         <Icon className="h-3.5 w-3.5 shrink-0 opacity-90" />
@@ -196,8 +198,6 @@ function OpsCollapsibleSection({
           className={cn("h-4 w-4 text-slate-500 transition-transform shrink-0", open && "rotate-180")}
         />
       </button>
-      {headerExtra}
-      {open && <div className="flex-1 min-h-0 overflow-hidden flex flex-col">{children}</div>}
     </section>
   );
 }
@@ -339,7 +339,7 @@ export function OperationsDashboard({
   const [highlightId, setHighlightId] = useState<number | null>(null);
   const [highlightTrackerId, setHighlightTrackerId] = useState<number | null>(null);
   const [teamPanelOpen, setTeamPanelOpen] = useState(false);
-  const [fleetPanelOpen, setFleetPanelOpen] = useState(true);
+  const [fleetPanelOpen, setFleetPanelOpen] = useState(false);
   const [responderFilter, setResponderFilter] = useState<ResponderFilter>("all");
   const [clock, setClock] = useState(() => new Date());
   const [lastRefresh, setLastRefresh] = useState(() => new Date());
@@ -789,14 +789,14 @@ export function OperationsDashboard({
 
         {/* Right: fleet + team */}
         <div
-          className="w-[24%] min-w-[200px] max-w-xs flex flex-col min-h-0 border-l border-slate-800/80 bg-[#131a22]"
+          className="w-[24%] min-w-[200px] max-w-xs flex flex-col justify-end min-h-0 h-full border-l border-slate-800/80 bg-[#131a22]"
           data-testid="ops-side-panel"
         >
           <OpsCollapsibleSection
             title="Fleet"
             icon={Car}
-            accentClass="bg-blue-950/30 border-b border-blue-900/40"
-            borderClass="border-blue-900/20"
+            accentClass="bg-blue-950/30"
+            borderClass="border-blue-900/25"
             count={`${liveTrackers.length}/${trackers.length}`}
             open={fleetPanelOpen}
             onToggle={() => setFleetPanelOpen((v) => !v)}
@@ -889,15 +889,15 @@ export function OperationsDashboard({
           <OpsCollapsibleSection
             title="Team"
             icon={Users}
-            accentClass="bg-emerald-950/25 border-b border-emerald-900/30"
-            borderClass=""
+            accentClass="bg-emerald-950/25"
+            borderClass="border-emerald-900/20"
             count={String(teamUsers.length)}
             open={teamPanelOpen}
             onToggle={() => setTeamPanelOpen((v) => !v)}
             testId="ops-team-panel"
             headerExtra={
               teamPanelOpen ? (
-                <div className="shrink-0 px-3 pb-2 flex gap-1">
+                <div className="shrink-0 px-3 pt-2 pb-1 flex gap-1 border-t border-emerald-900/15">
                   {(["all", "responding", "available"] as const).map((f) => (
                     <button
                       key={f}
