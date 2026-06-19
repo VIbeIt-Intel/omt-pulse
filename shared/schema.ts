@@ -49,6 +49,9 @@ export const users = pgTable("users", {
   inviteToken: text("invite_token").unique(),
   inviteTokenExpiresAt: timestamp("invite_token_expires_at"),
   lastSeenAt: timestamp("last_seen_at"),
+  lastLat: doublePrecision("last_lat"),
+  lastLng: doublePrecision("last_lng"),
+  lastPositionAt: timestamp("last_position_at"),
   isSuperadmin: boolean("is_superadmin").notNull().default(false),
 });
 

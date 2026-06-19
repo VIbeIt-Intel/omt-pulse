@@ -1258,7 +1258,12 @@ export async function registerRoutes(
 
   app.post("/api/auth/heartbeat", async (req, res) => {
     const { id: userId } = req.currentUser!;
-    await storage.updateUserLastSeen(userId);
+    const body = req.body as { lat?: unknown; lng?: unknown } | undefined;
+    const lat = typeof body?.lat === "number" ? body.lat : Number(body?.lat);
+    const lng = typeof body?.lng === "number" ? body.lng : Number(body?.lng);
+    const position =
+      Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : undefined;
+    await storage.updateUserLastSeen(userId, position);
     res.json({ ok: true });
   });
 
