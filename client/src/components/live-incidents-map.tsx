@@ -228,7 +228,25 @@ type Props = {
   testId?: string;
   showMapControls?: boolean;
   overlay?: ReactNode;
+  /** Default map centre when no incidents (control room: South Africa). */
+  initialCenter?: google.maps.LatLngLiteral;
+  initialZoom?: number;
+  darkTheme?: boolean;
 };
+
+/** Subdued dark basemap for control-room dashboards. */
+const CONTROL_ROOM_MAP_STYLES: google.maps.MapTypeStyle[] = [
+  { elementType: "geometry", stylers: [{ color: "#1a2332" }] },
+  { elementType: "labels.text.fill", stylers: [{ color: "#8b9cb3" }] },
+  { elementType: "labels.text.stroke", stylers: [{ color: "#1a2332" }] },
+  { featureType: "road", elementType: "geometry", stylers: [{ color: "#2a3544" }] },
+  { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#3d4f66" }] },
+  { featureType: "water", elementType: "geometry", stylers: [{ color: "#0e1624" }] },
+  { featureType: "poi", stylers: [{ visibility: "off" }] },
+  { featureType: "transit", stylers: [{ visibility: "off" }] },
+];
+
+export const SA_MAP_DEFAULT = { lat: -29.0, lng: 25.0, zoom: 6 };
 
 export function LiveIncidentsMap({
   incidents,
@@ -238,6 +256,9 @@ export function LiveIncidentsMap({
   testId = "map-live-incidents",
   showMapControls = false,
   overlay,
+  initialCenter = SA_MAP_DEFAULT,
+  initialZoom = SA_MAP_DEFAULT.zoom,
+  darkTheme = false,
 }: Props) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<google.maps.Map | null>(null);
@@ -284,11 +305,12 @@ export function LiveIncidentsMap({
   useEffect(() => {
     if (!mapsReady || !mapRef.current || mapInstanceRef.current) return;
     const map = new google.maps.Map(mapRef.current, {
-      center: { lat: -29.0, lng: 26.0 },
-      zoom: 5,
+      center: initialCenter,
+      zoom: initialZoom,
       mapTypeControl: false,
       streetViewControl: false,
       fullscreenControl: false,
+      styles: darkTheme ? CONTROL_ROOM_MAP_STYLES : undefined,
     });
     mapInstanceRef.current = map;
     infoWindowRef.current = new google.maps.InfoWindow();
@@ -704,8 +726,12 @@ export function LiveIncidentsMap({
           /* ignore */
         }
       }
+    } else if (incidents.length === 0) {
+      lastFitSignatureRef.current = "";
+      map.setCenter(initialCenter);
+      map.setZoom(initialZoom);
     }
-  }, [incidents, mapsReady, onIncidentMarkerClick]);
+  }, [incidents, mapsReady, onIncidentMarkerClick, initialCenter, initialZoom]);
 
   useEffect(() => {
     if (highlightId == null) return;

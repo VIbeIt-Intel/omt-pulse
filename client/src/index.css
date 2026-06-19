@@ -332,3 +332,19 @@ html.capacitor-native #cap-live-map {
 .action-tile-ring {
   animation: pulse-ring 2s ease-out infinite;
 }
+
+/* Control room dashboard — slim dark scrollbars */
+.ops-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(51 65 85 / 0.8) transparent;
+}
+.ops-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.ops-scroll::-webkit-scrollbar-thumb {
+  background: rgb(51 65 85 / 0.8);
+  border-radius: 3px;
+}
+.ops-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}

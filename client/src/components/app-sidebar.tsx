@@ -258,14 +258,14 @@ export function AppSidebar({ user, onLogout, avatarPreview }: AppSidebarProps) {
   const chatUnread = chatConvos.reduce((sum, c) => sum + c.unreadCount, 0);
 
   return (
-    <Sidebar>
-      <SidebarHeader className="p-4">
-        <div className="flex flex-col items-center gap-2 pb-1">
-          <OmtShield variant="mark" className="h-14 w-14 rounded-2xl" />
+    <Sidebar className="border-r border-slate-800/80">
+      <SidebarHeader className="p-3">
+        <div className="flex flex-col items-center gap-1.5 pb-0.5">
+          <OmtShield variant="mark" className="h-11 w-11 rounded-xl" />
           <div className="text-center">
-            <div className="flex items-center justify-center gap-2">
-              <h2 className="text-base font-bold tracking-tight" data-testid="text-app-title">OMT Pulse</h2>
-              <HeartbeatLine className="w-14 h-4" />
+            <div className="flex items-center justify-center gap-1.5">
+              <h2 className="text-sm font-bold tracking-tight" data-testid="text-app-title">OMT Pulse</h2>
+              <HeartbeatLine className="w-12 h-3.5" />
             </div>
             <div className="flex items-center justify-center gap-1.5 mt-0.5">
               <div className="h-px w-4 bg-gradient-to-r from-transparent to-primary/40" />
@@ -279,7 +279,7 @@ export function AppSidebar({ user, onLogout, avatarPreview }: AppSidebarProps) {
       <SidebarContent>
         <CommandSwitcher />
         <SidebarGroup>
-          <SidebarGroupLabel>Navigation</SidebarGroupLabel>
+          <SidebarGroupLabel className="text-[10px] uppercase tracking-wider">Navigation</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {navItems.map((item) => (
@@ -311,9 +311,9 @@ export function AppSidebar({ user, onLogout, avatarPreview }: AppSidebarProps) {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter className="p-4 space-y-3">
-        <div className="flex items-center gap-3">
-          <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden shrink-0 border border-border" data-testid="avatar-sidebar">
+      <SidebarFooter className="p-3 space-y-2">
+        <div className="flex items-center gap-2.5">
+          <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden shrink-0 border border-border" data-testid="avatar-sidebar">
             {(avatarPreview || user.avatarUrl) ? (
               <img src={avatarPreview ?? user.avatarUrl!} alt={user.firstName} className="h-full w-full object-cover" />
             ) : (
