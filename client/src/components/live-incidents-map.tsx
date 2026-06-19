@@ -4,6 +4,15 @@ import { Loader2, MapPin, Layers, Car, Crosshair } from "lucide-react";
 import { loadGoogleMaps, resetGoogleMapsLoader } from "@/lib/google-maps-loader";
 import { cn } from "@/lib/utils";
 
+export type OnlineUserMapMarker = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  lat: number;
+  lng: number;
+  lastPositionAt: string | null;
+};
+
 export type LiveIncidentMapResponder = {
   userId: string;
   firstName: string;
@@ -220,8 +229,30 @@ function makeJoinerMarkerIcon(label: string, pendingGps: boolean): google.maps.I
   };
 }
 
+function makeTeamMarkerIcon(label: string): google.maps.Icon {
+  const labelText = label.replace(/[<>&]/g, "") || "Team";
+  const pillWidth = Math.max(44, labelText.length * 7 + 14);
+  const svgW = Math.max(44, pillWidth);
+  const svgH = 50;
+  const dotCx = svgW / 2;
+  const pillX = (svgW - pillWidth) / 2;
+  const fill = "#059669";
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}">
+    <circle cx="${dotCx}" cy="16" r="8" fill="${fill}" fill-opacity="0.2"/>
+    <circle cx="${dotCx}" cy="16" r="7" fill="${fill}" stroke="#ffffff" stroke-width="2"/>
+    <rect x="${pillX}" y="32" width="${pillWidth}" height="14" rx="7" fill="#1e293b" stroke="#34d399" stroke-width="1"/>
+    <text x="${dotCx}" y="42" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" font-weight="600" fill="#ecfdf5">${labelText}</text>
+  </svg>`;
+  return {
+    url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
+    scaledSize: new google.maps.Size(svgW, svgH),
+    anchor: new google.maps.Point(dotCx, 16),
+  };
+}
+
 type Props = {
   incidents: LiveIncidentMapItem[];
+  onlineUsers?: OnlineUserMapMarker[];
   highlightId?: number | null;
   onIncidentMarkerClick?: (incidentId: number) => void;
   className?: string;
@@ -250,6 +281,7 @@ export const SA_MAP_DEFAULT = { lat: -29.0, lng: 25.0, zoom: 6 };
 
 export function LiveIncidentsMap({
   incidents,
+  onlineUsers = [],
   highlightId,
   onIncidentMarkerClick,
   className,
@@ -271,6 +303,8 @@ export function LiveIncidentsMap({
   const joinerInfoRef = useRef<Map<string, string>>(new Map());
   const joinerDestMarkersRef = useRef<Map<string, google.maps.Marker>>(new Map());
   const joinerRouteLinesRef = useRef<Map<string, google.maps.Polyline>>(new Map());
+  const teamMarkersRef = useRef<Map<string, google.maps.Marker>>(new Map());
+  const teamInfoRef = useRef<Map<string, string>>(new Map());
   const infoWindowRef = useRef<google.maps.InfoWindow | null>(null);
   const trafficLayerRef = useRef<google.maps.TrafficLayer | null>(null);
   const lastFitSignatureRef = useRef<string>("");
@@ -345,6 +379,9 @@ export function LiveIncidentsMap({
       joinerDestMarkersRef.current.clear();
       joinerRouteLinesRef.current.forEach((l) => l.setMap(null));
       joinerRouteLinesRef.current.clear();
+      teamMarkersRef.current.forEach((m) => m.setMap(null));
+      teamMarkersRef.current.clear();
+      teamInfoRef.current.clear();
       mapInstanceRef.current = null;
     };
   }, [mapsReady]);
@@ -752,6 +789,61 @@ export function LiveIncidentsMap({
   }, [incidents, mapsReady, onIncidentMarkerClick]);
 
   useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapsReady) return;
+
+    const teamMap = teamMarkersRef.current;
+    const teamInfo = teamInfoRef.current;
+    const activeIds = new Set(onlineUsers.map((u) => u.id));
+
+    for (const [id, marker] of Array.from(teamMap.entries())) {
+      if (!activeIds.has(id)) {
+        marker.setMap(null);
+        teamMap.delete(id);
+        teamInfo.delete(id);
+      }
+    }
+
+    for (const user of onlineUsers) {
+      const pos = { lat: user.lat, lng: user.lng };
+      const label = user.firstName || "Team";
+      const name = `${user.firstName} ${user.lastName}`.trim();
+      const updated = user.lastPositionAt
+        ? formatTime(user.lastPositionAt)
+        : "Recently";
+      const html = `<div style="min-width:160px;font-family:system-ui;font-size:13px;line-height:1.5;padding:2px 0">
+        <div style="font-weight:700;margin-bottom:4px;font-size:14px">${name}</div>
+        <div style="color:#059669;font-size:11px;font-weight:600">Online · team member</div>
+        <div style="color:#6b7280;font-size:11px">GPS ${updated}</div>
+      </div>`;
+      teamInfo.set(user.id, html);
+
+      const existing = teamMap.get(user.id);
+      if (existing) {
+        existing.setPosition(pos);
+        existing.setIcon(makeTeamMarkerIcon(label));
+      } else {
+        const marker = new google.maps.Marker({
+          position: pos,
+          map,
+          icon: makeTeamMarkerIcon(label),
+          title: name,
+          zIndex: 40,
+        });
+        marker.addListener("click", () => {
+          const iw = infoWindowRef.current;
+          const content = teamInfo.get(user.id);
+          if (iw && content) {
+            iw.setContent(content);
+            iw.open(map, marker);
+          }
+        });
+        teamMap.set(user.id, marker);
+      }
+    }
+  }, [onlineUsers, mapsReady]);
+
+  useEffect(() => {
     if (highlightId == null) return;
     const map = mapInstanceRef.current;
     const marker = markersRef.current.get(highlightId);
@@ -813,20 +905,28 @@ export function LiveIncidentsMap({
         </div>
       )}
       <div ref={mapRef} className="w-full h-full" />
-      {mapsReady && !mapsError && incidents.length === 0 && (
+      {mapsReady && !mapsError && incidents.length === 0 && onlineUsers.length === 0 && (
         <div
-          className="absolute inset-0 pointer-events-none flex items-center justify-center z-[5]"
+          className={cn(
+            "absolute z-[5] pointer-events-none",
+            darkTheme ? "bottom-3 left-3" : "inset-0 flex items-center justify-center",
+          )}
           data-testid="map-empty-state"
         >
-          <div className="text-center px-6 py-5 rounded-xl bg-slate-950/50 border border-slate-700/40 backdrop-blur-[2px] max-w-[280px] shadow-lg shadow-black/20">
-            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-slate-800/80 border border-slate-700/50">
-              <MapPin className="h-5 w-5 text-slate-500" />
+          {darkTheme ? (
+            <div className="flex items-center gap-2 rounded-lg bg-slate-900/90 border border-slate-700/60 px-3 py-1.5 shadow-md">
+              <MapPin className="h-3.5 w-3.5 text-slate-500 shrink-0" />
+              <p className="text-[11px] text-slate-400">No active incidents on map</p>
             </div>
-            <p className="text-sm font-medium text-slate-300">No active vehicles or incidents</p>
-            <p className="text-[11px] text-slate-500 mt-1.5 leading-relaxed">
-              Live markers appear on the map when responders or fleet assets are active.
-            </p>
-          </div>
+          ) : (
+            <div className="text-center px-6 py-5 rounded-xl bg-background/80 border max-w-[280px] shadow-lg">
+              <MapPin className="h-8 w-8 mx-auto text-muted-foreground/60 mb-2" />
+              <p className="text-sm font-medium">No active incidents</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Markers appear when responders go live.
+              </p>
+            </div>
+          )}
         </div>
       )}
       {showMapControls && (

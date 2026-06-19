@@ -97,7 +97,7 @@ export interface IStorage {
   atomicConsumeInviteToken(token: string): Promise<User | undefined>;
   createUser(user: InsertUser & { role?: string }): Promise<User>;
   updateUser(id: string, data: Partial<User>): Promise<User | undefined>;
-  updateUserLastSeen(id: string): Promise<void>;
+  updateUserLastSeen(id: string, position?: { lat: number; lng: number }): Promise<void>;
   deleteUser(id: string, orgId: string): Promise<boolean>;
   getUserCount(): Promise<number>;
 
@@ -230,7 +230,7 @@ export interface IStorage {
     totalIncidents: number;
     liveCount: number;
     chartData: Array<{ label: string; count: number }>;
-    users: Array<{ id: string; firstName: string; lastName: string; role: string; avatarUrl: string | null; incidentCount: number; isLive: boolean; liveIncidentId: number | null; lastSeenAt: Date | null }>;
+    users: Array<{ id: string; firstName: string; lastName: string; role: string; avatarUrl: string | null; incidentCount: number; isLive: boolean; liveIncidentId: number | null; lastSeenAt: Date | null; lastLat: number | null; lastLng: number | null; lastPositionAt: Date | null }>;
   }>;
 }
 
@@ -528,8 +528,18 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async updateUserLastSeen(id: string): Promise<void> {
-    await db.update(users).set({ lastSeenAt: new Date() }).where(eq(users.id, id));
+  async updateUserLastSeen(id: string, position?: { lat: number; lng: number }): Promise<void> {
+    const patch: Partial<User> = { lastSeenAt: new Date() };
+    if (
+      position &&
+      Number.isFinite(position.lat) &&
+      Number.isFinite(position.lng)
+    ) {
+      patch.lastLat = position.lat;
+      patch.lastLng = position.lng;
+      patch.lastPositionAt = new Date();
+    }
+    await db.update(users).set(patch).where(eq(users.id, id));
   }
 
   async deleteUser(id: string, orgId: string): Promise<boolean> {
@@ -1950,7 +1960,7 @@ export class DatabaseStorage implements IStorage {
     totalIncidents: number;
     liveCount: number;
     chartData: Array<{ label: string; count: number }>;
-    users: Array<{ id: string; firstName: string; lastName: string; role: string; avatarUrl: string | null; incidentCount: number; isLive: boolean; liveIncidentId: number | null; lastSeenAt: Date | null }>;
+    users: Array<{ id: string; firstName: string; lastName: string; role: string; avatarUrl: string | null; incidentCount: number; isLive: boolean; liveIncidentId: number | null; lastSeenAt: Date | null; lastLat: number | null; lastLng: number | null; lastPositionAt: Date | null }>;
   }> {
     const now = new Date();
     const todayStr = now.toISOString().slice(0, 10);
@@ -2100,6 +2110,9 @@ export class DatabaseStorage implements IStorage {
       isLive: liveByUser.has(u.id),
       liveIncidentId: liveByUser.get(u.id) ?? null,
       lastSeenAt: u.lastSeenAt ?? null,
+      lastLat: u.lastLat ?? null,
+      lastLng: u.lastLng ?? null,
+      lastPositionAt: u.lastPositionAt ?? null,
     }));
     userSummaries.sort((a, b) => {
       if (a.isLive !== b.isLive) return a.isLive ? -1 : 1;

@@ -4,7 +4,7 @@ import type { Location } from "@shared/schema";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { PanicBanner, type PanicAlert } from "@/components/panic-banner";
-import { LiveIncidentsMap, SA_MAP_DEFAULT, type LiveIncidentMapItem } from "@/components/live-incidents-map";
+import { LiveIncidentsMap, SA_MAP_DEFAULT, type LiveIncidentMapItem, type OnlineUserMapMarker } from "@/components/live-incidents-map";
 import { cn } from "@/lib/utils";
 import {
   ClipboardList,
@@ -32,6 +32,9 @@ export type DashboardUserSummary = {
   isLive: boolean;
   liveIncidentId: number | null;
   lastSeenAt: string | Date | null;
+  lastLat: number | null;
+  lastLng: number | null;
+  lastPositionAt: string | Date | null;
 };
 
 type DashboardData = {
@@ -79,6 +82,17 @@ function formatStarterName(inc: LiveQueueItem): string | null {
 function isUserOnline(lastSeenAt: string | Date | null | undefined): boolean {
   if (!lastSeenAt) return false;
   return Date.now() - new Date(lastSeenAt).getTime() < ONLINE_WINDOW_MS;
+}
+
+function hasMapPosition(user: DashboardUserSummary): boolean {
+  if (user.isLive) return false;
+  if (user.lastLat == null || user.lastLng == null) return false;
+  if (!isUserOnline(user.lastSeenAt)) return false;
+  if (user.lastPositionAt) {
+    const age = Date.now() - new Date(user.lastPositionAt).getTime();
+    if (age > ONLINE_WINDOW_MS) return false;
+  }
+  return true;
 }
 
 function formatLastSeen(ts: string | Date | null | undefined): string {
@@ -301,6 +315,21 @@ export function OperationsDashboard({
   }, [liveIncidents]);
 
   const showQueue = queueItems.length > 0;
+
+  const onlineMapUsers = useMemo((): OnlineUserMapMarker[] => {
+    return teamUsers
+      .filter(hasMapPosition)
+      .map((u) => ({
+        id: u.id,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        lat: u.lastLat!,
+        lng: u.lastLng!,
+        lastPositionAt: u.lastPositionAt
+          ? new Date(u.lastPositionAt).toISOString()
+          : null,
+      }));
+  }, [teamUsers]);
 
   return (
     <div
@@ -589,6 +618,7 @@ export function OperationsDashboard({
         >
           <LiveIncidentsMap
             incidents={liveIncidents as LiveIncidentMapItem[]}
+            onlineUsers={onlineMapUsers}
             highlightId={highlightId}
             onIncidentMarkerClick={setHighlightId}
             className="absolute inset-0"

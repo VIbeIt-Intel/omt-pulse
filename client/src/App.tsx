@@ -153,7 +153,29 @@ function usePushSubscription(userId: string | undefined) {
   // Heartbeat — tells the server this user is online; fires every 60 s
   useEffect(() => {
     if (!userId) return;
-    const ping = () => fetch("/api/auth/heartbeat", { method: "POST", credentials: "include" }).catch(() => {});
+    const ping = () => {
+      const send = (lat?: number, lng?: number) => {
+        const body =
+          lat != null && lng != null && Number.isFinite(lat) && Number.isFinite(lng)
+            ? JSON.stringify({ lat, lng })
+            : "{}";
+        fetch("/api/auth/heartbeat", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body,
+        }).catch(() => {});
+      };
+      if (typeof navigator !== "undefined" && navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => send(pos.coords.latitude, pos.coords.longitude),
+          () => send(),
+          { maximumAge: 120_000, timeout: 10_000, enableHighAccuracy: false },
+        );
+      } else {
+        send();
+      }
+    };
     ping();
     const t = setInterval(ping, 60000);
     return () => clearInterval(t);

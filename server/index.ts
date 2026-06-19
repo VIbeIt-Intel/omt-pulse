@@ -168,6 +168,10 @@ app.use((req, res, next) => {
   await safeMigrate("live_responders.destination_lng", sql`ALTER TABLE live_responders ADD COLUMN IF NOT EXISTS destination_lng DOUBLE PRECISION`);
   await safeMigrate("live_responders.destination_name", sql`ALTER TABLE live_responders ADD COLUMN IF NOT EXISTS destination_name TEXT`);
 
+  await safeMigrate("users.last_lat", sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_lat DOUBLE PRECISION`);
+  await safeMigrate("users.last_lng", sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_lng DOUBLE PRECISION`);
+  await safeMigrate("users.last_position_at", sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_position_at TIMESTAMP`);
+
   // panic_acknowledgers — created here (not just via drizzle-kit push) so
   // every environment, including production, boots with the table present.
   // Without this, /api/panic/recent, acknowledge-panic, and the panic banner
