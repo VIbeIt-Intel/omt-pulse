@@ -433,3 +433,48 @@ export const fcmTokens = pgTable("fcm_tokens", {
   token: text("token").notNull().unique(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+/** GPS tracker hardware registered by IMEI (GT06 and future protocols). */
+export const trackerDevices = pgTable("tracker_devices", {
+  id: serial("id").primaryKey(),
+  imei: varchar("imei", { length: 20 }).notNull().unique(),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  commandId: integer("command_id").references(() => commands.id, { onDelete: "set null" }),
+  protocol: varchar("protocol", { length: 32 }).notNull().default("gt06"),
+  label: text("label"),
+  lastLat: doublePrecision("last_lat"),
+  lastLng: doublePrecision("last_lng"),
+  lastSpeedKph: doublePrecision("last_speed_kph"),
+  lastHeading: doublePrecision("last_heading"),
+  lastIgnitionOn: boolean("last_ignition_on"),
+  lastMileageKm: doublePrecision("last_mileage_km"),
+  lastGpsValid: boolean("last_gps_valid"),
+  lastPositionAt: timestamp("last_position_at"),
+  lastSeenAt: timestamp("last_seen_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertTrackerDeviceSchema = createInsertSchema(trackerDevices).omit({ id: true, createdAt: true });
+export type InsertTrackerDevice = z.infer<typeof insertTrackerDeviceSchema>;
+export type TrackerDevice = typeof trackerDevices.$inferSelect;
+
+/** Historical GPS positions from tracker devices. */
+export const trackerPositions = pgTable("tracker_positions", {
+  id: serial("id").primaryKey(),
+  deviceId: integer("device_id").notNull().references(() => trackerDevices.id, { onDelete: "cascade" }),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  latitude: doublePrecision("latitude").notNull(),
+  longitude: doublePrecision("longitude").notNull(),
+  speedKph: doublePrecision("speed_kph"),
+  heading: doublePrecision("heading"),
+  ignitionOn: boolean("ignition_on"),
+  mileageKm: doublePrecision("mileage_km"),
+  gpsValid: boolean("gps_valid").notNull().default(true),
+  packetType: varchar("packet_type", { length: 16 }),
+  recordedAt: timestamp("recorded_at").notNull(),
+  receivedAt: timestamp("received_at").defaultNow().notNull(),
+});
+
+export const insertTrackerPositionSchema = createInsertSchema(trackerPositions).omit({ id: true, receivedAt: true });
+export type InsertTrackerPosition = z.infer<typeof insertTrackerPositionSchema>;
+export type TrackerPosition = typeof trackerPositions.$inferSelect;

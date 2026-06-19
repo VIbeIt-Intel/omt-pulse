@@ -10,6 +10,7 @@ import { seedDatabase } from "./seed";
 import { db } from "./storage";
 import { sql } from "drizzle-orm";
 import { migrateCommands } from "./migrate-commands";
+import { startVehicleTrackingFromEnv } from "./vehicle-tracking";
 
 console.log("[startup] Push subscription health check complete");
 
@@ -185,6 +186,50 @@ app.use((req, res, next) => {
   await safeMigrate("panic_acknowledgers.incident_idx", sql`CREATE INDEX IF NOT EXISTS panic_ack_incident_idx ON panic_acknowledgers (incident_id)`);
   await safeMigrate("panic_acknowledgers.org_idx", sql`CREATE INDEX IF NOT EXISTS panic_ack_org_idx ON panic_acknowledgers (organization_id)`);
 
+  await safeMigrate("tracker_devices.create", sql`
+    CREATE TABLE IF NOT EXISTS tracker_devices (
+      id SERIAL PRIMARY KEY,
+      imei VARCHAR(20) NOT NULL UNIQUE,
+      organization_id VARCHAR NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      command_id INTEGER REFERENCES commands(id) ON DELETE SET NULL,
+      protocol VARCHAR(32) NOT NULL DEFAULT 'gt06',
+      label TEXT,
+      last_lat DOUBLE PRECISION,
+      last_lng DOUBLE PRECISION,
+      last_speed_kph DOUBLE PRECISION,
+      last_heading DOUBLE PRECISION,
+      last_ignition_on BOOLEAN,
+      last_mileage_km DOUBLE PRECISION,
+      last_gps_valid BOOLEAN,
+      last_position_at TIMESTAMP,
+      last_seen_at TIMESTAMP,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `);
+  await safeMigrate("tracker_positions.create", sql`
+    CREATE TABLE IF NOT EXISTS tracker_positions (
+      id SERIAL PRIMARY KEY,
+      device_id INTEGER NOT NULL REFERENCES tracker_devices(id) ON DELETE CASCADE,
+      organization_id VARCHAR NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      latitude DOUBLE PRECISION NOT NULL,
+      longitude DOUBLE PRECISION NOT NULL,
+      speed_kph DOUBLE PRECISION,
+      heading DOUBLE PRECISION,
+      ignition_on BOOLEAN,
+      mileage_km DOUBLE PRECISION,
+      gps_valid BOOLEAN NOT NULL DEFAULT TRUE,
+      packet_type VARCHAR(16),
+      recorded_at TIMESTAMP NOT NULL,
+      received_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `);
+  await safeMigrate("tracker_positions.device_idx", sql`
+    CREATE INDEX IF NOT EXISTS tracker_positions_device_idx ON tracker_positions (device_id, recorded_at DESC)
+  `);
+  await safeMigrate("tracker_devices.command_idx", sql`
+    CREATE INDEX IF NOT EXISTS tracker_devices_command_idx ON tracker_devices (command_id)
+  `);
+
   await safeMigrate("incident_evidence_notes.create", sql`
     CREATE TABLE IF NOT EXISTS incident_evidence_notes (
       id SERIAL PRIMARY KEY,
@@ -304,6 +349,7 @@ app.use((req, res, next) => {
     },
     () => {
       log(`serving on port ${port}`);
+      startVehicleTrackingFromEnv();
     },
   );
 })();
