@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link, useSearch } from "wouter";
-import { Car, ChevronRight, Gauge, MapPin, Radio, Save, Clock } from "lucide-react";
+import { Car, ChevronRight, Gauge, MapPin, Radio, Save, Clock, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -16,6 +16,13 @@ import { GeoLocationSheet, type GeoMapView } from "@/components/incident-locatio
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
+import { downloadFleetTripCsv, downloadFleetTripExcel } from "@/lib/fleet-trip-export";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { TrackerDeviceSummary } from "@/components/operations-dashboard";
 
 type OrgUser = {
@@ -199,6 +206,27 @@ export default function FleetPage() {
 
   const dayDistanceKm = useMemo(() => estimatePathDistanceKm(pathForStats), [pathForStats]);
 
+  const exportTrip = (scope: "day" | "week", format: "xlsx" | "csv") => {
+    if (!selected) return;
+    const positions = scope === "day" ? activePositions : (history?.positions ?? []);
+    if (positions.length === 0) {
+      toast({ title: "Nothing to export", description: "No GPS points in this period.", variant: "destructive" });
+      return;
+    }
+    const periodLabel = scope === "day" ? activeDay?.label ?? activeDayKey ?? "Selected day" : "Last 7 days";
+    const periodKey = scope === "day" ? activeDayKey ?? "day" : "7d";
+    const opts = {
+      device: selected,
+      vehicleTitle: vehicleTitle(selected),
+      periodLabel,
+      periodKey,
+      positions,
+    };
+    if (format === "xlsx") downloadFleetTripExcel(opts);
+    else downloadFleetTripCsv(opts);
+    toast({ title: "Report downloaded", description: `${periodLabel} · ${positions.length} GPS points` });
+  };
+
   const saveMutation = useMutation({
     mutationFn: async () => {
       if (!selectedId) return;
@@ -347,7 +375,33 @@ export default function FleetPage() {
                           <Radio className="h-4 w-4 text-muted-foreground" />
                           <p className="text-sm font-medium">Route map</p>
                         </div>
-                        <p className="text-xs text-muted-foreground">Last 7 days</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs text-muted-foreground hidden sm:inline">Last 7 days</p>
+                          {!historyLoading && (history?.positions?.length ?? 0) > 0 && (
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="outline" size="sm" className="h-8 text-xs" data-testid="fleet-export">
+                                  <Download className="h-3.5 w-3.5 mr-1.5" />
+                                  Download report
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => exportTrip("day", "xlsx")}>
+                                  Excel — selected day
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => exportTrip("day", "csv")}>
+                                  CSV — selected day
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => exportTrip("week", "xlsx")}>
+                                  Excel — last 7 days
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => exportTrip("week", "csv")}>
+                                  CSV — last 7 days
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          )}
+                        </div>
                       </div>
 
                       {historyLoading ? (

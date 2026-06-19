@@ -166,14 +166,12 @@ function OpsCollapsibleSection({
   return (
     <section
       className={cn(
-        "flex flex-col min-h-0 border-t",
+        "flex flex-col min-h-0 border-b",
         open ? "flex-1" : "shrink-0",
         borderClass || "border-slate-800/80",
       )}
       data-testid={testId}
     >
-      {open && <div className="flex-1 min-h-0 overflow-hidden flex flex-col">{children}</div>}
-      {headerExtra}
       <button
         type="button"
         onClick={onToggle}
@@ -198,6 +196,8 @@ function OpsCollapsibleSection({
           className={cn("h-4 w-4 text-slate-500 transition-transform shrink-0", open && "rotate-180")}
         />
       </button>
+      {headerExtra}
+      {open && <div className="flex-1 min-h-0 overflow-hidden flex flex-col">{children}</div>}
     </section>
   );
 }
@@ -789,7 +789,7 @@ export function OperationsDashboard({
 
         {/* Right: fleet + team */}
         <div
-          className="w-[24%] min-w-[200px] max-w-xs flex flex-col justify-end min-h-0 h-full border-l border-slate-800/80 bg-[#131a22]"
+          className="w-[24%] min-w-[200px] max-w-xs flex flex-col min-h-0 border-l border-slate-800/80 bg-[#131a22]"
           data-testid="ops-side-panel"
         >
           <OpsCollapsibleSection
@@ -897,7 +897,7 @@ export function OperationsDashboard({
             testId="ops-team-panel"
             headerExtra={
               teamPanelOpen ? (
-                <div className="shrink-0 px-3 pt-2 pb-1 flex gap-1 border-t border-emerald-900/15">
+                <div className="shrink-0 px-3 pb-2 flex gap-1 border-b border-emerald-900/15">
                   {(["all", "responding", "available"] as const).map((f) => (
                     <button
                       key={f}
