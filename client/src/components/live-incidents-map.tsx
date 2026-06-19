@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { Loader2, MapPin, Layers, Car } from "lucide-react";
+import { Loader2, MapPin, Layers, Car, Crosshair } from "lucide-react";
 import { loadGoogleMaps, resetGoogleMapsLoader } from "@/lib/google-maps-loader";
 import { cn } from "@/lib/utils";
 
@@ -742,6 +742,26 @@ export function LiveIncidentsMap({
     if ((map.getZoom() ?? 0) < 12) map.setZoom(12);
   }, [highlightId, incidents]);
 
+  const resetToDefaultView = () => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    lastFitSignatureRef.current = "";
+    map.setCenter(initialCenter);
+    map.setZoom(initialZoom);
+  };
+
+  const controlBtnClass = (active: boolean) =>
+    cn(
+      "flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium shadow transition-colors border",
+      darkTheme
+        ? active
+          ? "bg-emerald-700/90 text-white border-emerald-600/50"
+          : "bg-slate-900/90 text-slate-200 border-slate-700/80 hover:bg-slate-800"
+        : active
+          ? "bg-blue-600 text-white border-transparent"
+          : "bg-white/90 dark:bg-black/70 text-gray-700 dark:text-gray-200 border-transparent hover:bg-white dark:hover:bg-black/90",
+    );
+
   return (
     <div className={cn("relative w-full h-full min-h-[200px]", className)} data-testid={testId}>
       {mapsError && (
@@ -774,16 +794,28 @@ export function LiveIncidentsMap({
         </div>
       )}
       <div ref={mapRef} className="w-full h-full" />
+      {mapsReady && !mapsError && incidents.length === 0 && (
+        <div
+          className="absolute inset-0 pointer-events-none flex items-center justify-center z-[5]"
+          data-testid="map-empty-state"
+        >
+          <div className="text-center px-6 py-5 rounded-xl bg-slate-950/50 border border-slate-700/40 backdrop-blur-[2px] max-w-[280px] shadow-lg shadow-black/20">
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-slate-800/80 border border-slate-700/50">
+              <MapPin className="h-5 w-5 text-slate-500" />
+            </div>
+            <p className="text-sm font-medium text-slate-300">No active vehicles or incidents</p>
+            <p className="text-[11px] text-slate-500 mt-1.5 leading-relaxed">
+              Live markers appear on the map when responders or fleet assets are active.
+            </p>
+          </div>
+        </div>
+      )}
       {showMapControls && (
         <div className="absolute top-2 right-2 flex flex-col gap-1.5 z-10">
           <button
             type="button"
             onClick={() => setMapType((t) => (t === "roadmap" ? "satellite" : "roadmap"))}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium shadow transition-colors ${
-              mapType === "satellite"
-                ? "bg-blue-600 text-white"
-                : "bg-white/90 dark:bg-black/70 text-gray-700 dark:text-gray-200 hover:bg-white dark:hover:bg-black/90"
-            }`}
+            className={controlBtnClass(mapType === "satellite")}
             title="Toggle satellite view"
             data-testid="button-toggle-satellite"
           >
@@ -793,16 +825,22 @@ export function LiveIncidentsMap({
           <button
             type="button"
             onClick={() => setShowTraffic((v) => !v)}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium shadow transition-colors ${
-              showTraffic
-                ? "bg-green-600 text-white"
-                : "bg-white/90 dark:bg-black/70 text-gray-700 dark:text-gray-200 hover:bg-white dark:hover:bg-black/90"
-            }`}
+            className={controlBtnClass(showTraffic)}
             title="Toggle traffic layer"
             data-testid="button-toggle-traffic"
           >
             <Car className="h-3.5 w-3.5" />
             Traffic
+          </button>
+          <button
+            type="button"
+            onClick={resetToDefaultView}
+            className={controlBtnClass(false)}
+            title="Centre map on South Africa"
+            data-testid="button-reset-map-view"
+          >
+            <Crosshair className="h-3.5 w-3.5" />
+            Reset view
           </button>
         </div>
       )}

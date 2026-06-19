@@ -17,8 +17,6 @@ import {
   Users,
   ExternalLink,
   CheckCircle2,
-  Activity,
-  Car,
   Shield,
 } from "lucide-react";
 
@@ -83,6 +81,33 @@ function isUserOnline(lastSeenAt: string | Date | null | undefined): boolean {
   return Date.now() - new Date(lastSeenAt).getTime() < ONLINE_WINDOW_MS;
 }
 
+function formatLastSeen(ts: string | Date | null | undefined): string {
+  if (!ts) return "Last seen: no recent activity";
+  const age = formatGpsAge(typeof ts === "string" ? ts : ts.toISOString());
+  return age ? `Last seen: ${age}` : "Last seen: just now";
+}
+
+function getUserPresenceHint(
+  user: DashboardUserSummary,
+  incidents: LiveQueueItem[],
+  locations: Location[],
+): string {
+  if (user.isLive && user.liveIncidentId) {
+    const inc = incidents.find((i) => i.id === user.liveIncidentId);
+    if (inc) {
+      const loc =
+        inc.destinationName ||
+        inc.locationName ||
+        (inc.locationId ? locations.find((l) => l.id === inc.locationId)?.name : null);
+      if (loc) return `On scene · ${loc}`;
+      return "On active incident";
+    }
+    return "Responding now";
+  }
+  if (isUserOnline(user.lastSeenAt)) return "Online now";
+  return formatLastSeen(user.lastSeenAt);
+}
+
 function responderStatus(
   user: DashboardUserSummary,
 ): "responding" | "available" | "off-duty" {
@@ -131,33 +156,38 @@ function KpiCard({
 }) {
   const accentBorder =
     accent === "red"
-      ? "border-red-500/50"
+      ? "border-red-500/40 shadow-sm shadow-red-950/20"
       : accent === "orange"
-        ? "border-orange-500/50"
+        ? "border-orange-500/40 shadow-sm shadow-orange-950/20"
         : accent === "green"
-          ? "border-emerald-500/50"
+          ? "border-emerald-500/40 shadow-sm shadow-emerald-950/20"
           : accent === "blue"
-            ? "border-blue-500/50"
-            : "border-slate-600/60";
+            ? "border-blue-500/40 shadow-sm shadow-blue-950/20"
+            : "border-slate-600/50";
 
   const inner = (
     <>
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">{label}</p>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</p>
       {loading ? (
-        <Skeleton className="h-8 w-16 mt-1 bg-slate-700" />
+        <Skeleton className="h-9 w-16 mt-1.5 bg-slate-700" />
       ) : (
-        <p className={cn("text-3xl font-bold tabular-nums mt-0.5 text-slate-50")} data-testid={testId}>
+        <p
+          className={cn(
+            "text-[2rem] leading-none font-extrabold tabular-nums mt-1.5 text-white tracking-tight",
+          )}
+          data-testid={testId}
+        >
           {value}
         </p>
       )}
-      {hint ? <p className="text-[11px] text-slate-500 mt-1">{hint}</p> : null}
+      {hint ? <p className="text-[11px] text-slate-500 mt-1.5">{hint}</p> : null}
     </>
   );
 
   const shell = cn(
-    "rounded-lg border bg-slate-800/80 px-4 py-3 min-w-0",
+    "rounded-xl border bg-slate-800/60 px-3.5 py-2.5 min-w-0 backdrop-blur-sm",
     accentBorder,
-    onClick && "hover:bg-slate-800 transition-colors cursor-pointer",
+    onClick && "hover:bg-slate-800/90 hover:border-slate-500/60 transition-all cursor-pointer",
   );
 
   if (!onClick) return <div className={shell}>{inner}</div>;
@@ -270,6 +300,8 @@ export function OperationsDashboard({
     return sorted;
   }, [liveIncidents]);
 
+  const showQueue = queueItems.length > 0;
+
   return (
     <div
       className="flex flex-col h-full min-h-0 bg-[#0f1419] text-slate-100"
@@ -278,23 +310,30 @@ export function OperationsDashboard({
       {/* ── Top status bar ── */}
       <div
         className={cn(
-          "shrink-0 px-4 py-2.5 border-b flex flex-wrap items-center gap-x-4 gap-y-2",
-          statusTone === "critical" && "bg-red-950 border-red-800/80",
-          statusTone === "active" && "bg-amber-950/90 border-amber-800/60",
-          statusTone === "calm" && "bg-emerald-950/90 border-emerald-800/60",
+          "shrink-0 px-4 py-2 border-b flex flex-wrap items-center gap-x-4 gap-y-2",
+          statusTone === "critical" && "bg-red-950/95 border-red-900/70",
+          statusTone === "active" && "bg-amber-950/85 border-amber-900/50",
+          statusTone === "calm" && "bg-[#0d2818] border-emerald-900/40",
         )}
         data-testid="ops-status-bar"
       >
         <div className="flex items-center gap-2.5 min-w-0">
           {statusTone === "calm" ? (
-            <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0" />
+            <CheckCircle2 className="h-4 w-4 text-emerald-400/90 shrink-0" />
           ) : (
             <span className="relative flex h-3 w-3 shrink-0">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-70" />
               <span className="relative inline-flex h-3 w-3 rounded-full bg-red-500" />
             </span>
           )}
-          <p className="font-bold text-sm sm:text-base tracking-tight">
+          <p
+            className={cn(
+              "text-sm sm:text-[15px] tracking-wide",
+              statusTone === "calm"
+                ? "font-semibold text-emerald-100/95"
+                : "font-bold text-slate-100",
+            )}
+          >
             {statusTone === "calm"
               ? "All Clear — No Active Incidents"
               : visiblePanics.length > 0
@@ -303,7 +342,7 @@ export function OperationsDashboard({
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-300/90">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400">
           <span className="tabular-nums font-medium" data-testid="ops-clock">
             {clock.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
           </span>
@@ -400,8 +439,8 @@ export function OperationsDashboard({
       )}
 
       {/* ── KPI row ── */}
-      <div className="shrink-0 px-4 py-3 border-b border-slate-700/60 bg-[#121820]">
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+      <div className="shrink-0 px-3 py-2.5 border-b border-slate-800/80 bg-[#111820]">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
           <KpiCard
             label="Active Incidents"
             value={liveCount}
@@ -438,8 +477,8 @@ export function OperationsDashboard({
           />
           <KpiCard
             label="Vehicles Tracked"
-            value="—"
-            hint="coming soon"
+            value={0}
+            hint="fleet tracking inactive"
             accent="slate"
             testId="ops-kpi-vehicles"
           />
@@ -447,24 +486,18 @@ export function OperationsDashboard({
       </div>
 
       {/* ── 3-column main area ── */}
-      <div className="flex flex-1 min-h-0 overflow-hidden">
-        {/* Left: dispatch queue ~28% */}
+      <div className="flex flex-1 min-h-0 overflow-hidden gap-px bg-slate-800/40">
+        {/* Left: dispatch queue — hidden when empty */}
+        {showQueue && (
         <div
-          className="w-[28%] min-w-[220px] max-w-sm flex flex-col border-r border-slate-700/80 bg-[#141b24]"
+          className="w-[28%] min-w-[220px] max-w-sm flex flex-col border-r border-slate-800/80 bg-[#131a22]"
           data-testid="ops-queue-panel"
         >
-          <div className="shrink-0 px-3 py-2.5 border-b border-slate-700/80 flex items-center justify-between">
-            <p className="text-xs font-bold uppercase tracking-wider text-slate-300">Live Queue</p>
-            <span className="text-[10px] text-slate-500">{queueItems.length} active</span>
+          <div className="shrink-0 px-3 py-2 border-b border-slate-800/80 flex items-center justify-between">
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Live Queue</p>
+            <span className="text-[10px] font-medium text-emerald-500/80 tabular-nums">{queueItems.length} active</span>
           </div>
           <div className="flex-1 overflow-y-auto ops-scroll">
-            {queueItems.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full gap-2 px-4 py-8 text-center">
-                <Activity className="h-8 w-8 text-emerald-600/80" />
-                <p className="text-sm font-medium text-slate-400">Queue empty</p>
-                <p className="text-[11px] text-slate-600">Incidents and panics appear here in real time.</p>
-              </div>
-            ) : (
               <ul>
                 {queueItems.map((inc) => {
                   const locText =
@@ -542,12 +575,18 @@ export function OperationsDashboard({
                   );
                 })}
               </ul>
-            )}
           </div>
         </div>
+        )}
 
-        {/* Centre: map ~48% */}
-        <div className="flex-[1_1_48%] min-w-0 relative bg-[#0a0e14]" data-testid="ops-map-panel">
+        {/* Centre: map */}
+        <div
+          className={cn(
+            "min-w-0 relative bg-[#0a0e14]",
+            showQueue ? "flex-[1_1_48%]" : "flex-1",
+          )}
+          data-testid="ops-map-panel"
+        >
           <LiveIncidentsMap
             incidents={liveIncidents as LiveIncidentMapItem[]}
             highlightId={highlightId}
@@ -559,18 +598,15 @@ export function OperationsDashboard({
             initialZoom={SA_MAP_DEFAULT.zoom}
             showMapControls
           />
-          <div className="absolute bottom-2 left-2 z-10 rounded-md bg-slate-900/90 border border-slate-700 px-2 py-1 text-[10px] text-slate-400 pointer-events-none">
-            South Africa · live GPS
-          </div>
         </div>
 
-        {/* Right: team panel ~24% */}
+        {/* Right: team panel */}
         <div
-          className="w-[24%] min-w-[200px] max-w-xs flex flex-col border-l border-slate-700/80 bg-[#141b24]"
+          className="w-[24%] min-w-[200px] max-w-xs flex flex-col border-l border-slate-800/80 bg-[#131a22]"
           data-testid="ops-team-panel"
         >
-          <div className="shrink-0 px-3 py-2.5 border-b border-slate-700/80">
-            <p className="text-xs font-bold uppercase tracking-wider text-slate-300">Team</p>
+          <div className="shrink-0 px-3 py-2 border-b border-slate-800/80">
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Team</p>
             <div className="flex gap-1 mt-2">
               {(["all", "responding", "available"] as const).map((f) => (
                 <button
@@ -632,6 +668,9 @@ export function OperationsDashboard({
                           >
                             {statusLabel}
                           </span>
+                          <p className="text-[10px] text-slate-500 mt-1.5 leading-snug truncate">
+                            {getUserPresenceHint(user, liveIncidents, locations)}
+                          </p>
                           {user.isLive && (
                             <button
                               type="button"
@@ -648,10 +687,6 @@ export function OperationsDashboard({
                 })}
               </ul>
             )}
-          </div>
-          <div className="shrink-0 border-t border-slate-700/80 px-3 py-2 text-[10px] text-slate-600 flex items-center gap-1">
-            <Car className="h-3 w-3" />
-            Vehicle tracking — Phase 2
           </div>
         </div>
       </div>
