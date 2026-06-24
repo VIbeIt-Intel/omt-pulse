@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useLocation } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -75,12 +75,34 @@ type IncidentCoordSource = {
   liveStartLng?: number | string | null;
 };
 
+function isValidGpsPair(lat: number, lng: number): boolean {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  // Reject null-island placeholders stored before the first real GPS fix.
+  if (Math.abs(lat) < 0.0001 && Math.abs(lng) < 0.0001) return false;
+  return true;
+}
+
 function incidentGpsCoords(inc: IncidentCoordSource | null | undefined): { lat: number; lng: number } | null {
   if (!inc) return null;
-  const lat = Number(inc.liveStartLat ?? inc.latitude);
-  const lng = Number(inc.liveStartLng ?? inc.longitude);
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-  return { lat, lng };
+  const candidates: Array<[number | string | null | undefined, number | string | null | undefined]> = [
+    [inc.liveStartLat, inc.liveStartLng],
+    [inc.latitude, inc.longitude],
+  ];
+  for (const [rawLat, rawLng] of candidates) {
+    const lat = Number(rawLat);
+    const lng = Number(rawLng);
+    if (isValidGpsPair(lat, lng)) return { lat, lng };
+  }
+  return null;
+}
+
+/** Prefer the device’s live GPS fix; fall back to coords persisted on the incident. */
+function resolveFieldGpsCoords(
+  inc: IncidentCoordSource | null | undefined,
+  livePos: { lat: number; lng: number } | null | undefined,
+): { lat: number; lng: number } | null {
+  if (livePos && isValidGpsPair(livePos.lat, livePos.lng)) return livePos;
+  return incidentGpsCoords(inc);
 }
 
 function isUsableLocationSearchLabel(name: string | null | undefined): boolean {
@@ -90,11 +112,15 @@ function isUsableLocationSearchLabel(name: string | null | undefined): boolean {
 
 function incidentLocationDisplayLabel(
   inc: IncidentCoordSource & { locationName?: string | null; destinationName?: string | null },
+  livePos?: { lat: number; lng: number } | null,
 ): string {
   if (isUsableLocationSearchLabel(inc.destinationName)) return inc.destinationName!.trim();
   if (isUsableLocationSearchLabel(inc.locationName)) return inc.locationName!.trim();
+  if (livePos && isValidGpsPair(livePos.lat, livePos.lng)) {
+    return "Your current GPS position";
+  }
   const coords = incidentGpsCoords(inc);
-  if (coords) return `Your GPS position (${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)})`;
+  if (coords) return `GPS position (${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)})`;
   return "Your GPS position";
 }
 
@@ -616,6 +642,10 @@ export default function LiveIncidentPage() {
   const currentStepIndexRef = useRef(0);
   // Scrollable content container — scrolled to top when nav mode is entered.
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const pinnedSummaryRef = useRef<HTMLDivElement>(null);
+  const fieldFooterRef = useRef<HTMLDivElement>(null);
+  const mapHostRef = useRef<HTMLDivElement>(null);
+  const [nativePinnedMapFrame, setNativePinnedMapFrame] = useState<{ top: number; height: number } | null>(null);
 
   // Arrival form state
   const [showArrivalForm, setShowArrivalForm] = useState(false);
@@ -719,29 +749,55 @@ export default function LiveIncidentPage() {
   /** Live incident active but not in full-screen nav — pin map between header and footer. */
   const pinnedFieldLayout = Boolean(currentIncident && !navMode && !showArrivalForm);
 
-  // Native map is created once; when the field layout pins the map between header
-  // and footer the host grows — nudge the camera so tiles repaint at the new size.
-  useEffect(() => {
-    if (!pinnedFieldLayout || !isNative || !capMapRef.current) return;
-    const host = scrollContainerRef.current;
-    if (!host) return;
-    const refresh = () => {
-      const pos = lastPosRef.current;
-      if (!pos || !capMapRef.current) return;
-      capMapRef.current
-        .setCamera({ lat: pos.lat, lng: pos.lng, zoom: 15, animate: false })
-        .catch(() => {});
+  const destinationSheetGps = useMemo(
+    () => resolveFieldGpsCoords(currentIncident, userLoc),
+    [currentIncident, userLoc],
+  );
+
+  // On Android the native MapView tracks the #cap-live-map element’s screen rect.
+  // Flex reflow moves the host without changing its size — pin it with fixed
+  // insets between the summary card and footer, then force a bounds sync.
+  useLayoutEffect(() => {
+    if (!pinnedFieldLayout || !isNative || navMode) {
+      setNativePinnedMapFrame(null);
+      return;
+    }
+    const measure = () => {
+      const summaryBottom = pinnedSummaryRef.current?.getBoundingClientRect().bottom;
+      const footerTop = fieldFooterRef.current?.getBoundingClientRect().top;
+      if (summaryBottom == null || footerTop == null) return;
+      const top = summaryBottom + 6;
+      const height = Math.max(140, footerTop - top - 8);
+      setNativePinnedMapFrame((prev) =>
+        prev?.top === top && prev.height === height ? prev : { top, height },
+      );
+      void capMapRef.current?.syncBounds();
     };
-    const ro = new ResizeObserver(() => refresh());
-    ro.observe(host);
-    const t1 = window.setTimeout(refresh, 80);
-    const t2 = window.setTimeout(refresh, 350);
+    measure();
+    const ro = new ResizeObserver(measure);
+    for (const el of [pinnedSummaryRef.current, fieldFooterRef.current, mapHostRef.current]) {
+      if (el) ro.observe(el);
+    }
+    window.addEventListener("resize", measure);
+    const t1 = window.setTimeout(measure, 60);
+    const t2 = window.setTimeout(measure, 350);
+    const t3 = window.setTimeout(measure, 900);
     return () => {
       ro.disconnect();
+      window.removeEventListener("resize", measure);
       window.clearTimeout(t1);
       window.clearTimeout(t2);
+      window.clearTimeout(t3);
     };
-  }, [pinnedFieldLayout, isNative, nativeMapReadyAt, currentIncidentId]);
+  }, [
+    pinnedFieldLayout,
+    isNative,
+    navMode,
+    currentIncidentId,
+    nativeMapReadyAt,
+    destinationPickerOpen,
+    gpsLastSentAt,
+  ]);
 
   // Screen Wake Lock — keep the screen on for the full duration of any live
   // incident (creator or joiner). Released automatically when the incident ends
@@ -1087,6 +1143,7 @@ export default function LiveIncidentPage() {
       const accuracy = pos.coords.accuracy;
       const p = { lat: pos.coords.latitude, lng: pos.coords.longitude };
       lastPosRef.current = p;
+      setUserLoc(p);
       // A real fix arrived — clear the joiner "location off" guide if it was
       // showing. Without this the guide lingers when GPS recovers on its own
       // (e.g. user enabled location in system settings and returned). Setting
@@ -2653,13 +2710,12 @@ export default function LiveIncidentPage() {
   }
 
   function useIncidentLocationAsDestination() {
-    const inc = currentIncident;
-    const coords = incidentGpsCoords(inc);
+    const coords = resolveFieldGpsCoords(currentIncident, lastPosRef.current);
     if (!coords) return;
     void beginInAppNavigation({
       lat: coords.lat,
       lng: coords.lng,
-      name: incidentLocationDisplayLabel(inc ?? {}),
+      name: incidentLocationDisplayLabel(currentIncident ?? {}, coords),
     });
   }
 
@@ -3757,7 +3813,7 @@ export default function LiveIncidentPage() {
         {currentIncident ? (
           <>
             {!navMode && (
-              <div className={cn("shrink-0 space-y-2", pinnedFieldLayout && "px-4 pt-3 pb-1")}>
+              <div ref={pinnedSummaryRef} className={cn("shrink-0 space-y-2", pinnedFieldLayout && "px-4 pt-3 pb-1")}>
               <IncidentActiveSummary
                 incident={currentIncident}
                 isJoiner={isJoinerMode}
@@ -3980,8 +4036,8 @@ export default function LiveIncidentPage() {
             to 0px and the screen goes blank. */}
         <div
           className={cn(
-            (navMode || pinnedFieldLayout) && "flex flex-1 flex-col min-h-0 min-w-0",
-            pinnedFieldLayout && "px-4 pb-2",
+            (navMode || pinnedFieldLayout) && "flex flex-1 flex-col min-h-0 min-w-0 basis-0",
+            pinnedFieldLayout && !isNative && "px-4 pb-2",
           )}
         >
         {isNative && (jsApiDegraded || jsApiRetrying) && !mapsError && (
@@ -4041,12 +4097,25 @@ export default function LiveIncidentPage() {
           </div>
         ) : (
           <div
+            ref={mapHostRef}
             className={
               navMode
-                ? "relative overflow-hidden native-map-host flex-1 min-h-0 w-full h-full"
+                ? "relative overflow-hidden native-map-host flex-1 min-h-0 w-full h-full basis-0"
                 : pinnedFieldLayout
-                ? "relative overflow-hidden native-map-host live-field-map-host flex-1 min-h-0 w-full h-full rounded-xl border border-border/50 bg-muted/30 shadow-sm"
+                ? "relative overflow-hidden native-map-host live-field-map-host flex-1 min-h-0 w-full basis-0 rounded-xl border border-border/50 shadow-sm"
                 : "relative rounded-lg overflow-hidden min-h-[200px] flex-1 native-map-host"
+            }
+            style={
+              isNative && pinnedFieldLayout && !navMode && nativePinnedMapFrame
+                ? {
+                    position: "fixed",
+                    left: 16,
+                    right: 16,
+                    top: nativePinnedMapFrame.top,
+                    height: nativePinnedMapFrame.height,
+                    zIndex: 1,
+                  }
+                : undefined
             }
           >
             {/* Nav mode: Direct banner (bearing + distance) or Guided step banner */}
@@ -4226,7 +4295,7 @@ export default function LiveIncidentPage() {
               <CapacitorMap
                 ref={capMapRef}
                 apiKey={import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? ''}
-                className="absolute inset-0"
+                className={pinnedFieldLayout && !navMode ? "w-full h-full min-h-0" : "absolute inset-0"}
                 onReady={() => {
                   setNativeMapStatus("ready");
                   setNativeMapReadyAt(Date.now());
@@ -4585,7 +4654,7 @@ export default function LiveIncidentPage() {
             </div>
           ) : navMode ? null : showProminentArrived && !isPanicIncident ? (
             /* ---- Approaching destination (within 500 m) ---- */
-            <div className={fieldActionFooterClass} style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
+            <div className={fieldActionFooterClass} ref={fieldFooterRef} style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
               <div className="rounded-lg bg-amber-500/10 border border-amber-500/40 px-4 py-2 text-sm text-amber-900 dark:text-amber-200 flex items-center gap-2">
                 <MapPin className="h-4 w-4 shrink-0" />
                 <span>
@@ -4619,7 +4688,7 @@ export default function LiveIncidentPage() {
               )}
             </div>
           ) : !navStarted && !navMode ? (
-            <div className={fieldActionFooterClass} style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
+            <div className={fieldActionFooterClass} ref={fieldFooterRef} style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
               <LiveIncidentStartNavigationCta
                 onStart={() => {
                   if (isJoinerMode && joinerNavDestination) {
@@ -4637,7 +4706,7 @@ export default function LiveIncidentPage() {
             </div>
           ) : !navMode ? (
             /* Live incident active — en route or between flows; subtle early arrival */
-            <div className={fieldActionFooterClass} style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
+            <div className={fieldActionFooterClass} ref={fieldFooterRef} style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
               {!isPanicIncident && (
                 <button
                   type="button"
@@ -4751,12 +4820,12 @@ export default function LiveIncidentPage() {
         loadingSuggestions={loadingSugg}
         onSelectSuggestion={selectPlace}
         incidentLocation={
-          incidentGpsCoords(currentIncident)
-            ? { name: incidentLocationDisplayLabel(currentIncident!) }
+          destinationSheetGps
+            ? { name: incidentLocationDisplayLabel(currentIncident!, userLoc) }
             : null
         }
         onUseIncidentLocation={
-          incidentGpsCoords(currentIncident)
+          destinationSheetGps
             ? useIncidentLocationAsDestination
             : undefined
         }

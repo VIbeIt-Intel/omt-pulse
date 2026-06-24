@@ -1,5 +1,6 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react';
 import { GoogleMap, MapType } from '@capacitor/google-maps';
+import { CapacitorGoogleMaps } from '@capacitor/google-maps/dist/esm/implementation';
 import { registerPlugin } from '@capacitor/core';
 import { pathFromDirectionsRoute } from '@/lib/decode-polyline';
 
@@ -104,6 +105,9 @@ export interface CapacitorMapHandle {
    * labels). Works on both native and the JS fallback map.
    */
   setMapType(type: "Normal" | "Hybrid" | "Satellite"): Promise<void>;
+
+  /** Re-sync native MapView bounds after DOM layout moves (Capacitor only tracks size, not position). */
+  syncBounds(): Promise<void>;
 }
 
 interface CapacitorMapProps {
@@ -171,6 +175,62 @@ const CapacitorMap = forwardRef<CapacitorMapHandle, CapacitorMapProps>(
     // Coalesced GPS updates — see setUserLocation for the race-avoidance rationale.
     const pendingUserPosRef = useRef<{ lat: number; lng: number } | null>(null);
     const userMarkerBusyRef = useRef<boolean>(false);
+    const lastSyncedBoundsRef = useRef({ x: -1, y: -1, width: -1, height: -1 });
+
+    const syncBounds = useCallback(async () => {
+      const el = elementRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      const bounds = {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+      };
+      const last = lastSyncedBoundsRef.current;
+      if (
+        last.x === bounds.x &&
+        last.y === bounds.y &&
+        last.width === bounds.width &&
+        last.height === bounds.height
+      ) {
+        return;
+      }
+      lastSyncedBoundsRef.current = bounds;
+      try {
+        await CapacitorGoogleMaps.onResize({ id: NATIVE_MAP_ID, mapBounds: bounds });
+      } catch (e) {
+        reportNativeError('syncBounds', e);
+      }
+    }, []);
+
+    // Capacitor's built-in ResizeObserver only calls onResize when width/height
+    // change — not when the element moves on screen. Track position too.
+    useEffect(() => {
+      const el = elementRef.current;
+      if (!el) return;
+      let raf = 0;
+      const tick = () => {
+        cancelAnimationFrame(raf);
+        raf = requestAnimationFrame(() => { void syncBounds(); });
+      };
+      const ro = new ResizeObserver(tick);
+      ro.observe(el);
+      window.addEventListener('scroll', tick, true);
+      window.addEventListener('resize', tick);
+      const interval = window.setInterval(tick, 400);
+      const stopBurst = window.setTimeout(() => window.clearInterval(interval), 4000);
+      tick();
+      return () => {
+        cancelAnimationFrame(raf);
+        ro.disconnect();
+        window.removeEventListener('scroll', tick, true);
+        window.removeEventListener('resize', tick);
+        window.clearInterval(interval);
+        window.clearTimeout(stopBurst);
+      };
+    }, [syncBounds]);
 
     // Create the native map once on mount; destroy on unmount.
     // Includes an 8-second readiness timeout: if GoogleMap.create() succeeds but
@@ -208,6 +268,9 @@ const CapacitorMap = forwardRef<CapacitorMapHandle, CapacitorMapProps>(
         clearTimeout(timeoutId);
         mapRef.current = map;
         onReady?.();
+        void syncBounds();
+        setTimeout(() => { void syncBounds(); }, 100);
+        setTimeout(() => { void syncBounds(); }, 500);
         // Query the actual renderer chosen by the Maps SDK and surface it to
         // the caller for on-screen diagnostics (no adb needed).
         if (onRendererKnown) {
@@ -477,7 +540,9 @@ const CapacitorMap = forwardRef<CapacitorMapHandle, CapacitorMapProps>(
         }
       },
 
-    }), [apiKey]); // eslint-disable-line react-hooks/exhaustive-deps
+      syncBounds,
+
+    }), [apiKey, syncBounds]); // eslint-disable-line react-hooks/exhaustive-deps
 
     return (
       <div
