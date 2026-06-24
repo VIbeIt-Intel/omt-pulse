@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowLeft, Navigation, MapPin, Radio, CheckCircle2, Loader2, Search, RotateCcw, RotateCw, ChevronRight, ExternalLink, Camera, ImageIcon, X, WifiOff, LogOut, Mic, Square, AlertTriangle, HelpCircle, Gauge, ArrowUp, ArrowUpRight, ArrowUpLeft, ArrowRight, CornerUpRight, CornerUpLeft, Merge, Users, Layers, MessageCircle, Route } from "lucide-react";
+import { ArrowLeft, Navigation, MapPin, Radio, CheckCircle2, Loader2, RotateCcw, RotateCw, ChevronRight, ExternalLink, Camera, ImageIcon, X, WifiOff, LogOut, Mic, Square, AlertTriangle, HelpCircle, Gauge, ArrowUp, ArrowUpRight, ArrowUpLeft, ArrowRight, CornerUpRight, CornerUpLeft, Merge, Users, Layers, MessageCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useWakeLock } from "@/hooks/use-wake-lock";
@@ -48,6 +48,8 @@ import { pathFromDirectionsRoute, type LatLngPoint } from "@/lib/decode-polyline
 import { usePanickerLocationSync } from "@/hooks/use-panicker-location-sync";
 import { LocationPermissionGuide } from "@/components/location-permission-guide";
 import {
+  LiveIncidentDestinationSheet,
+  LiveIncidentJoinerNavSheet,
   LiveIncidentNavBottomBar,
   LiveIncidentNavPhaseBadge,
   LiveIncidentStartNavigationCta,
@@ -2621,6 +2623,7 @@ export default function LiveIncidentPage() {
     }
     setJoinerGpsBlocked(false);
 
+    setJoinerNavPickerOpen(false);
     storeJoinNavStyle(style);
     setActiveNavStyle(style);
     activeNavStyleRef.current = style;
@@ -3739,84 +3742,6 @@ export default function LiveIncidentPage() {
                           Change
                         </button>
                       </div>
-                    ) : joinerNavPickerOpen ? (
-                      <div className="space-y-4">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-sm font-semibold">Choose how to navigate</p>
-                          <button
-                            type="button"
-                            className="text-xs text-muted-foreground underline"
-                            onClick={() => setJoinerNavPickerOpen(false)}
-                          >
-                            Back
-                          </button>
-                        </div>
-                        <div className="space-y-1">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Destination</p>
-                          <p className="text-sm font-medium text-foreground truncate px-0.5">{joinerNavDestination.name}</p>
-                        </div>
-                        <div className="grid grid-cols-1 min-[400px]:grid-cols-2 gap-3">
-                            <button
-                              type="button"
-                              onClick={() => void dispatchJoinerInApp("direct")}
-                              disabled={acquiringJoinerGps}
-                              className={cn(
-                                "flex flex-col items-start gap-2 rounded-xl border-2 p-4 text-left transition-colors",
-                                "border-primary/50 bg-primary/5 shadow-sm hover:bg-primary/10 active:bg-primary/15",
-                                acquiringJoinerGps && "opacity-60 pointer-events-none",
-                              )}
-                              data-testid="button-joiner-navigate-direct"
-                            >
-                              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/15 text-primary">
-                                {acquiringJoinerGps ? (
-                                  <Loader2 className="h-5 w-5 animate-spin" />
-                                ) : (
-                                  <Navigation className="h-5 w-5" />
-                                )}
-                              </span>
-                              <span className="text-base font-semibold text-foreground">
-                                {acquiringJoinerGps ? "Getting your location…" : "I know the way"}
-                              </span>
-                              <span className="text-sm text-muted-foreground leading-snug">
-                                Use my own route / shortcuts
-                              </span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void dispatchJoinerInApp("guided")}
-                              disabled={acquiringJoinerGps}
-                              className={cn(
-                                "flex flex-col items-start gap-2 rounded-xl border-2 border-border bg-card p-4 text-left transition-colors",
-                                "hover:bg-muted/40 active:bg-muted/60",
-                                acquiringJoinerGps && "opacity-60 pointer-events-none",
-                              )}
-                              data-testid="button-joiner-navigate-guided"
-                            >
-                              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-muted text-foreground">
-                                <Route className="h-5 w-5" />
-                              </span>
-                              <span className="text-base font-semibold text-foreground">Need directions</span>
-                              <span className="text-sm text-muted-foreground leading-snug">
-                                Turn-by-turn with voice guidance
-                              </span>
-                            </button>
-                          </div>
-                        {joinerGpsBlocked && (
-                          <div className="pt-1" data-testid="banner-joiner-location-off">
-                            <LocationPermissionGuide
-                              variant="light"
-                              testIdPrefix="joiner-location"
-                              onLocationUpdated={(loc) => {
-                                if (hasPanicCoordinates(loc)) {
-                                  lastPosRef.current = { lat: loc.lat, lng: loc.lng };
-                                  setJoinerGpsBlocked(false);
-                                  void dispatchJoinerInApp("direct");
-                                }
-                              }}
-                            />
-                          </div>
-                        )}
-                      </div>
                     ) : null}
                     {routeInfo && activeNavStyle === "guided" && !joinerChoosingNav && (
                       <div className="flex gap-3 text-sm pt-0.5">
@@ -3843,66 +3768,6 @@ export default function LiveIncidentPage() {
                     Waiting for creator to set a destination…
                   </div>
                 ) : null
-              ) : destinationPickerOpen ? (
-                <div className="space-y-3 rounded-xl border bg-card p-4 shadow-sm">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-semibold">Where are you heading?</p>
-                    <button
-                      type="button"
-                      className="text-xs text-muted-foreground underline shrink-0"
-                      onClick={() => setDestinationPickerOpen(false)}
-                      data-testid="button-cancel-destination-picker"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                  {currentIncident?.latitude && currentIncident?.longitude && (
-                    <button
-                      type="button"
-                      className="w-full text-left rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5 text-sm hover:bg-primary/10 transition-colors"
-                      onClick={useIncidentLocationAsDestination}
-                      data-testid="button-use-incident-location"
-                    >
-                      <MapPin className="h-4 w-4 inline mr-2 text-primary" />
-                      Use incident location
-                      {currentIncident.locationName ? (
-                        <span className="block text-xs text-muted-foreground mt-0.5 truncate pl-6">
-                          {currentIncident.locationName}
-                        </span>
-                      ) : null}
-                    </button>
-                  )}
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      className="pl-9"
-                      placeholder="Search address or place…"
-                      value={search}
-                      onChange={(e) => handleSearch(e.target.value)}
-                      data-testid="input-destination-search"
-                      autoFocus
-                    />
-                    {loadingSugg && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />}
-                  </div>
-                  {suggestions.length > 0 && (
-                    <div className="border rounded-md bg-popover shadow-md overflow-hidden max-h-48 overflow-y-auto" data-testid="list-suggestions">
-                      {suggestions.map((s) => (
-                        <button
-                          key={s.place_id}
-                          className="w-full text-left px-3 py-2.5 text-sm hover:bg-accent flex items-start gap-2 border-b last:border-b-0"
-                          onClick={() => selectPlace(s)}
-                          data-testid={`suggestion-${s.place_id}`}
-                        >
-                          <MapPin className="h-3.5 w-3.5 shrink-0 mt-0.5 text-muted-foreground" />
-                          <span className="line-clamp-2">{s.description}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  <p className="text-[11px] text-muted-foreground text-center">
-                    Selecting a destination starts turn-by-turn navigation immediately.
-                  </p>
-                </div>
               ) : null}
               {/* v75: hidden in nav mode — the bottom strip on the map shows
                   the prominent red distance/ETA in nav mode (no duplicate). */}
@@ -4056,7 +3921,6 @@ export default function LiveIncidentPage() {
             to 0px and the screen goes blank. */}
         <div
           className={cn(
-            joinerChoosingNav && "hidden",
             navMode && "flex flex-1 flex-col min-h-0 min-w-0",
           )}
         >
@@ -4690,7 +4554,7 @@ export default function LiveIncidentPage() {
                 </Button>
               )}
             </div>
-          ) : !navStarted && !destinationPickerOpen && !joinerNavPickerOpen ? (
+          ) : !navStarted && !navMode ? (
             <div className="shrink-0 space-y-2" style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
               <LiveIncidentStartNavigationCta
                 onStart={() => {
@@ -4701,13 +4565,13 @@ export default function LiveIncidentPage() {
                   }
                 }}
                 dispatching={dispatching}
-                label={isJoinerMode ? "Start Navigation" : "Start Navigation"}
+                label="Start Navigation"
               />
               <p className="text-center text-[11px] text-muted-foreground px-2">
                 GPS stays live for dispatch — navigation runs inside OMT Pulse.
               </p>
             </div>
-          ) : (
+          ) : !navMode ? (
             /* Live incident active — en route or between flows; subtle early arrival */
             <div className="shrink-0 space-y-2" style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
               {!isPanicIncident && (
@@ -4734,7 +4598,7 @@ export default function LiveIncidentPage() {
                 </Button>
               )}
             </div>
-          )
+          ) : null
         ) : (
           /* ---- Pre-start: create incident and begin tracking ---- */
           <Button
@@ -4809,6 +4673,54 @@ export default function LiveIncidentPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <LiveIncidentDestinationSheet
+        open={destinationPickerOpen}
+        onOpenChange={setDestinationPickerOpen}
+        search={search}
+        onSearchChange={handleSearch}
+        suggestions={suggestions}
+        loadingSuggestions={loadingSugg}
+        onSelectSuggestion={selectPlace}
+        incidentLocation={
+          currentIncident?.latitude && currentIncident?.longitude
+            ? { name: currentIncident.locationName ?? "Incident location" }
+            : null
+        }
+        onUseIncidentLocation={
+          currentIncident?.latitude && currentIncident?.longitude
+            ? useIncidentLocationAsDestination
+            : undefined
+        }
+      />
+
+      {joinerNavDestination ? (
+        <LiveIncidentJoinerNavSheet
+          open={joinerNavPickerOpen}
+          onOpenChange={setJoinerNavPickerOpen}
+          destinationName={joinerNavDestination.name}
+          acquiringGps={acquiringJoinerGps}
+          onDirect={() => void dispatchJoinerInApp("direct")}
+          onGuided={() => void dispatchJoinerInApp("guided")}
+          gpsBlockedGuide={
+            joinerGpsBlocked ? (
+              <div data-testid="banner-joiner-location-off">
+                <LocationPermissionGuide
+                  variant="light"
+                  testIdPrefix="joiner-location"
+                  onLocationUpdated={(loc) => {
+                    if (hasPanicCoordinates(loc)) {
+                      lastPosRef.current = { lat: loc.lat, lng: loc.lng };
+                      setJoinerGpsBlocked(false);
+                      void dispatchJoinerInApp("direct");
+                    }
+                  }}
+                />
+              </div>
+            ) : undefined
+          }
+        />
+      ) : null}
 
       <Sheet open={respondersSheetOpen} onOpenChange={setRespondersSheetOpen}>
         <SheetContent side="bottom" className="max-h-[70vh] rounded-t-2xl" data-testid="sheet-nav-responders">
