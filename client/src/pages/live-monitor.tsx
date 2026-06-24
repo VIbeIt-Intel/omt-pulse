@@ -121,6 +121,12 @@ function isPanicIncident(inc: LiveIncident): boolean {
   return (inc.categoryName ?? "").toLowerCase().includes("panic");
 }
 
+function getMarkerColor(inc: LiveIncident): string {
+  if (inc.isEscalated) return "#ef4444";
+  if (inc.responderArrivedAt) return "#2563eb";
+  return inc.categoryColor ?? "#22c55e";
+}
+
 export default function LiveMonitorPage() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
