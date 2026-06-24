@@ -710,7 +710,7 @@ export default function LiveIncidentPage() {
   // Set to true if we mounted with a stored ID (stale-key reopen) OR once we've
   // actually had an active incident in this session (normal start → end).
   const hadIncidentRef = useRef<boolean>((storedId !== null) || (storedJoinedId !== null));
-  const joinFromPushRef = useRef(false);
+  const joinInFlightRef = useRef<number | null>(null);
   const panicTargetAppliedRef = useRef(false);
   /** After a fresh live-incident join (not panic), auto-start turn-by-turn to the initiator destination. */
   const autoNavAfterJoinRef = useRef(false);
@@ -1599,14 +1599,39 @@ export default function LiveIncidentPage() {
     return (name ?? "").toLowerCase().includes("panic");
   }
 
+  function stashPanicTarget(inc: LiveIncidentWithResponders | Incident) {
+    const dest = resolveJoinerNavDestination(inc as LiveIncidentWithResponders);
+    if (dest) {
+      try {
+        localStorage.setItem("omt_panic_target", JSON.stringify({ lat: dest.lat, lng: dest.lng, name: dest.name }));
+      } catch { /* ignore */ }
+    } else {
+      try { localStorage.removeItem("omt_panic_target"); } catch { /* ignore */ }
+    }
+    return dest;
+  }
+
+  function reopenPanicResponse(id: number, inc: LiveIncidentWithResponders | Incident) {
+    const dest = stashPanicTarget(inc);
+    panicTargetAppliedRef.current = false;
+    enterJoinedIncident(id);
+    return dest;
+  }
+
   async function autoRespondToPanic(id: number, inc: LiveIncidentWithResponders | Incident) {
     if (joinPromptSubmitting) return;
     setJoinPromptSubmitting(true);
     try {
       const responders = (inc as LiveIncidentWithResponders).responders ?? [];
-      const alreadyJoined = responders.some((r) => r.userId === me?.id && !r.arrivedAt);
-      if (alreadyJoined) {
-        enterJoinedIncident(id);
+      const activeResponder = responders.some((r) => r.userId === me?.id && !r.arrivedAt);
+      if (activeResponder) {
+        const dest = reopenPanicResponse(id, inc);
+        if (!dest) {
+          toast({
+            title: "Responding to panic",
+            description: "No GPS yet — the map will update when they turn location on.",
+          });
+        }
         return;
       }
 
@@ -1622,19 +1647,9 @@ export default function LiveIncidentPage() {
         liveIncidents.find((i) => i.id === id)
         ?? ((await (await fetch(`/api/incidents/${id}`, { credentials: "include" })).json()) as Incident);
 
-      const dest = resolveJoinerNavDestination(fullInc as LiveIncidentWithResponders);
-      if (dest) {
-        try {
-          localStorage.setItem("omt_panic_target", JSON.stringify({ lat: dest.lat, lng: dest.lng, name: dest.name }));
-        } catch { /* ignore */ }
-      } else {
-        try { localStorage.removeItem("omt_panic_target"); } catch { /* ignore */ }
-      }
-
       setStaleJoinNotice(null);
       setJoinPrompt(null);
-      panicTargetAppliedRef.current = false;
-      enterJoinedIncident(id);
+      const dest = reopenPanicResponse(id, fullInc);
       await queryClient.refetchQueries({ queryKey: ["/api/panic/recent"] });
       if (!dest) {
         toast({
@@ -1741,31 +1756,51 @@ export default function LiveIncidentPage() {
 
   // Opened from push or dashboard ?join= — panic auto-responds; live incidents show join prompt.
   useEffect(() => {
-    if (!liveQueryLoaded || !me || joinFromPushRef.current) return;
+    if (!liveQueryLoaded || !me) return;
     const joinParam = new URLSearchParams(window.location.search).get("join");
     if (!joinParam) return;
     const id = parseInt(joinParam, 10);
     if (isNaN(id)) return;
-    joinFromPushRef.current = true;
+    if (joinInFlightRef.current === id) return;
+
+    joinInFlightRef.current = id;
+    const releaseJoinLock = () => {
+      if (joinInFlightRef.current === id) joinInFlightRef.current = null;
+    };
+
     window.history.replaceState({}, "", "/live-incident");
     void queryClient.invalidateQueries({ queryKey: ["/api/incidents/live"] });
-    if (joinedId === id || liveId === id) return;
+
+    const liveIncForJoin = liveIncidents.find((i) => i.id === id && i.isLive);
+
+    if (joinedId === id || liveId === id) {
+      if (liveIncForJoin && isPanicCategory(liveIncForJoin.categoryName)) {
+        reopenPanicResponse(id, liveIncForJoin);
+      }
+      releaseJoinLock();
+      return;
+    }
 
     const alreadyJoined = liveIncidents.some(
       (i) => i.id === id && i.isLive && (i.responders ?? []).some((r) => r.userId === me.id && !r.arrivedAt),
     );
     if (alreadyJoined) {
-      enterJoinedIncident(id);
+      if (liveIncForJoin && isPanicCategory(liveIncForJoin.categoryName)) {
+        reopenPanicResponse(id, liveIncForJoin);
+      } else {
+        enterJoinedIncident(id);
+      }
+      releaseJoinLock();
       return;
     }
 
-    const liveInc = liveIncidents.find((i) => i.id === id && i.isLive);
-    if (liveInc) {
-      if (isPanicCategory(liveInc.categoryName)) {
-        void autoRespondToPanic(id, liveInc);
+    if (liveIncForJoin) {
+      if (isPanicCategory(liveIncForJoin.categoryName)) {
+        void autoRespondToPanic(id, liveIncForJoin).finally(releaseJoinLock);
         return;
       }
-      setJoinPrompt(buildJoinPromptDetails(liveInc));
+      setJoinPrompt(buildJoinPromptDetails(liveIncForJoin));
+      releaseJoinLock();
       return;
     }
 
@@ -1783,7 +1818,7 @@ export default function LiveIncidentPage() {
           }
           const cat = categories.find((c) => c.id === inc.categoryId)?.name ?? inc.categoryName ?? null;
           if (isPanicCategory(cat)) {
-            void autoRespondToPanic(id, inc);
+            await autoRespondToPanic(id, inc);
             return;
           }
           setJoinPrompt(buildJoinPromptFromIncident(inc, cat));
@@ -1792,7 +1827,7 @@ export default function LiveIncidentPage() {
       } catch { /* fall through */ }
       toast({ title: "Incident unavailable", description: "Could not load this live incident.", variant: "destructive" });
       navigate("/");
-    })();
+    })().finally(releaseJoinLock);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [liveQueryLoaded, me?.id, joinedId, liveId, liveIncidents]);
 
@@ -2595,7 +2630,9 @@ export default function LiveIncidentPage() {
   useEffect(() => {
     if (panicTargetAppliedRef.current) return;
     const incId = currentIncidentId;
-    if (!incId || !mapsReady) return;
+    if (!incId) return;
+    const mapActuallyReady = isNative ? nativeMapStatus === "ready" : mapsReady;
+    if (!mapActuallyReady) return;
     let target: { lat: number; lng: number; name: string } | null = null;
     try {
       const raw = localStorage.getItem("omt_panic_target");
@@ -2626,7 +2663,7 @@ export default function LiveIncidentPage() {
       void beginInAppNavigation(target);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentIncidentId, mapsReady]);
+  }, [currentIncidentId, mapsReady, nativeMapStatus, isNative, isJoinerMode]);
 
   const handleSearch = useCallback((val: string) => {
     setSearch(val);

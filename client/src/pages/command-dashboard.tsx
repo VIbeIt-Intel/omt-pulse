@@ -550,14 +550,17 @@ export default function CommandDashboard() {
 
   const pendingPanics = useMemo(() => {
     if (!currentUser) return [];
-    return panicAlerts.filter(
-      (a) =>
-        !dismissedPanicIds.has(a.id) &&
-        !a.panicClosedAt &&
-        a.userId !== currentUser.id &&
-        !a.acknowledgedBy.some((ack) => ack.userId === currentUser.id),
-    );
-  }, [panicAlerts, dismissedPanicIds, currentUser?.id]);
+    return panicAlerts.filter((a) => {
+      if (dismissedPanicIds.has(a.id)) return false;
+      if (a.panicClosedAt) return false;
+      if (a.userId === currentUser.id) return false;
+      const liveInc = liveIncidents.find((i) => i.id === a.id);
+      const activelyResponding = (liveInc?.responders ?? []).some(
+        (r) => r.userId === currentUser.id && !r.arrivedAt,
+      );
+      return !activelyResponding;
+    });
+  }, [panicAlerts, dismissedPanicIds, currentUser?.id, liveIncidents]);
 
   const scrollPanicAlerts = useMemo(() => {
     return panicAlerts.filter(
