@@ -146,6 +146,7 @@ function incidentHasPanicCoords(inc: {
 }
 const JOINED_INCIDENT_KEY = "omt_joined_incident_id";
 const ARRIVAL_QUEUE_KEY = "omt_arrival_queue";
+const ARRIVAL_FORM_SESSION_KEY = "omt_arrival_form_session";
 const NAV_STARTED_KEY = "omt_nav_started";
 // Accuracy thresholds for PATCH sends:
 //   First send (or stale >60 s): accept anything under 500 m — get SOMETHING to admin quickly
@@ -661,6 +662,7 @@ export default function LiveIncidentPage() {
 
   // Arrival form state
   const [showArrivalForm, setShowArrivalForm] = useState(false);
+  const [sessionClosing, setSessionClosing] = useState(false);
   const [arrivalCategoryId, setArrivalCategoryId] = useState<number | null>(null);
   const [arrivalOtherType, setArrivalOtherType] = useState("");
   const [arrivalDescription, setArrivalDescription] = useState("");
@@ -1380,10 +1382,41 @@ export default function LiveIncidentPage() {
       if (currentIncidentId !== null) {
         void queryClient.refetchQueries({ queryKey: ["/api/incidents/live"] });
       }
+      // Camera / gallery on Android can reload the WebView — restore arrival form.
+      if (currentIncidentId !== null) {
+        try {
+          const raw = sessionStorage.getItem(ARRIVAL_FORM_SESSION_KEY);
+          if (raw) {
+            const parsed = JSON.parse(raw) as { incidentId: number; arrivalTime?: string };
+            if (parsed.incidentId === currentIncidentId) {
+              if (parsed.arrivalTime) arrivalTimeRef.current = new Date(parsed.arrivalTime);
+              setShowArrivalForm(true);
+            }
+          }
+        } catch { /* ignore */ }
+      }
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [active?.id, joinedIncident?.id, currentIncidentId, queryClient]);
+
+  // Restore arrival form after WebView reload while recording on-scene evidence.
+  useEffect(() => {
+    if (!currentIncidentId) return;
+    try {
+      const raw = sessionStorage.getItem(ARRIVAL_FORM_SESSION_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { incidentId: number; arrivalTime?: string };
+      if (parsed.incidentId !== currentIncidentId) {
+        sessionStorage.removeItem(ARRIVAL_FORM_SESSION_KEY);
+        return;
+      }
+      if (parsed.arrivalTime) arrivalTimeRef.current = new Date(parsed.arrivalTime);
+      setShowArrivalForm(true);
+    } catch {
+      sessionStorage.removeItem(ARRIVAL_FORM_SESSION_KEY);
+    }
+  }, [currentIncidentId]);
 
   useEffect(() => {
     if (!active) return;
@@ -1683,6 +1716,8 @@ export default function LiveIncidentPage() {
       // 4. End the live session
       await apiRequest("POST", `/api/incidents/${liveId}/end-live`, closureCoords ?? {});
       localStorage.removeItem(ARRIVAL_QUEUE_KEY);
+      sessionStorage.removeItem(ARRIVAL_FORM_SESSION_KEY);
+      setSessionClosing(true);
       resetAfterEnd();
       toast({ title: "Incident recorded", description: "Safe return. Incident saved to the Occurrence Book." });
       navigate("/");
@@ -2695,6 +2730,21 @@ export default function LiveIncidentPage() {
     await beginInAppNavigation(destination);
   }
 
+  function bypassInAppNavigation() {
+    const incId = currentIncidentId;
+    if (!incId) return;
+    setDestinationPickerOpen(false);
+    setJoinerNavPickerOpen(false);
+    setNavMode(false);
+    navModeRef.current = false;
+    setNavStarted(true);
+    localStorage.setItem(NAV_STARTED_KEY, String(incId));
+    toast({
+      title: "Tracking without route",
+      description: "GPS and timing stay active for dispatch and investigation. No turn-by-turn route is shown.",
+    });
+  }
+
   function cancelNavigation() {
     void stopSpeaking();
     setNavMode(false);
@@ -2879,6 +2929,8 @@ export default function LiveIncidentPage() {
       // call above (or will get cleaned up server-side). Either way, this
       // client must NOT keep PATCHing joiner-position.
       if (arrivalCommitted) {
+        sessionStorage.removeItem(ARRIVAL_FORM_SESSION_KEY);
+        setSessionClosing(true);
         resetAfterLeave();
         navigate("/");
       }
@@ -2931,6 +2983,17 @@ export default function LiveIncidentPage() {
     arrivalTimeRef.current = new Date();
     if (!isJoinerMode && currentIncident) {
       apiRequest("PATCH", `/api/incidents/${currentIncident.id}/mark-arrived`, {}).catch(() => {});
+    }
+    if (currentIncidentId !== null) {
+      try {
+        sessionStorage.setItem(
+          ARRIVAL_FORM_SESSION_KEY,
+          JSON.stringify({
+            incidentId: currentIncidentId,
+            arrivalTime: arrivalTimeRef.current.toISOString(),
+          }),
+        );
+      } catch { /* ignore */ }
     }
     setShowArrivalForm(true);
   }
@@ -3394,6 +3457,19 @@ export default function LiveIncidentPage() {
     isPanickerView,
     panickerHasCoords,
   );
+
+  if (sessionClosing) {
+    return (
+      <div
+        className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-3 bg-background text-foreground"
+        style={{ backgroundColor: "hsl(var(--background))" }}
+        data-testid="session-closing-overlay"
+      >
+        <Loader2 className="h-9 w-9 animate-spin text-primary" />
+        <p className="text-sm font-medium">Saving incident…</p>
+      </div>
+    );
+  }
 
   if (isPanickerView && currentIncident) {
     // Acknowledgers from panic_acknowledgers
@@ -4444,11 +4520,14 @@ export default function LiveIncidentPage() {
         {currentIncident ? (
           showArrivalForm ? (
             /* ---- Arrival capture form — full-screen page overlay ---- */
-            <div className="fixed inset-0 z-50 bg-background flex flex-col" data-testid="arrival-form">
+            <div className="fixed inset-0 z-50 flex flex-col bg-background text-foreground" style={{ backgroundColor: "hsl(var(--background))" }} data-testid="arrival-form">
               {/* Page header */}
               <div className="flex items-center gap-3 px-4 py-3 border-b bg-background shrink-0">
                 <button
-                  onClick={() => setShowArrivalForm(false)}
+                  onClick={() => {
+                    sessionStorage.removeItem(ARRIVAL_FORM_SESSION_KEY);
+                    setShowArrivalForm(false);
+                  }}
                   className="text-muted-foreground hover:text-foreground p-1 rounded transition-colors"
                   data-testid="button-cancel-arrival"
                   aria-label="Back"
@@ -4713,8 +4792,16 @@ export default function LiveIncidentPage() {
                 dispatching={dispatching}
                 label="Start Navigation"
               />
+              <button
+                type="button"
+                className="w-full text-center text-sm font-medium text-muted-foreground underline underline-offset-2 hover:text-foreground py-1"
+                onClick={bypassInAppNavigation}
+                data-testid="button-bypass-navigation"
+              >
+                I know where I&apos;m going — skip route
+              </button>
               <p className="text-center text-[11px] text-muted-foreground px-2">
-                GPS stays live for dispatch — navigation runs inside OMT Pulse.
+                GPS stays live for dispatch — skip route if you don&apos;t need turn-by-turn.
               </p>
             </div>
           ) : !navMode ? (
@@ -4856,6 +4943,7 @@ export default function LiveIncidentPage() {
           acquiringGps={acquiringJoinerGps}
           onDirect={() => void dispatchJoinerInApp("direct")}
           onGuided={() => void dispatchJoinerInApp("guided")}
+          onBypass={bypassInAppNavigation}
           gpsBlockedGuide={
             joinerGpsBlocked ? (
               <div data-testid="banner-joiner-location-off">

@@ -372,6 +372,7 @@ type JoinerNavSheetProps = {
   acquiringGps: boolean;
   onDirect: () => void;
   onGuided: () => void;
+  onBypass: () => void;
   gpsBlockedGuide?: ReactNode;
 };
 
@@ -382,6 +383,7 @@ export function LiveIncidentJoinerNavSheet({
   acquiringGps,
   onDirect,
   onGuided,
+  onBypass,
   gpsBlockedGuide,
 }: JoinerNavSheetProps) {
   return (
@@ -437,6 +439,18 @@ export function LiveIncidentJoinerNavSheet({
             <span className="text-sm text-muted-foreground leading-snug">Turn-by-turn with voice guidance</span>
           </button>
         </div>
+
+        <button
+          type="button"
+          onClick={onBypass}
+          className="mt-3 w-full rounded-xl border border-dashed border-border bg-muted/30 px-4 py-3 text-center text-sm font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors"
+          data-testid="button-joiner-bypass-navigation"
+        >
+          Skip route — track my GPS only
+        </button>
+        <p className="mt-1.5 text-center text-[11px] text-muted-foreground px-2">
+          No turn-by-turn shown. Your position and timing stay on record for investigation.
+        </p>
 
         {gpsBlockedGuide ? <div className="pt-3">{gpsBlockedGuide}</div> : null}
       </SheetContent>
