@@ -711,6 +711,7 @@ export default function LiveIncidentPage() {
   // actually had an active incident in this session (normal start → end).
   const hadIncidentRef = useRef<boolean>((storedId !== null) || (storedJoinedId !== null));
   const joinFromPushRef = useRef(false);
+  const panicTargetAppliedRef = useRef(false);
   /** After a fresh live-incident join (not panic), auto-start turn-by-turn to the initiator destination. */
   const autoNavAfterJoinRef = useRef(false);
   const [staleJoinNotice, setStaleJoinNotice] = useState<{ id: number; closedAt: string | null } | null>(null);
@@ -1594,6 +1595,65 @@ export default function LiveIncidentPage() {
     startTracking(id);
   }
 
+  function isPanicCategory(name: string | null | undefined): boolean {
+    return (name ?? "").toLowerCase().includes("panic");
+  }
+
+  async function autoRespondToPanic(id: number, inc: LiveIncidentWithResponders | Incident) {
+    if (joinPromptSubmitting) return;
+    setJoinPromptSubmitting(true);
+    try {
+      const responders = (inc as LiveIncidentWithResponders).responders ?? [];
+      const alreadyJoined = responders.some((r) => r.userId === me?.id && !r.arrivedAt);
+      if (alreadyJoined) {
+        enterJoinedIncident(id);
+        return;
+      }
+
+      try {
+        await apiRequest("POST", `/api/incidents/${id}/acknowledge-panic`, {});
+        queryClient.invalidateQueries({ queryKey: ["/api/panic/recent"] });
+      } catch { /* may already be acknowledged */ }
+
+      await apiRequest("POST", `/api/incidents/${id}/join-live`, {});
+      await queryClient.refetchQueries({ queryKey: ["/api/incidents/live"] });
+
+      const fullInc =
+        liveIncidents.find((i) => i.id === id)
+        ?? ((await (await fetch(`/api/incidents/${id}`, { credentials: "include" })).json()) as Incident);
+
+      const dest = resolveJoinerNavDestination(fullInc as LiveIncidentWithResponders);
+      if (dest) {
+        try {
+          localStorage.setItem("omt_panic_target", JSON.stringify({ lat: dest.lat, lng: dest.lng, name: dest.name }));
+        } catch { /* ignore */ }
+      } else {
+        try { localStorage.removeItem("omt_panic_target"); } catch { /* ignore */ }
+      }
+
+      setStaleJoinNotice(null);
+      setJoinPrompt(null);
+      panicTargetAppliedRef.current = false;
+      enterJoinedIncident(id);
+      await queryClient.refetchQueries({ queryKey: ["/api/panic/recent"] });
+      if (!dest) {
+        toast({
+          title: "Responding to panic",
+          description: "No GPS yet — the map will update when they turn location on.",
+        });
+      }
+    } catch (e: unknown) {
+      toast({
+        title: "Could not respond",
+        description: e instanceof Error ? e.message : "Please try again.",
+        variant: "destructive",
+      });
+      navigate("/");
+    } finally {
+      setJoinPromptSubmitting(false);
+    }
+  }
+
   function openJoinPrompt(inc: LiveIncidentWithResponders) {
     setJoinPrompt(buildJoinPromptDetails(inc));
   }
@@ -1679,7 +1739,7 @@ export default function LiveIncidentPage() {
     },
   });
 
-  // Opened from a push notification — show join/respond prompt (no silent auto-join).
+  // Opened from push or dashboard ?join= — panic auto-responds; live incidents show join prompt.
   useEffect(() => {
     if (!liveQueryLoaded || !me || joinFromPushRef.current) return;
     const joinParam = new URLSearchParams(window.location.search).get("join");
@@ -1701,6 +1761,10 @@ export default function LiveIncidentPage() {
 
     const liveInc = liveIncidents.find((i) => i.id === id && i.isLive);
     if (liveInc) {
+      if (isPanicCategory(liveInc.categoryName)) {
+        void autoRespondToPanic(id, liveInc);
+        return;
+      }
       setJoinPrompt(buildJoinPromptDetails(liveInc));
       return;
     }
@@ -1717,7 +1781,12 @@ export default function LiveIncidentPage() {
             setStaleJoinNotice({ id, closedAt });
             return;
           }
-          setJoinPrompt(buildJoinPromptFromIncident(inc));
+          const cat = categories.find((c) => c.id === inc.categoryId)?.name ?? inc.categoryName ?? null;
+          if (isPanicCategory(cat)) {
+            void autoRespondToPanic(id, inc);
+            return;
+          }
+          setJoinPrompt(buildJoinPromptFromIncident(inc, cat));
           return;
         }
       } catch { /* fall through */ }
@@ -2523,7 +2592,6 @@ export default function LiveIncidentPage() {
   // localStorage, pre-fill the destination and draw the route as soon as both
   // the live incident and the map are ready, then PATCH the server so the
   // dispatch/monitor surfaces show the panicker as the destination.
-  const panicTargetAppliedRef = useRef(false);
   useEffect(() => {
     if (panicTargetAppliedRef.current) return;
     const incId = currentIncidentId;
@@ -2553,7 +2621,7 @@ export default function LiveIncidentPage() {
       });
     });
     if (isJoinerMode) {
-      void dispatchJoinerInApp("guided");
+      void dispatchJoinerInApp("direct");
     } else {
       void beginInAppNavigation(target);
     }

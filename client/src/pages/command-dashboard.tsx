@@ -8,6 +8,7 @@ import { IncidentDialog } from "@/components/incident-dialog";
 import { OmtShield } from "@/components/omt-shield";
 import { HeartbeatLine } from "@/components/heartbeat-line";
 import { PanicBanner, type PanicAlert } from "@/components/panic-banner";
+import { PanicJoinBanner } from "@/components/panic-join-banner";
 import { LiveIncidentJoinBanner } from "@/components/live-incident-join-banner";
 import { PanicConfirmOverlay } from "@/components/panic-confirm-overlay";
 import { OperationsDashboard } from "@/components/operations-dashboard";
@@ -547,6 +548,23 @@ export default function CommandDashboard() {
     });
   }, [liveIncidents, isReporter, currentUser?.id]);
 
+  const pendingPanics = useMemo(() => {
+    if (!currentUser) return [];
+    return panicAlerts.filter(
+      (a) =>
+        !dismissedPanicIds.has(a.id) &&
+        !a.panicClosedAt &&
+        a.userId !== currentUser.id &&
+        !a.acknowledgedBy.some((ack) => ack.userId === currentUser.id),
+    );
+  }, [panicAlerts, dismissedPanicIds, currentUser?.id]);
+
+  const scrollPanicAlerts = useMemo(() => {
+    return panicAlerts.filter(
+      (a) => !dismissedPanicIds.has(a.id) && !pendingPanics.some((p) => p.id === a.id),
+    );
+  }, [panicAlerts, dismissedPanicIds, pendingPanics]);
+
   const [userPos, setUserPos] = useState<{ lat: number; lng: number } | null>(null);
   const [gpsUnavailable, setGpsUnavailable] = useState(false);
 
@@ -572,20 +590,28 @@ export default function CommandDashboard() {
   }
 
   const liveCountDisplay = isReporter
-    ? visibleLiveIncidents.length + joinableLiveIncidents.length
-    : visibleLiveIncidents.length;
+    ? visibleLiveIncidents.length + joinableLiveIncidents.length + pendingPanics.length
+    : visibleLiveIncidents.length + pendingPanics.length;
 
   const liveTileSublabel = (() => {
+    const panicN = pendingPanics.length;
     if (!isReporter) {
+      if (panicN > 0 && liveCountDisplay === panicN) {
+        return panicN === 1 ? "panic — tap to respond" : `${panicN} panics — tap to respond`;
+      }
       return liveCountDisplay > 0 ? "active · tap to open" : "no active incidents";
     }
     const joinN = joinableLiveIncidents.length;
     const visN = visibleLiveIncidents.length;
-    if (joinN > 0 && visN === 0) {
-      return joinN === 1 ? "awaiting your response" : `${joinN} awaiting your response`;
+    if (panicN > 0 && joinN === 0 && visN === 0) {
+      return panicN === 1 ? "panic — tap to respond" : `${panicN} panics — tap to respond`;
     }
-    if (joinN > 0 && visN > 0) {
-      return `${joinN} to join · ${visN} active`;
+    if (panicN > 0 || joinN > 0) {
+      const parts: string[] = [];
+      if (panicN > 0) parts.push(panicN === 1 ? "1 panic" : `${panicN} panics`);
+      if (joinN > 0) parts.push(joinN === 1 ? "1 to join" : `${joinN} to join`);
+      if (visN > 0) parts.push(`${visN} active`);
+      return `${parts.join(" · ")} — tap to open`;
     }
     if (visN > 0) return "active · tap to open";
     return "no active incidents";
@@ -598,6 +624,10 @@ export default function CommandDashboard() {
     }
     if (isDispatch) {
       navigate("/live-monitor");
+      return;
+    }
+    if (pendingPanics.length > 0) {
+      navigate(`/live-incident?join=${pendingPanics[0].id}`);
       return;
     }
     if (isReporter && joinableLiveIncidents.length > 0) {
@@ -653,12 +683,15 @@ export default function CommandDashboard() {
 
   const mobileDashboard = (
     <div className="h-full overflow-y-auto bg-background">
-      {(joinableLiveIncidents.length > 0 || visibleLiveIncidents.length > 0) && (
+      {(pendingPanics.length > 0 || joinableLiveIncidents.length > 0 || visibleLiveIncidents.length > 0) && (
         <div
           className="sticky top-0 z-30 border-b border-border/80 bg-background/95 backdrop-blur-md shadow-sm"
           data-testid="banner-live-incident-priority"
         >
           <div className="max-w-4xl mx-auto w-full px-4 md:px-6 pt-3 pb-3 space-y-3">
+            {pendingPanics.length > 0 && (
+              <PanicJoinBanner alerts={pendingPanics} testIdSuffix="sticky" />
+            )}
             {joinableLiveIncidents.length > 0 && (
               <LiveIncidentJoinBanner incidents={joinableLiveIncidents} testIdSuffix="sticky" />
             )}
@@ -699,7 +732,7 @@ export default function CommandDashboard() {
         </div>
 
         <PanicBanner
-          alerts={panicAlerts}
+          alerts={scrollPanicAlerts}
           currentUserId={currentUser?.id}
           dismissedIds={dismissedPanicIds}
           onDismiss={dismissPanic}
