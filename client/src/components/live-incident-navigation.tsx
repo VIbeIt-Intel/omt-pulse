@@ -200,6 +200,10 @@ type DestinationSheetProps = {
   onSearchChange: (value: string) => void;
   suggestions: NavPlaceSuggestion[];
   loadingSuggestions: boolean;
+  searchHint?: string | null;
+  searchServicesLoading?: boolean;
+  searchServicesUnavailable?: boolean;
+  onRetrySearchServices?: () => void;
   onSelectSuggestion: (suggestion: NavPlaceSuggestion) => void;
   incidentLocation?: { name: string } | null;
   onUseIncidentLocation?: () => void;
@@ -212,35 +216,49 @@ export function LiveIncidentDestinationSheet({
   onSearchChange,
   suggestions,
   loadingSuggestions,
+  searchHint,
+  searchServicesLoading = false,
+  searchServicesUnavailable = false,
+  onRetrySearchServices,
   onSelectSuggestion,
   incidentLocation,
   onUseIncidentLocation,
 }: DestinationSheetProps) {
+  const searching = search.trim().length > 0;
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="bottom"
-        className="rounded-t-3xl border-t-0 px-0 pb-0 pt-1 max-h-[85vh] flex flex-col gap-0 shadow-[0_-8px_40px_rgba(0,0,0,0.12)] bg-background/98 backdrop-blur-md"
+        overlayClassName="bg-black/40"
+        className="rounded-t-3xl border-t border-border px-0 pb-0 pt-1 max-h-[88vh] flex flex-col gap-0 shadow-2xl bg-background text-foreground"
+        style={{ backgroundColor: "hsl(var(--background))" }}
         data-testid="sheet-destination-picker"
       >
         <div className="mx-auto mb-2 h-1 w-12 rounded-full bg-muted-foreground/25 shrink-0" aria-hidden />
 
         <div className="flex flex-col min-h-0 overflow-y-auto px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
-          <SheetHeader className="text-center space-y-2 pb-5 shrink-0 items-center">
-            <span className="flex h-11 w-11 items-center justify-center rounded-full bg-primary/10 text-primary">
-              <Navigation className="h-5 w-5" />
-            </span>
-            <SheetTitle className="text-lg font-semibold tracking-tight">Set destination</SheetTitle>
-            <SheetDescription className="text-sm leading-relaxed max-w-[280px] mx-auto">
-              Choose where you&apos;re heading. Turn-by-turn guidance starts as soon as you pick a destination.
-            </SheetDescription>
-          </SheetHeader>
+          {!searching ? (
+            <SheetHeader className="text-center space-y-2 pb-4 shrink-0 items-center">
+              <span className="flex h-11 w-11 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <Navigation className="h-5 w-5" />
+              </span>
+              <SheetTitle className="text-lg font-semibold tracking-tight text-foreground">Set destination</SheetTitle>
+              <SheetDescription className="text-sm leading-relaxed max-w-[280px] mx-auto text-muted-foreground">
+                Choose where you&apos;re heading. Turn-by-turn guidance starts as soon as you pick a destination.
+              </SheetDescription>
+            </SheetHeader>
+          ) : (
+            <div className="pb-3 pt-1 text-center shrink-0">
+              <SheetTitle className="text-base font-semibold text-foreground">Search destination</SheetTitle>
+            </div>
+          )}
 
-          <div className="flex flex-col gap-4 w-full max-w-md mx-auto min-h-0">
-            {incidentLocation && onUseIncidentLocation ? (
+          <div className="flex flex-col gap-3 w-full max-w-md mx-auto min-h-0">
+            {(!searching || searchServicesUnavailable) && incidentLocation && onUseIncidentLocation ? (
               <button
                 type="button"
-                className="group w-full rounded-2xl border border-primary/20 bg-gradient-to-b from-primary/8 to-primary/4 px-4 py-4 text-center shadow-sm transition-all hover:border-primary/35 hover:from-primary/12 hover:to-primary/6 active:scale-[0.99]"
+                className="group w-full rounded-2xl border border-primary/25 bg-primary/5 px-4 py-4 text-center shadow-sm transition-all hover:border-primary/40 hover:bg-primary/10 active:scale-[0.99]"
                 onClick={onUseIncidentLocation}
                 data-testid="button-use-incident-location"
               >
@@ -256,18 +274,50 @@ export function LiveIncidentDestinationSheet({
               </button>
             ) : null}
 
-            <div className="relative flex items-center gap-3 py-0.5">
-              <div className="h-px flex-1 bg-border" />
-              <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground shrink-0">
-                Or search
-              </span>
-              <div className="h-px flex-1 bg-border" />
-            </div>
+            {!searching ? (
+              <div className="relative flex items-center gap-3 py-0.5">
+                <div className="h-px flex-1 bg-border" />
+                <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground shrink-0">
+                  Or search
+                </span>
+                <div className="h-px flex-1 bg-border" />
+              </div>
+            ) : null}
+
+            {(searchServicesLoading || searchServicesUnavailable) ? (
+              <div
+                className={cn(
+                  "rounded-xl border px-3.5 py-3 text-sm space-y-2",
+                  searchServicesUnavailable
+                    ? "border-amber-500/40 bg-amber-500/10 text-amber-950 dark:text-amber-100"
+                    : "border-border bg-muted/40 text-muted-foreground",
+                )}
+                data-testid="banner-destination-search-status"
+              >
+                <p>
+                  {searchServicesLoading
+                    ? "Loading address search…"
+                    : "Address search is unavailable on this device. Use incident location above, or retry map services."}
+                </p>
+                {searchServicesUnavailable && onRetrySearchServices ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-8"
+                    onClick={onRetrySearchServices}
+                    data-testid="button-retry-destination-search"
+                  >
+                    Retry search
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
 
             <div className="relative">
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
               <Input
-                className="pl-10 h-12 rounded-2xl bg-muted/50 border-border/60 text-base shadow-inner"
+                className="pl-10 h-12 rounded-2xl bg-white dark:bg-muted border-border text-base text-foreground placeholder:text-muted-foreground"
                 placeholder="Search address or place…"
                 value={search}
                 onChange={(e) => onSearchChange(e.target.value)}
@@ -278,7 +328,7 @@ export function LiveIncidentDestinationSheet({
                 name="omt-destination-search"
                 inputMode="search"
                 enterKeyHint="search"
-                autoFocus={open}
+                disabled={searchServicesUnavailable && !searchServicesLoading}
               />
               {loadingSuggestions ? (
                 <Loader2 className="absolute right-3.5 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
@@ -287,14 +337,14 @@ export function LiveIncidentDestinationSheet({
 
             {suggestions.length > 0 ? (
               <div
-                className="rounded-2xl border border-border/60 bg-card shadow-sm overflow-hidden divide-y max-h-48 overflow-y-auto"
+                className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden divide-y max-h-52 overflow-y-auto"
                 data-testid="list-suggestions"
               >
                 {suggestions.map((s) => (
                   <button
                     key={s.place_id}
                     type="button"
-                    className="w-full text-left px-4 py-3.5 text-sm hover:bg-accent/50 flex items-start gap-3 transition-colors"
+                    className="w-full text-left px-4 py-3.5 text-sm text-foreground hover:bg-accent/50 flex items-start gap-3 transition-colors"
                     onClick={() => onSelectSuggestion(s)}
                     data-testid={`suggestion-${s.place_id}`}
                   >
@@ -303,10 +353,10 @@ export function LiveIncidentDestinationSheet({
                   </button>
                 ))}
               </div>
-            ) : search.trim().length >= 3 && !loadingSuggestions ? (
-              <p className="text-sm text-center text-muted-foreground py-3">No places found — try a different search.</p>
-            ) : search.trim().length > 0 && search.trim().length < 3 ? (
-              <p className="text-xs text-center text-muted-foreground py-1">Type at least 3 characters to search.</p>
+            ) : searchHint ? (
+              <p className="text-sm text-center text-muted-foreground py-2 px-1" data-testid="text-search-hint">
+                {searchHint}
+              </p>
             ) : null}
           </div>
         </div>

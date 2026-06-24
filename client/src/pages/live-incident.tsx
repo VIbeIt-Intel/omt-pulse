@@ -598,6 +598,7 @@ export default function LiveIncidentPage() {
     }
   }, [useWebMap, nativeMapStatus]);
   const [search, setSearch] = useState("");
+  const [searchHint, setSearchHint] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
   const [loadingSugg, setLoadingSugg] = useState(false);
   const [destination, setDestination] = useState<{ lat: number; lng: number; name: string } | null>(null);
@@ -2382,21 +2383,37 @@ export default function LiveIncidentPage() {
   const handleSearch = useCallback((val: string) => {
     setSearch(val);
     if (searchDebRef.current) clearTimeout(searchDebRef.current);
-    if (!val.trim()) { setSuggestions([]); return; }
+    if (!val.trim()) { setSuggestions([]); setSearchHint(null); return; }
+    if (val.trim().length < 3) {
+      setSuggestions([]);
+      setSearchHint("Type at least 3 characters to search.");
+      return;
+    }
     searchDebRef.current = setTimeout(() => {
       setLoadingSugg(true);
+      setSearchHint(null);
       // Use the JS API on both web and native — the REST API doesn't return CORS
       // headers so it fails when called from a WebView. The JS API works in any
       // browser context including Capacitor's WebView.
-      if (!autocompleteRef.current) { setLoadingSugg(false); return; }
+      if (!autocompleteRef.current) {
+        setLoadingSugg(false);
+        setSuggestions([]);
+        setSearchHint("Address search is unavailable. Tap Retry search or use incident location.");
+        return;
+      }
       autocompleteRef.current.getPlacePredictions(
         { input: val, componentRestrictions: { country: "za" } },
         (preds, status) => {
           setLoadingSugg(false);
           if (status === google.maps.places.PlacesServiceStatus.OK && preds) {
             setSuggestions(preds.slice(0, 5).map((p) => ({ place_id: p.place_id, description: p.description })));
+            setSearchHint(null);
+          } else if (status === google.maps.places.PlacesServiceStatus.ZERO_RESULTS) {
+            setSuggestions([]);
+            setSearchHint("No places found — try a different spelling or address.");
           } else {
             setSuggestions([]);
+            setSearchHint("Search unavailable — check your connection and tap Retry search.");
           }
         }
       );
@@ -2679,6 +2696,7 @@ export default function LiveIncidentPage() {
 
   function openDestinationPicker() {
     setDestinationPickerOpen(true);
+    setSearchHint(null);
     const prefill = destination?.name && isUsableLocationSearchLabel(destination.name)
       ? destination.name
       : isUsableLocationSearchLabel(currentIncident?.locationName)
@@ -2687,6 +2705,13 @@ export default function LiveIncidentPage() {
     setSearch(prefill);
     setSuggestions([]);
     if (prefill.length >= 3) handleSearch(prefill);
+  }
+
+  function retryDestinationSearchServices() {
+    resetGoogleMapsLoader();
+    setJsApiDegraded(false);
+    setSearchHint(null);
+    initJsApi();
   }
 
   function useIncidentLocationAsDestination() {
@@ -4786,6 +4811,10 @@ export default function LiveIncidentPage() {
         onSearchChange={handleSearch}
         suggestions={suggestions}
         loadingSuggestions={loadingSugg}
+        searchHint={searchHint}
+        searchServicesLoading={jsApiRetrying || (!mapsReady && !mapsError && !jsApiDegraded)}
+        searchServicesUnavailable={jsApiDegraded || mapsError || (mapsReady && !autocompleteReady)}
+        onRetrySearchServices={retryDestinationSearchServices}
         onSelectSuggestion={selectPlace}
         incidentLocation={
           destinationSheetGps
