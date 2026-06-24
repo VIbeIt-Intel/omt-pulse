@@ -260,6 +260,10 @@ export function LiveIncidentDestinationSheet({
               value={search}
               onChange={(e) => onSearchChange(e.target.value)}
               data-testid="input-destination-search"
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck={false}
+              name="omt-destination-search"
               autoFocus={open}
             />
             {loadingSuggestions ? (

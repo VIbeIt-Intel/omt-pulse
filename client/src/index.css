@@ -309,6 +309,10 @@ html.capacitor-native .live-scroll,
 html.capacitor-native .native-map-host {
   background-color: transparent !important;
 }
+/* Pinned field map — keep a subtle opaque frame so layout gaps don't read as a white hole */
+html.capacitor-native .live-field-map-host {
+  background-color: hsl(var(--muted) / 0.35) !important;
+}
 /* Only the actual map element itself — not its siblings (action bar,
  * permission overlays) which carry their own opaque bg-background. */
 html.capacitor-native #cap-live-map {

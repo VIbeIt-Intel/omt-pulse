@@ -62,6 +62,42 @@ import { acquirePanicLocation, hasPanicCoordinates } from "@/lib/panic-location"
 
 const LIVE_INCIDENT_KEY = "omt_live_incident_id";
 
+const GENERIC_INCIDENT_LOCATION_NAMES = new Set([
+  "live incident",
+  "gps tracking",
+  "current location",
+]);
+
+type IncidentCoordSource = {
+  latitude?: number | string | null;
+  longitude?: number | string | null;
+  liveStartLat?: number | string | null;
+  liveStartLng?: number | string | null;
+};
+
+function incidentGpsCoords(inc: IncidentCoordSource | null | undefined): { lat: number; lng: number } | null {
+  if (!inc) return null;
+  const lat = Number(inc.liveStartLat ?? inc.latitude);
+  const lng = Number(inc.liveStartLng ?? inc.longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return { lat, lng };
+}
+
+function isUsableLocationSearchLabel(name: string | null | undefined): boolean {
+  const trimmed = name?.trim() ?? "";
+  return trimmed.length >= 3 && !GENERIC_INCIDENT_LOCATION_NAMES.has(trimmed.toLowerCase());
+}
+
+function incidentLocationDisplayLabel(
+  inc: IncidentCoordSource & { locationName?: string | null; destinationName?: string | null },
+): string {
+  if (isUsableLocationSearchLabel(inc.destinationName)) return inc.destinationName!.trim();
+  if (isUsableLocationSearchLabel(inc.locationName)) return inc.locationName!.trim();
+  const coords = incidentGpsCoords(inc);
+  if (coords) return `Your GPS position (${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)})`;
+  return "Your GPS position";
+}
+
 function incidentHasPanicCoords(inc: {
   latitude?: number | string | null;
   longitude?: number | string | null;
@@ -682,6 +718,30 @@ export default function LiveIncidentPage() {
     isJoinerMode && !!joinerNavDestination && !navMode && !navStarted;
   /** Live incident active but not in full-screen nav — pin map between header and footer. */
   const pinnedFieldLayout = Boolean(currentIncident && !navMode && !showArrivalForm);
+
+  // Native map is created once; when the field layout pins the map between header
+  // and footer the host grows — nudge the camera so tiles repaint at the new size.
+  useEffect(() => {
+    if (!pinnedFieldLayout || !isNative || !capMapRef.current) return;
+    const host = scrollContainerRef.current;
+    if (!host) return;
+    const refresh = () => {
+      const pos = lastPosRef.current;
+      if (!pos || !capMapRef.current) return;
+      capMapRef.current
+        .setCamera({ lat: pos.lat, lng: pos.lng, zoom: 15, animate: false })
+        .catch(() => {});
+    };
+    const ro = new ResizeObserver(() => refresh());
+    ro.observe(host);
+    const t1 = window.setTimeout(refresh, 80);
+    const t2 = window.setTimeout(refresh, 350);
+    return () => {
+      ro.disconnect();
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
+  }, [pinnedFieldLayout, isNative, nativeMapReadyAt, currentIncidentId]);
 
   // Screen Wake Lock — keep the screen on for the full duration of any live
   // incident (creator or joiner). Released automatically when the incident ends
@@ -2479,7 +2539,7 @@ export default function LiveIncidentPage() {
       const res = await apiRequest("POST", "/api/incidents", {
         incidentDate: now.toISOString().slice(0, 10),
         incidentTime: now.toTimeString().slice(0, 5),
-        locationName: "Live Incident",
+        locationName: null,
         description: "Live incident started",
         isLive: true,
         ...(preselectCategoryId ? { categoryId: preselectCategoryId } : {}),
@@ -2582,22 +2642,24 @@ export default function LiveIncidentPage() {
 
   function openDestinationPicker() {
     setDestinationPickerOpen(true);
-    const prefill =
-      destination?.name
-      ?? currentIncident?.locationName
-      ?? "";
+    const prefill = destination?.name && isUsableLocationSearchLabel(destination.name)
+      ? destination.name
+      : isUsableLocationSearchLabel(currentIncident?.locationName)
+        ? currentIncident!.locationName!.trim()
+        : "";
     setSearch(prefill);
+    setSuggestions([]);
     if (prefill.length >= 3) handleSearch(prefill);
   }
 
   function useIncidentLocationAsDestination() {
     const inc = currentIncident;
-    if (!inc?.latitude || !inc?.longitude) return;
-    const name = inc.locationName ?? "Incident location";
+    const coords = incidentGpsCoords(inc);
+    if (!coords) return;
     void beginInAppNavigation({
-      lat: Number(inc.latitude),
-      lng: Number(inc.longitude),
-      name,
+      lat: coords.lat,
+      lng: coords.lng,
+      name: incidentLocationDisplayLabel(inc ?? {}),
     });
   }
 
@@ -3983,7 +4045,7 @@ export default function LiveIncidentPage() {
               navMode
                 ? "relative overflow-hidden native-map-host flex-1 min-h-0 w-full h-full"
                 : pinnedFieldLayout
-                ? "relative overflow-hidden native-map-host flex-1 min-h-0 w-full rounded-xl border border-border/50 bg-muted/20 shadow-sm"
+                ? "relative overflow-hidden native-map-host live-field-map-host flex-1 min-h-0 w-full h-full rounded-xl border border-border/50 bg-muted/30 shadow-sm"
                 : "relative rounded-lg overflow-hidden min-h-[200px] flex-1 native-map-host"
             }
           >
@@ -4294,7 +4356,9 @@ export default function LiveIncidentPage() {
         )}
         </div>
 
-        {/* Bottom action area */}
+      </div>
+
+        {/* Bottom action area — sibling of scroll so map can flex between header and footer */}
         {currentIncident ? (
           showArrivalForm ? (
             /* ---- Arrival capture form — full-screen page overlay ---- */
@@ -4601,6 +4665,10 @@ export default function LiveIncidentPage() {
           ) : null
         ) : (
           /* ---- Pre-start: create incident and begin tracking ---- */
+          <div
+            className="shrink-0 px-4"
+            style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
+          >
           <Button
             size="lg"
             className="w-full shrink-0 bg-green-600 hover:bg-green-700 text-white"
@@ -4611,8 +4679,8 @@ export default function LiveIncidentPage() {
             {starting ? <Loader2 className="h-5 w-5 mr-2 animate-spin" /> : <Radio className="h-5 w-5 mr-2" />}
             {starting ? "Starting…" : "Start Live Incident"}
           </Button>
+          </div>
         )}
-      </div>
 
       {/* Pre-flight nav warning — opening Google Maps backgrounds OMT and stops
           live GPS until the user returns to the app. Shown once per device. */}
@@ -4683,12 +4751,12 @@ export default function LiveIncidentPage() {
         loadingSuggestions={loadingSugg}
         onSelectSuggestion={selectPlace}
         incidentLocation={
-          currentIncident?.latitude && currentIncident?.longitude
-            ? { name: currentIncident.locationName ?? "Incident location" }
+          incidentGpsCoords(currentIncident)
+            ? { name: incidentLocationDisplayLabel(currentIncident!) }
             : null
         }
         onUseIncidentLocation={
-          currentIncident?.latitude && currentIncident?.longitude
+          incidentGpsCoords(currentIncident)
             ? useIncidentLocationAsDestination
             : undefined
         }
