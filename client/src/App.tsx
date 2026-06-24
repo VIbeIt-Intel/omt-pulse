@@ -557,7 +557,7 @@ function NotificationSheet({ open, onOpenChange, onMarkAllRead }: { open: boolea
 }
 
 function AuthenticatedApp({ user }: { user: AuthUser }) {
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
   const nativeApp = isCapacitorNative();
   const { subState: pushSubState, subscribe: subscribePush } = usePushSubscription(user.id);
   const { fcmState, enablePush, enabling: enablingNativePush } = useCapacitorPush(user.id);
@@ -584,10 +584,12 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
     refetchInterval: 60000,
   });
 
-  // Auto-redirect: if the user has an active live incident (as creator or joiner)
-  // and lands anywhere other than /live-incident on app load, send them back immediately.
-  // Covers: logout → re-login, session expiry → re-login, PWA kill → reopen.
+  // Auto-redirect field responders with an active live incident back to /live-incident
+  // after cold start (logout → re-login, PWA kill → reopen). Dispatch roles on
+  // desktop need /live-monitor to watch incidents — including their own — so we
+  // never pull them away from the monitor or block explicit navigation there.
   const liveRedirectFiredRef = useRef(false);
+  const isDispatchRole = user.role === "administrator" || user.role === "supervisor";
   const { data: myLiveIncidents = [], isSuccess: liveLoaded } = useQuery<
     Array<{ id: number; userId: string | null; isLive: boolean; responders?: Array<{ userId: string }> }>
   >({
@@ -596,6 +598,10 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
   });
   useEffect(() => {
     if (!liveLoaded || liveRedirectFiredRef.current) return;
+    if (location === "/live-monitor") return;
+    if (location === "/live-incident") return;
+    // Desktop dispatch: monitor from control room; mobile native: stay on incident GPS page.
+    if (isDispatchRole && !nativeApp) return;
     const myActive = myLiveIncidents.find(
       (i) =>
         i.isLive &&
@@ -606,7 +612,7 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
       navigate("/live-incident");
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [liveLoaded, myLiveIncidents]);
+  }, [liveLoaded, myLiveIncidents, location, isDispatchRole, nativeApp]);
   const [notifLastSeen, setNotifLastSeen] = useState<number>(() => {
     try { return Number(localStorage.getItem("omt_notif_last_seen") ?? "0"); } catch { return 0; }
   });
@@ -869,7 +875,7 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
           )}
 
           {/* Slim back-button header — all secondary pages */}
-          {location !== "/dashboard" && location !== "/live-incident" && location !== "/live-severity" && !location.startsWith("/chat") && location !== "/" && location !== "/occurrence-book" && (
+          {location !== "/dashboard" && location !== "/live-incident" && location !== "/live-severity" && location !== "/live-monitor" && !location.startsWith("/chat") && location !== "/" && location !== "/occurrence-book" && (
           <header className="flex items-center px-2 border-b shrink-0 h-14" data-testid="header-secondary">
             <button
               onClick={() => window.history.back()}
