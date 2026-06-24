@@ -220,78 +220,95 @@ export function LiveIncidentDestinationSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="bottom"
-        className="rounded-t-2xl px-4 pb-6 pt-2 max-h-[78vh] flex flex-col gap-0 border-t shadow-2xl"
+        className="rounded-t-3xl border-t-0 px-0 pb-0 pt-1 max-h-[85vh] flex flex-col gap-0 shadow-[0_-8px_40px_rgba(0,0,0,0.12)] bg-background/98 backdrop-blur-md"
         data-testid="sheet-destination-picker"
       >
-        <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-muted-foreground/30 shrink-0" aria-hidden />
-        <SheetHeader className="text-left space-y-1 pb-3 shrink-0">
-          <SheetTitle className="text-base font-semibold tracking-tight">Set destination</SheetTitle>
-          <SheetDescription className="text-xs leading-relaxed">
-            Pick where you&apos;re heading — turn-by-turn starts immediately.
-          </SheetDescription>
-        </SheetHeader>
+        <div className="mx-auto mb-2 h-1 w-12 rounded-full bg-muted-foreground/25 shrink-0" aria-hidden />
 
-        <div className="flex flex-col gap-3 min-h-0 overflow-y-auto">
-          {incidentLocation && onUseIncidentLocation ? (
-            <button
-              type="button"
-              className="w-full text-left rounded-xl border-2 border-green-600/35 bg-green-600/5 px-3.5 py-3 transition-colors hover:bg-green-600/10 active:bg-green-600/15"
-              onClick={onUseIncidentLocation}
-              data-testid="button-use-incident-location"
-            >
-              <div className="flex items-start gap-3">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-green-600 text-white">
+        <div className="flex flex-col min-h-0 overflow-y-auto px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+          <SheetHeader className="text-center space-y-2 pb-5 shrink-0 items-center">
+            <span className="flex h-11 w-11 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <Navigation className="h-5 w-5" />
+            </span>
+            <SheetTitle className="text-lg font-semibold tracking-tight">Set destination</SheetTitle>
+            <SheetDescription className="text-sm leading-relaxed max-w-[280px] mx-auto">
+              Choose where you&apos;re heading. Turn-by-turn guidance starts as soon as you pick a destination.
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="flex flex-col gap-4 w-full max-w-md mx-auto min-h-0">
+            {incidentLocation && onUseIncidentLocation ? (
+              <button
+                type="button"
+                className="group w-full rounded-2xl border border-primary/20 bg-gradient-to-b from-primary/8 to-primary/4 px-4 py-4 text-center shadow-sm transition-all hover:border-primary/35 hover:from-primary/12 hover:to-primary/6 active:scale-[0.99]"
+                onClick={onUseIncidentLocation}
+                data-testid="button-use-incident-location"
+              >
+                <span className="mx-auto mb-2.5 flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md shadow-primary/25">
                   <MapPin className="h-5 w-5" />
                 </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-foreground">Incident location</p>
-                  <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{incidentLocation.name}</p>
-                </div>
-                <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground mt-1" />
-              </div>
-            </button>
-          ) : null}
+                <p className="text-sm font-semibold text-foreground">Use incident location</p>
+                <p className="text-xs text-muted-foreground mt-1 line-clamp-2 px-2">{incidentLocation.name}</p>
+                <span className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-primary">
+                  Start navigation
+                  <ChevronRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+                </span>
+              </button>
+            ) : null}
 
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-            <Input
-              className="pl-9 h-11 rounded-xl bg-muted/40 border-muted-foreground/20"
-              placeholder="Search address or place…"
-              value={search}
-              onChange={(e) => onSearchChange(e.target.value)}
-              data-testid="input-destination-search"
-              autoComplete="off"
-              autoCorrect="off"
-              spellCheck={false}
-              name="omt-destination-search"
-              autoFocus={open}
-            />
-            {loadingSuggestions ? (
-              <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
+            <div className="relative flex items-center gap-3 py-0.5">
+              <div className="h-px flex-1 bg-border" />
+              <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground shrink-0">
+                Or search
+              </span>
+              <div className="h-px flex-1 bg-border" />
+            </div>
+
+            <div className="relative">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+              <Input
+                className="pl-10 h-12 rounded-2xl bg-muted/50 border-border/60 text-base shadow-inner"
+                placeholder="Search address or place…"
+                value={search}
+                onChange={(e) => onSearchChange(e.target.value)}
+                data-testid="input-destination-search"
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
+                name="omt-destination-search"
+                inputMode="search"
+                enterKeyHint="search"
+                autoFocus={open}
+              />
+              {loadingSuggestions ? (
+                <Loader2 className="absolute right-3.5 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
+              ) : null}
+            </div>
+
+            {suggestions.length > 0 ? (
+              <div
+                className="rounded-2xl border border-border/60 bg-card shadow-sm overflow-hidden divide-y max-h-48 overflow-y-auto"
+                data-testid="list-suggestions"
+              >
+                {suggestions.map((s) => (
+                  <button
+                    key={s.place_id}
+                    type="button"
+                    className="w-full text-left px-4 py-3.5 text-sm hover:bg-accent/50 flex items-start gap-3 transition-colors"
+                    onClick={() => onSelectSuggestion(s)}
+                    data-testid={`suggestion-${s.place_id}`}
+                  >
+                    <MapPin className="h-4 w-4 shrink-0 mt-0.5 text-primary/70" />
+                    <span className="line-clamp-2 leading-snug">{s.description}</span>
+                  </button>
+                ))}
+              </div>
+            ) : search.trim().length >= 3 && !loadingSuggestions ? (
+              <p className="text-sm text-center text-muted-foreground py-3">No places found — try a different search.</p>
+            ) : search.trim().length > 0 && search.trim().length < 3 ? (
+              <p className="text-xs text-center text-muted-foreground py-1">Type at least 3 characters to search.</p>
             ) : null}
           </div>
-
-          {suggestions.length > 0 ? (
-            <div
-              className="rounded-xl border bg-card shadow-sm overflow-hidden divide-y max-h-44 overflow-y-auto"
-              data-testid="list-suggestions"
-            >
-              {suggestions.map((s) => (
-                <button
-                  key={s.place_id}
-                  type="button"
-                  className="w-full text-left px-3.5 py-3 text-sm hover:bg-accent/60 flex items-start gap-2.5 transition-colors"
-                  onClick={() => onSelectSuggestion(s)}
-                  data-testid={`suggestion-${s.place_id}`}
-                >
-                  <MapPin className="h-4 w-4 shrink-0 mt-0.5 text-muted-foreground" />
-                  <span className="line-clamp-2 leading-snug">{s.description}</span>
-                </button>
-              ))}
-            </div>
-          ) : search.trim().length >= 3 && !loadingSuggestions ? (
-            <p className="text-xs text-center text-muted-foreground py-2">No places found — try a different search.</p>
-          ) : null}
         </div>
       </SheetContent>
     </Sheet>
