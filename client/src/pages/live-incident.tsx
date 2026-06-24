@@ -1060,8 +1060,8 @@ export default function LiveIncidentPage() {
         if (hdg != null && !isNaN(hdg)) lastHeadingRef.current = hdg;
         // Retry route draw on first GPS fix — handles the race where drawRoute was
         // called at mapsReady time but had no origin yet (lastPosRef was null).
-        if (stepsRef.current.length === 0 && destPositionRef.current && !navModeRef.current) {
-          drawRoute(destPositionRef.current.lat, destPositionRef.current.lng, p);
+        if (stepsRef.current.length === 0 && destPositionRef.current) {
+          drawRoute(destPositionRef.current.lat, destPositionRef.current.lng, p, navModeRef.current);
         }
         if (navModeRef.current) {
           // Nav mode: camera follows the user with 45° tilt and bearing
@@ -2095,18 +2095,19 @@ export default function LiveIncidentPage() {
 
   // Route drawing — creators only; joiners pick Direct/Guided at navigate time.
   useEffect(() => {
-    if (!mapsReady || !currentIncident || isJoinerMode) return;
+    const mapActuallyReady = isNative ? nativeMapStatus === "ready" : mapsReady;
+    if (!mapActuallyReady || !currentIncident || isJoinerMode) return;
     if (stepsRef.current.length === 0) {
-      const dest = isJoinerMode
-        ? joinerNavDestination
-        : currentIncident.destinationLat != null && currentIncident.destinationLng != null
+      const dest =
+        destination ??
+        (currentIncident.destinationLat != null && currentIncident.destinationLng != null
           ? {
               lat: Number(currentIncident.destinationLat),
               lng: Number(currentIncident.destinationLng),
               name: currentIncident.destinationName ?? "Incident Location",
             }
-          : null;
-      if (dest) drawRoute(dest.lat, dest.lng, undefined, navModeRef.current);
+          : null);
+      if (dest) drawRoute(dest.lat, dest.lng, lastPosRef.current ?? undefined, navModeRef.current);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -2115,9 +2116,12 @@ export default function LiveIncidentPage() {
     currentIncident?.destinationLng,
     currentIncident?.responderLat,
     currentIncident?.responderLng,
+    destination?.lat,
+    destination?.lng,
     joinerNavDestination?.lat,
     joinerNavDestination?.lng,
     mapsReady,
+    nativeMapStatus,
     isJoinerMode,
   ]);
 
@@ -2487,6 +2491,15 @@ export default function LiveIncidentPage() {
   async function dispatchInApp() {
     const incId = currentIncidentId;
     if (!destination || !incId) return;
+    const mapActuallyReady = isNative ? nativeMapStatus === "ready" || nativeMapFailed : mapsReady;
+    if (!mapActuallyReady) {
+      toast({
+        title: "Map still loading",
+        description: "Wait a moment for the map to finish loading, then tap Navigate again.",
+        variant: "destructive",
+      });
+      return;
+    }
     try {
       setDispatching(true);
       // Persist nav-started flag so the arrived-button survives app switches / reloads.
@@ -3937,8 +3950,16 @@ export default function LiveIncidentPage() {
           </div>
         )}
 
-        {/* Map always mounted — avoids losing the google.maps.Map instance on state change */}
-        <div className={joinerChoosingNav ? "hidden" : undefined}>
+        {/* Map always mounted — avoids losing the google.maps.Map instance on state change.
+            In nav mode this wrapper must be a flex child with flex-1: the map host
+            uses absolute children only, so without a sized parent the map collapses
+            to 0px and the screen goes blank. */}
+        <div
+          className={cn(
+            joinerChoosingNav && "hidden",
+            navMode && "flex flex-1 flex-col min-h-0 min-w-0",
+          )}
+        >
         {isNative && (jsApiDegraded || jsApiRetrying) && !mapsError && (
           <div
             className="shrink-0 rounded-lg border border-amber-500/50 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-950 dark:text-amber-100 space-y-2"
@@ -3998,7 +4019,7 @@ export default function LiveIncidentPage() {
           <div
             className={
               navMode
-                ? "relative overflow-hidden native-map-host flex-1 min-h-0 w-full"
+                ? "relative overflow-hidden native-map-host flex-1 min-h-0 w-full h-full"
                 : "relative rounded-lg overflow-hidden min-h-[200px] flex-1 native-map-host"
             }
           >
@@ -4120,6 +4141,34 @@ export default function LiveIncidentPage() {
                     </button>
                   )}
                   {renderNavRespondersChip()}
+                </div>
+              </div>
+            )}
+            {navMode && activeNavStyle === "guided" && !currentStep && (destination ?? joinerNavDestination) && (
+              <div
+                className="absolute top-0 left-0 right-0 z-10 px-3 pb-2 pointer-events-none"
+                style={{ paddingTop: "max(0.5rem, env(safe-area-inset-top))" }}
+              >
+                <div className="pointer-events-auto bg-primary text-primary-foreground rounded-2xl shadow-2xl px-4 py-3 flex items-center gap-3">
+                  <Navigation className="h-10 w-10 shrink-0" strokeWidth={2.5} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-base font-bold leading-tight">
+                      {gpsStatus === "unavailable" || gpsStatus === "denied"
+                        ? "Waiting for GPS to compute route…"
+                        : "Loading route…"}
+                    </p>
+                    <p className="text-sm opacity-90 truncate mt-0.5">
+                      {(destination ?? joinerNavDestination)?.name}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => { void stopSpeaking(); setNavMode(false); }}
+                    className="shrink-0 p-2 rounded-full bg-white/20 hover:bg-white/30 transition-colors"
+                    aria-label="Exit navigation"
+                    data-testid="button-exit-nav-pending"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
                 </div>
               </div>
             )}
