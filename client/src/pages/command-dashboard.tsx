@@ -8,6 +8,7 @@ import { IncidentDialog } from "@/components/incident-dialog";
 import { OmtShield } from "@/components/omt-shield";
 import { HeartbeatLine } from "@/components/heartbeat-line";
 import { PanicBanner, type PanicAlert } from "@/components/panic-banner";
+import { LiveIncidentJoinBanner } from "@/components/live-incident-join-banner";
 import { PanicConfirmOverlay } from "@/components/panic-confirm-overlay";
 import { OperationsDashboard } from "@/components/operations-dashboard";
 import { useToast } from "@/hooks/use-toast";
@@ -536,6 +537,16 @@ export default function CommandDashboard() {
     );
   }, [liveIncidents, isReporter, currentUser?.id]);
 
+  const joinableLiveIncidents = useMemo(() => {
+    if (!isReporter || !currentUser) return [];
+    return liveIncidents.filter((inc) => {
+      if (inc.userId === currentUser.id) return false;
+      if ((inc.categoryName ?? "").toLowerCase().includes("panic")) return false;
+      if ((inc.responders ?? []).some((r) => r.userId === currentUser.id)) return false;
+      return true;
+    });
+  }, [liveIncidents, isReporter, currentUser?.id]);
+
   const [userPos, setUserPos] = useState<{ lat: number; lng: number } | null>(null);
   const [gpsUnavailable, setGpsUnavailable] = useState(false);
 
@@ -560,7 +571,25 @@ export default function CommandDashboard() {
     navigate(`/occurrence-book?period=${period}`);
   }
 
-  const liveCountDisplay = visibleLiveIncidents.length;
+  const liveCountDisplay = isReporter
+    ? visibleLiveIncidents.length + joinableLiveIncidents.length
+    : visibleLiveIncidents.length;
+
+  const liveTileSublabel = (() => {
+    if (!isReporter) {
+      return liveCountDisplay > 0 ? "active · tap to open" : "no active incidents";
+    }
+    const joinN = joinableLiveIncidents.length;
+    const visN = visibleLiveIncidents.length;
+    if (joinN > 0 && visN === 0) {
+      return joinN === 1 ? "awaiting your response" : `${joinN} awaiting your response`;
+    }
+    if (joinN > 0 && visN > 0) {
+      return `${joinN} to join · ${visN} active`;
+    }
+    if (visN > 0) return "active · tap to open";
+    return "no active incidents";
+  })();
 
   function openLiveView() {
     if (liveCountDisplay === 0) {
@@ -569,6 +598,10 @@ export default function CommandDashboard() {
     }
     if (isDispatch) {
       navigate("/live-monitor");
+      return;
+    }
+    if (isReporter && joinableLiveIncidents.length > 0) {
+      navigate(`/live-incident?join=${joinableLiveIncidents[0].id}`);
       return;
     }
     const inc = visibleLiveIncidents[0];
@@ -588,9 +621,16 @@ export default function CommandDashboard() {
     }
     if (inc.userId === currentUser?.id) {
       navigate("/live-incident");
-    } else {
+      return;
+    }
+    const alreadyJoined = (inc.responders ?? []).some(
+      (r) => r.userId === currentUser?.id && !r.arrivedAt,
+    );
+    if (alreadyJoined) {
       try { localStorage.setItem("omt_joined_incident_id", String(inc.id)); } catch { /* ignore */ }
       navigate("/live-incident");
+    } else {
+      navigate(`/live-incident?join=${inc.id}`);
     }
   }
 
@@ -613,22 +653,27 @@ export default function CommandDashboard() {
 
   const mobileDashboard = (
     <div className="h-full overflow-y-auto bg-background">
-      {visibleLiveIncidents.length > 0 && (
+      {(joinableLiveIncidents.length > 0 || visibleLiveIncidents.length > 0) && (
         <div
           className="sticky top-0 z-30 border-b border-border/80 bg-background/95 backdrop-blur-md shadow-sm"
           data-testid="banner-live-incident-priority"
         >
-          <div className="max-w-4xl mx-auto w-full px-4 md:px-6 pt-3 pb-3">
-            <LiveIncidentDashboardCard
-              incidents={visibleLiveIncidents}
-              hasRedLive={hasRedLive}
-              isDispatch={isDispatch}
-              locations={locations}
-              currentUserId={currentUser?.id}
-              userPos={userPos}
-              gpsUnavailable={gpsUnavailable}
-              onOpenRow={openLiveIncidentRow}
-            />
+          <div className="max-w-4xl mx-auto w-full px-4 md:px-6 pt-3 pb-3 space-y-3">
+            {joinableLiveIncidents.length > 0 && (
+              <LiveIncidentJoinBanner incidents={joinableLiveIncidents} testIdSuffix="sticky" />
+            )}
+            {visibleLiveIncidents.length > 0 && (
+              <LiveIncidentDashboardCard
+                incidents={visibleLiveIncidents}
+                hasRedLive={hasRedLive}
+                isDispatch={isDispatch}
+                locations={locations}
+                currentUserId={currentUser?.id}
+                userPos={userPos}
+                gpsUnavailable={gpsUnavailable}
+                onOpenRow={openLiveIncidentRow}
+              />
+            )}
           </div>
         </div>
       )}
@@ -753,11 +798,7 @@ export default function CommandDashboard() {
                 <StatTile
                   label="Currently Live"
                   value={liveCountDisplay}
-                  sublabel={
-                    liveCountDisplay > 0
-                      ? `active · tap to open`
-                      : "no active incidents"
-                  }
+                  sublabel={liveTileSublabel}
                   onClick={openLiveView}
                   highlight={liveCountDisplay > 0}
                   testId="stat-live-count"
