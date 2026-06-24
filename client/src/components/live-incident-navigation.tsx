@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { CheckCircle2, ChevronRight, Gauge, Loader2, MapPin, MessageCircle, Navigation, Route, Search, X } from "lucide-react";
+import { CheckCircle2, ChevronRight, Gauge, Loader2, MapPin, MessageCircle, Navigation, Route, Search, Signpost, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export type NavPlaceSuggestion = { place_id: string; description: string };
@@ -193,6 +193,35 @@ export function LiveIncidentStartNavigationCta({
   );
 }
 
+type BypassNavigationCtaProps = {
+  onBypass: () => void;
+  disabled?: boolean;
+};
+
+/** Prominent alternative to turn-by-turn — GPS still tracks without a route on screen. */
+export function LiveIncidentBypassNavigationCta({
+  onBypass,
+  disabled = false,
+}: BypassNavigationCtaProps) {
+  return (
+    <Button
+      type="button"
+      size="lg"
+      variant="outline"
+      className="w-full py-5 h-auto min-h-[3.25rem] text-base font-semibold border-2 border-blue-600/80 bg-blue-50 text-blue-800 hover:bg-blue-100 hover:text-blue-900 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950/60 shadow-md"
+      disabled={disabled}
+      onClick={onBypass}
+      data-testid="button-bypass-navigation"
+    >
+      <Signpost className="h-5 w-5 mr-2 shrink-0" />
+      <span className="text-left leading-tight">
+        I know where I&apos;m going
+        <span className="block text-xs font-normal opacity-80 mt-0.5">Skip route — GPS stays live</span>
+      </span>
+    </Button>
+  );
+}
+
 type DestinationSheetProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -224,66 +253,27 @@ export function LiveIncidentDestinationSheet({
   incidentLocation,
   onUseIncidentLocation,
 }: DestinationSheetProps) {
-  const searching = search.trim().length > 0;
-
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="bottom"
         overlayClassName="bg-black/40"
-        className="rounded-t-3xl border-t border-border px-0 pb-0 pt-1 max-h-[88vh] flex flex-col gap-0 shadow-2xl bg-background text-foreground"
+        className="rounded-t-3xl border-t border-border px-0 pb-0 pt-1 max-h-[min(92vh,720px)] flex flex-col gap-0 shadow-2xl bg-background text-foreground"
         style={{ backgroundColor: "hsl(var(--background))" }}
         data-testid="sheet-destination-picker"
+        onOpenAutoFocus={(e) => e.preventDefault()}
       >
         <div className="mx-auto mb-2 h-1 w-12 rounded-full bg-muted-foreground/25 shrink-0" aria-hidden />
 
         <div className="flex flex-col min-h-0 overflow-y-auto px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
-          {!searching ? (
-            <SheetHeader className="text-center space-y-2 pb-4 shrink-0 items-center">
-              <span className="flex h-11 w-11 items-center justify-center rounded-full bg-primary/10 text-primary">
-                <Navigation className="h-5 w-5" />
-              </span>
-              <SheetTitle className="text-lg font-semibold tracking-tight text-foreground">Set destination</SheetTitle>
-              <SheetDescription className="text-sm leading-relaxed max-w-[280px] mx-auto text-muted-foreground">
-                Choose where you&apos;re heading. Turn-by-turn guidance starts as soon as you pick a destination.
-              </SheetDescription>
-            </SheetHeader>
-          ) : (
-            <div className="pb-3 pt-1 text-center shrink-0">
-              <SheetTitle className="text-base font-semibold text-foreground">Search destination</SheetTitle>
-            </div>
-          )}
+          <SheetHeader className="text-center space-y-1 pb-3 shrink-0 items-center">
+            <SheetTitle className="text-lg font-semibold tracking-tight text-foreground">Set destination</SheetTitle>
+            <SheetDescription className="text-xs leading-relaxed max-w-[300px] mx-auto text-muted-foreground">
+              Search an address below, or use your incident GPS as the destination.
+            </SheetDescription>
+          </SheetHeader>
 
           <div className="flex flex-col gap-3 w-full max-w-md mx-auto min-h-0">
-            {(!searching || searchServicesUnavailable) && incidentLocation && onUseIncidentLocation ? (
-              <button
-                type="button"
-                className="group w-full rounded-2xl border border-primary/25 bg-primary/5 px-4 py-4 text-center shadow-sm transition-all hover:border-primary/40 hover:bg-primary/10 active:scale-[0.99]"
-                onClick={onUseIncidentLocation}
-                data-testid="button-use-incident-location"
-              >
-                <span className="mx-auto mb-2.5 flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md shadow-primary/25">
-                  <MapPin className="h-5 w-5" />
-                </span>
-                <p className="text-sm font-semibold text-foreground">Use incident location</p>
-                <p className="text-xs text-muted-foreground mt-1 line-clamp-2 px-2">{incidentLocation.name}</p>
-                <span className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-primary">
-                  Start navigation
-                  <ChevronRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
-                </span>
-              </button>
-            ) : null}
-
-            {!searching ? (
-              <div className="relative flex items-center gap-3 py-0.5">
-                <div className="h-px flex-1 bg-border" />
-                <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground shrink-0">
-                  Or search
-                </span>
-                <div className="h-px flex-1 bg-border" />
-              </div>
-            ) : null}
-
             {(searchServicesLoading || searchServicesUnavailable) ? (
               <div
                 className={cn(
@@ -297,7 +287,7 @@ export function LiveIncidentDestinationSheet({
                 <p>
                   {searchServicesLoading
                     ? "Loading address search…"
-                    : "Address search is unavailable on this device. Use incident location above, or retry map services."}
+                    : "Address search is unavailable. Use incident location below, or retry."}
                 </p>
                 {searchServicesUnavailable && onRetrySearchServices ? (
                   <Button
@@ -314,10 +304,10 @@ export function LiveIncidentDestinationSheet({
               </div>
             ) : null}
 
-            <div className="relative">
+            <div className="relative shrink-0">
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
               <Input
-                className="pl-10 h-12 rounded-2xl bg-white dark:bg-muted border-border text-base text-foreground placeholder:text-muted-foreground"
+                className="pl-10 h-12 rounded-2xl bg-white dark:bg-muted border-2 border-primary/30 text-base text-foreground placeholder:text-muted-foreground shadow-sm"
                 placeholder="Search address or place…"
                 value={search}
                 onChange={(e) => onSearchChange(e.target.value)}
@@ -337,7 +327,7 @@ export function LiveIncidentDestinationSheet({
 
             {suggestions.length > 0 ? (
               <div
-                className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden divide-y max-h-52 overflow-y-auto"
+                className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden divide-y max-h-40 overflow-y-auto shrink-0"
                 data-testid="list-suggestions"
               >
                 {suggestions.map((s) => (
@@ -354,9 +344,36 @@ export function LiveIncidentDestinationSheet({
                 ))}
               </div>
             ) : searchHint ? (
-              <p className="text-sm text-center text-muted-foreground py-2 px-1" data-testid="text-search-hint">
+              <p className="text-sm text-center text-muted-foreground py-1 px-1 shrink-0" data-testid="text-search-hint">
                 {searchHint}
               </p>
+            ) : null}
+
+            {incidentLocation && onUseIncidentLocation ? (
+              <>
+                <div className="relative flex items-center gap-3 py-0.5 shrink-0">
+                  <div className="h-px flex-1 bg-border" />
+                  <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground shrink-0">
+                    Or use GPS
+                  </span>
+                  <div className="h-px flex-1 bg-border" />
+                </div>
+                <button
+                  type="button"
+                  className="group w-full rounded-2xl border-2 border-primary/30 bg-primary/5 px-4 py-3.5 text-left shadow-sm transition-all hover:border-primary/50 hover:bg-primary/10 active:scale-[0.99] flex items-center gap-3 shrink-0"
+                  onClick={onUseIncidentLocation}
+                  data-testid="button-use-incident-location"
+                >
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md shadow-primary/25">
+                    <MapPin className="h-5 w-5" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-foreground">Use incident location</p>
+                    <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{incidentLocation.name}</p>
+                  </span>
+                  <ChevronRight className="h-5 w-5 shrink-0 text-primary transition-transform group-hover:translate-x-0.5" />
+                </button>
+              </>
             ) : null}
           </div>
         </div>
@@ -443,14 +460,15 @@ export function LiveIncidentJoinerNavSheet({
         <button
           type="button"
           onClick={onBypass}
-          className="mt-3 w-full rounded-xl border border-dashed border-border bg-muted/30 px-4 py-3 text-center text-sm font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors"
+          className="mt-3 w-full rounded-xl border-2 border-blue-600/80 bg-blue-50 px-4 py-3.5 text-left shadow-md transition-colors hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-950/60 flex items-center gap-3"
           data-testid="button-joiner-bypass-navigation"
         >
-          Skip route — track my GPS only
+          <Signpost className="h-5 w-5 shrink-0 text-blue-700 dark:text-blue-300" />
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold text-blue-900 dark:text-blue-100">I know where I&apos;m going</span>
+            <span className="block text-xs text-blue-800/80 dark:text-blue-200/80 mt-0.5">Skip route — GPS stays live for investigation</span>
+          </span>
         </button>
-        <p className="mt-1.5 text-center text-[11px] text-muted-foreground px-2">
-          No turn-by-turn shown. Your position and timing stay on record for investigation.
-        </p>
 
         {gpsBlockedGuide ? <div className="pt-3">{gpsBlockedGuide}</div> : null}
       </SheetContent>

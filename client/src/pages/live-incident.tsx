@@ -53,6 +53,7 @@ import {
   LiveIncidentNavBottomBar,
   LiveIncidentNavPhaseBadge,
   LiveIncidentStartNavigationCta,
+  LiveIncidentBypassNavigationCta,
   NAV_ARRIVAL_AT_SCENE_M,
   NAV_ARRIVAL_SOON_M,
   resolveNavFieldPhase,
@@ -4781,6 +4782,7 @@ export default function LiveIncidentPage() {
             </div>
           ) : !navStarted && !navMode ? (
             <div className={fieldActionFooterClass} ref={fieldFooterRef} style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
+              <LiveIncidentBypassNavigationCta onBypass={bypassInAppNavigation} disabled={dispatching} />
               <LiveIncidentStartNavigationCta
                 onStart={() => {
                   if (isJoinerMode && joinerNavDestination) {
@@ -4792,17 +4794,6 @@ export default function LiveIncidentPage() {
                 dispatching={dispatching}
                 label="Start Navigation"
               />
-              <button
-                type="button"
-                className="w-full text-center text-sm font-medium text-muted-foreground underline underline-offset-2 hover:text-foreground py-1"
-                onClick={bypassInAppNavigation}
-                data-testid="button-bypass-navigation"
-              >
-                I know where I&apos;m going — skip route
-              </button>
-              <p className="text-center text-[11px] text-muted-foreground px-2">
-                GPS stays live for dispatch — skip route if you don&apos;t need turn-by-turn.
-              </p>
             </div>
           ) : !navMode ? (
             /* Live incident active — en route or between flows; subtle early arrival */
