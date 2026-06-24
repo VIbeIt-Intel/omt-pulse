@@ -708,8 +708,6 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
     }
   }
 
-  const [location] = useLocation();
-
   if (user.mustChangePassword) {
     if (location !== "/onboarding") {
       navigate("/onboarding");
