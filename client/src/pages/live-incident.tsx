@@ -47,6 +47,14 @@ import {
 import { pathFromDirectionsRoute, type LatLngPoint } from "@/lib/decode-polyline";
 import { usePanickerLocationSync } from "@/hooks/use-panicker-location-sync";
 import { LocationPermissionGuide } from "@/components/location-permission-guide";
+import {
+  LiveIncidentNavBottomBar,
+  LiveIncidentNavPhaseBadge,
+  LiveIncidentStartNavigationCta,
+  NAV_ARRIVAL_AT_SCENE_M,
+  NAV_ARRIVAL_SOON_M,
+  resolveNavFieldPhase,
+} from "@/components/live-incident-navigation";
 import { probePanicLocation } from "@/lib/panic-send";
 import { acquirePanicLocation, hasPanicCoordinates } from "@/lib/panic-location";
 
@@ -582,6 +590,10 @@ export default function LiveIncidentPage() {
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [arrivalSubmitting, setArrivalSubmitting] = useState(false);
   const [isNearDestination, setIsNearDestination] = useState(false);
+  const [distToDestinationM, setDistToDestinationM] = useState<number | null>(null);
+  /** Creator flow: true while the responder is picking a destination after Start Navigation. */
+  const [destinationPickerOpen, setDestinationPickerOpen] = useState(false);
+  const [joinerNavPickerOpen, setJoinerNavPickerOpen] = useState(false);
   const [isOnline, setIsOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
   const [wakeLockUnsupportedDismissed, setWakeLockUnsupportedDismissed] = useState(false);
 
@@ -1033,9 +1045,10 @@ export default function LiveIncidentPage() {
         // Arrival logic is already suppressed via isPanicIncidentRef.current in the else-if below.
         arrivedAnnouncedRef.current = false;
       } else if (destPositionRef.current && !isPanicIncidentRef.current) {
-        const nearDest = haversineM(p, destPositionRef.current) <= 150;
-        setIsNearDestination(nearDest);
-        if (nearDest && !arrivedAnnouncedRef.current) {
+        const distM = haversineM(p, destPositionRef.current);
+        setDistToDestinationM(distM);
+        setIsNearDestination(distM <= NAV_ARRIVAL_AT_SCENE_M);
+        if (distM <= NAV_ARRIVAL_AT_SCENE_M && !arrivedAnnouncedRef.current) {
           arrivedAnnouncedRef.current = true;
           void speak("You have arrived at your destination.");
         }
@@ -2185,7 +2198,9 @@ export default function LiveIncidentPage() {
       // Arrival UI is suppressed separately via isPanicIncidentRef in sendPosition.
       destPositionRef.current = destPos;
       if (!isPanicCat && lastPosRef.current) {
-        setIsNearDestination(haversineM(lastPosRef.current, destPos) <= 150);
+        const distM = haversineM(lastPosRef.current, destPos);
+        setDistToDestinationM(distM);
+        setIsNearDestination(distM <= NAV_ARRIVAL_AT_SCENE_M);
       }
     } else {
       destPositionRef.current = null;
@@ -2241,7 +2256,7 @@ export default function LiveIncidentPage() {
     try { localStorage.removeItem("omt_panic_target"); } catch { /* ignore */ }
     setDestination(target);
     setSearch(target.name);
-    drawRoute(target.lat, target.lng);
+    destPositionRef.current = { lat: target.lat, lng: target.lng };
     const path = isJoinerMode ? "joiner-destination" : "destination";
     apiRequest("PATCH", `/api/incidents/${incId}/${path}`, {
       destinationName: target.name,
@@ -2255,6 +2270,11 @@ export default function LiveIncidentPage() {
         variant: "destructive",
       });
     });
+    if (isJoinerMode) {
+      void dispatchJoinerInApp("guided");
+    } else {
+      void beginInAppNavigation(target);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentIncidentId, mapsReady]);
 
@@ -2287,15 +2307,14 @@ export default function LiveIncidentPage() {
     setSuggestions([]);
 
     const commitDestination = (lat: number, lng: number) => {
-      setDestination({ lat, lng, name: s.description });
-      drawRoute(lat, lng);
-      // Save destination to server immediately so Live Monitor reflects it
-      // within the next 5-second poll — not only when the user taps Navigate.
+      const name = s.description;
+      setDestination({ lat, lng, name });
+      destPositionRef.current = { lat, lng };
       const incId = currentIncidentId;
       if (incId) {
         const path = isJoinerMode ? "joiner-destination" : "destination";
         apiRequest("PATCH", `/api/incidents/${incId}/${path}`, {
-          destinationName: s.description,
+          destinationName: name,
           destinationLat: lat,
           destinationLng: lng,
         }).catch((err) => {
@@ -2306,6 +2325,11 @@ export default function LiveIncidentPage() {
             variant: "destructive",
           });
         });
+      }
+      if (!isJoinerMode) {
+        void beginInAppNavigation({ lat, lng, name });
+      } else {
+        drawRoute(lat, lng);
       }
     };
 
@@ -2380,7 +2404,7 @@ export default function LiveIncidentPage() {
               lastDirectionsToastAtRef.current = now;
               toast({
                 title: 'Could not compute driving route',
-                description: 'Tap Navigate again to retry.',
+                description: 'Try starting navigation again.',
                 variant: 'destructive',
               });
             }
@@ -2488,63 +2512,89 @@ export default function LiveIncidentPage() {
     }
   }
 
-  async function dispatchInApp() {
+  async function beginInAppNavigation(dest: { lat: number; lng: number; name: string }) {
     const incId = currentIncidentId;
-    if (!destination || !incId) return;
+    if (!incId) return;
     const mapActuallyReady = isNative ? nativeMapStatus === "ready" || nativeMapFailed : mapsReady;
     if (!mapActuallyReady) {
       toast({
         title: "Map still loading",
-        description: "Wait a moment for the map to finish loading, then tap Navigate again.",
+        description: "Wait a moment for the map to finish loading, then try again.",
         variant: "destructive",
       });
       return;
     }
     try {
       setDispatching(true);
-      // Persist nav-started flag so the arrived-button survives app switches / reloads.
+      setDestination(dest);
+      setSearch(dest.name);
+      destPositionRef.current = { lat: dest.lat, lng: dest.lng };
+      setDestinationPickerOpen(false);
       localStorage.setItem(NAV_STARTED_KEY, String(incId));
       setNavStarted(true);
       announcedStepRef.current = -1;
       approachingTurnAnnouncedRef.current = -1;
       arrivedAnnouncedRef.current = false;
-      // Save destination to server — only for creator (avoids overwriting creator's destination for joiners)
       if (!isJoinerMode) {
         apiRequest("PATCH", `/api/incidents/${incId}/destination`, {
-          destinationName: destination.name,
-          destinationLat: destination.lat,
-          destinationLng: destination.lng,
+          destinationName: dest.name,
+          destinationLat: dest.lat,
+          destinationLng: dest.lng,
         }).catch(() => {});
       }
-      // iOS Safari requires an explicit user-gesture permission call before
-      // DeviceOrientationEvent fires. Request it here (inside the user gesture)
-      // and proceed regardless of the outcome — if denied, heading-up simply
-      // falls back to GPS heading; nothing else is affected.
       if (typeof DeviceOrientationEvent !== "undefined" && typeof (DeviceOrientationEvent as any).requestPermission === "function") {
         try { await (DeviceOrientationEvent as any).requestPermission(); } catch { /* denied — proceed */ }
       }
-      // On native: ensure the route is drawn before entering navMode so the step
-      // banner, tilt camera, and ETA are all seeded correctly. drawRoute may have
-      // bailed earlier because GPS had no fix at mapsReady time.
-      if (isNative && capMapRef.current && stepsRef.current.length === 0) {
-        drawRoute(
-          destination.lat, destination.lng,
-          lastPosRef.current ?? undefined,
-          true, // skipFitBounds — we're about to go nav-mode, don't pan around
-        );
-        // Give the DirectionsService a moment to resolve before navMode useEffect
-        // runs — otherwise stepsRef is still empty when the tilt+seed block fires.
-        await new Promise(r => setTimeout(r, 600));
+      drawRoute(dest.lat, dest.lng, lastPosRef.current ?? undefined, true);
+      if (isNative && capMapRef.current) {
+        await new Promise((r) => setTimeout(r, 600));
       }
       setNavMode(true);
       setActiveNavStyle("guided");
       activeNavStyleRef.current = "guided";
-      toast({ title: "Navigation started", description: "GPS tracking continues — dispatch can see your position." });
+      startStepTracking();
     } catch (e: unknown) {
       toast({ title: "Navigation failed", description: e instanceof Error ? e.message : "Please try again.", variant: "destructive" });
     } finally {
       setDispatching(false);
     }
+  }
+
+  async function dispatchInApp() {
+    if (!destination) return;
+    await beginInAppNavigation(destination);
+  }
+
+  function cancelNavigation() {
+    void stopSpeaking();
+    setNavMode(false);
+    setNavStarted(false);
+    setDestinationPickerOpen(false);
+    setJoinerNavPickerOpen(false);
+    try { localStorage.removeItem(NAV_STARTED_KEY); } catch { /* ignore */ }
+    autoResumedNavRef.current = true;
+    toast({ title: "Navigation cancelled", description: "GPS tracking stays active for this live incident." });
+  }
+
+  function openDestinationPicker() {
+    setDestinationPickerOpen(true);
+    const prefill =
+      destination?.name
+      ?? currentIncident?.locationName
+      ?? "";
+    setSearch(prefill);
+    if (prefill.length >= 3) handleSearch(prefill);
+  }
+
+  function useIncidentLocationAsDestination() {
+    const inc = currentIncident;
+    if (!inc?.latitude || !inc?.longitude) return;
+    const name = inc.locationName ?? "Incident location";
+    void beginInAppNavigation({
+      lat: Number(inc.latitude),
+      lng: Number(inc.longitude),
+      name,
+    });
   }
 
   async function dispatchJoinerInApp(style: JoinNavStyle = "direct") {
@@ -2729,6 +2779,21 @@ export default function LiveIncidentPage() {
   const isPanicIncident =
     (currentIncidentCategory?.name ?? "").toLowerCase().includes("panic") ||
     (currentIncident?.categoryName ?? "").toLowerCase().includes("panic");
+  const navFieldPhase = navMode ? resolveNavFieldPhase(distToDestinationM) : null;
+  const showProminentArrived =
+    !isPanicIncident
+    && distToDestinationM != null
+    && distToDestinationM <= NAV_ARRIVAL_SOON_M;
+
+  function recordArrival() {
+    void stopSpeaking();
+    setNavMode(false);
+    arrivalTimeRef.current = new Date();
+    if (!isJoinerMode && currentIncident) {
+      apiRequest("PATCH", `/api/incidents/${currentIncident.id}/mark-arrived`, {}).catch(() => {});
+    }
+    setShowArrivalForm(true);
+  }
 
   // Keep isPanicIncidentRef in sync so the sendPosition closure inside
   // startTracking() can read it without stale-closure issues.
@@ -3476,7 +3541,13 @@ export default function LiveIncidentPage() {
         className={`flex items-center gap-2 px-3 shrink-0 transition-colors border-b ${
           navMode ? "py-1.5" : "py-2"
         } ${
-          !currentIncident || gpsStatus === "idle"
+          navMode && navFieldPhase === "at_scene"
+            ? "bg-red-600/10"
+            : navMode && navFieldPhase === "arriving_soon"
+            ? "bg-amber-500/10"
+            : navMode
+            ? "bg-primary/10"
+            : !currentIncident || gpsStatus === "idle"
             ? "bg-background"
             : gpsStatus === "tracking" || gpsStatus === "stationary"
             ? "bg-green-600/10"
@@ -3492,13 +3563,22 @@ export default function LiveIncidentPage() {
           className="flex items-center gap-2 select-none min-w-0 flex-1"
           data-testid="title-live-incident"
         >
-          {!navMode && (
+          {navMode ? (
+            <div className="flex flex-col min-w-0 flex-1 gap-0.5">
+              <span className="font-semibold text-sm truncate leading-tight">Navigating to scene</span>
+              {(destination ?? joinerNavDestination) && (
+                <span className="text-[11px] text-muted-foreground truncate">
+                  {(destination ?? joinerNavDestination)?.name}
+                </span>
+              )}
+            </div>
+          ) : (
             <span className="font-semibold text-base shrink-0">
               {isJoinerMode ? "Responding" : "Live Incident"}
             </span>
           )}
           {currentIncident && gpsStatus !== "idle" && (
-            <span className={`text-muted-foreground truncate ${navMode ? "text-sm font-medium text-foreground" : "text-xs"}`} data-testid="text-gps-inline">
+            <span className={`text-muted-foreground truncate ${navMode ? "text-[11px]" : "text-xs"}`} data-testid="text-gps-inline">
               {!navMode ? "· " : null}
               {gpsStatus === "tracking" || gpsStatus === "stationary"
                 ? `GPS${gpsAccuracy != null ? ` ±${gpsAccuracy}m` : ""}${
@@ -3519,6 +3599,9 @@ export default function LiveIncidentPage() {
           )}
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
+          {navMode && navFieldPhase && (
+            <LiveIncidentNavPhaseBadge phase={navFieldPhase} />
+          )}
           {currentIncident && (
             <Badge
               className={`text-white ${isJoinerMode ? "bg-blue-600" : "bg-green-500"}`}
@@ -3642,32 +3725,37 @@ export default function LiveIncidentPage() {
                 !navMode && joinerNavDestination ? (
                   <div className="space-y-1.5">
                     {navStarted ? (
-                      <>
-                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Destination</p>
+                      <div className="flex items-center justify-between gap-2 rounded-lg border bg-muted/30 px-3 py-2">
+                        <div className="flex items-center gap-1.5 text-sm min-w-0">
+                          <MapPin className="h-3.5 w-3.5 shrink-0 text-primary" />
+                          <span className="truncate font-medium">{joinerNavDestination.name}</span>
+                        </div>
                         <button
-                        type="button"
-                        className="w-full min-w-0 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground transition-colors py-1 text-left flex items-center gap-1.5"
-                        onClick={() => confirmAndOpenNav(
-                          joinerNavDestination.lat,
-                          joinerNavDestination.lng
-                        )}
-                        data-testid="button-joiner-reopen-maps"
-                      >
-                        <Navigation className="h-3.5 w-3.5 shrink-0" />
-                        <span className="truncate">Open in Google Maps (pauses GPS) — {joinerNavDestination.name}</span>
-                      </button>
-                      </>
-                    ) : (
+                          type="button"
+                          className="text-xs text-muted-foreground underline shrink-0"
+                          onClick={cancelNavigation}
+                          data-testid="button-joiner-change-nav"
+                        >
+                          Change
+                        </button>
+                      </div>
+                    ) : joinerNavPickerOpen ? (
                       <div className="space-y-4">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm font-semibold">Choose how to navigate</p>
+                          <button
+                            type="button"
+                            className="text-xs text-muted-foreground underline"
+                            onClick={() => setJoinerNavPickerOpen(false)}
+                          >
+                            Back
+                          </button>
+                        </div>
                         <div className="space-y-1">
                           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Destination</p>
                           <p className="text-sm font-medium text-foreground truncate px-0.5">{joinerNavDestination.name}</p>
                         </div>
-                        <div className="space-y-3">
-                          <h3 className="text-base font-semibold text-foreground text-center">
-                            How do you want to respond?
-                          </h3>
-                          <div className="grid grid-cols-1 min-[400px]:grid-cols-2 gap-3">
+                        <div className="grid grid-cols-1 min-[400px]:grid-cols-2 gap-3">
                             <button
                               type="button"
                               onClick={() => void dispatchJoinerInApp("direct")}
@@ -3713,7 +3801,6 @@ export default function LiveIncidentPage() {
                               </span>
                             </button>
                           </div>
-                        </div>
                         {joinerGpsBlocked && (
                           <div className="pt-1" data-testid="banner-joiner-location-off">
                             <LocationPermissionGuide
@@ -3730,7 +3817,7 @@ export default function LiveIncidentPage() {
                           </div>
                         )}
                       </div>
-                    )}
+                    ) : null}
                     {routeInfo && activeNavStyle === "guided" && !joinerChoosingNav && (
                       <div className="flex gap-3 text-sm pt-0.5">
                         <div className="flex items-center gap-1.5 text-muted-foreground">
@@ -3756,43 +3843,53 @@ export default function LiveIncidentPage() {
                     Waiting for creator to set a destination…
                   </div>
                 ) : null
-              ) : navStarted && destination ? (
-                /* Creator: navigation active — show compact destination + change link */
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5 text-sm min-w-0">
-                    <MapPin className="h-3.5 w-3.5 shrink-0 text-primary" />
-                    <span className="truncate font-medium">{destination.name}</span>
+              ) : destinationPickerOpen ? (
+                <div className="space-y-3 rounded-xl border bg-card p-4 shadow-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-semibold">Where are you heading?</p>
+                    <button
+                      type="button"
+                      className="text-xs text-muted-foreground underline shrink-0"
+                      onClick={() => setDestinationPickerOpen(false)}
+                      data-testid="button-cancel-destination-picker"
+                    >
+                      Cancel
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground transition-colors shrink-0"
-                    onClick={() => setNavStarted(false)}
-                    data-testid="button-change-destination"
-                  >
-                    Change
-                  </button>
-                </div>
-              ) : (
-                /* Creator: full destination address search */
-                <>
-                  <p className="text-sm font-medium">Where are you going?</p>
+                  {currentIncident?.latitude && currentIncident?.longitude && (
+                    <button
+                      type="button"
+                      className="w-full text-left rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5 text-sm hover:bg-primary/10 transition-colors"
+                      onClick={useIncidentLocationAsDestination}
+                      data-testid="button-use-incident-location"
+                    >
+                      <MapPin className="h-4 w-4 inline mr-2 text-primary" />
+                      Use incident location
+                      {currentIncident.locationName ? (
+                        <span className="block text-xs text-muted-foreground mt-0.5 truncate pl-6">
+                          {currentIncident.locationName}
+                        </span>
+                      ) : null}
+                    </button>
+                  )}
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
                       className="pl-9"
-                      placeholder="Search destination address…"
+                      placeholder="Search address or place…"
                       value={search}
                       onChange={(e) => handleSearch(e.target.value)}
                       data-testid="input-destination-search"
+                      autoFocus
                     />
                     {loadingSugg && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />}
                   </div>
                   {suggestions.length > 0 && (
-                    <div className="border rounded-md bg-popover shadow-md overflow-hidden max-h-44 overflow-y-auto" data-testid="list-suggestions">
+                    <div className="border rounded-md bg-popover shadow-md overflow-hidden max-h-48 overflow-y-auto" data-testid="list-suggestions">
                       {suggestions.map((s) => (
                         <button
                           key={s.place_id}
-                          className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-start gap-2 border-b last:border-b-0"
+                          className="w-full text-left px-3 py-2.5 text-sm hover:bg-accent flex items-start gap-2 border-b last:border-b-0"
                           onClick={() => selectPlace(s)}
                           data-testid={`suggestion-${s.place_id}`}
                         >
@@ -3802,8 +3899,11 @@ export default function LiveIncidentPage() {
                       ))}
                     </div>
                   )}
-                </>
-              )}
+                  <p className="text-[11px] text-muted-foreground text-center">
+                    Selecting a destination starts turn-by-turn navigation immediately.
+                  </p>
+                </div>
+              ) : null}
               {/* v75: hidden in nav mode — the bottom strip on the map shows
                   the prominent red distance/ETA in nav mode (no duplicate). */}
               {!navMode && !isJoinerMode && routeInfo && (
@@ -3819,7 +3919,7 @@ export default function LiveIncidentPage() {
             </div>
             )}
 
-            {!navMode && !joinerChoosingNav && hasRoute && currentStep && !isJoinerMode ? (
+            {!navMode && !joinerChoosingNav && hasRoute && currentStep && isJoinerMode ? (
               <div className="rounded-lg border border-green-500/40 bg-green-500/5 px-4 py-3 space-y-2 shrink-0" data-testid="nav-panel">
                 <div className="flex items-center justify-between">
                   <p className="font-semibold text-base leading-snug flex-1 pr-2" data-testid="text-step-instruction">
@@ -4048,7 +4148,7 @@ export default function LiveIncidentPage() {
                     </p>
                   </div>
                   <button
-                    onClick={() => { void stopSpeaking(); setNavMode(false); }}
+                    onClick={() => { void stopSpeaking(); cancelNavigation(); }}
                     className="shrink-0 p-2 rounded-full bg-white/20 hover:bg-white/30 transition-colors"
                     aria-label="Exit navigation"
                     data-testid="button-exit-nav"
@@ -4102,7 +4202,7 @@ export default function LiveIncidentPage() {
                       </button>
                     )}
                     <button
-                      onClick={() => { void stopSpeaking(); setNavMode(false); }}
+                      onClick={() => { void stopSpeaking(); cancelNavigation(); }}
                       className="p-2 rounded-full bg-white/20 hover:bg-white/30 transition-colors"
                       aria-label="Exit navigation"
                       data-testid="button-exit-nav"
@@ -4162,7 +4262,7 @@ export default function LiveIncidentPage() {
                     </p>
                   </div>
                   <button
-                    onClick={() => { void stopSpeaking(); setNavMode(false); }}
+                    onClick={() => { void stopSpeaking(); cancelNavigation(); }}
                     className="shrink-0 p-2 rounded-full bg-white/20 hover:bg-white/30 transition-colors"
                     aria-label="Exit navigation"
                     data-testid="button-exit-nav-pending"
@@ -4234,75 +4334,23 @@ export default function LiveIncidentPage() {
             )}
 
             {/* Nav mode: action bar — absolute overlay at the bottom of the in-flow map */}
-            {navMode && (
-              <div
-                className="absolute bottom-0 left-0 right-0 z-10 bg-background border-t px-4 py-3 space-y-2"
-                style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
-              >
-                {/* prominent red distance/ETA — same size — speed + chat right */}
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2 min-w-0">
-                    {activeNavStyle === "direct" && directDist != null ? (
-                      <>
-                        <span className="text-lg font-bold text-red-600 dark:text-red-400 tabular-nums" data-testid="text-nav-distance">
-                          {fmtDist(directDist)}
-                        </span>
-                        <span className="text-lg font-bold text-red-600/60 dark:text-red-400/60">·</span>
-                        <span className="text-lg font-bold text-red-600 dark:text-red-400" data-testid="text-nav-bearing">
-                          {directBearing != null ? bearingCardinal(directBearing) : "—"}
-                        </span>
-                        <span className="text-xs text-muted-foreground ml-1">straight</span>
-                      </>
-                    ) : navRouteDisplay ? (
-                      <>
-                        <span className="text-lg font-bold text-red-600 dark:text-red-400 tabular-nums" data-testid="text-nav-distance">
-                          {fmtDist(navRouteDisplay.distance)}
-                        </span>
-                        <span className="text-lg font-bold text-red-600/60 dark:text-red-400/60">·</span>
-                        <span className="text-lg font-bold text-red-600 dark:text-red-400" data-testid="text-nav-eta">
-                          ETA <span className="tabular-nums">{fmtDur(navRouteDisplay.duration)}</span>
-                        </span>
-                      </>
-                    ) : null}
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <div className="flex items-center gap-1.5 text-muted-foreground" data-testid="nav-speed">
-                      <Gauge className="h-5 w-5" />
-                      <span className="font-bold text-foreground text-xl tabular-nums">{speedKmh ?? "--"}</span>
-                      <span className="text-xs">km/h</span>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-9 w-9"
-                      data-testid="button-chat-nav"
-                      aria-label="Chat"
-                      onClick={() => navigate("/chat")}
-                    >
-                      <MessageCircle className="h-5 w-5" />
-                    </Button>
-                  </div>
-                </div>
-                {/* Arrived button */}
-                <Button
-                  size="lg"
-                  variant="destructive"
-                  className="w-full font-bold"
-                  onClick={() => {
-                    void stopSpeaking();
-                    setNavMode(false);
-                    arrivalTimeRef.current = new Date();
-                    if (!isJoinerMode && currentIncident) {
-                      apiRequest("PATCH", `/api/incidents/${currentIncident.id}/mark-arrived`, {}).catch(() => {});
-                    }
-                    setShowArrivalForm(true);
-                  }}
-                  data-testid="button-arrived-nav"
-                >
-                  <CheckCircle2 className="h-5 w-5 mr-2" />
-                  {isJoinerMode ? "I've Arrived — Record & Leave" : "I've Arrived — Record Incident"}
-                </Button>
-              </div>
+            {navMode && navFieldPhase && (
+              <LiveIncidentNavBottomBar
+                phase={navFieldPhase}
+                isJoinerMode={isJoinerMode}
+                activeNavStyle={activeNavStyle}
+                directDist={directDist}
+                directBearing={directBearing}
+                navRouteDisplay={navRouteDisplay}
+                speedKmh={speedKmh}
+                fmtDist={fmtDist}
+                fmtDur={fmtDur}
+                bearingCardinal={bearingCardinal}
+                showProminentArrived={showProminentArrived}
+                onChat={() => navigate("/chat")}
+                onCancelNavigation={cancelNavigation}
+                onRecordArrival={recordArrival}
+              />
             )}
 
             {/* Location denied overlay */}
@@ -4607,22 +4655,22 @@ export default function LiveIncidentPage() {
                 </Button>
               </div>
             </div>
-          ) : navMode ? null : isNearDestination && !isPanicIncident ? (
-            /* ---- Auto-detected arrival: within 150 m of destination ---- */
+          ) : navMode ? null : showProminentArrived && !isPanicIncident ? (
+            /* ---- Approaching destination (within 500 m) ---- */
             <div className="shrink-0 space-y-2 pb-4" style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
-              <div className="rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-300 dark:border-red-700 px-4 py-2 text-sm text-red-700 dark:text-red-400 flex items-center gap-2">
+              <div className="rounded-lg bg-amber-500/10 border border-amber-500/40 px-4 py-2 text-sm text-amber-900 dark:text-amber-200 flex items-center gap-2">
                 <MapPin className="h-4 w-4 shrink-0" />
-                <span>You are within 150 m of your destination</span>
+                <span>
+                  {isNearDestination
+                    ? "You are at the scene — ready to record"
+                    : `Approaching destination · ${distToDestinationM != null ? fmtDist(distToDestinationM) : ""} away`}
+                </span>
               </div>
               <Button
                 size="lg"
                 variant="destructive"
-                className="w-full shrink-0 text-base font-bold py-6"
-                onClick={() => {
-                  arrivalTimeRef.current = new Date();
-                  if (!isJoinerMode && currentIncident) apiRequest("PATCH", `/api/incidents/${currentIncident.id}/mark-arrived`, {}).catch(() => {});
-                  setShowArrivalForm(true);
-                }}
+                className={cn("w-full shrink-0 font-bold", isNearDestination ? "text-base py-6" : "")}
+                onClick={recordArrival}
                 data-testid="button-arrived-auto"
               >
                 <CheckCircle2 className="h-6 w-6 mr-2" />
@@ -4642,56 +4690,34 @@ export default function LiveIncidentPage() {
                 </Button>
               )}
             </div>
-          ) : destination && !navStarted && !isJoinerMode ? (
-            /* ---- Creator: destination selected, not yet navigating — start in-app nav ---- */
-            <div className="shrink-0 space-y-2">
-              <Button
-                size="lg"
-                className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
-                disabled={dispatching}
-                onClick={dispatchInApp}
-                data-testid="button-dispatch"
-              >
-                {dispatching ? <Loader2 className="h-5 w-5 mr-2 animate-spin" /> : <Navigation className="h-5 w-5 mr-2" />}
-                Navigate — GPS stays live
-              </Button>
-              <button
-                type="button"
-                className="w-full text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground transition-colors py-0.5"
-                onClick={() => destination && confirmAndOpenNav(destination.lat, destination.lng, () => {
-                  const incId = currentIncidentId;
-                  if (incId) { localStorage.setItem(NAV_STARTED_KEY, String(incId)); setNavStarted(true); }
-                })}
-                data-testid="button-dispatch-external"
-              >
-                Open in Google Maps (pauses GPS)
-              </button>
+          ) : !navStarted && !destinationPickerOpen && !joinerNavPickerOpen ? (
+            <div className="shrink-0 space-y-2" style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
+              <LiveIncidentStartNavigationCta
+                onStart={() => {
+                  if (isJoinerMode && joinerNavDestination) {
+                    setJoinerNavPickerOpen(true);
+                  } else {
+                    openDestinationPicker();
+                  }
+                }}
+                dispatching={dispatching}
+                label={isJoinerMode ? "Start Navigation" : "Start Navigation"}
+              />
+              <p className="text-center text-[11px] text-muted-foreground px-2">
+                GPS stays live for dispatch — navigation runs inside OMT Pulse.
+              </p>
             </div>
           ) : (
-            /* ---- Navigation started (or no destination): show arrived button ---- */
+            /* Live incident active — en route or between flows; subtle early arrival */
             <div className="shrink-0 space-y-2" style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
-              <Button
-                size="lg"
-                variant="destructive"
-                className="w-full text-base font-bold py-6"
-                onClick={() => {
-                  arrivalTimeRef.current = new Date();
-                  if (!isJoinerMode && currentIncident) apiRequest("PATCH", `/api/incidents/${currentIncident.id}/mark-arrived`, {}).catch(() => {});
-                  setShowArrivalForm(true);
-                }}
-                data-testid="button-arrived"
-              >
-                <CheckCircle2 className="h-6 w-6 mr-2" />
-                {isJoinerMode ? "I've Arrived — Record & Leave" : "I've Arrived — Record Incident"}
-              </Button>
-              {navStarted && destination && (
+              {!isPanicIncident && (
                 <button
                   type="button"
-                  className="w-full text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground transition-colors py-1"
-                  onClick={() => confirmAndOpenNav(destination.lat, destination.lng)}
-                  data-testid="button-reopen-maps"
+                  className="w-full text-center text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground py-1"
+                  onClick={recordArrival}
+                  data-testid="button-arrived"
                 >
-                  Open in Google Maps (pauses GPS)
+                  Record arrival early (still en route)
                 </button>
               )}
               {isJoinerMode && (
