@@ -244,7 +244,7 @@ export function LiveIncidentDestinationSheet({
                   <MapPin className="h-5 w-5" />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-foreground">Incident location</p>
+                  <p className="text-sm font-semibold text-foreground">Current GPS position</p>
                   <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{incidentLocation.name}</p>
                 </div>
                 <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground mt-1" />
