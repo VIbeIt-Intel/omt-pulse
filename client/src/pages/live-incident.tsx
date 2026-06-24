@@ -26,7 +26,7 @@ import { loadGoogleMaps, resetGoogleMapsLoader } from "@/lib/google-maps-loader"
 import { speak, stopSpeaking } from "@/lib/tts";
 import { Capacitor } from '@capacitor/core';
 import CapacitorMap, { type CapacitorMapHandle } from '@/components/CapacitorMap';
-import type { Incident, Category } from "@shared/schema";
+import type { Incident, Category, FormField } from "@shared/schema";
 import { isCloseReclassifyType } from "@/lib/incident-categories";
 import { resolveJoinerNavDestination, resolveLiveNavTarget } from "@/lib/incident-display";
 import {
@@ -47,6 +47,7 @@ import {
 import { pathFromDirectionsRoute, type LatLngPoint } from "@/lib/decode-polyline";
 import { usePanickerLocationSync } from "@/hooks/use-panicker-location-sync";
 import { LocationPermissionGuide } from "@/components/location-permission-guide";
+import { LiveIncidentArrivalForm } from "@/components/live-incident-arrival-form";
 import {
   LiveIncidentDestinationSheet,
   LiveIncidentJoinerNavSheet,
@@ -561,7 +562,7 @@ export default function LiveIncidentPage() {
   const arrivedAnnouncedRef = useRef<boolean>(false);
   const lastHeadingRef = useRef<number | null>(null); // last valid GPS heading — persisted through brief null gaps (e.g. mid-turn)
   const arrivalCameraRef = useRef<HTMLInputElement>(null);
-  const arrivalFileRef = useRef<HTMLInputElement>(null);
+  const arrivalUploadRef = useRef<HTMLInputElement>(null);
   // Holds offline image blobs or in-memory audio blobs.
   // Never persisted to localStorage; lost if the app is closed before upload.
   // Keyed by stable item ID — immune to array mutations such as removes or concurrent adds
@@ -669,6 +670,11 @@ export default function LiveIncidentPage() {
   const [arrivalDescription, setArrivalDescription] = useState("");
   const [arrivalMedia, setArrivalMedia] = useState<ArrivalMedia[]>([]);
   const [arrivalUploading, setArrivalUploading] = useState(false);
+  const [arrivalUploadSource, setArrivalUploadSource] = useState<"file" | "camera" | "voice" | null>(null);
+  const [arrivalCustomFields, setArrivalCustomFields] = useState<Record<string, string | number | null | undefined>>({});
+  const [arrivalPersonInvolved, setArrivalPersonInvolved] = useState(false);
+  const [arrivalVehicleInvolved, setArrivalVehicleInvolved] = useState(false);
+  const [arrivalSapsOpen, setArrivalSapsOpen] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [arrivalSubmitting, setArrivalSubmitting] = useState(false);
@@ -733,6 +739,10 @@ export default function LiveIncidentPage() {
 
   const { data: categories = [] } = useQuery<Category[]>({
     queryKey: ["/api/categories"],
+  });
+
+  const { data: formFields = [] } = useQuery<FormField[]>({
+    queryKey: ["/api/form-fields"],
   });
 
   // pendingActive is set immediately on startLive() success so the render
@@ -1682,6 +1692,7 @@ export default function LiveIncidentPage() {
         incidentDate: at.toISOString().slice(0, 10),
         incidentTime: at.toTimeString().slice(0, 5),
         ...(arrivalPos ? { latitude: arrivalPos.lat, longitude: arrivalPos.lng } : {}),
+        ...(Object.keys(arrivalCustomFields).length > 0 ? { customFields: arrivalCustomFields } : {}),
       });
       // 2. Save all media attachments (upload any pending blobs first)
       for (const mediaRecord of arrivalMedia) {
@@ -1738,26 +1749,29 @@ export default function LiveIncidentPage() {
     });
   }
 
-  async function handleAddImage(file: File) {
+  async function addArrivalAttachment(file: File, source: "file" | "camera" | "voice" = "file") {
     if (arrivalMedia.length >= MAX_ARRIVAL_MEDIA) {
       toast({ title: "Limit reached", description: `You can attach up to ${MAX_ARRIVAL_MEDIA} media items per arrival report.`, variant: "destructive" });
       return;
     }
     if (file.size > MAX_MEDIA_BYTES) {
-      toast({ title: "File too large", description: "Each photo must be under 10 MB.", variant: "destructive" });
+      toast({ title: "File too large", description: "Each file must be under 10 MB.", variant: "destructive" });
       return;
     }
     const id = crypto.randomUUID();
     setArrivalUploading(true);
+    setArrivalUploadSource(source);
     try {
-      const blob = await compressImageToBlob(file, 1024, 0.72);
-      const filename = file.name.replace(/\.[^.]+$/, ".jpg");
+      const isImage = file.type.startsWith("image/");
+      const blob = isImage ? await compressImageToBlob(file, 1024, 0.72) : file;
+      const filename = isImage ? file.name.replace(/\.[^.]+$/, ".jpg") : file.name;
+      const mimeType = isImage ? "image/jpeg" : (file.type || "application/octet-stream");
       if (navigator.onLine) {
         const tempUrl = URL.createObjectURL(blob);
-        setArrivalMedia((prev) => [...prev, { id, url: tempUrl, filename, mimeType: "image/jpeg" }]);
+        setArrivalMedia((prev) => [...prev, { id, url: tempUrl, filename, mimeType }]);
         const uploadResp = await fetch("/api/uploads", {
           method: "POST",
-          headers: { "Content-Type": "image/jpeg" },
+          headers: { "Content-Type": mimeType },
           body: blob,
           credentials: "include",
         });
@@ -1766,22 +1780,30 @@ export default function LiveIncidentPage() {
         URL.revokeObjectURL(tempUrl);
         setArrivalMedia((prev) => prev.map((m) => m.id === id ? { ...m, url: objectUrl } : m));
       } else {
-        arrivalMediaBlobsRef.current.set(id, { blob, filename, mimeType: "image/jpeg" });
+        arrivalMediaBlobsRef.current.set(id, { blob, filename, mimeType });
         const previewUrl = URL.createObjectURL(blob);
-        setArrivalMedia((prev) => [...prev, { id, url: previewUrl, filename, mimeType: "image/jpeg" }]);
-        toast({ title: "Photo saved locally", description: "No connection — photo will upload when your arrival is submitted." });
+        setArrivalMedia((prev) => [...prev, { id, url: previewUrl, filename, mimeType }]);
+        toast({ title: "Saved locally", description: "No connection — media will upload when your arrival is submitted." });
       }
     } catch {
-      // Remove the placeholder added before upload if the upload fails
       setArrivalMedia((prev) => {
         const item = prev.find((m) => m.id === id);
         if (item?.url.startsWith("blob:")) URL.revokeObjectURL(item.url);
         return prev.filter((m) => m.id !== id);
       });
       arrivalMediaBlobsRef.current.delete(id);
-      toast({ title: "Photo error", description: "Could not process the photo. Please try again.", variant: "destructive" });
+      toast({ title: "Upload error", description: "Could not process the file. Please try again.", variant: "destructive" });
     } finally {
       setArrivalUploading(false);
+      setArrivalUploadSource(null);
+    }
+  }
+
+  async function handleArrivalUploadFiles(files: FileList | undefined) {
+    if (!files?.length) return;
+    for (const file of Array.from(files)) {
+      if (arrivalMedia.length >= MAX_ARRIVAL_MEDIA) break;
+      await addArrivalAttachment(file, "file");
     }
   }
 
@@ -1794,6 +1816,7 @@ export default function LiveIncidentPage() {
       toast({ title: "Limit reached", description: `You can attach up to ${MAX_ARRIVAL_MEDIA} media items per arrival report.`, variant: "destructive" });
       return;
     }
+    setArrivalUploadSource("voice");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       // Mirror incident-dialog.tsx: negotiate MIME type in priority order
@@ -1841,6 +1864,7 @@ export default function LiveIncidentPage() {
         if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
         setIsRecording(false);
         setRecordingSeconds(0);
+        setArrivalUploadSource(null);
       };
       mr.start();
       setIsRecording(true);
@@ -1852,6 +1876,7 @@ export default function LiveIncidentPage() {
         });
       }, 1000);
     } catch {
+      setArrivalUploadSource(null);
       toast({ title: "Microphone error", description: "Could not access microphone. Check permissions and try again.", variant: "destructive" });
     }
   }
@@ -2977,6 +3002,11 @@ export default function LiveIncidentPage() {
     !isPanicIncident
     && distToDestinationM != null
     && distToDestinationM <= NAV_ARRIVAL_SOON_M;
+
+  function cancelArrivalForm() {
+    sessionStorage.removeItem(ARRIVAL_FORM_SESSION_KEY);
+    setShowArrivalForm(false);
+  }
 
   function recordArrival() {
     void stopSpeaking();
@@ -4520,231 +4550,45 @@ export default function LiveIncidentPage() {
         {/* Bottom action area — sibling of scroll so map can flex between header and footer */}
         {currentIncident ? (
           showArrivalForm ? (
-            /* ---- Arrival capture form — full-screen page overlay ---- */
-            <div className="fixed inset-0 z-50 flex flex-col bg-background text-foreground" style={{ backgroundColor: "hsl(var(--background))" }} data-testid="arrival-form">
-              {/* Page header */}
-              <div className="flex items-center gap-3 px-4 py-3 border-b bg-background shrink-0">
-                <button
-                  onClick={() => {
-                    sessionStorage.removeItem(ARRIVAL_FORM_SESSION_KEY);
-                    setShowArrivalForm(false);
-                  }}
-                  className="text-muted-foreground hover:text-foreground p-1 rounded transition-colors"
-                  data-testid="button-cancel-arrival"
-                  aria-label="Back"
-                >
-                  <ArrowLeft className="h-5 w-5" />
-                </button>
-                <div>
-                  <p className="text-base font-semibold leading-tight">Record On-Ground Incident</p>
-                  <p className="text-xs text-muted-foreground">
-                    {currentIncident?.destinationName || "Current location"}
-                  </p>
-                </div>
-              </div>
-              {/* Scrollable form body */}
-              <div className="flex-1 overflow-y-auto">
-              <div className="space-y-4 p-4 pb-2" data-testid="arrival-form-body">
-
-              {/* Pre-filled location / time — read-only summary */}
-              <div className="rounded-md bg-muted/60 border px-3 py-2 text-xs space-y-0.5" data-testid="arrival-prefill">
-                <div className="flex gap-1.5">
-                  <span className="font-medium text-muted-foreground w-14 shrink-0">Location</span>
-                  <span className="font-medium truncate" data-testid="text-arrival-location">
-                    {currentIncident?.destinationName || "Current location"}
-                  </span>
-                </div>
-                <div className="flex gap-1.5">
-                  <span className="font-medium text-muted-foreground w-14 shrink-0">Time</span>
-                  <span data-testid="text-arrival-time">
-                    {arrivalTimeRef.current.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                  </span>
-                </div>
-                <div className="flex gap-1.5">
-                  <span className="font-medium text-muted-foreground w-14 shrink-0">Date</span>
-                  <span data-testid="text-arrival-date">
-                    {arrivalTimeRef.current.toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" })}
-                  </span>
-                </div>
-              </div>
-
-              {/* Category */}
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">Incident Type</label>
-                <Select
-                  value={arrivalCategoryId !== null ? String(arrivalCategoryId) : ""}
-                  onValueChange={(v) => { setArrivalCategoryId(v ? Number(v) : null); setArrivalOtherType(""); }}
-                >
-                  <SelectTrigger className="h-9 text-sm" data-testid="select-arrival-category">
-                    <SelectValue placeholder="Select type…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {nonLiveCategories.map((c) => (
-                      <SelectItem key={c.id} value={String(c.id)} data-testid={`arrival-cat-${c.id}`}>
-                        {c.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {arrivalCategoryId !== null &&
-                  nonLiveCategories.find((c) => c.id === arrivalCategoryId)?.name.toLowerCase() === "other" && (
-                  <div className="space-y-1 mt-1">
-                    <label className="text-xs font-medium text-muted-foreground">Please specify</label>
-                    <Input
-                      placeholder="Please specify…"
-                      value={arrivalOtherType}
-                      onChange={(e) => setArrivalOtherType(e.target.value)}
-                      className="h-9 text-sm"
-                      maxLength={100}
-                      data-testid="input-arrival-other-type"
-                    />
-                  </div>
-                )}
-              </div>
-
-              {/* Description */}
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">Notes / Description</label>
-                <Textarea
-                  placeholder="Describe what you found on arrival…"
-                  value={arrivalDescription}
-                  onChange={(e) => setArrivalDescription(e.target.value)}
-                  rows={2}
-                  className="text-sm resize-none"
-                  maxLength={500}
-                  data-testid="textarea-arrival-description"
-                />
-              </div>
-
-              {/* Media — up to 5 photos + voice */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-medium text-muted-foreground">
-                    Evidence Media (optional, up to {MAX_ARRIVAL_MEDIA})
-                  </label>
-                  <span className="text-xs text-muted-foreground">{arrivalMedia.length}/{MAX_ARRIVAL_MEDIA}</span>
-                </div>
-
-                {/* Thumbnail grid for images + audio cards */}
-                {arrivalMedia.length > 0 && (
-                  <div className="grid grid-cols-3 gap-1.5">
-                    {arrivalMedia.map((item, idx) => (
-                      <div key={item.id} className="relative rounded overflow-hidden border bg-muted" data-testid={`arrival-media-item-${item.id}`}>
-                        {item.mimeType.startsWith("image/") ? (
-                          <img
-                            src={item.url}
-                            alt={`Media ${idx + 1}`}
-                            className="w-full h-20 object-cover"
-                          />
-                        ) : (
-                          <div className="flex flex-col items-center justify-center h-20 gap-1 px-1">
-                            <Mic className="h-5 w-5 text-muted-foreground" />
-                            <audio src={item.url} controls className="w-full h-6 scale-90" />
-                          </div>
-                        )}
-                        <button
-                          onClick={() => removeMedia(item.id)}
-                          className="absolute top-0.5 right-0.5 bg-black/60 text-white rounded-full p-0.5"
-                          aria-label={`Remove media ${idx + 1}`}
-                          data-testid={`button-remove-arrival-media-${item.id}`}
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </div>
-                    ))}
-                    {arrivalUploading && (
-                      <div className="flex items-center justify-center h-20 rounded border bg-muted">
-                        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Add media buttons — always shown, disabled at cap or while uploading */}
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="flex-1 gap-1.5 text-xs h-9"
-                    disabled={arrivalUploading || arrivalMedia.length >= MAX_ARRIVAL_MEDIA}
-                    onClick={() => arrivalCameraRef.current?.click()}
-                    data-testid="button-arrival-camera"
-                  >
-                    {arrivalUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
-                    Camera
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="flex-1 gap-1.5 text-xs h-9"
-                    disabled={arrivalUploading || arrivalMedia.length >= MAX_ARRIVAL_MEDIA}
-                    onClick={() => arrivalFileRef.current?.click()}
-                    data-testid="button-arrival-gallery"
-                  >
-                    <ImageIcon className="h-4 w-4" />
-                    Gallery
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={isRecording ? "destructive" : "outline"}
-                    className="flex-1 gap-1.5 text-xs h-9"
-                    disabled={(!isOnline && !isRecording) || (!isRecording && arrivalMedia.length >= MAX_ARRIVAL_MEDIA)}
-                    onClick={isRecording ? stopRecording : startRecording}
-                    data-testid="button-arrival-voice"
-                  >
-                    {isRecording ? (
-                      <>
-                        <Square className="h-4 w-4" />
-                        {`${Math.floor(recordingSeconds / 60)}:${String(recordingSeconds % 60).padStart(2, "0")} / 2:00`}
-                      </>
-                    ) : (
-                      <>
-                        <Mic className="h-4 w-4" />
-                        Voice
-                      </>
-                    )}
-                  </Button>
-                </div>
-
-                <input
-                  ref={arrivalCameraRef}
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  className="hidden"
-                  onChange={(e) => { const f = e.target.files?.[0]; if (f) handleAddImage(f); e.target.value = ""; }}
-                  data-testid="input-arrival-camera"
-                />
-                <input
-                  ref={arrivalFileRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => { const f = e.target.files?.[0]; if (f) handleAddImage(f); e.target.value = ""; }}
-                  data-testid="input-arrival-gallery"
-                />
-              </div>
-
-              </div>
-              </div>
-
-              {/* Sticky submit footer */}
-              <div className="shrink-0 px-4 pt-3 pb-4 border-t bg-background" style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
-                <Button
-                  size="lg"
-                  className="w-full"
-                  onClick={isJoinerMode ? submitJoinerArrival : submitArrival}
-                  disabled={arrivalSubmitting}
-                  data-testid="button-submit-arrival"
-                >
-                  {arrivalSubmitting ? <Loader2 className="h-5 w-5 mr-2 animate-spin" /> : <CheckCircle2 className="h-5 w-5 mr-2" />}
-                  {isJoinerMode ? "Record Arrival & Leave" : "Record & Close Incident"}
-                </Button>
-              </div>
-            </div>
+            <LiveIncidentArrivalForm
+              destinationLabel={currentIncident?.destinationName || "Current location"}
+              arrivalTime={arrivalTimeRef.current}
+              isJoinerMode={isJoinerMode}
+              description={arrivalDescription}
+              onDescriptionChange={setArrivalDescription}
+              categoryId={arrivalCategoryId}
+              onCategoryChange={setArrivalCategoryId}
+              otherCategoryNote={arrivalOtherType}
+              onOtherCategoryNoteChange={setArrivalOtherType}
+              categories={nonLiveCategories}
+              media={arrivalMedia}
+              maxMedia={MAX_ARRIVAL_MEDIA}
+              uploading={arrivalUploading}
+              uploadSource={arrivalUploadSource}
+              isRecording={isRecording}
+              recordingSeconds={recordingSeconds}
+              onStartRecording={startRecording}
+              onStopRecording={stopRecording}
+              onRemoveMedia={removeMedia}
+              onPickUpload={() => arrivalUploadRef.current?.click()}
+              onPickCamera={() => arrivalCameraRef.current?.click()}
+              cameraInputRef={arrivalCameraRef}
+              uploadInputRef={arrivalUploadRef}
+              onCameraChange={(file) => { if (file) void addArrivalAttachment(file, "camera"); }}
+              onUploadChange={(files) => { void handleArrivalUploadFiles(files); }}
+              submitting={arrivalSubmitting}
+              onSubmit={isJoinerMode ? submitJoinerArrival : submitArrival}
+              onCancel={cancelArrivalForm}
+              formFields={formFields}
+              customFields={arrivalCustomFields}
+              onCustomFieldsChange={setArrivalCustomFields}
+              personInvolved={arrivalPersonInvolved}
+              onPersonInvolvedChange={setArrivalPersonInvolved}
+              vehicleInvolved={arrivalVehicleInvolved}
+              onVehicleInvolvedChange={setArrivalVehicleInvolved}
+              sapsSectionOpen={arrivalSapsOpen}
+              onSapsSectionOpenChange={setArrivalSapsOpen}
+            />
           ) : navMode ? null : showProminentArrived && !isPanicIncident ? (
             /* ---- Approaching destination (within 500 m) ---- */
             <div className={fieldActionFooterClass} ref={fieldFooterRef} style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
