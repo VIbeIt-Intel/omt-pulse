@@ -711,6 +711,8 @@ export default function LiveIncidentPage() {
   // actually had an active incident in this session (normal start → end).
   const hadIncidentRef = useRef<boolean>((storedId !== null) || (storedJoinedId !== null));
   const joinFromPushRef = useRef(false);
+  /** After a fresh live-incident join (not panic), auto-start turn-by-turn to the initiator destination. */
+  const autoNavAfterJoinRef = useRef(false);
   const [staleJoinNotice, setStaleJoinNotice] = useState<{ id: number; closedAt: string | null } | null>(null);
   // True once the responder has tapped "Open Google Maps" — persisted in
   // localStorage so the red arrived-button survives app switches / PWA reloads.
@@ -781,6 +783,22 @@ export default function LiveIncidentPage() {
     && !navMode
     && !navStarted
     && !(currentIncident?.categoryName ?? "").toLowerCase().includes("panic");
+
+  // Fresh live-incident join (notification prompt): skip field-view buttons — go straight to guided nav.
+  useEffect(() => {
+    if (!autoNavAfterJoinRef.current) return;
+    if (!joinedId || !isJoinerMode || !currentIncident) return;
+    if ((currentIncident.categoryName ?? "").toLowerCase().includes("panic")) {
+      autoNavAfterJoinRef.current = false;
+      return;
+    }
+    if (!joinerNavDestination) return;
+    const mapActuallyReady = isNative ? nativeMapStatus === "ready" : mapsReady;
+    if (!mapActuallyReady) return;
+    autoNavAfterJoinRef.current = false;
+    void dispatchJoinerInApp("guided");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [joinedId, isJoinerMode, currentIncident?.id, joinerNavDestination?.lat, joinerNavDestination?.lng, mapsReady, nativeMapStatus, isNative]);
   /** Live incident active but not in full-screen nav — pin map between header and footer. */
   const pinnedFieldLayout = Boolean(currentIncident && !navMode && !showArrivalForm);
 
@@ -1620,6 +1638,7 @@ export default function LiveIncidentPage() {
     }
     const id = joinPrompt.id;
     setJoinPrompt(null);
+    autoNavAfterJoinRef.current = true;
     joinLiveMutation.mutate(id);
   }
 
@@ -1632,7 +1651,9 @@ export default function LiveIncidentPage() {
       gpsEndpointRef.current = "joiner-position";
       startTracking(id);
       await queryClient.refetchQueries({ queryKey: ["/api/incidents/live"] });
-      toast({ title: "Joined incident", description: "Your GPS position is now being shared with the team." });
+      if (!autoNavAfterJoinRef.current) {
+        toast({ title: "Joined incident", description: "Your GPS position is now being shared with the team." });
+      }
     },
     onError: (err: Error, id: number) => {
       if (err.message.includes("Incident is not live")) {
