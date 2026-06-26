@@ -106,16 +106,9 @@ function androidIntentForTarget(target: LocationSettingsTarget): string {
 }
 
 function openAndroidIntentFallback(target: LocationSettingsTarget): boolean {
-  const uri = androidIntentForTarget(target);
-  try {
-    window.location.assign(uri);
-    return true;
-  } catch {
-    /* try anchor click */
-  }
   try {
     const a = document.createElement("a");
-    a.href = uri;
+    a.href = androidIntentForTarget(target);
     a.style.display = "none";
     document.body.appendChild(a);
     a.click();
@@ -201,14 +194,13 @@ export async function openLocationSettings(
   const platform = nativePlatform();
 
   if (platform === "android" || platform === "ios") {
-    // Android WebView: intent URI is more reliable than the native-settings plugin on some devices.
-    if (platform === "android" && openAndroidIntentFallback(target)) {
+    if (await openViaNativeSettingsPlugin(platform, target)) {
       return {
         result: "opened",
         message: locationSettingsUserMessage(target),
       };
     }
-    if (await openViaNativeSettingsPlugin(platform, target)) {
+    if (platform === "android" && openAndroidIntentFallback(target)) {
       return {
         result: "opened",
         message: locationSettingsUserMessage(target),
