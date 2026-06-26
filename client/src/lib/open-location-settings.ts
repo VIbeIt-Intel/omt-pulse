@@ -79,6 +79,16 @@ export function locationSettingsHint(
   return "Allow location in your browser site settings for omtpulse.com.";
 }
 
+/** Short copy for toasts after we send the user to Settings — not an error message. */
+export function locationSettingsUserMessage(
+  target: LocationSettingsTarget = "phone-location",
+): string {
+  if (target === "app-permissions") {
+    return "Allow Location for OMT Pulse, then return to the app.";
+  }
+  return "Turn on Location, then return to OMT Pulse.";
+}
+
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return Promise.race([
     promise,

@@ -1167,11 +1167,17 @@ export default function LiveIncidentPage() {
     if (mapLocationRequesting) return;
     setMapLocationRequesting(true);
     try {
-      const { result, message } = await requestLocationAccess();
+      const { result, message } = await requestLocationAccess({
+        permissionHint: locationPermission,
+      });
       if (result === "granted") {
         const incId = currentIncidentId;
         if (incId != null) startTracking(incId);
         toast({ title: "Location on", description: message });
+        return;
+      }
+      if (result === "settings-opened") {
+        toast({ title: "Opening Settings", description: message });
         return;
       }
       toast({
@@ -4848,19 +4854,22 @@ export default function LiveIncidentPage() {
               )}
             </div>
           ) : !navStarted && !navMode ? (
-            isPanicIncident && isJoinerMode ? (
+            isJoinerMode ? (
               <div className={fieldActionFooterClass} ref={fieldFooterRef} style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
-                <p className="text-center text-sm text-muted-foreground px-2">
-                  GPS shared with dispatch
-                  {joinerNavDestination ? ` · tracking ${joinerNavDestination.name.replace(/^🆘\s*/, "")}` : ""}
-                </p>
                 {joinerNavDestination ? (
                   <LiveIncidentStartNavigationCta
                     onStart={() => setJoinerNavPickerOpen(true)}
                     dispatching={dispatching}
-                    label="Set destination"
+                    label="Navigate to incident"
                   />
-                ) : null}
+                ) : (
+                  <p className="text-center text-sm text-muted-foreground px-2">
+                    GPS shared with dispatch
+                    {isPanicIncident
+                      ? " — waiting for panicker location"
+                      : " — waiting for incident lead to set a destination"}
+                  </p>
+                )}
                 <Button
                   size="sm"
                   variant="outline"
@@ -4877,13 +4886,7 @@ export default function LiveIncidentPage() {
             <div className={fieldActionFooterClass} ref={fieldFooterRef} style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
               <LiveIncidentBypassNavigationCta onBypass={bypassInAppNavigation} disabled={dispatching} />
               <LiveIncidentStartNavigationCta
-                onStart={() => {
-                  if (isJoinerMode && joinerNavDestination) {
-                    setJoinerNavPickerOpen(true);
-                  } else {
-                    openDestinationPicker();
-                  }
-                }}
+                onStart={openDestinationPicker}
                 dispatching={dispatching}
                 label="Set destination"
               />

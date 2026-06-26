@@ -1,11 +1,28 @@
-import { probeLocationAccess, hasPanicCoordinates, type PanicLocationIssue } from "@/lib/panic-location";
+import {
+  probeLocationAccess,
+  probeLocationPermissionGesture,
+  hasPanicCoordinates,
+  type PanicLocationIssue,
+} from "@/lib/panic-location";
 import {
   openLocationSettings,
   locationSettingsHint,
+  locationSettingsUserMessage,
   type LocationSettingsTarget,
 } from "@/lib/open-location-settings";
+import type { PermissionState } from "@/hooks/use-permission-status";
 
-export type LocationAccessResult = "granted" | "denied" | "unavailable" | "unsupported";
+export type LocationAccessResult =
+  | "granted"
+  | "denied"
+  | "unavailable"
+  | "unsupported"
+  | "settings-opened";
+
+export type RequestLocationAccessOptions = {
+  /** From usePermissionStatus — first-time joiners need the permission dialog, not a 1s timeout. */
+  permissionHint?: PermissionState;
+};
 
 function settingsTargetForIssue(issue?: PanicLocationIssue): LocationSettingsTarget {
   return issue === "denied" ? "app-permissions" : "phone-location";
@@ -31,11 +48,33 @@ function issueMessage(issue?: PanicLocationIssue): string {
  * 1) Try the Android/iOS permission prompt via geolocation.
  * 2) If blocked or GPS is off, open app/location Settings (no APK update needed).
  */
-export async function requestLocationAccess(): Promise<{
+export async function requestLocationAccess(
+  options: RequestLocationAccessOptions = {},
+): Promise<{
   result: LocationAccessResult;
   message: string;
 }> {
-  const loc = await probeLocationAccess();
+  const permissionHint = options.permissionHint ?? "prompt";
+
+  if (permissionHint === "denied") {
+    const settings = await openLocationSettings({ target: "app-permissions" });
+    if (settings.result === "opened" || settings.result === "prompted") {
+      return {
+        result: "settings-opened",
+        message: locationSettingsUserMessage("app-permissions"),
+      };
+    }
+    return {
+      result: "denied",
+      message: settings.message || issueMessage("denied"),
+    };
+  }
+
+  const loc =
+    permissionHint === "prompt"
+      ? await probeLocationPermissionGesture()
+      : await probeLocationAccess();
+
   if (hasPanicCoordinates(loc)) {
     window.dispatchEvent(new CustomEvent("omt:location-granted"));
     return { result: "granted", message: "GPS is on — tracking your position." };
@@ -45,9 +84,15 @@ export async function requestLocationAccess(): Promise<{
     return { result: "unsupported", message: issueMessage("unsupported") };
   }
 
-  const settings = await openLocationSettings({
-    target: settingsTargetForIssue(loc.issue),
-  });
+  const target = settingsTargetForIssue(loc.issue);
+  const settings = await openLocationSettings({ target });
+  if (settings.result === "opened" || settings.result === "prompted") {
+    return {
+      result: "settings-opened",
+      message: locationSettingsUserMessage(target),
+    };
+  }
+
   const base = issueMessage(loc.issue);
   if (loc.issue === "denied") {
     return {
