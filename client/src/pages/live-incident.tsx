@@ -4890,17 +4890,19 @@ export default function LiveIncidentPage() {
             </div>
             )
           ) : !navMode ? (
-            /* Live incident active — en route or between flows; subtle early arrival */
+            /* Self-navigating (I know where I'm going) — GPS live, no turn-by-turn */
             <div className={fieldActionFooterClass} ref={fieldFooterRef} style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
               {!isPanicIncident && (
-                <button
-                  type="button"
-                  className="w-full text-center text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground py-1"
+                <Button
+                  size="lg"
+                  variant="destructive"
+                  className="w-full shrink-0 font-bold py-6 text-base"
                   onClick={recordArrival}
                   data-testid="button-arrived"
                 >
-                  Record arrival early (still en route)
-                </button>
+                  <CheckCircle2 className="h-6 w-6 mr-2" />
+                  {isJoinerMode ? "I've Arrived — Record & Leave" : "I've Arrived — Record Incident"}
+                </Button>
               )}
               {isJoinerMode && (
                 <Button
