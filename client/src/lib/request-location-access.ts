@@ -1,5 +1,5 @@
 import {
-  probeLocationPermissionGesture,
+  probeLocationForAllowTap,
   hasPanicCoordinates,
   type PanicLocationIssue,
 } from "@/lib/panic-location";
@@ -71,8 +71,10 @@ export async function requestLocationAccess(
     };
   }
 
-  // Always require a fresh fix on user tap — never grant from stale cache while phone GPS is off.
-  const loc = await probeLocationPermissionGesture();
+  // Fresh fix only — short wait when app permission is already granted (GPS off), slightly longer on first prompt.
+  const loc = await probeLocationForAllowTap(
+    permissionHint === "unsupported" ? "prompt" : permissionHint,
+  );
 
   if (hasPanicCoordinates(loc)) {
     window.dispatchEvent(new CustomEvent("omt:location-granted"));

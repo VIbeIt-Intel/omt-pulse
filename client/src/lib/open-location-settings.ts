@@ -106,9 +106,16 @@ function androidIntentForTarget(target: LocationSettingsTarget): string {
 }
 
 function openAndroidIntentFallback(target: LocationSettingsTarget): boolean {
+  const uri = androidIntentForTarget(target);
+  try {
+    window.location.assign(uri);
+    return true;
+  } catch {
+    /* try anchor click */
+  }
   try {
     const a = document.createElement("a");
-    a.href = androidIntentForTarget(target);
+    a.href = uri;
     a.style.display = "none";
     document.body.appendChild(a);
     a.click();
@@ -194,23 +201,27 @@ export async function openLocationSettings(
   const platform = nativePlatform();
 
   if (platform === "android" || platform === "ios") {
+    // Android WebView: intent URI is more reliable than the native-settings plugin on some devices.
+    if (platform === "android" && openAndroidIntentFallback(target)) {
+      return {
+        result: "opened",
+        message: locationSettingsUserMessage(target),
+      };
+    }
     if (await openViaNativeSettingsPlugin(platform, target)) {
       return {
         result: "opened",
-        message: `Opening Settings… ${manualMsg}`,
+        message: locationSettingsUserMessage(target),
       };
     }
-    if (platform === "android" && openAndroidIntentFallback(target)) {
-      return { result: "opened", message: `Trying Settings… ${manualMsg}` };
-    }
     if (platform === "ios" && openIosUrlFallback()) {
-      return { result: "opened", message: `Trying Settings… ${manualMsg}` };
+      return { result: "opened", message: locationSettingsUserMessage(target) };
     }
     return { result: "manual", message: manualMsg };
   }
 
   if (detectPlatform() === "android" && openAndroidIntentFallback(target)) {
-    return { result: "opened", message: `Trying Settings… ${manualMsg}` };
+    return { result: "opened", message: locationSettingsUserMessage(target) };
   }
 
   if (await promptBrowserLocation()) {
