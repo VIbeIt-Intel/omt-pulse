@@ -24,16 +24,20 @@ function issueFromGeolocationCode(code: number | undefined): PanicLocationIssue 
 }
 
 /**
- * User-tap probe — allow time for the Android/iOS permission dialog on first allow.
+ * User-tap probe for Allow Location — fresh fix only (maximumAge 0).
+ * Prompt: ~3s so the permission dialog can be answered; granted/GPS-off: ~1.5s then Settings.
  */
-export async function probeLocationPermissionGesture(): Promise<PanicLocationResult> {
+export async function probeLocationForAllowTap(
+  permissionHint: "granted" | "denied" | "prompt" | "unsupported" = "prompt",
+): Promise<PanicLocationResult> {
   if (!navigator.geolocation) {
     return { issue: "unsupported" };
   }
+  const timeoutMs = permissionHint === "prompt" ? 3_000 : 1_500;
   try {
     const pos = await getCurrentPositionOnce({
       enableHighAccuracy: false,
-      timeout: 12_000,
+      timeout: timeoutMs,
       maximumAge: 0,
     });
     const lat = pos.coords.latitude;
@@ -50,6 +54,11 @@ export async function probeLocationPermissionGesture(): Promise<PanicLocationRes
     return { issue: issueFromGeolocationCode(code) };
   }
   return { issue: "unavailable" };
+}
+
+/** @deprecated Use probeLocationForAllowTap — kept for callers that need a longer first-time window. */
+export async function probeLocationPermissionGesture(): Promise<PanicLocationResult> {
+  return probeLocationForAllowTap("prompt");
 }
 
 /**
