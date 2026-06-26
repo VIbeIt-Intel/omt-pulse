@@ -1,5 +1,4 @@
 import {
-  probeLocationAccess,
   probeLocationPermissionGesture,
   hasPanicCoordinates,
   type PanicLocationIssue,
@@ -53,6 +52,8 @@ export async function requestLocationAccess(
 ): Promise<{
   result: LocationAccessResult;
   message: string;
+  lat?: number;
+  lng?: number;
 }> {
   const permissionHint = options.permissionHint ?? "prompt";
 
@@ -70,14 +71,17 @@ export async function requestLocationAccess(
     };
   }
 
-  const loc =
-    permissionHint === "prompt"
-      ? await probeLocationPermissionGesture()
-      : await probeLocationAccess();
+  // Always require a fresh fix on user tap — never grant from stale cache while phone GPS is off.
+  const loc = await probeLocationPermissionGesture();
 
   if (hasPanicCoordinates(loc)) {
     window.dispatchEvent(new CustomEvent("omt:location-granted"));
-    return { result: "granted", message: "GPS is on — tracking your position." };
+    return {
+      result: "granted",
+      message: "GPS is on — tracking your position.",
+      lat: loc.lat,
+      lng: loc.lng,
+    };
   }
 
   if (loc.issue === "unsupported") {

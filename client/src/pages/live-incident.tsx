@@ -812,8 +812,7 @@ export default function LiveIncidentPage() {
     && (
       mapLocationBlocked
       || locationPermission === "prompt"
-      || gpsStatus === "unavailable"
-      || gpsStatus === "acquiring"
+      || (gpsStatus === "unavailable" && locationPermission !== "granted")
     );
 
   const destinationSheetGps = useMemo(
@@ -1167,13 +1166,27 @@ export default function LiveIncidentPage() {
     if (mapLocationRequesting) return;
     setMapLocationRequesting(true);
     try {
-      const { result, message } = await requestLocationAccess({
+      const { result, message, lat, lng } = await requestLocationAccess({
         permissionHint: locationPermission,
       });
       if (result === "granted") {
         const incId = currentIncidentId;
+        if (lat != null && lng != null) {
+          const p = { lat, lng };
+          lastPosRef.current = p;
+          setUserLoc(p);
+          if (isNative && capMapRef.current) {
+            void capMapRef.current.setUserLocation(lat, lng);
+          }
+        }
         if (incId != null) startTracking(incId);
-        toast({ title: "Location on", description: message });
+        toast({
+          title: lat != null && lng != null ? "Location on" : "Acquiring GPS",
+          description:
+            lat != null && lng != null
+              ? message
+              : "Permission granted — waiting for your first GPS fix.",
+        });
         return;
       }
       if (result === "settings-opened") {
