@@ -5,8 +5,9 @@ import {
   enableNativePush,
   syncNativePushIfNeeded,
   initNativePushListeners,
-  consumePendingPushDeepLink,
+  schedulePendingPushDeepLinkConsumption,
   PUSH_DEEPLINK_EVENT,
+  PENDING_PUSH_URL_KEY,
 } from "@/lib/native-push";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -565,13 +566,16 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
 
   useEffect(() => {
     initNativePushListeners();
-    consumePendingPushDeepLink(navigate);
+    const stopRetries = schedulePendingPushDeepLinkConsumption(navigate);
     const onDeepLink = (event: Event) => {
       const url = (event as CustomEvent<{ url?: string }>).detail?.url;
       if (url?.startsWith("/")) navigate(url);
     };
     window.addEventListener(PUSH_DEEPLINK_EVENT, onDeepLink);
-    return () => window.removeEventListener(PUSH_DEEPLINK_EVENT, onDeepLink);
+    return () => {
+      stopRetries();
+      window.removeEventListener(PUSH_DEEPLINK_EVENT, onDeepLink);
+    };
   }, [navigate]);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
@@ -600,6 +604,15 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
     if (!liveLoaded || liveRedirectFiredRef.current) return;
     if (location === "/live-monitor") return;
     if (location === "/live-incident") return;
+    // Notification deep link wins over resume-to-live — joiners must see the join prompt first.
+    try {
+      if (
+        sessionStorage.getItem(PENDING_PUSH_URL_KEY)
+        || localStorage.getItem(PENDING_PUSH_URL_KEY)
+      ) {
+        return;
+      }
+    } catch { /* ignore */ }
     // Desktop dispatch: monitor from control room; mobile native: stay on incident GPS page.
     if (isDispatchRole && !nativeApp) return;
     const myActive = myLiveIncidents.find(

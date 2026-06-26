@@ -21,6 +21,8 @@ export type LocationAccessResult =
 export type RequestLocationAccessOptions = {
   /** From usePermissionStatus — first-time joiners need the permission dialog, not a 1s timeout. */
   permissionHint?: PermissionState;
+  /** Live-incident joiner who may never have granted app location — try app permissions first. */
+  preferAppPermissions?: boolean;
 };
 
 function settingsTargetForIssue(issue?: PanicLocationIssue): LocationSettingsTarget {
@@ -56,6 +58,7 @@ export async function requestLocationAccess(
   lng?: number;
 }> {
   const permissionHint = options.permissionHint ?? "prompt";
+  const preferAppPermissions = options.preferAppPermissions ?? false;
 
   if (permissionHint === "denied") {
     const settings = await openLocationSettings({ target: "app-permissions" });
@@ -88,6 +91,16 @@ export async function requestLocationAccess(
 
   if (loc.issue === "unsupported") {
     return { result: "unsupported", message: issueMessage("unsupported") };
+  }
+
+  if (preferAppPermissions && loc.issue !== "denied") {
+    const appFirst = await openLocationSettings({ target: "app-permissions" });
+    if (appFirst.result === "opened" || appFirst.result === "prompted") {
+      return {
+        result: "settings-opened",
+        message: locationSettingsUserMessage("app-permissions"),
+      };
+    }
   }
 
   const target = settingsTargetForIssue(loc.issue);

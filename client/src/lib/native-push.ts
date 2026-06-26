@@ -1,6 +1,10 @@
+import { Capacitor } from "@capacitor/core";
+import { PushNotifications } from "@capacitor/push-notifications";
+
 export type NativePushStatus = "unknown" | "needs-enable" | "denied" | "granted" | "error";
 
 const PENDING_PUSH_URL_KEY = "omt_pending_push_url";
+export { PENDING_PUSH_URL_KEY };
 export const PUSH_DEEPLINK_EVENT = "omt:push-deeplink";
 
 let nativePushListenersReady = false;
@@ -46,8 +50,27 @@ export function resolvePushDeepLink(data: Record<string, unknown> | undefined): 
 function storePushDeepLink(url: string): void {
   try {
     sessionStorage.setItem(PENDING_PUSH_URL_KEY, url);
+    localStorage.setItem(PENDING_PUSH_URL_KEY, url);
   } catch { /* ignore */ }
   window.dispatchEvent(new CustomEvent(PUSH_DEEPLINK_EVENT, { detail: { url } }));
+}
+
+function readPendingPushDeepLink(): string | null {
+  try {
+    return (
+      sessionStorage.getItem(PENDING_PUSH_URL_KEY)
+      ?? localStorage.getItem(PENDING_PUSH_URL_KEY)
+    );
+  } catch {
+    return null;
+  }
+}
+
+function clearPendingPushDeepLink(): void {
+  try {
+    sessionStorage.removeItem(PENDING_PUSH_URL_KEY);
+    localStorage.removeItem(PENDING_PUSH_URL_KEY);
+  } catch { /* ignore */ }
 }
 
 function handlePushAction(data: Record<string, unknown> | undefined): void {
@@ -58,18 +81,13 @@ function handlePushAction(data: Record<string, unknown> | undefined): void {
 /** Register FCM tap listener as early as possible (main.tsx) so cold-start taps are not missed. */
 export function initNativePushListeners(): void {
   if (nativePushListenersReady) return;
+  if (!Capacitor.isNativePlatform()) return;
   nativePushListenersReady = true;
 
-  void (async () => {
-    const { Capacitor } = await import("@capacitor/core");
-    if (!Capacitor.isNativePlatform()) return;
-
-    const { PushNotifications } = await import("@capacitor/push-notifications");
-    await PushNotifications.addListener(
-      "pushNotificationActionPerformed",
-      (event) => handlePushAction(event.notification.data as Record<string, unknown>),
-    );
-  })();
+  void PushNotifications.addListener(
+    "pushNotificationActionPerformed",
+    (event) => handlePushAction(event.notification.data as Record<string, unknown>),
+  );
 }
 
 /** @deprecated Prefer initNativePushListeners in main.tsx; kept for cleanup hook symmetry. */
@@ -79,13 +97,30 @@ export function setupNativePushDeepLinks(navigate: (path: string) => void): () =
 }
 
 /** Apply a deep link stored when the app opened from a notification before auth routed. */
-export function consumePendingPushDeepLink(navigate: (path: string) => void): void {
-  try {
-    const pending = sessionStorage.getItem(PENDING_PUSH_URL_KEY);
-    if (!pending) return;
-    sessionStorage.removeItem(PENDING_PUSH_URL_KEY);
-    navigate(pending);
-  } catch { /* ignore */ }
+export function consumePendingPushDeepLink(navigate: (path: string) => void): boolean {
+  const pending = readPendingPushDeepLink();
+  if (!pending) return false;
+  clearPendingPushDeepLink();
+  navigate(pending);
+  return true;
+}
+
+/** Retry consumption — cold-start FCM tap can arrive after the first mount effect. */
+export function schedulePendingPushDeepLinkConsumption(
+  navigate: (path: string) => void,
+): () => void {
+  const tryConsume = () => {
+    consumePendingPushDeepLink(navigate);
+  };
+  tryConsume();
+  const t1 = window.setTimeout(tryConsume, 400);
+  const t2 = window.setTimeout(tryConsume, 1_500);
+  const t3 = window.setTimeout(tryConsume, 3_500);
+  return () => {
+    window.clearTimeout(t1);
+    window.clearTimeout(t2);
+    window.clearTimeout(t3);
+  };
 }
 
 /** True when the server already has an FCM token stored for this user. */

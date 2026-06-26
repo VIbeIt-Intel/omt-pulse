@@ -4,7 +4,11 @@ import {
   AndroidSettings,
   IOSSettings,
 } from "capacitor-native-settings";
-
+import {
+  hasOmtAppSettingsPlugin,
+  openOmtAppDetailsSettings,
+  openOmtLocationSourcesSettings,
+} from "@/lib/omt-app-settings";
 export type OpenLocationSettingsResult =
   | "opened"
   | "prompted"
@@ -144,6 +148,18 @@ function iosSettingForTarget(target: LocationSettingsTarget): IOSSettings {
 }
 
 /**
+ * Custom Capacitor plugin (bundled in the Play Store APK) — uses startActivity
+ * directly and is more reliable from the WebView than third-party settings plugins.
+ */
+async function openViaOmtAppSettings(target: LocationSettingsTarget): Promise<boolean> {
+  if (!hasOmtAppSettingsPlugin()) return false;
+  if (target === "app-permissions") {
+    return openOmtAppDetailsSettings();
+  }
+  return openOmtLocationSourcesSettings();
+}
+
+/**
  * Uses capacitor-native-settings already bundled in the Play Store APK.
  * Opens exactly one settings screen — no waterfall across Apps / Location / App info.
  */
@@ -194,6 +210,12 @@ export async function openLocationSettings(
   const platform = nativePlatform();
 
   if (platform === "android" || platform === "ios") {
+    if (platform === "android" && (await openViaOmtAppSettings(target))) {
+      return {
+        result: "opened",
+        message: locationSettingsUserMessage(target),
+      };
+    }
     if (await openViaNativeSettingsPlugin(platform, target)) {
       return {
         result: "opened",
