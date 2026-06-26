@@ -1,19 +1,28 @@
-import { acquirePanicLocation, hasPanicCoordinates, type PanicLocationIssue } from "@/lib/panic-location";
-import { openLocationSettings, locationSettingsHint } from "@/lib/open-location-settings";
+import { probeLocationAccess, hasPanicCoordinates, type PanicLocationIssue } from "@/lib/panic-location";
+import {
+  openLocationSettings,
+  locationSettingsHint,
+  type LocationSettingsTarget,
+} from "@/lib/open-location-settings";
 
 export type LocationAccessResult = "granted" | "denied" | "unavailable" | "unsupported";
 
+function settingsTargetForIssue(issue?: PanicLocationIssue): LocationSettingsTarget {
+  return issue === "denied" ? "app-permissions" : "phone-location";
+}
+
 function issueMessage(issue?: PanicLocationIssue): string {
+  const target = settingsTargetForIssue(issue);
   switch (issue) {
     case "denied":
-      return "Location is blocked for OMT Pulse. Allow it in Settings, then return here.";
+      return `Location is blocked for OMT Pulse. ${locationSettingsHint(target)}`;
     case "timeout":
       return "GPS timed out. Turn on phone Location, wait a few seconds, then tap Allow again.";
     case "unsupported":
       return "This device cannot report GPS.";
     case "unavailable":
     default:
-      return `Turn on Location in your phone settings. ${locationSettingsHint()}`;
+      return `Turn on Location in your phone settings. ${locationSettingsHint(target)}`;
   }
 }
 
@@ -26,7 +35,7 @@ export async function requestLocationAccess(): Promise<{
   result: LocationAccessResult;
   message: string;
 }> {
-  const loc = await acquirePanicLocation();
+  const loc = await probeLocationAccess();
   if (hasPanicCoordinates(loc)) {
     window.dispatchEvent(new CustomEvent("omt:location-granted"));
     return { result: "granted", message: "GPS is on — tracking your position." };
@@ -36,7 +45,9 @@ export async function requestLocationAccess(): Promise<{
     return { result: "unsupported", message: issueMessage("unsupported") };
   }
 
-  const settings = await openLocationSettings();
+  const settings = await openLocationSettings({
+    target: settingsTargetForIssue(loc.issue),
+  });
   const base = issueMessage(loc.issue);
   if (loc.issue === "denied") {
     return {
