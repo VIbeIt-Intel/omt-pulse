@@ -686,7 +686,7 @@ export default function LiveIncidentPage() {
   const [arrivalSubmitting, setArrivalSubmitting] = useState(false);
   const [isNearDestination, setIsNearDestination] = useState(false);
   const [distToDestinationM, setDistToDestinationM] = useState<number | null>(null);
-  /** Creator flow: true while the responder is picking a destination after Start Navigation. */
+  /** Creator flow: true while the responder is picking a destination after Set destination. */
   const [destinationPickerOpen, setDestinationPickerOpen] = useState(false);
   const [joinerNavPickerOpen, setJoinerNavPickerOpen] = useState(false);
   const [joinPrompt, setJoinPrompt] = useState<JoinPromptDetails | null>(null);
@@ -4226,7 +4226,7 @@ export default function LiveIncidentPage() {
                 <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
               </button>
             )}
-            {/* Joiner-only destination status — creators pick via Start Navigation sheet */}
+            {/* Joiner-only destination status — creators pick via Set destination sheet */}
             {!navMode && isJoinerMode && (
             <div className="space-y-1.5 shrink-0">
               {joinerNavDestination ? (
@@ -4858,7 +4858,7 @@ export default function LiveIncidentPage() {
                   <LiveIncidentStartNavigationCta
                     onStart={() => setJoinerNavPickerOpen(true)}
                     dispatching={dispatching}
-                    label="Start navigation"
+                    label="Set destination"
                   />
                 ) : null}
                 <Button
@@ -4885,7 +4885,7 @@ export default function LiveIncidentPage() {
                   }
                 }}
                 dispatching={dispatching}
-                label="Start Navigation"
+                label="Set destination"
               />
             </div>
             )

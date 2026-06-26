@@ -173,7 +173,7 @@ type StartNavigationCtaProps = {
 export function LiveIncidentStartNavigationCta({
   onStart,
   dispatching = false,
-  label = "Start Navigation",
+  label = "Set destination",
 }: StartNavigationCtaProps) {
   return (
     <Button
