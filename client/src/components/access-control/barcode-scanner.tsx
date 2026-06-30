@@ -55,7 +55,7 @@ export function BarcodeScanner({ open, onOpenChange, title, onScan }: BarcodeSca
     const detector =
       typeof window.BarcodeDetector !== "undefined"
         ? new window.BarcodeDetector({
-            formats: ["code_128", "code_39", "ean_13", "qr_code", "pdf417", "data_matrix"],
+            formats: ["code_128", "code_39", "ean_13", "qr_code", "pdf417", "data_matrix", "aztec"],
           })
         : null;
 

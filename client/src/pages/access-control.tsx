@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Destination } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -7,6 +7,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { AccessEntryForm } from "@/components/access-control/access-entry-form";
 import { CurrentlyInsidePanel } from "@/components/access-control/currently-inside-panel";
 import { DestinationAdminSheet } from "@/components/access-control/destination-admin-sheet";
+import {
+  currentlyInsideQueryKey,
+  currentlyInsideQueryOptions,
+} from "@/lib/access-control-queries";
 import { DoorOpen, List, Plus, ShieldCheck } from "lucide-react";
 
 type AccessControlPageProps = {
@@ -17,6 +21,7 @@ export default function AccessControlPage({ userRole }: AccessControlPageProps) 
   const [tab, setTab] = useState<"entry" | "inside">("entry");
   const [destSheetOpen, setDestSheetOpen] = useState(false);
   const isAdmin = userRole === "administrator";
+  const qc = useQueryClient();
 
   const { data: destinations = [], isLoading } = useQuery<Destination[]>({
     queryKey: ["/api/access-control/destinations", isAdmin ? "all" : "active"],
@@ -33,8 +38,15 @@ export default function AccessControlPage({ userRole }: AccessControlPageProps) 
   const activeDestinations = destinations.filter((d) => d.active);
 
   const { data: inside = [] } = useQuery<{ id: number }[]>({
-    queryKey: ["/api/access-control/currently-inside"],
+    queryKey: currentlyInsideQueryKey,
+    ...currentlyInsideQueryOptions,
   });
+
+  useEffect(() => {
+    if (tab === "inside") {
+      void qc.invalidateQueries({ queryKey: currentlyInsideQueryKey });
+    }
+  }, [tab, qc]);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">

@@ -6,6 +6,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { ACCESS_CATEGORY_LABELS } from "@/lib/access-control-labels";
+import {
+  currentlyInsideQueryKey,
+  currentlyInsideQueryOptions,
+} from "@/lib/access-control-queries";
 import { Car, Clock, Loader2, LogOut, MapPin, User } from "lucide-react";
 
 function formatTime(iso: string | Date): string {
@@ -71,15 +75,15 @@ export function CurrentlyInsidePanel() {
   const qc = useQueryClient();
 
   const { data: entries = [], isLoading, refetch } = useQuery<AccessLogWithDetails[]>({
-    queryKey: ["/api/access-control/currently-inside"],
-    refetchInterval: 30_000,
+    queryKey: currentlyInsideQueryKey,
+    ...currentlyInsideQueryOptions,
   });
 
   const exitMutation = useMutation({
     mutationFn: (id: number) => apiRequest("POST", `/api/access-control/entries/${id}/exit`, {}),
     onSuccess: () => {
       toast({ title: "Exit logged" });
-      void qc.invalidateQueries({ queryKey: ["/api/access-control/currently-inside"] });
+      void qc.invalidateQueries({ queryKey: currentlyInsideQueryKey });
     },
     onError: () => {
       toast({ title: "Could not mark exit", variant: "destructive" });

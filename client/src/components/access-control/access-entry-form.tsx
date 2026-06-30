@@ -17,6 +17,8 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { prepareAndUploadFile } from "@/lib/upload-media";
 import { ACCESS_CATEGORY_LABELS } from "@/lib/access-control-labels";
+import { currentlyInsideQueryKey } from "@/lib/access-control-queries";
+import { parseSaIdBarcode, parseSaVehicleDiscBarcode } from "@/lib/parse-sa-barcodes";
 import { BarcodeScanner } from "@/components/access-control/barcode-scanner";
 import { Camera, Car, Loader2, ScanLine, User } from "lucide-react";
 import type { Destination } from "@shared/schema";
@@ -112,7 +114,7 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
       setVehicle(emptyVehicle);
       setPersonPhotoUrl(null);
       setVehiclePhotoUrl(null);
-      void qc.invalidateQueries({ queryKey: ["/api/access-control/currently-inside"] });
+      void qc.invalidateQueries({ queryKey: currentlyInsideQueryKey });
       onCreated();
     },
     onError: (e: Error) => {
@@ -352,9 +354,29 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
         title={scanTarget === "disc" ? "Scan licence disc" : "Scan ID card"}
         onScan={(value) => {
           if (scanTarget === "disc") {
-            setVehicle((v) => ({ ...v, licenceDiscData: value, registration: v.registration || value.slice(0, 12) }));
+            const parsed = parseSaVehicleDiscBarcode(value);
+            setVehicle((v) => ({
+              ...v,
+              licenceDiscData: parsed.licenceDiscData,
+              registration: parsed.registration ?? v.registration,
+              make: parsed.make ?? v.make,
+              model: parsed.model ?? v.model,
+              colour: parsed.colour ?? v.colour,
+            }));
+            if (parsed.hint) {
+              toast({ title: "Licence disc scan", description: parsed.hint });
+            } else if (parsed.registration) {
+              toast({ title: "Registration captured", description: parsed.registration });
+            }
           } else {
-            setPersonIdNumber(value);
+            const parsed = parseSaIdBarcode(value);
+            if (parsed.personFullName) setPersonFullName(parsed.personFullName);
+            if (parsed.personIdNumber) setPersonIdNumber(parsed.personIdNumber);
+            if (parsed.hint) {
+              toast({ title: "ID scan", description: parsed.hint });
+            } else if (parsed.personFullName) {
+              toast({ title: "ID captured", description: parsed.personFullName });
+            }
           }
         }}
       />
