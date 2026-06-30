@@ -700,6 +700,7 @@ const AUTH_WHITELIST = [
   "/auth/has-users",
   "/invite/",
   "/contact",
+  "/version",
 ];
 
 const SUBSCRIPTION_WHITELIST = [
