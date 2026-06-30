@@ -237,7 +237,11 @@ export function BarcodeScanner({
 
     try {
       setScanning(true);
-      setStatus("Scanning… hold the card steady.");
+      setStatus(
+        isLicenceMode
+          ? "ZXing live scan — hold the back of the card steady."
+          : "Scanning… hold the card steady.",
+      );
       await scanner.start(video, mode, (hit) => {
         void handleZxingHit(hit);
       });
@@ -252,7 +256,7 @@ export function BarcodeScanner({
       }
       setStatus(null);
     }
-  }, [handleZxingHit, mode, stopLiveScan]);
+  }, [handleZxingHit, isLicenceMode, mode, stopLiveScan]);
 
   const runNativeLicenceScan = useCallback(async () => {
     if (busyRef.current || settledRef.current) return;
@@ -264,7 +268,7 @@ export function BarcodeScanner({
     stopLiveScan();
 
     try {
-      const result = await scanDriversLicenceNative("auto");
+      const result = await scanDriversLicenceNative("google");
       if (settledRef.current) return;
 
       if (result.ok) {
@@ -389,7 +393,7 @@ export function BarcodeScanner({
     setError(null);
 
     if (isLicenceMode) {
-      setHint("Hold the back of the driver's licence in the green frame — large PDF417 barcode.");
+      setHint("ZXing live scan — centre the large PDF417 barcode on the back of the card.");
     } else if (scanKind === "id") {
       setHint("Hold a Smart ID or ID book in the green frame for 2–3 seconds.");
     } else {
@@ -406,7 +410,7 @@ export function BarcodeScanner({
     const timeout = window.setTimeout(() => {
       if (cancelled || settledRef.current) return;
       setPhotoOffered(true);
-      setStatus("Having trouble reading this barcode — try Take photo or Google scanner.");
+      setStatus("Having trouble reading this barcode — try Take photo.");
     }, LIVE_SCAN_TIMEOUT_MS);
 
     return () => {
@@ -527,14 +531,14 @@ export function BarcodeScanner({
                 Capture frame
               </Button>
             )}
-            {canNativeLicence && (
+            {canNativeLicence && showPhotoActions && (
               <Button
                 type="button"
                 variant="outline"
                 className="flex-1"
                 disabled={nativeScanning || photoBusy}
                 onClick={() => void runNativeLicenceScan()}
-                title="Opens Google's full-screen barcode scanner"
+                title="Last resort — opens Google's full-screen barcode scanner"
               >
                 <ScanLine className="h-4 w-4 mr-1" />
                 {nativeScanning ? "Google…" : "Google scan"}

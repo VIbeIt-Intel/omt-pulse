@@ -182,7 +182,8 @@ export async function stopNativeDriversLicenceScan(): Promise<void> {
 
 /**
  * Live native scan for SA driver's licence PDF417.
- * Uses Google scanner UI when available, otherwise ML Kit camera behind WebView.
+ * mode "google" — full-screen Google scanner UI.
+ * mode "live" / "auto" — ML Kit camera behind WebView (never opens Google UI).
  */
 export async function scanDriversLicenceNative(
   mode: "auto" | "google" | "live" = "auto",
@@ -194,10 +195,9 @@ export async function scanDriversLicenceNative(
   const signal = { cancelled: false };
 
   let barcode: MlKitBarcode | null = null;
-  if (mode === "google" || mode === "auto") {
+  if (mode === "google") {
     barcode = await tryGoogleScanner();
-  }
-  if (!barcode && (mode === "live" || mode === "auto")) {
+  } else if (mode === "live" || mode === "auto") {
     barcode = await tryMlKitLiveScan(signal);
   }
 
