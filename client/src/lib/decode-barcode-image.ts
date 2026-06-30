@@ -35,6 +35,9 @@ const CROP_REGIONS: CropRegion[] = [
 export const PDF417_MANUAL_FALLBACK_MSG =
   "This barcode type could not be read automatically. Please enter the details manually.";
 
+export const PDF417_PHOTO_REQUIRED_MSG =
+  "This barcode needs to be captured as a photo for accurate reading. Tap Take photo or Gallery below.";
+
 type BarcodeDetectorLike = {
   detect: (source: ImageBitmapSource) => Promise<Array<{ rawValue: string; format?: string }>>;
 };
@@ -52,8 +55,13 @@ function getBarcodeDetector(): BarcodeDetectorLike | null {
 }
 
 /** Encrypted SA driver's licence PDF417 — never process on live camera (crashes WebView). */
-export function isLikelyBinaryPdf417(format?: string, rawLength?: number): boolean {
+export function isLikelyEncryptedDriversLicencePdf417(
+  format?: string,
+  rawLength?: number,
+  hasPipeDelimiters = false,
+): boolean {
   try {
+    if (hasPipeDelimiters) return false;
     if (!rawLength || rawLength < 100) return false;
     const fmt = (format ?? "").toLowerCase();
     return fmt.includes("pdf417") || fmt.includes("pdf_417");
@@ -62,7 +70,12 @@ export function isLikelyBinaryPdf417(format?: string, rawLength?: number): boole
   }
 }
 
-/** Safe for live camera loop — pipe text (Smart ID) or short 1D codes only. */
+/** @deprecated Use isLikelyEncryptedDriversLicencePdf417 */
+export function isLikelyBinaryPdf417(format?: string, rawLength?: number): boolean {
+  return isLikelyEncryptedDriversLicencePdf417(format, rawLength, false);
+}
+
+/** Safe for live camera loop — pipe text (Smart ID, any length) or short 1D codes. */
 export function isSafeLiveBarcodeValue(raw: string): boolean {
   try {
     if (!raw) return false;
@@ -71,6 +84,36 @@ export function isSafeLiveBarcodeValue(raw: string): boolean {
     return false;
   } catch {
     return false;
+  }
+}
+
+export type LiveBarcodeKind = "smart_id" | "id_1d" | "encrypted_licence" | "skip";
+
+/** Classify a live detector hit without retaining unsafe binary payloads. */
+export function classifyLiveBarcodeHit(code: {
+  rawValue: string;
+  format?: string;
+}): { kind: LiveBarcodeKind; raw?: string; format?: string } {
+  try {
+    let raw = "";
+    try {
+      raw = code.rawValue?.trim() ?? "";
+    } catch {
+      return { kind: "encrypted_licence" };
+    }
+    if (!raw) return { kind: "skip" };
+
+    const hasPipe = raw.includes("|");
+    if (hasPipe) return { kind: "smart_id", raw, format: code.format };
+    if (raw.length <= 64) return { kind: "id_1d", raw, format: code.format };
+
+    const length = raw.length;
+    if (isLikelyEncryptedDriversLicencePdf417(code.format, length, hasPipe)) {
+      return { kind: "encrypted_licence" };
+    }
+    return { kind: "skip" };
+  } catch {
+    return { kind: "skip" };
   }
 }
 
@@ -132,18 +175,11 @@ function renderCrop(
 
 function safeHitFromDetector(code: { rawValue: string; format?: string }): BarcodeHit | null {
   try {
-    const format = code.format;
-    let length = 0;
-    try {
-      length = code.rawValue?.length ?? 0;
-    } catch {
-      return null;
-    }
-    if (isLikelyBinaryPdf417(format, length)) return null;
-
     const raw = code.rawValue?.trim();
     if (!raw || !isSafeLiveBarcodeValue(raw)) return null;
-    return { rawValue: raw, format };
+    const hasPipe = raw.includes("|");
+    if (isLikelyEncryptedDriversLicencePdf417(code.format, raw.length, hasPipe)) return null;
+    return { rawValue: raw, format: code.format };
   } catch {
     return null;
   }

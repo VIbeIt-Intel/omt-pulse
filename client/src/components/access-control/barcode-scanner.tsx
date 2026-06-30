@@ -16,11 +16,13 @@ import { looksLikeSadlEncryptedString } from "@shared/sa-drivers-licence";
 import { decodeDriversLicenceFromImageViaApi, decodeDriversLicenceViaApi } from "@/lib/decode-drivers-licence-api";
 import type { AccessIdentityScanResult } from "@/lib/parse-sa-barcodes";
 import {
+  captureVideoFrameAsJpeg,
+  classifyLiveBarcodeHit,
   createHtml5FileScanner,
   decodeBarcodesFromFile,
-  isLikelyBinaryPdf417,
   isSafeLiveBarcodeValue,
   PDF417_MANUAL_FALLBACK_MSG,
+  PDF417_PHOTO_REQUIRED_MSG,
 } from "@/lib/decode-barcode-image";
 import { openOmtAppDetailsSettings } from "@/lib/omt-app-settings";
 import {
@@ -57,13 +59,12 @@ const HIDDEN_SCANNER_ID = "ac-barcode-file-scanner";
 const ID_DETECTOR_FORMATS = ["pdf417", "qr_code", "code_128", "code_39"];
 const DISC_DETECTOR_FORMATS = ["pdf417", "code_128", "code_39", "qr_code"];
 
-const LICENCE_PHOTO_HINT =
-  "Driver's licence PDF417 detected. Tap Take photo or Gallery to read it safely, or enter details manually below.";
+const LICENCE_PHOTO_HINT = PDF417_PHOTO_REQUIRED_MSG;
 
 const FILE_INPUT_CLASS =
   "absolute left-0 top-0 h-px w-px overflow-hidden opacity-0 [clip:rect(0,0,0,0)]";
 
-const LIVE_DETECT_INTERVAL_MS = 350;
+const LIVE_DETECT_MIN_INTERVAL_MS = 280;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -93,42 +94,38 @@ async function openCameraPermissionSettings(): Promise<void> {
   }
 }
 
-/** Process live detector results without touching encrypted PDF417 payloads (WebView crash). */
+/** Process live hits: Smart ID / 1D auto-fill; encrypted licence → photo prompt only. */
 function processLiveDetectorCodes(
   codes: Array<{ rawValue: string; format?: string }>,
 ): {
   safeHits: Array<{ rawValue: string; format?: string }>;
-  sawBinaryPdf417: boolean;
+  sawEncryptedLicence: boolean;
+  smartIdHit: { rawValue: string; format?: string } | null;
 } {
   const safeHits: Array<{ rawValue: string; format?: string }> = [];
-  let sawBinaryPdf417 = false;
+  let sawEncryptedLicence = false;
+  let smartIdHit: { rawValue: string; format?: string } | null = null;
 
   for (const code of codes) {
     try {
-      const format = code.format;
-      let length = 0;
-      try {
-        length = code.rawValue?.length ?? 0;
-      } catch {
-        sawBinaryPdf417 = true;
+      const { kind, raw, format } = classifyLiveBarcodeHit(code);
+      if (kind === "encrypted_licence") {
+        sawEncryptedLicence = true;
         continue;
       }
-
-      if (isLikelyBinaryPdf417(format, length)) {
-        sawBinaryPdf417 = true;
+      if (kind === "smart_id" && raw) {
+        smartIdHit = { rawValue: raw, format };
         continue;
       }
-
-      const raw = code.rawValue?.trim();
-      if (raw && isSafeLiveBarcodeValue(raw)) {
+      if ((kind === "id_1d" || kind === "smart_id") && raw) {
         safeHits.push({ rawValue: raw, format });
       }
     } catch {
-      sawBinaryPdf417 = true;
+      sawEncryptedLicence = true;
     }
   }
 
-  return { safeHits, sawBinaryPdf417 };
+  return { safeHits, sawEncryptedLicence, smartIdHit };
 }
 
 export function BarcodeScanner({
@@ -140,7 +137,8 @@ export function BarcodeScanner({
 }: BarcodeScannerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const liveDetectTimerRef = useRef<number>(0);
+  const rafRef = useRef<number>(0);
+  const lastLiveDetectRef = useRef(0);
   const fileScannerRef = useRef<Html5Qrcode | null>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
@@ -160,12 +158,14 @@ export function BarcodeScanner({
   const [status, setStatus] = useState<string | null>(null);
   const [permissionBlocked, setPermissionBlocked] = useState(false);
   const [photoScanning, setPhotoScanning] = useState(false);
+  const [licencePhotoRequired, setLicencePhotoRequired] = useState(false);
+  const [showManualFallback, setShowManualFallback] = useState(false);
 
   openRef.current = open;
 
   const stopCamera = useCallback(() => {
-    if (liveDetectTimerRef.current) window.clearInterval(liveDetectTimerRef.current);
-    liveDetectTimerRef.current = 0;
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = 0;
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     setScanning(false);
@@ -180,7 +180,14 @@ export function BarcodeScanner({
   const showLicencePhotoHint = useCallback(() => {
     if (licenceHintShownRef.current) return;
     licenceHintShownRef.current = true;
+    setLicencePhotoRequired(true);
     setStatus(LICENCE_PHOTO_HINT);
+  }, []);
+
+  const showManualEntryFallback = useCallback((message = PDF417_MANUAL_FALLBACK_MSG) => {
+    setShowManualFallback(true);
+    setError(message);
+    setStatus(null);
   }, []);
 
   const finishDriversLicence = useCallback(
@@ -196,7 +203,7 @@ export function BarcodeScanner({
         if (!parsed?.personIdNumber && !parsed?.personFullName) {
           settledRef.current = false;
           setStatus(null);
-          setError(PDF417_MANUAL_FALLBACK_MSG);
+          showManualEntryFallback();
           void startLiveCameraRef.current?.();
           return;
         }
@@ -205,13 +212,13 @@ export function BarcodeScanner({
       } catch {
         settledRef.current = false;
         setStatus(null);
-        setError(PDF417_MANUAL_FALLBACK_MSG);
+        showManualEntryFallback();
         void startLiveCameraRef.current?.();
       } finally {
         decodeBusyRef.current = false;
       }
     },
-    [onOpenChange, onScan, stopCamera],
+    [onOpenChange, onScan, showManualEntryFallback, stopCamera],
   );
 
   const finishDriversLicenceFromImage = useCallback(
@@ -227,7 +234,7 @@ export function BarcodeScanner({
         if (!parsed?.personIdNumber && !parsed?.personFullName) {
           settledRef.current = false;
           setStatus(null);
-          setError(PDF417_MANUAL_FALLBACK_MSG);
+          showManualEntryFallback();
           void startLiveCameraRef.current?.();
           return;
         }
@@ -236,13 +243,29 @@ export function BarcodeScanner({
       } catch {
         settledRef.current = false;
         setStatus(null);
-        setError(PDF417_MANUAL_FALLBACK_MSG);
+        showManualEntryFallback();
         void startLiveCameraRef.current?.();
       } finally {
         decodeBusyRef.current = false;
       }
     },
-    [onOpenChange, onScan, stopCamera],
+    [onOpenChange, onScan, showManualEntryFallback, stopCamera],
+  );
+
+  const acceptSmartIdImmediately = useCallback(
+    (raw: string) => {
+      if (settledRef.current || decodeBusyRef.current) return;
+      try {
+        if (!isSmartIdPipePayload(raw)) return;
+        settledRef.current = true;
+        stopCamera();
+        onScan({ kind: "raw", value: raw });
+        onOpenChange(false);
+      } catch {
+        showManualEntryFallback();
+      }
+    },
+    [onOpenChange, onScan, showManualEntryFallback, stopCamera],
   );
 
   const tryAcceptIdentityScan = useCallback(() => {
@@ -277,9 +300,9 @@ export function BarcodeScanner({
         setStatus("Only the small barcode was read — centre the large square PDF417 on a Smart ID.");
       }
     } catch {
-      setError(PDF417_MANUAL_FALLBACK_MSG);
+      showManualEntryFallback();
     }
-  }, [onOpenChange, onScan, scanKind, stopCamera]);
+  }, [onOpenChange, onScan, showManualEntryFallback, scanKind, stopCamera]);
 
   const tryAcceptDiscScan = useCallback(() => {
     if (settledRef.current) return;
@@ -293,15 +316,24 @@ export function BarcodeScanner({
       onScan(best);
       onOpenChange(false);
     } catch {
-      setError(PDF417_MANUAL_FALLBACK_MSG);
+      showManualEntryFallback();
     }
-  }, [onOpenChange, onScan, stopCamera]);
+  }, [onOpenChange, onScan, showManualEntryFallback, stopCamera]);
 
   const recordIdentityHits = useCallback(
-    (hits: Array<{ rawValue: string; format?: string }>, sawBinaryPdf417: boolean) => {
+    (
+      hits: Array<{ rawValue: string; format?: string }>,
+      sawEncryptedLicence: boolean,
+      smartIdHit: { rawValue: string; format?: string } | null,
+    ) => {
       if (settledRef.current || decodeBusyRef.current || scanKind !== "id") return;
 
-      if (sawBinaryPdf417) showLicencePhotoHint();
+      if (smartIdHit) {
+        acceptSmartIdImmediately(smartIdHit.rawValue);
+        return;
+      }
+
+      if (sawEncryptedLicence) showLicencePhotoHint();
 
       try {
         const now = Date.now();
@@ -315,10 +347,10 @@ export function BarcodeScanner({
           .slice(-12);
         tryAcceptIdentityScan();
       } catch {
-        setError(PDF417_MANUAL_FALLBACK_MSG);
+        showManualEntryFallback();
       }
     },
-    [scanKind, showLicencePhotoHint, tryAcceptIdentityScan],
+    [acceptSmartIdImmediately, scanKind, showLicencePhotoHint, showManualEntryFallback, tryAcceptIdentityScan],
   );
 
   const recordDiscHits = useCallback(
@@ -336,19 +368,22 @@ export function BarcodeScanner({
           .slice(-12);
         tryAcceptDiscScan();
       } catch {
-        setError(PDF417_MANUAL_FALLBACK_MSG);
+        showManualEntryFallback();
       }
     },
-    [tryAcceptDiscScan],
+    [showManualEntryFallback, tryAcceptDiscScan],
   );
 
   const tryDecodeIdentityPhoto = useCallback(
     async (file: File): Promise<boolean> => {
+      setLicencePhotoRequired(false);
+      setError(null);
+
       try {
         await finishDriversLicenceFromImage(file);
         if (settledRef.current) return true;
       } catch {
-        /* fall through */
+        /* server image decode failed — try file barcode extract */
       }
 
       try {
@@ -358,17 +393,25 @@ export function BarcodeScanner({
         for (const hit of hits) {
           try {
             const raw = hit.rawValue?.trim();
-            if (raw && safeLooksLikeSadl(raw)) {
+            if (!raw) continue;
+            if (safeLooksLikeSadl(raw)) {
               await finishDriversLicence(raw);
               return settledRef.current;
             }
+            if (isSmartIdPipePayload(raw)) {
+              settledRef.current = true;
+              stopCamera();
+              onScan({ kind: "raw", value: raw });
+              onOpenChange(false);
+              return true;
+            }
           } catch {
-            /* try next hit */
+            /* next hit */
           }
         }
 
         const safeHits = hits.filter((h) => isSafeLiveBarcodeValue(h.rawValue?.trim() ?? ""));
-        recordIdentityHits(safeHits, false);
+        recordIdentityHits(safeHits, false, null);
         if (samplesRef.current.length > 0) {
           tryAcceptIdentityScan();
           return settledRef.current;
@@ -383,7 +426,10 @@ export function BarcodeScanner({
       ensureFileScanner,
       finishDriversLicence,
       finishDriversLicenceFromImage,
+      onOpenChange,
+      onScan,
       recordIdentityHits,
+      stopCamera,
       tryAcceptIdentityScan,
     ],
   );
@@ -440,19 +486,18 @@ export function BarcodeScanner({
                 }
               })();
         if (!ok && !settledRef.current) {
-          setError(PDF417_MANUAL_FALLBACK_MSG);
-          setStatus(null);
+          showManualEntryFallback();
           void startLiveCameraRef.current?.();
         }
       } catch {
-        setError(PDF417_MANUAL_FALLBACK_MSG);
+        showManualEntryFallback();
         setStatus(null);
         void startLiveCameraRef.current?.();
       } finally {
         setPhotoScanning(false);
       }
     },
-    [ensureFileScanner, recordDiscHits, scanKind, tryDecodeIdentityPhoto],
+    [ensureFileScanner, recordDiscHits, scanKind, showManualEntryFallback, tryDecodeIdentityPhoto],
   );
 
   useEffect(() => {
@@ -464,6 +509,8 @@ export function BarcodeScanner({
       setStatus(null);
       setPermissionBlocked(false);
       setPhotoScanning(false);
+      setLicencePhotoRequired(false);
+      setShowManualFallback(false);
       pickerActiveRef.current = false;
       licenceHintShownRef.current = false;
       samplesRef.current = [];
@@ -479,9 +526,9 @@ export function BarcodeScanner({
 
     if (scanKind === "id") {
       setHint(
-        "Smart ID: hold the large PDF417 in the green frame for 2–3 seconds. Driver's licence: use Take photo (live scan cannot read encrypted PDF417 safely).",
+        "Hold a Smart ID or ID book in the green frame for 2–3 seconds. Driver's licences are read via Take photo.",
       );
-      setStatus("Hold a Smart ID steady for 2–3 seconds.");
+      setStatus("Scanning… hold the card steady.");
     } else {
       setHint("Centre the licence disc barcode in the frame.");
       setStatus("Hold steady for 2–3 seconds.");
@@ -497,12 +544,15 @@ export function BarcodeScanner({
       detector = null;
     }
 
-    const runLiveDetect = () => {
+    const runLiveDetect = (activeVideo: HTMLVideoElement) => {
       if (cancelled || settledRef.current || pickerActiveRef.current || decodeBusyRef.current || !detector) {
         return;
       }
-      const activeVideo = videoRef.current;
-      if (!activeVideo || activeVideo.readyState < 2) return;
+      if (activeVideo.readyState < 2) return;
+
+      const now = Date.now();
+      if (now - lastLiveDetectRef.current < LIVE_DETECT_MIN_INTERVAL_MS) return;
+      lastLiveDetectRef.current = now;
 
       void detector
         .detect(activeVideo)
@@ -520,11 +570,11 @@ export function BarcodeScanner({
               }
               recordDiscHits(discHits);
             } else {
-              const { safeHits, sawBinaryPdf417 } = processLiveDetectorCodes(codes);
-              recordIdentityHits(safeHits, sawBinaryPdf417);
+              const { safeHits, sawEncryptedLicence, smartIdHit } = processLiveDetectorCodes(codes);
+              recordIdentityHits(safeHits, sawEncryptedLicence, smartIdHit);
             }
           } catch {
-            setError(PDF417_MANUAL_FALLBACK_MSG);
+            showManualEntryFallback();
           }
         })
         .catch(() => {
@@ -562,7 +612,16 @@ export function BarcodeScanner({
         if (!cancelled) setScanning(true);
 
         if (detector) {
-          liveDetectTimerRef.current = window.setInterval(runLiveDetect, LIVE_DETECT_INTERVAL_MS);
+          const tick = () => {
+            if (cancelled || settledRef.current || pickerActiveRef.current || decodeBusyRef.current) return;
+            const activeVideo = videoRef.current;
+            if (!activeVideo) return;
+            runLiveDetect(activeVideo);
+            if (!cancelled && !settledRef.current && !decodeBusyRef.current) {
+              rafRef.current = requestAnimationFrame(tick);
+            }
+          };
+          rafRef.current = requestAnimationFrame(tick);
         }
       } catch (err) {
         if (cancelled) return;
@@ -586,7 +645,7 @@ export function BarcodeScanner({
         if (scanKind === "disc") tryAcceptDiscScan();
         else tryAcceptIdentityScan();
       } catch {
-        setError(PDF417_MANUAL_FALLBACK_MSG);
+        showManualEntryFallback();
       }
     }, 400);
 
@@ -597,10 +656,12 @@ export function BarcodeScanner({
       stopCamera();
     };
   }, [
+    acceptSmartIdImmediately,
     open,
     recordDiscHits,
     recordIdentityHits,
     scanKind,
+    showManualEntryFallback,
     stopCamera,
     tryAcceptDiscScan,
     tryAcceptIdentityScan,
@@ -620,8 +681,38 @@ export function BarcodeScanner({
 
   const closeForManualEntry = useCallback(() => {
     stopCamera();
+    setShowManualFallback(true);
     onOpenChange(false);
   }, [onOpenChange, stopCamera]);
+
+  const captureAndDecodeLicence = useCallback(async () => {
+    if (photoScanning || settledRef.current) return;
+    const video = videoRef.current;
+    if (!video || video.readyState < 2) {
+      openCameraPicker();
+      return;
+    }
+    setPhotoScanning(true);
+    setError(null);
+    setStatus("Capturing photo for decoding…");
+    try {
+      const frame = await captureVideoFrameAsJpeg(video);
+      if (!frame) {
+        openCameraPicker();
+        return;
+      }
+      const ok = await tryDecodeIdentityPhoto(new File([frame], "licence.jpg", { type: "image/jpeg" }));
+      if (!ok && !settledRef.current) {
+        showManualEntryFallback();
+        void startLiveCameraRef.current?.();
+      }
+    } catch {
+      showManualEntryFallback();
+      void startLiveCameraRef.current?.();
+    } finally {
+      if (!settledRef.current) setPhotoScanning(false);
+    }
+  }, [openCameraPicker, photoScanning, showManualEntryFallback, tryDecodeIdentityPhoto]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -639,7 +730,7 @@ export function BarcodeScanner({
               const file = e.target.files?.[0];
               void handlePhotoSelected(file);
             } catch {
-              setError(PDF417_MANUAL_FALLBACK_MSG);
+              showManualEntryFallback();
             }
             e.target.value = "";
           }}
@@ -655,7 +746,7 @@ export function BarcodeScanner({
               const file = e.target.files?.[0];
               void handlePhotoSelected(file);
             } catch {
-              setError(PDF417_MANUAL_FALLBACK_MSG);
+              showManualEntryFallback();
             }
             e.target.value = "";
           }}
@@ -695,13 +786,16 @@ export function BarcodeScanner({
           <div className="flex gap-2">
             <Button
               type="button"
-              variant="outline"
+              variant={licencePhotoRequired ? "default" : "outline"}
               className="flex-1"
               disabled={photoScanning}
-              onClick={openCameraPicker}
+              onClick={() => {
+                if (licencePhotoRequired && scanKind === "id") void captureAndDecodeLicence();
+                else openCameraPicker();
+              }}
             >
               <Camera className="h-4 w-4 mr-1" />
-              {photoScanning ? "Reading…" : "Take photo"}
+              {photoScanning ? "Reading…" : licencePhotoRequired ? "Take photo now" : "Take photo"}
             </Button>
             <Button
               type="button"
@@ -725,23 +819,23 @@ export function BarcodeScanner({
               </Button>
             )}
           </div>
-          {scanKind === "id" && (
+          {scanKind === "id" && showManualFallback && (
             <>
               <input
                 type="text"
                 className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                placeholder="Or paste Smart ID barcode text"
+                placeholder="Paste Smart ID barcode text"
                 value={manual}
                 onChange={(e) => setManual(e.target.value)}
                 autoComplete="off"
               />
               <p className="text-xs text-muted-foreground">
-                Driver&apos;s licence or scan failed? Enter name and ID on the form manually.
+                Automated scan could not read this card. Enter name and ID on the form, or paste barcode text above.
               </p>
             </>
           )}
           <div className="flex gap-2">
-            {scanKind === "id" && (
+            {scanKind === "id" && showManualFallback && (
               <Button
                 type="button"
                 className="flex-1"
@@ -752,21 +846,33 @@ export function BarcodeScanner({
                     onScan({ kind: "raw", value });
                     onOpenChange(false);
                   } catch {
-                    setError(PDF417_MANUAL_FALLBACK_MSG);
+                    showManualEntryFallback();
                   }
                 }}
               >
                 Use code
               </Button>
             )}
-            <Button
-              type="button"
-              variant="outline"
-              className="flex-1"
-              onClick={closeForManualEntry}
-            >
-              Enter manually
-            </Button>
+            {!showManualFallback && scanKind === "id" && (
+              <Button
+                type="button"
+                variant="ghost"
+                className="flex-1 text-xs"
+                onClick={() => setShowManualFallback(true)}
+              >
+                Enter manually
+              </Button>
+            )}
+            {showManualFallback && (
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1"
+                onClick={closeForManualEntry}
+              >
+                Close — type on form
+              </Button>
+            )}
             <Button
               type="button"
               variant="outline"
