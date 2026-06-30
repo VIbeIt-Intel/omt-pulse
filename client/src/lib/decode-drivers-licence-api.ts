@@ -7,6 +7,16 @@ import {
 } from "@shared/sa-drivers-licence";
 import type { ParsedSaId } from "@/lib/parse-sa-barcodes";
 
+export function sadlBytesToBase64(bytes: Uint8Array | number[]): string {
+  const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < u8.length; i += chunk) {
+    binary += String.fromCharCode(...u8.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
 export async function decodeDriversLicenceViaApiFromBase64(
   payloadBase64: string,
 ): Promise<ParsedSaId | null> {

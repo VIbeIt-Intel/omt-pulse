@@ -101,11 +101,35 @@ export function classifyZxingResult(
 }
 
 function buildHints(mode: ZxingScanMode): Map<DecodeHintType, unknown> {
-  return new Map<DecodeHintType, unknown>([
+  const hints = new Map<DecodeHintType, unknown>([
     [DecodeHintType.POSSIBLE_FORMATS, formatsForMode(mode)],
     [DecodeHintType.TRY_HARDER, true],
     [DecodeHintType.PURE_BARCODE, false],
   ]);
+  if (mode === "drivers_licence") {
+    hints.set(DecodeHintType.ASSUME_GS1, false);
+  }
+  return hints;
+}
+
+function scanIntervalMs(mode: ZxingScanMode): number {
+  return mode === "drivers_licence" ? 250 : 500;
+}
+
+function cropsForMode(mode: ZxingScanMode): Array<{ x: number; y: number; w: number; h: number }> {
+  if (mode === "drivers_licence") {
+    return [
+      { x: 0.48, y: 0.04, w: 0.5, h: 0.92 },
+      { x: 0.35, y: 0.04, w: 0.62, h: 0.92 },
+      { x: 0.2, y: 0.04, w: 0.78, h: 0.92 },
+      { x: 0, y: 0, w: 1, h: 1 },
+    ];
+  }
+  return [
+    { x: 0.04, y: 0.02, w: 0.92, h: 0.42 },
+    { x: 0.04, y: 0.02, w: 0.92, h: 0.58 },
+    { x: 0, y: 0, w: 1, h: 1 },
+  ];
 }
 
 /** Continuous live scan from a video element (ZXing manages camera stream). */
@@ -119,7 +143,7 @@ export class ZxingLiveScanner {
   ): Promise<void> {
     this.stop();
     const hints = buildHints(mode);
-    this.reader = new BrowserMultiFormatReader(hints, 500);
+    this.reader = new BrowserMultiFormatReader(hints, scanIntervalMs(mode));
 
     await this.reader.decodeFromVideoDevice(undefined, video, (result, _err, _controls) => {
       if (!result) return;
@@ -167,13 +191,7 @@ async function decodeImageElement(
   const full = imageDataFromImage(img);
   if (!full) return null;
 
-  const crops = [
-    { x: 0.04, y: 0.02, w: 0.92, h: 0.42 },
-    { x: 0.04, y: 0.02, w: 0.92, h: 0.58 },
-    { x: 0, y: 0, w: 1, h: 1 },
-  ];
-
-  for (const crop of crops) {
+  for (const crop of cropsForMode(mode)) {
     try {
       const hit = await decodeImageDataCrop(full, crop, mode);
       if (hit) return hit;
@@ -244,7 +262,7 @@ export async function decodeZxingFromFile(
   }
 }
 
-/** Capture a single frame from video and decode with ZXing. */
+/** Capture a single frame from video and decode with ZXing (crop retries for licence PDF417). */
 export async function decodeZxingFromVideo(
   video: HTMLVideoElement,
   mode: ZxingScanMode,
@@ -260,15 +278,18 @@ export async function decodeZxingFromVideo(
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
     ctx.drawImage(video, 0, 0, width, height);
+    const full = ctx.getImageData(0, 0, width, height);
 
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const el = new Image();
-      el.onload = () => resolve(el);
-      el.onerror = () => reject(new Error("Could not load frame"));
-      el.src = canvas.toDataURL("image/jpeg", 0.92);
-    });
+    for (const crop of cropsForMode(mode)) {
+      try {
+        const hit = await decodeImageDataCrop(full, crop, mode);
+        if (hit) return hit;
+      } catch {
+        /* next crop */
+      }
+    }
 
-    return await decodeImageElement(img, mode);
+    return null;
   } catch {
     return null;
   }
