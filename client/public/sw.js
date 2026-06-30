@@ -1,4 +1,4 @@
-const CACHE_NAME = "omt-v103";
+const CACHE_NAME = "omt-v104";
 
 // When the page asks us to nuke everything (after a new deploy), wipe all
 // caches and tell every controlled tab to reload. The page also unregisters
@@ -99,6 +99,26 @@ self.addEventListener("fetch", (event) => {
         const shell = await cache.match("/");
         return shell || Response.error();
       })
+    );
+    return;
+  }
+
+  // Hashed Vite bundles: network-first so deploys reach devices without stale JS.
+  if (url.pathname.startsWith("/assets/")) {
+    event.respondWith(
+      caches.open(CACHE_NAME).then(async (cache) => {
+        try {
+          const networkResponse = await fetch(event.request);
+          if (networkResponse.ok) {
+            await cache.put(event.request, networkResponse.clone());
+            return networkResponse;
+          }
+        } catch {
+          const cached = await cache.match(event.request);
+          if (cached) return cached;
+        }
+        return Response.error();
+      }),
     );
     return;
   }
