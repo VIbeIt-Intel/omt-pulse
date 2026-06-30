@@ -39,7 +39,7 @@ export type ParsedSaVehicleDisc = {
   hint?: string;
 };
 
-function driversLicenceToParsed(dl: SaDriversLicence): ParsedSaId {
+export function parsedSaIdFromDriversLicence(dl: SaDriversLicence): ParsedSaId {
   const personFullName = [dl.initials, dl.surname].filter(Boolean).join(" ").trim();
   return {
     documentType: "drivers_licence",
@@ -51,30 +51,39 @@ function driversLicenceToParsed(dl: SaDriversLicence): ParsedSaId {
     vehicleCodes: dl.vehicleCodes.length ? dl.vehicleCodes : undefined,
     prdpCode: dl.prdpCode || undefined,
     prdpExpiryDate: dl.prdpExpiryDate || undefined,
-    driversLicence: dl,
   };
 }
 
+export type AccessIdentityScanResult =
+  | { kind: "raw"; value: string }
+  | { kind: "parsed"; parsed: ParsedSaId };
+
 /** Smart ID pipe text, driver's licence binary, or green-book ID-only. */
 export function parseSaIdentityScan(raw: string): ParsedSaId {
-  const trimmed = raw.trim();
-  if (!trimmed) return {};
+  try {
+    const trimmed = raw.trim();
+    if (!trimmed) return {};
 
-  if (trimmed.includes("|")) {
-    return { ...parseSaIdBarcode(trimmed), documentType: "smart_id" };
-  }
+    if (trimmed.includes("|")) {
+      return { ...parseSaIdBarcode(trimmed), documentType: "smart_id" };
+    }
 
-  if (isSadlEncryptedString(trimmed)) {
-    const dl = parseSaDriversLicenceBytes(latin1ToBytes(trimmed), true);
-    if (dl) return driversLicenceToParsed(dl);
+    if (isSadlEncryptedString(trimmed)) {
+      const dl = parseSaDriversLicenceBytes(latin1ToBytes(trimmed), true);
+      if (dl) return parsedSaIdFromDriversLicence(dl);
+      return {
+        documentType: "drivers_licence",
+        hint:
+          "Driver's licence barcode detected but could not be decoded. Hold the back PDF417 steady for 2–3 seconds, or enter details manually.",
+      };
+    }
+
+    return parseSaIdBarcode(trimmed);
+  } catch {
     return {
-      documentType: "drivers_licence",
-      hint:
-        "Driver's licence barcode detected but could not be decoded. Hold the back PDF417 steady for 2–3 seconds, or enter details manually.",
+      hint: "Could not read this barcode. Enter details manually or try Scan photo.",
     };
   }
-
-  return parseSaIdBarcode(trimmed);
 }
 
 /** Smart ID: SURNAME|NAMES|SEX|NATIONALITY|ID|DOB|… */
