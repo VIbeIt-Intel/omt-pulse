@@ -1,4 +1,4 @@
-import { BookOpen, Settings, BarChart3, LogOut, Users, Upload, Bell, Radio, LayoutDashboard, MessageSquare, Shield, Network, Car } from "lucide-react";
+import { BookOpen, Settings, BarChart3, LogOut, Users, Upload, Bell, Radio, LayoutDashboard, MessageSquare, Shield, Network, Car, ShieldCheck } from "lucide-react";
 import { useState, useEffect } from "react";
 import africaLogo from "../assets/africa-logo.png";
 import { useLocation, Link } from "wouter";
@@ -203,6 +203,9 @@ function getNavItems(role: string, isSuperadmin: boolean) {
     { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
     { title: "Occurrence Book", url: "/occurrence-book", icon: BookOpen },
   ];
+  if (role === "administrator" || role === "supervisor" || role === "reporter") {
+    items.push({ title: "Access Control", url: "/access-control", icon: ShieldCheck });
+  }
   if (role === "administrator" || role === "supervisor") {
     items.push({ title: "Analytics", url: "/analytics", icon: BarChart3 });
     items.push({ title: "Live Monitor", url: "/live-monitor", icon: Radio });

@@ -880,6 +880,8 @@ function canManageChatMessage(user: User, msg: { senderId: string }): boolean {
 // polls /api/version and prompts the user to refresh when this value changes.
 const BUILD_ID = String(Date.now());
 
+import { registerAccessControlRoutes } from "./access-control/routes";
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -5120,6 +5122,8 @@ export async function registerRoutes(
       console.error("[panic-reminder] Interval check failed:", err instanceof Error ? err.message : err);
     }
   }, 2 * 60_000);
+
+  registerAccessControlRoutes(app);
 
   return httpServer;
 }
