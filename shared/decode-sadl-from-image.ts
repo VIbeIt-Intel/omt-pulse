@@ -13,6 +13,7 @@ type CropRegion = { x: number; y: number; w: number; h: number };
 
 /** PDF417 on SA driver's licence is usually in the upper portion of the card photo. */
 const CROP_REGIONS: CropRegion[] = [
+  { x: 0.02, y: 0.01, w: 0.96, h: 0.38 },
   { x: 0.04, y: 0.02, w: 0.92, h: 0.42 },
   { x: 0.04, y: 0.02, w: 0.92, h: 0.58 },
   { x: 0, y: 0, w: 1, h: 1 },
@@ -64,7 +65,13 @@ function decodePdf417FromRgba(rgba: Buffer, width: number, height: number): Uint
   }
 }
 
-async function decodeCrop(imageBuffer: Buffer, crop: CropRegion): Promise<Uint8Array | null> {
+type PreprocessMode = "default" | "grayscale" | "high_contrast";
+
+async function extractRgba(
+  imageBuffer: Buffer,
+  crop: CropRegion,
+  mode: PreprocessMode,
+): Promise<{ data: Buffer; width: number; height: number } | null> {
   const meta = await sharp(imageBuffer).rotate().metadata();
   const fullW = meta.width ?? 1;
   const fullH = meta.height ?? 1;
@@ -74,16 +81,39 @@ async function decodeCrop(imageBuffer: Buffer, crop: CropRegion): Promise<Uint8A
   const width = Math.max(1, Math.floor(fullW * crop.w));
   const height = Math.max(1, Math.floor(fullH * crop.h));
 
-  const { data, info } = await sharp(imageBuffer)
+  let pipeline = sharp(imageBuffer)
     .rotate()
-    .extract({ left, top, width, height })
-    .normalize()
-    .sharpen()
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
+    .extract({ left, top, width, height });
 
-  return decodePdf417FromRgba(data, info.width, info.height);
+  if (width < 900) {
+    pipeline = pipeline.resize({ width: Math.min(1600, width * 2) });
+  }
+
+  if (mode === "grayscale") {
+    pipeline = pipeline.grayscale().normalize();
+  } else if (mode === "high_contrast") {
+    pipeline = pipeline.grayscale().normalize().sharpen({ sigma: 1.2 }).linear(1.35, -40);
+  } else {
+    pipeline = pipeline.normalize().sharpen();
+  }
+
+  const { data, info } = await pipeline.ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  return { data, width: info.width, height: info.height };
+}
+
+async function decodeCrop(imageBuffer: Buffer, crop: CropRegion): Promise<Uint8Array | null> {
+  const modes: PreprocessMode[] = ["default", "grayscale", "high_contrast"];
+  for (const mode of modes) {
+    try {
+      const rgba = await extractRgba(imageBuffer, crop, mode);
+      if (!rgba) continue;
+      const bytes = decodePdf417FromRgba(rgba.data, rgba.width, rgba.height);
+      if (bytes) return bytes;
+    } catch {
+      /* try next mode */
+    }
+  }
+  return null;
 }
 
 /** Extract 720-byte SADL payload from a JPEG/PNG/WebP image buffer. */

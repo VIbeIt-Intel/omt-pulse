@@ -54,7 +54,7 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
   const [personPhotoUrl, setPersonPhotoUrl] = useState<string | null>(null);
   const [vehiclePhotoUrl, setVehiclePhotoUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [scanTarget, setScanTarget] = useState<"id" | "disc" | null>(null);
+  const [scanTarget, setScanTarget] = useState<"national_id" | "drivers_licence" | "disc" | null>(null);
   const [licenceScanNote, setLicenceScanNote] = useState<string | null>(null);
 
   function buildLicenceNote(parsed: ReturnType<typeof parseSaIdentityScan>): string | null {
@@ -197,16 +197,31 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
               placeholder="ID or passport"
             />
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            className="mt-6 shrink-0 h-11"
-            onClick={() => setScanTarget("id")}
-          >
-            <ScanLine className="h-4 w-4 mr-1" />
-            Scan
-          </Button>
+          <div className="flex gap-2 mt-6 shrink-0">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 flex-1 sm:flex-none"
+              onClick={() => setScanTarget("national_id")}
+            >
+              <ScanLine className="h-4 w-4 mr-1" />
+              Scan ID
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 flex-1 sm:flex-none"
+              onClick={() => setScanTarget("drivers_licence")}
+            >
+              <ScanLine className="h-4 w-4 mr-1" />
+              Scan licence
+            </Button>
+          </div>
         </div>
+        <p className="text-xs text-muted-foreground -mt-1">
+          Use <span className="font-medium">Scan ID</span> for Smart ID. Use{" "}
+          <span className="font-medium">Scan licence</span> for driver&apos;s licence (photo only).
+        </p>
         {licenceScanNote && (
           <p className="text-xs text-muted-foreground rounded-md border bg-muted/40 px-3 py-2">
             {licenceScanNote}
@@ -369,8 +384,15 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
       <BarcodeScanner
         open={scanTarget !== null}
         onOpenChange={(o) => { if (!o) setScanTarget(null); }}
-        title={scanTarget === "disc" ? "Scan licence disc" : "Scan ID or driver's licence"}
+        title={
+          scanTarget === "disc"
+            ? "Scan licence disc"
+            : scanTarget === "drivers_licence"
+              ? "Scan driver's licence"
+              : "Scan ID"
+        }
         scanKind={scanTarget === "disc" ? "disc" : "id"}
+        identityMode={scanTarget === "drivers_licence" ? "drivers_licence" : "national_id"}
         onScan={(result) => {
           if (scanTarget === "disc") {
             const value = typeof result === "string" ? result : result.kind === "raw" ? result.value : "";

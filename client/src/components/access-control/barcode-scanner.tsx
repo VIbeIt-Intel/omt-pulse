@@ -12,8 +12,7 @@ import {
   isSmartIdPipePayload,
   pickBestBarcodePayload,
 } from "@/lib/pick-best-barcode";
-import { looksLikeSadlEncryptedString } from "@shared/sa-drivers-licence";
-import { decodeDriversLicenceFromImageViaApi, decodeDriversLicenceViaApi } from "@/lib/decode-drivers-licence-api";
+import { decodeDriversLicenceFromImageViaApi } from "@/lib/decode-drivers-licence-api";
 import type { AccessIdentityScanResult } from "@/lib/parse-sa-barcodes";
 import {
   captureVideoFrameAsJpeg,
@@ -49,6 +48,8 @@ type BarcodeScannerProps = {
   onOpenChange: (open: boolean) => void;
   title: string;
   scanKind?: "id" | "disc";
+  /** national_id = live scan; drivers_licence = preview + photo/server only (no live PDF417 — crashes WebView). */
+  identityMode?: "national_id" | "drivers_licence";
   onScan: (result: string | AccessIdentityScanResult) => void;
 };
 
@@ -68,14 +69,6 @@ const LIVE_DETECT_MIN_INTERVAL_MS = 280;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
-function safeLooksLikeSadl(raw: string): boolean {
-  try {
-    return looksLikeSadlEncryptedString(raw);
-  } catch {
-    return false;
-  }
 }
 
 async function openCameraPermissionSettings(): Promise<void> {
@@ -133,8 +126,10 @@ export function BarcodeScanner({
   onOpenChange,
   title,
   scanKind = "id",
+  identityMode = "national_id",
   onScan,
 }: BarcodeScannerProps) {
+  const isLicenceOnlyMode = scanKind === "id" && identityMode === "drivers_licence";
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number>(0);
@@ -189,37 +184,6 @@ export function BarcodeScanner({
     setError(message);
     setStatus(null);
   }, []);
-
-  const finishDriversLicence = useCallback(
-    async (rawLatin1: string) => {
-      if (decodeBusyRef.current || settledRef.current) return;
-      decodeBusyRef.current = true;
-      settledRef.current = true;
-      stopCamera();
-      setStatus("Reading driver's licence…");
-      setError(null);
-      try {
-        const parsed = await decodeDriversLicenceViaApi(rawLatin1);
-        if (!parsed?.personIdNumber && !parsed?.personFullName) {
-          settledRef.current = false;
-          setStatus(null);
-          showManualEntryFallback();
-          void startLiveCameraRef.current?.();
-          return;
-        }
-        onScan({ kind: "parsed", parsed });
-        onOpenChange(false);
-      } catch {
-        settledRef.current = false;
-        setStatus(null);
-        showManualEntryFallback();
-        void startLiveCameraRef.current?.();
-      } finally {
-        decodeBusyRef.current = false;
-      }
-    },
-    [onOpenChange, onScan, showManualEntryFallback, stopCamera],
-  );
 
   const finishDriversLicenceFromImage = useCallback(
     async (image: Blob) => {
@@ -374,31 +338,16 @@ export function BarcodeScanner({
     [showManualEntryFallback, tryAcceptDiscScan],
   );
 
-  const tryDecodeIdentityPhoto = useCallback(
+  const tryDecodeNationalIdPhoto = useCallback(
     async (file: File): Promise<boolean> => {
-      setLicencePhotoRequired(false);
-      setError(null);
-
-      try {
-        await finishDriversLicenceFromImage(file);
-        if (settledRef.current) return true;
-      } catch {
-        /* server image decode failed — try file barcode extract */
-      }
-
       try {
         const scanner = ensureFileScanner();
-        const hits = await decodeBarcodesFromFile(file, scanner, true);
+        const hits = await decodeBarcodesFromFile(file, scanner, false);
 
         for (const hit of hits) {
           try {
             const raw = hit.rawValue?.trim();
-            if (!raw) continue;
-            if (safeLooksLikeSadl(raw)) {
-              await finishDriversLicence(raw);
-              return settledRef.current;
-            }
-            if (isSmartIdPipePayload(raw)) {
+            if (raw && isSmartIdPipePayload(raw)) {
               settledRef.current = true;
               stopCamera();
               onScan({ kind: "raw", value: raw });
@@ -410,8 +359,7 @@ export function BarcodeScanner({
           }
         }
 
-        const safeHits = hits.filter((h) => isSafeLiveBarcodeValue(h.rawValue?.trim() ?? ""));
-        recordIdentityHits(safeHits, false, null);
+        recordIdentityHits(hits, false, null);
         if (samplesRef.current.length > 0) {
           tryAcceptIdentityScan();
           return settledRef.current;
@@ -419,19 +367,39 @@ export function BarcodeScanner({
       } catch {
         /* fall through */
       }
-
       return false;
     },
     [
       ensureFileScanner,
-      finishDriversLicence,
-      finishDriversLicenceFromImage,
       onOpenChange,
       onScan,
       recordIdentityHits,
       stopCamera,
       tryAcceptIdentityScan,
     ],
+  );
+
+  /** Driver's licence: server-side decode only — never run client PDF417 (crashes WebView). */
+  const tryDecodeLicencePhotoServerOnly = useCallback(
+    async (file: Blob): Promise<boolean> => {
+      try {
+        await finishDriversLicenceFromImage(file);
+        return settledRef.current;
+      } catch {
+        return false;
+      }
+    },
+    [finishDriversLicenceFromImage],
+  );
+
+  const tryDecodeIdentityPhoto = useCallback(
+    async (file: File): Promise<boolean> => {
+      if (isLicenceOnlyMode) {
+        return tryDecodeLicencePhotoServerOnly(file);
+      }
+      return tryDecodeNationalIdPhoto(file);
+    },
+    [isLicenceOnlyMode, tryDecodeLicencePhotoServerOnly, tryDecodeNationalIdPhoto],
   );
 
   const pauseForPicker = useCallback(() => {
@@ -470,7 +438,11 @@ export function BarcodeScanner({
       }
       setPhotoScanning(true);
       setError(null);
-      setStatus("Reading barcode from photo…");
+      setStatus(
+        isLicenceOnlyMode
+          ? "Sending photo to server to read driver's licence…"
+          : "Reading barcode from photo…",
+      );
       try {
         const ok =
           scanKind === "id"
@@ -489,15 +461,11 @@ export function BarcodeScanner({
           showManualEntryFallback();
           void startLiveCameraRef.current?.();
         }
-      } catch {
-        showManualEntryFallback();
-        setStatus(null);
-        void startLiveCameraRef.current?.();
       } finally {
         setPhotoScanning(false);
       }
     },
-    [ensureFileScanner, recordDiscHits, scanKind, showManualEntryFallback, tryDecodeIdentityPhoto],
+    [ensureFileScanner, isLicenceOnlyMode, recordDiscHits, scanKind, showManualEntryFallback, tryDecodeIdentityPhoto],
   );
 
   useEffect(() => {
@@ -524,9 +492,15 @@ export function BarcodeScanner({
     samplesRef.current = [];
     startedAtRef.current = Date.now();
 
-    if (scanKind === "id") {
+    if (isLicenceOnlyMode) {
       setHint(
-        "Hold a Smart ID or ID book in the green frame for 2–3 seconds. Driver's licences are read via Take photo.",
+        "Photograph the back of the card so the large PDF417 barcode is sharp and well lit.",
+      );
+      setStatus("Tap Take photo (opens your camera app) or choose Gallery — no live scanning.");
+      startLiveCameraRef.current = null;
+    } else if (scanKind === "id") {
+      setHint(
+        "Hold a Smart ID or ID book in the green frame for 2–3 seconds. For a driver's licence, use Scan licence.",
       );
       setStatus("Scanning… hold the card steady.");
     } else {
@@ -535,13 +509,15 @@ export function BarcodeScanner({
     }
 
     let detector: BarcodeDetectorLike | null = null;
-    try {
-      const detectorFormats = scanKind === "disc" ? DISC_DETECTOR_FORMATS : ID_DETECTOR_FORMATS;
-      if (typeof window.BarcodeDetector !== "undefined") {
-        detector = new window.BarcodeDetector({ formats: detectorFormats });
+    if (!isLicenceOnlyMode) {
+      try {
+        const detectorFormats = scanKind === "disc" ? DISC_DETECTOR_FORMATS : ID_DETECTOR_FORMATS;
+        if (typeof window.BarcodeDetector !== "undefined") {
+          detector = new window.BarcodeDetector({ formats: detectorFormats });
+        }
+      } catch {
+        detector = null;
       }
-    } catch {
-      detector = null;
     }
 
     const runLiveDetect = (activeVideo: HTMLVideoElement) => {
@@ -637,10 +613,12 @@ export function BarcodeScanner({
     };
 
     startLiveCameraRef.current = startLiveCamera;
-    void startLiveCamera();
+    if (!isLicenceOnlyMode) {
+      void startLiveCamera();
+    }
 
     const poll = window.setInterval(() => {
-      if (cancelled || settledRef.current || decodeBusyRef.current) return;
+      if (cancelled || settledRef.current || decodeBusyRef.current || isLicenceOnlyMode) return;
       try {
         if (scanKind === "disc") tryAcceptDiscScan();
         else tryAcceptIdentityScan();
@@ -657,6 +635,7 @@ export function BarcodeScanner({
     };
   }, [
     acceptSmartIdImmediately,
+    isLicenceOnlyMode,
     open,
     recordDiscHits,
     recordIdentityHits,
@@ -689,7 +668,7 @@ export function BarcodeScanner({
     if (photoScanning || settledRef.current) return;
     const video = videoRef.current;
     if (!video || video.readyState < 2) {
-      openCameraPicker();
+      setError("Camera not ready — wait a moment and try again.");
       return;
     }
     setPhotoScanning(true);
@@ -698,21 +677,19 @@ export function BarcodeScanner({
     try {
       const frame = await captureVideoFrameAsJpeg(video);
       if (!frame) {
-        openCameraPicker();
+        showManualEntryFallback();
         return;
       }
-      const ok = await tryDecodeIdentityPhoto(new File([frame], "licence.jpg", { type: "image/jpeg" }));
+      const ok = await tryDecodeLicencePhotoServerOnly(frame);
       if (!ok && !settledRef.current) {
         showManualEntryFallback();
-        void startLiveCameraRef.current?.();
       }
     } catch {
       showManualEntryFallback();
-      void startLiveCameraRef.current?.();
     } finally {
       if (!settledRef.current) setPhotoScanning(false);
     }
-  }, [openCameraPicker, photoScanning, showManualEntryFallback, tryDecodeIdentityPhoto]);
+  }, [photoScanning, showManualEntryFallback, tryDecodeLicencePhotoServerOnly]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -759,19 +736,32 @@ export function BarcodeScanner({
           </DialogTitle>
         </DialogHeader>
         <div className="relative aspect-[4/3] bg-black overflow-hidden">
-          <video
-            ref={videoRef}
-            className="h-full w-full object-cover"
-            playsInline
-            muted
-            autoPlay
-          />
-          {!scanning && !error && (
-            <div className="absolute inset-0 flex items-center justify-center text-white text-sm px-6 text-center">
-              Starting camera…
+          {isLicenceOnlyMode ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-8 text-center text-white">
+              <Camera className="h-12 w-12 text-primary opacity-90" />
+              <p className="text-sm font-medium">Driver&apos;s licence photo</p>
+              <p className="text-xs text-white/70">
+                Photograph the back of the licence with the large barcode in focus.
+              </p>
+              <div className="pointer-events-none absolute inset-6 border-2 border-primary rounded-lg" />
             </div>
+          ) : (
+            <>
+              <video
+                ref={videoRef}
+                className="h-full w-full object-cover"
+                playsInline
+                muted
+                autoPlay
+              />
+              {!scanning && !error && (
+                <div className="absolute inset-0 flex items-center justify-center text-white text-sm px-6 text-center">
+                  Starting camera…
+                </div>
+              )}
+              <div className="pointer-events-none absolute inset-6 border-2 border-primary rounded-lg" />
+            </>
           )}
-          <div className="pointer-events-none absolute inset-6 border-2 border-primary rounded-lg" />
         </div>
         <div className="p-4 space-y-3">
           {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
@@ -786,16 +776,23 @@ export function BarcodeScanner({
           <div className="flex gap-2">
             <Button
               type="button"
-              variant={licencePhotoRequired ? "default" : "outline"}
+              variant={isLicenceOnlyMode || licencePhotoRequired ? "default" : "outline"}
               className="flex-1"
               disabled={photoScanning}
               onClick={() => {
-                if (licencePhotoRequired && scanKind === "id") void captureAndDecodeLicence();
+                if (isLicenceOnlyMode) openCameraPicker();
+                else if (licencePhotoRequired && scanKind === "id") void captureAndDecodeLicence();
                 else openCameraPicker();
               }}
             >
               <Camera className="h-4 w-4 mr-1" />
-              {photoScanning ? "Reading…" : licencePhotoRequired ? "Take photo now" : "Take photo"}
+              {photoScanning
+                ? "Reading…"
+                : isLicenceOnlyMode
+                  ? "Take photo"
+                  : licencePhotoRequired
+                    ? "Take photo now"
+                    : "Take photo"}
             </Button>
             <Button
               type="button"
@@ -853,7 +850,7 @@ export function BarcodeScanner({
                 Use code
               </Button>
             )}
-            {!showManualFallback && scanKind === "id" && (
+            {!showManualFallback && scanKind === "id" && !isLicenceOnlyMode && (
               <Button
                 type="button"
                 variant="ghost"
@@ -863,7 +860,7 @@ export function BarcodeScanner({
                 Enter manually
               </Button>
             )}
-            {showManualFallback && (
+            {(showManualFallback || isLicenceOnlyMode) && (
               <Button
                 type="button"
                 variant="outline"
