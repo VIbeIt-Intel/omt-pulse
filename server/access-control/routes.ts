@@ -12,6 +12,7 @@ import {
   markAccessExit,
   updateDestination,
 } from "./storage";
+import { parseSaDriversLicenceBytes } from "@shared/sa-drivers-licence";
 
 const ACCESS_ROLES = ["administrator", "supervisor", "reporter"] as const;
 
@@ -82,6 +83,30 @@ export function registerAccessControlRoutes(app: Express) {
   app.get("/api/access-control/currently-inside", requireAccessRole, async (req, res) => {
     const orgId = req.currentUser!.organizationId;
     res.json(await getCurrentlyInside(orgId));
+  });
+
+  app.post("/api/access-control/decode-drivers-licence", requireAccessRole, async (req, res) => {
+    const bodySchema = z.object({
+      payloadBase64: z.string().min(100).max(2048),
+    });
+    const parsed = bodySchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
+
+    let bytes: Buffer;
+    try {
+      bytes = Buffer.from(parsed.data.payloadBase64, "base64");
+    } catch {
+      return res.status(400).json({ message: "Invalid base64 payload" });
+    }
+    if (bytes.length !== 720) {
+      return res.status(400).json({ message: "Driver licence barcode must be 720 bytes" });
+    }
+
+    const dl = parseSaDriversLicenceBytes(new Uint8Array(bytes), true);
+    if (!dl) {
+      return res.status(422).json({ message: "Could not decode driver licence barcode" });
+    }
+    res.json(dl);
   });
 
   app.post("/api/access-control/entries", requireAccessRole, async (req, res) => {

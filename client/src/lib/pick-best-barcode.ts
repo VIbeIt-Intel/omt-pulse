@@ -1,5 +1,5 @@
 /** Prefer Smart ID PDF417 pipe payloads over short Code 39 ID-only reads. */
-import { isSadlEncryptedString } from "@/lib/sa-drivers-licence";
+import { looksLikeSadlEncryptedString } from "@shared/sa-drivers-licence";
 
 export function scoreBarcodePayload(raw: string, format?: string): number {
   const value = raw.trim();
@@ -9,7 +9,7 @@ export function scoreBarcodePayload(raw: string, format?: string): number {
   const fmt = (format ?? "").toLowerCase();
 
   if (value.includes("|")) score += 2_000;
-  if (isSadlEncryptedString(value)) score += 1_800;
+  if (looksLikeSadlEncryptedString(value)) score += 1_800;
   if (fmt.includes("pdf417") || fmt.includes("pdf_417")) score += 800;
   if (value.length > 40) score += 400;
   if (value.length >= 700) score += 300;

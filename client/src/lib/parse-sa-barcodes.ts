@@ -7,12 +7,7 @@
  * Vehicle licence disc PDF417: encrypted in eNaTIS — full make/model/colour needs a licensed decoder SDK/API.
  */
 
-import {
-  isSadlEncryptedString,
-  latin1ToBytes,
-  parseSaDriversLicenceBytes,
-  type SaDriversLicence,
-} from "@/lib/sa-drivers-licence";
+import { looksLikeSadlEncryptedString, type SaDriversLicence, driversLicenceToParsedFields } from "@shared/sa-drivers-licence";
 
 export type ParsedSaId = {
   personFullName?: string;
@@ -40,18 +35,7 @@ export type ParsedSaVehicleDisc = {
 };
 
 export function parsedSaIdFromDriversLicence(dl: SaDriversLicence): ParsedSaId {
-  const personFullName = [dl.initials, dl.surname].filter(Boolean).join(" ").trim();
-  return {
-    documentType: "drivers_licence",
-    personFullName: personFullName || undefined,
-    personIdNumber: dl.idNumber || undefined,
-    driversLicenceNumber: dl.licenseNumber || undefined,
-    licenceExpiryDate: dl.licenseExpiryDate || undefined,
-    licenceValidFrom: dl.licenseIssueDate || undefined,
-    vehicleCodes: dl.vehicleCodes.length ? dl.vehicleCodes : undefined,
-    prdpCode: dl.prdpCode || undefined,
-    prdpExpiryDate: dl.prdpExpiryDate || undefined,
-  };
+  return driversLicenceToParsedFields(dl);
 }
 
 export type AccessIdentityScanResult =
@@ -68,13 +52,10 @@ export function parseSaIdentityScan(raw: string): ParsedSaId {
       return { ...parseSaIdBarcode(trimmed), documentType: "smart_id" };
     }
 
-    if (isSadlEncryptedString(trimmed)) {
-      const dl = parseSaDriversLicenceBytes(latin1ToBytes(trimmed), true);
-      if (dl) return parsedSaIdFromDriversLicence(dl);
+    if (looksLikeSadlEncryptedString(trimmed)) {
       return {
         documentType: "drivers_licence",
-        hint:
-          "Driver's licence barcode detected but could not be decoded. Hold the back PDF417 steady for 2–3 seconds, or enter details manually.",
+        hint: "Driver's licence detected — use Scan or Take photo to decode.",
       };
     }
 

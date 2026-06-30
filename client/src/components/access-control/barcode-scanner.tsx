@@ -12,15 +12,9 @@ import {
   isSmartIdPipePayload,
   pickBestBarcodePayload,
 } from "@/lib/pick-best-barcode";
-import {
-  isSadlEncryptedString,
-  latin1ToBytes,
-  parseSaDriversLicenceBytes,
-} from "@/lib/sa-drivers-licence";
-import {
-  parsedSaIdFromDriversLicence,
-  type AccessIdentityScanResult,
-} from "@/lib/parse-sa-barcodes";
+import { looksLikeSadlEncryptedString } from "@shared/sa-drivers-licence";
+import { decodeDriversLicenceViaApi } from "@/lib/decode-drivers-licence-api";
+import type { AccessIdentityScanResult } from "@/lib/parse-sa-barcodes";
 import {
   createHtml5FileScanner,
   decodeBarcodesFromFile,
@@ -110,6 +104,7 @@ export function BarcodeScanner({
   const frameDecodeBusyRef = useRef(false);
   const pickerActiveRef = useRef(false);
   const decryptBusyRef = useRef(false);
+  const sadlPayloadRef = useRef<string | null>(null);
   const openRef = useRef(open);
   const startLiveCameraRef = useRef<(() => Promise<void>) | null>(null);
 
@@ -131,8 +126,48 @@ export function BarcodeScanner({
     setScanning(false);
   }, []);
 
+  const acceptDriversLicence = useCallback(
+    async (payload: string) => {
+      if (decryptBusyRef.current || settledRef.current) return;
+      decryptBusyRef.current = true;
+      settledRef.current = true;
+      sadlPayloadRef.current = null;
+      stopCamera();
+      setStatus("Reading driver's licence…");
+      setError(null);
+      try {
+        const parsed = await decodeDriversLicenceViaApi(payload);
+        if (!parsed?.personIdNumber && !parsed?.personFullName) {
+          settledRef.current = false;
+          decryptBusyRef.current = false;
+          setStatus(null);
+          setError("Could not read driver's licence — hold the PDF417 sharper or try Take photo.");
+          void startLiveCameraRef.current?.();
+          return;
+        }
+        onScan({ kind: "parsed", parsed });
+        onOpenChange(false);
+      } catch {
+        settledRef.current = false;
+        decryptBusyRef.current = false;
+        setStatus(null);
+        setError("Could not read driver's licence — check connection and try again.");
+        void startLiveCameraRef.current?.();
+      } finally {
+        decryptBusyRef.current = false;
+      }
+    },
+    [onOpenChange, onScan, stopCamera],
+  );
+
   const tryAcceptScan = useCallback(() => {
     if (settledRef.current || decryptBusyRef.current) return;
+
+    if (scanKind === "id" && sadlPayloadRef.current) {
+      void acceptDriversLicence(sadlPayloadRef.current);
+      return;
+    }
+
     const best = pickBestBarcodePayload(
       samplesRef.current.map((s) => ({ rawValue: s.rawValue, format: s.format })),
     );
@@ -142,7 +177,6 @@ export function BarcodeScanner({
     const smartId = isSmartIdPipePayload(best);
 
     if (scanKind === "id") {
-      const sadl = isSadlEncryptedString(best);
       if (smartId) {
         settledRef.current = true;
         stopCamera();
@@ -150,29 +184,8 @@ export function BarcodeScanner({
         onOpenChange(false);
         return;
       }
-      if (sadl) {
-        decryptBusyRef.current = true;
-        stopCamera();
-        window.setTimeout(() => {
-          try {
-            const dl = parseSaDriversLicenceBytes(latin1ToBytes(best), true);
-            if (!dl) {
-              decryptBusyRef.current = false;
-              setStatus("Licence barcode detected — hold steady for a sharper read.");
-              void startLiveCameraRef.current?.();
-              return;
-            }
-            settledRef.current = true;
-            onScan({ kind: "parsed", parsed: parsedSaIdFromDriversLicence(dl) });
-            onOpenChange(false);
-          } catch {
-            decryptBusyRef.current = false;
-            setError("Could not read driver's licence — use Take photo or enter details manually.");
-            void startLiveCameraRef.current?.();
-          } finally {
-            decryptBusyRef.current = false;
-          }
-        }, 0);
+      if (looksLikeSadlEncryptedString(best)) {
+        void acceptDriversLicence(best);
         return;
       }
       const digitsOnly = best.replace(/\D/g, "");
@@ -193,7 +206,7 @@ export function BarcodeScanner({
     stopCamera();
     onScan(best);
     onOpenChange(false);
-  }, [onOpenChange, onScan, scanKind, stopCamera]);
+  }, [acceptDriversLicence, onOpenChange, onScan, scanKind, stopCamera]);
 
   const recordHits = useCallback(
     (hits: Array<{ rawValue: string; format?: string }>) => {
@@ -202,10 +215,9 @@ export function BarcodeScanner({
       for (const hit of hits) {
         const raw = hit.rawValue?.trim();
         if (!raw) continue;
-        if (raw.length >= 700 && isSadlEncryptedString(raw)) {
-          samplesRef.current = samplesRef.current.filter(
-            (s) => !isSadlEncryptedString(s.rawValue),
-          );
+        if (scanKind === "id" && looksLikeSadlEncryptedString(raw)) {
+          sadlPayloadRef.current = raw;
+          continue;
         }
         samplesRef.current.push({ rawValue: raw, format: hit.format, at: now });
       }
@@ -214,7 +226,7 @@ export function BarcodeScanner({
         .slice(-12);
       tryAcceptScan();
     },
-    [tryAcceptScan],
+    [scanKind, tryAcceptScan],
   );
 
   const ensureFileScanner = useCallback(() => {
@@ -299,12 +311,14 @@ export function BarcodeScanner({
       pickerActiveRef.current = false;
       samplesRef.current = [];
       settledRef.current = false;
+      sadlPayloadRef.current = null;
       return;
     }
 
     let cancelled = false;
     settledRef.current = false;
     samplesRef.current = [];
+    sadlPayloadRef.current = null;
     startedAtRef.current = Date.now();
     lastFrameDecodeRef.current = 0;
     frameDecodeBusyRef.current = false;
@@ -367,6 +381,10 @@ export function BarcodeScanner({
               } catch {
                 /* frame skip */
               }
+            }
+
+            if (settledRef.current || decryptBusyRef.current || sadlPayloadRef.current) {
+              return;
             }
 
             const now = Date.now();
