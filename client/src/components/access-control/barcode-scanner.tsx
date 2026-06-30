@@ -12,7 +12,15 @@ import {
   isSmartIdPipePayload,
   pickBestBarcodePayload,
 } from "@/lib/pick-best-barcode";
-import { isSadlEncryptedString } from "@/lib/sa-drivers-licence";
+import {
+  isSadlEncryptedString,
+  latin1ToBytes,
+  parseSaDriversLicenceBytes,
+} from "@/lib/sa-drivers-licence";
+import {
+  parsedSaIdFromDriversLicence,
+  type AccessIdentityScanResult,
+} from "@/lib/parse-sa-barcodes";
 import {
   createHtml5FileScanner,
   decodeBarcodesFromFile,
@@ -43,7 +51,7 @@ type BarcodeScannerProps = {
   onOpenChange: (open: boolean) => void;
   title: string;
   scanKind?: "id" | "disc";
-  onScan: (value: string) => void;
+  onScan: (result: string | AccessIdentityScanResult) => void;
 };
 
 type ScanSample = { rawValue: string; format?: string; at: number };
@@ -101,6 +109,7 @@ export function BarcodeScanner({
   const lastFrameDecodeRef = useRef(0);
   const frameDecodeBusyRef = useRef(false);
   const pickerActiveRef = useRef(false);
+  const decryptBusyRef = useRef(false);
   const openRef = useRef(open);
   const startLiveCameraRef = useRef<(() => Promise<void>) | null>(null);
 
@@ -123,7 +132,7 @@ export function BarcodeScanner({
   }, []);
 
   const tryAcceptScan = useCallback(() => {
-    if (settledRef.current) return;
+    if (settledRef.current || decryptBusyRef.current) return;
     const best = pickBestBarcodePayload(
       samplesRef.current.map((s) => ({ rawValue: s.rawValue, format: s.format })),
     );
@@ -134,16 +143,43 @@ export function BarcodeScanner({
 
     if (scanKind === "id") {
       const sadl = isSadlEncryptedString(best);
-      if (smartId || sadl) {
+      if (smartId) {
         settledRef.current = true;
-        onScan(best);
+        stopCamera();
+        onScan({ kind: "raw", value: best });
         onOpenChange(false);
+        return;
+      }
+      if (sadl) {
+        decryptBusyRef.current = true;
+        stopCamera();
+        window.setTimeout(() => {
+          try {
+            const dl = parseSaDriversLicenceBytes(latin1ToBytes(best), true);
+            if (!dl) {
+              decryptBusyRef.current = false;
+              setStatus("Licence barcode detected — hold steady for a sharper read.");
+              void startLiveCameraRef.current?.();
+              return;
+            }
+            settledRef.current = true;
+            onScan({ kind: "parsed", parsed: parsedSaIdFromDriversLicence(dl) });
+            onOpenChange(false);
+          } catch {
+            decryptBusyRef.current = false;
+            setError("Could not read driver's licence — use Take photo or enter details manually.");
+            void startLiveCameraRef.current?.();
+          } finally {
+            decryptBusyRef.current = false;
+          }
+        }, 0);
         return;
       }
       const digitsOnly = best.replace(/\D/g, "");
       if (elapsed >= 4_000 && digitsOnly.length === 13 && best.length <= 14) {
         settledRef.current = true;
-        onScan(best);
+        stopCamera();
+        onScan({ kind: "raw", value: best });
         onOpenChange(false);
         return;
       }
@@ -154,20 +190,28 @@ export function BarcodeScanner({
     }
 
     settledRef.current = true;
+    stopCamera();
     onScan(best);
     onOpenChange(false);
-  }, [onOpenChange, onScan, scanKind]);
+  }, [onOpenChange, onScan, scanKind, stopCamera]);
 
   const recordHits = useCallback(
     (hits: Array<{ rawValue: string; format?: string }>) => {
-      if (settledRef.current) return;
+      if (settledRef.current || decryptBusyRef.current) return;
       const now = Date.now();
       for (const hit of hits) {
         const raw = hit.rawValue?.trim();
         if (!raw) continue;
+        if (raw.length >= 700 && isSadlEncryptedString(raw)) {
+          samplesRef.current = samplesRef.current.filter(
+            (s) => !isSadlEncryptedString(s.rawValue),
+          );
+        }
         samplesRef.current.push({ rawValue: raw, format: hit.format, at: now });
       }
-      samplesRef.current = samplesRef.current.filter((s) => now - s.at < 4_000);
+      samplesRef.current = samplesRef.current
+        .filter((s) => now - s.at < 4_000)
+        .slice(-12);
       tryAcceptScan();
     },
     [tryAcceptScan],
@@ -494,7 +538,8 @@ export function BarcodeScanner({
               className="flex-1"
               disabled={!manual.trim()}
               onClick={() => {
-                onScan(manual.trim());
+                const value = manual.trim();
+                onScan(scanKind === "id" ? { kind: "raw", value } : value);
                 onOpenChange(false);
               }}
             >

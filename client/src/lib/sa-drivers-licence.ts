@@ -51,7 +51,16 @@ export type SaDriversLicence = {
   gender: "male" | "female";
 };
 
-function parsePkcs1PubKey(pem: string): { n: bigint; e: bigint } {
+type RsaPublicKey = { n: bigint; e: bigint };
+
+const RSA_KEYS = {
+  v1_128: null as RsaPublicKey | null,
+  v1_74: null as RsaPublicKey | null,
+  v2_128: null as RsaPublicKey | null,
+  v2_74: null as RsaPublicKey | null,
+};
+
+function parsePkcs1PubKey(pem: string): RsaPublicKey {
   const lines = pem.trim().split("\n");
   const b64 = lines.filter((l) => !l.startsWith("-----")).join("");
   const der = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
@@ -86,8 +95,16 @@ function parsePkcs1PubKey(pem: string): { n: bigint; e: bigint } {
   return { n, e };
 }
 
-function rsaDecryptBlock(block: Uint8Array, pem: string): Uint8Array {
-  const { n, e } = parsePkcs1PubKey(pem);
+function rsaKeyFor(pem: string, cacheKey: keyof typeof RSA_KEYS): RsaPublicKey {
+  const cached = RSA_KEYS[cacheKey];
+  if (cached) return cached;
+  const parsed = parsePkcs1PubKey(pem);
+  RSA_KEYS[cacheKey] = parsed;
+  return parsed;
+}
+
+function rsaDecryptBlock(block: Uint8Array, key: RsaPublicKey): Uint8Array {
+  const { n, e } = key;
   let input = 0n;
   for (const byte of block) {
     input = (input << 8n) | BigInt(byte);
@@ -143,18 +160,14 @@ export function isSadlEncryptedString(raw: string): boolean {
 
 function decryptSadlData(data: Uint8Array): Uint8Array {
   const header = data.subarray(0, 6);
-  let pk128 = PK_V1_128;
-  let pk74 = PK_V1_74;
-
-  if (
+  const isV2 =
     header[0] === V2[0] &&
     header[1] === V2[1] &&
     header[2] === V2[2] &&
-    header[3] === V2[3]
-  ) {
-    pk128 = PK_V2_128;
-    pk74 = PK_V2_74;
-  }
+    header[3] === V2[3];
+
+  const key128 = rsaKeyFor(isV2 ? PK_V2_128 : PK_V1_128, isV2 ? "v2_128" : "v1_128");
+  const key74 = rsaKeyFor(isV2 ? PK_V2_74 : PK_V1_74, isV2 ? "v2_74" : "v1_74");
 
   const all = new Uint8Array(684);
   let offset = 0;
@@ -162,15 +175,13 @@ function decryptSadlData(data: Uint8Array): Uint8Array {
 
   for (let i = 0; i < 5; i++) {
     const block = data.subarray(start, start + 128);
-    const decrypted = rsaDecryptBlock(block, pk128);
-    all.set(decrypted, offset);
+    all.set(rsaDecryptBlock(block, key128), offset);
     offset += 128;
     start += 128;
   }
 
   const lastBlock = data.subarray(start, start + 74);
-  const decryptedLast = rsaDecryptBlock(lastBlock, pk74);
-  all.set(decryptedLast, offset);
+  all.set(rsaDecryptBlock(lastBlock, key74), offset);
 
   return all;
 }
@@ -297,7 +308,8 @@ function parseSadlDecrypted(data: Uint8Array): SaDriversLicence {
   index += 1;
 
   const nibbleQueue: number[] = [];
-  while (true) {
+  const nibbleEnd = Math.min(data.length, index + 120);
+  while (index < nibbleEnd) {
     const currentByte = data[index];
     index += 1;
     if (currentByte === 0x57) break;

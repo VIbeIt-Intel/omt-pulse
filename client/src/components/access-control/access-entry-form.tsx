@@ -371,8 +371,9 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
         onOpenChange={(o) => { if (!o) setScanTarget(null); }}
         title={scanTarget === "disc" ? "Scan licence disc" : "Scan ID or driver's licence"}
         scanKind={scanTarget === "disc" ? "disc" : "id"}
-        onScan={(value) => {
+        onScan={(result) => {
           if (scanTarget === "disc") {
+            const value = typeof result === "string" ? result : result.kind === "raw" ? result.value : "";
             const parsed = parseSaVehicleDiscBarcode(value);
             setVehicle((v) => ({
               ...v,
@@ -388,7 +389,10 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
               toast({ title: "Registration captured", description: parsed.registration });
             }
           } else {
-            const parsed = parseSaIdentityScan(value);
+            const parsed =
+              typeof result === "object" && result.kind === "parsed"
+                ? result.parsed
+                : parseSaIdentityScan(typeof result === "string" ? result : result.value);
             if (parsed.personFullName) setPersonFullName(parsed.personFullName);
             if (parsed.personIdNumber) setPersonIdNumber(parsed.personIdNumber);
             const note = buildLicenceNote(parsed);
