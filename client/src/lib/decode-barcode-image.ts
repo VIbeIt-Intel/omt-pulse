@@ -32,6 +32,9 @@ const CROP_REGIONS: CropRegion[] = [
   { x: 0, y: 0, w: 1, h: 1 },
 ];
 
+export const PDF417_MANUAL_FALLBACK_MSG =
+  "This barcode type could not be read automatically. Please enter the details manually.";
+
 type BarcodeDetectorLike = {
   detect: (source: ImageBitmapSource) => Promise<Array<{ rawValue: string; format?: string }>>;
 };
@@ -45,6 +48,29 @@ function getBarcodeDetector(): BarcodeDetectorLike | null {
     return new ctor({ formats: BARCODE_DETECTOR_FORMATS });
   } catch {
     return null;
+  }
+}
+
+/** Encrypted SA driver's licence PDF417 — never process on live camera (crashes WebView). */
+export function isLikelyBinaryPdf417(format?: string, rawLength?: number): boolean {
+  try {
+    if (!rawLength || rawLength < 100) return false;
+    const fmt = (format ?? "").toLowerCase();
+    return fmt.includes("pdf417") || fmt.includes("pdf_417");
+  } catch {
+    return false;
+  }
+}
+
+/** Safe for live camera loop — pipe text (Smart ID) or short 1D codes only. */
+export function isSafeLiveBarcodeValue(raw: string): boolean {
+  try {
+    if (!raw) return false;
+    if (raw.includes("|")) return true;
+    if (raw.length <= 64) return true;
+    return false;
+  } catch {
+    return false;
   }
 }
 
@@ -104,10 +130,30 @@ function renderCrop(
   return canvas;
 }
 
+function safeHitFromDetector(code: { rawValue: string; format?: string }): BarcodeHit | null {
+  try {
+    const format = code.format;
+    let length = 0;
+    try {
+      length = code.rawValue?.length ?? 0;
+    } catch {
+      return null;
+    }
+    if (isLikelyBinaryPdf417(format, length)) return null;
+
+    const raw = code.rawValue?.trim();
+    if (!raw || !isSafeLiveBarcodeValue(raw)) return null;
+    return { rawValue: raw, format };
+  } catch {
+    return null;
+  }
+}
+
 async function decodeCanvas(
   canvas: HTMLCanvasElement,
   detector: BarcodeDetectorLike | null,
   html5Scanner: Html5Qrcode | null,
+  allowBinaryPdf417: boolean,
 ): Promise<BarcodeHit[]> {
   const hits: BarcodeHit[] = [];
 
@@ -115,8 +161,17 @@ async function decodeCanvas(
     try {
       const codes = await detector.detect(canvas);
       for (const code of codes) {
-        const raw = code.rawValue?.trim();
-        if (raw) hits.push({ rawValue: raw, format: code.format });
+        try {
+          if (allowBinaryPdf417) {
+            const raw = code.rawValue?.trim();
+            if (raw) hits.push({ rawValue: raw, format: code.format });
+          } else {
+            const hit = safeHitFromDetector(code);
+            if (hit) hits.push(hit);
+          }
+        } catch {
+          /* skip single code */
+        }
       }
     } catch {
       /* try html5 */
@@ -128,7 +183,11 @@ async function decodeCanvas(
       const file = await canvasToPngFile(canvas, "crop.png");
       const result = await html5Scanner.scanFileV2(file, false);
       const raw = result.decodedText?.trim();
-      if (raw) hits.push({ rawValue: raw, format: html5FormatName(result) });
+      if (raw) {
+        if (allowBinaryPdf417 || isSafeLiveBarcodeValue(raw)) {
+          hits.push({ rawValue: raw, format: html5FormatName(result) });
+        }
+      }
     } catch {
       /* next crop */
     }
@@ -142,63 +201,67 @@ async function decodeFromImageSource(
   width: number,
   height: number,
   html5Scanner: Html5Qrcode | null,
+  allowBinaryPdf417: boolean,
 ): Promise<BarcodeHit[]> {
   const detector = getBarcodeDetector();
   const all: BarcodeHit[] = [];
 
   for (const crop of CROP_REGIONS) {
-    const canvas = renderCrop(source, width, height, crop);
-    const hits = await decodeCanvas(canvas, detector, html5Scanner);
-    all.push(...hits);
+    try {
+      const canvas = renderCrop(source, width, height, crop);
+      const hits = await decodeCanvas(canvas, detector, html5Scanner, allowBinaryPdf417);
+      all.push(...hits);
+    } catch {
+      /* next crop */
+    }
   }
 
   return all;
 }
 
+/** Decode barcodes from a photo. Set allowBinaryPdf417 for driver's licence (one-shot, not live). */
 export async function decodeBarcodesFromFile(
   file: File,
   html5Scanner: Html5Qrcode | null,
+  allowBinaryPdf417 = true,
 ): Promise<BarcodeHit[]> {
-  const img = await loadImageFromFile(file);
-  return decodeFromImageSource(img, img.naturalWidth, img.naturalHeight, html5Scanner);
-}
-
-/** SADL-only: html5-qrcode only — BarcodeDetector can crash WebView on 720-byte binary PDF417. */
-export async function decodeSadlFromFile(
-  file: File,
-  html5Scanner: Html5Qrcode | null,
-): Promise<string | null> {
-  if (!html5Scanner) return null;
-  const img = await loadImageFromFile(file);
-  for (const crop of CROP_REGIONS) {
-    try {
-      const canvas = renderCrop(img, img.naturalWidth, img.naturalHeight, crop);
-      const png = await canvasToPngFile(canvas, "licence-crop.png");
-      const result = await html5Scanner.scanFileV2(png, false);
-      const raw = result.decodedText?.trim();
-      if (raw && raw.length >= 700) return raw;
-    } catch {
-      /* try next crop */
-    }
+  try {
+    const img = await loadImageFromFile(file);
+    return await decodeFromImageSource(
+      img,
+      img.naturalWidth,
+      img.naturalHeight,
+      html5Scanner,
+      allowBinaryPdf417,
+    );
+  } catch {
+    return [];
   }
-  return null;
 }
 
 export async function decodeBarcodesFromVideoFrame(
   video: HTMLVideoElement,
   html5Scanner: Html5Qrcode | null,
 ): Promise<BarcodeHit[]> {
-  const width = video.videoWidth;
-  const height = video.videoHeight;
-  if (!width || !height) return [];
-  return decodeFromImageSource(video, width, height, html5Scanner);
+  try {
+    const width = video.videoWidth;
+    const height = video.videoHeight;
+    if (!width || !height) return [];
+    return await decodeFromImageSource(video, width, height, html5Scanner, false);
+  } catch {
+    return [];
+  }
 }
 
-export function createHtml5FileScanner(elementId: string): Html5Qrcode {
-  return new Html5Qrcode(elementId, {
-    verbose: false,
-    formatsToSupport: PDF417_FORMATS,
-  });
+export function createHtml5FileScanner(elementId: string): Html5Qrcode | null {
+  try {
+    return new Html5Qrcode(elementId, {
+      verbose: false,
+      formatsToSupport: PDF417_FORMATS,
+    });
+  } catch {
+    return null;
+  }
 }
 
 /** Capture the current video preview frame as JPEG (matches what the user framed). */
@@ -206,18 +269,26 @@ export function captureVideoFrameAsJpeg(
   video: HTMLVideoElement,
   quality = 0.92,
 ): Promise<Blob | null> {
-  const width = video.videoWidth;
-  const height = video.videoHeight;
-  if (!width || !height) return Promise.resolve(null);
+  try {
+    const width = video.videoWidth;
+    const height = video.videoHeight;
+    if (!width || !height) return Promise.resolve(null);
 
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return Promise.resolve(null);
-  ctx.drawImage(video, 0, 0, width, height);
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return Promise.resolve(null);
+    ctx.drawImage(video, 0, 0, width, height);
 
-  return new Promise((resolve) => {
-    canvas.toBlob((blob) => resolve(blob), "image/jpeg", quality);
-  });
+    return new Promise((resolve) => {
+      try {
+        canvas.toBlob((blob) => resolve(blob), "image/jpeg", quality);
+      } catch {
+        resolve(null);
+      }
+    });
+  } catch {
+    return Promise.resolve(null);
+  }
 }
