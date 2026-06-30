@@ -6,24 +6,25 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Camera, ScanLine, Settings, X } from "lucide-react";
-import {
-  Html5Qrcode,
-  Html5QrcodeSupportedFormats,
-  type Html5QrcodeResult,
-} from "html5-qrcode";
+import { Camera, ImageIcon, ScanLine, Settings, X } from "lucide-react";
 import { Capacitor } from "@capacitor/core";
 import {
   isSmartIdPipePayload,
   pickBestBarcodePayload,
 } from "@/lib/pick-best-barcode";
 import { isSadlEncryptedString } from "@/lib/sa-drivers-licence";
+import {
+  createHtml5FileScanner,
+  decodeBarcodesFromFile,
+  decodeBarcodesFromVideoFrame,
+} from "@/lib/decode-barcode-image";
 import { openOmtAppDetailsSettings } from "@/lib/omt-app-settings";
 import {
   NativeSettings,
   AndroidSettings,
   IOSSettings,
 } from "capacitor-native-settings";
+import type { Html5Qrcode } from "html5-qrcode";
 
 type BarcodeDetectorLike = {
   detect: (source: ImageBitmapSource) => Promise<Array<{ rawValue: string; format?: string }>>;
@@ -41,7 +42,6 @@ type BarcodeScannerProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
-  /** id = Smart ID PDF417 on back; disc = vehicle licence disc */
   scanKind?: "id" | "disc";
   onScan: (value: string) => void;
 };
@@ -49,19 +49,6 @@ type BarcodeScannerProps = {
 type ScanSample = { rawValue: string; format?: string; at: number };
 
 const HIDDEN_SCANNER_ID = "ac-barcode-file-scanner";
-
-const ID_FORMATS = [
-  Html5QrcodeSupportedFormats.PDF_417,
-  Html5QrcodeSupportedFormats.QR_CODE,
-  Html5QrcodeSupportedFormats.CODE_128,
-  Html5QrcodeSupportedFormats.CODE_39,
-];
-
-const DISC_FORMATS = [
-  Html5QrcodeSupportedFormats.PDF_417,
-  Html5QrcodeSupportedFormats.CODE_128,
-  Html5QrcodeSupportedFormats.CODE_39,
-];
 
 const BARCODE_DETECTOR_FORMATS = [
   "pdf417",
@@ -73,13 +60,8 @@ const BARCODE_DETECTOR_FORMATS = [
   "aztec",
 ];
 
-function formatName(result: Html5QrcodeResult): string | undefined {
-  const fmt = result.result.format;
-  if (typeof fmt === "object" && fmt !== null && "formatName" in fmt) {
-    return String((fmt as { formatName?: string }).formatName ?? "");
-  }
-  return undefined;
-}
+const FILE_INPUT_CLASS =
+  "absolute left-0 top-0 h-px w-px overflow-hidden opacity-0 [clip:rect(0,0,0,0)]";
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -97,29 +79,8 @@ async function openCameraPermissionSettings(): Promise<void> {
   }
 }
 
-function captureVideoFrameFile(video: HTMLVideoElement): File | null {
-  const width = video.videoWidth;
-  const height = video.videoHeight;
-  if (!width || !height) return null;
-
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return null;
-  ctx.drawImage(video, 0, 0, width, height);
-
-  const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
-  const base64 = dataUrl.split(",")[1];
-  if (!base64) return null;
-  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-  return new File([bytes], "frame.jpg", { type: "image/jpeg" });
-}
-
 /**
- * Camera scanner for access control.
- * Live preview uses getUserMedia (reliable in Capacitor WebView).
- * PDF417 decode uses BarcodeDetector when available, with html5-qrcode frame/photo fallback.
+ * Camera scanner — live preview via getUserMedia; PDF417 via cropped frame decode + photo/gallery.
  */
 export function BarcodeScanner({
   open,
@@ -132,20 +93,26 @@ export function BarcodeScanner({
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number>(0);
   const fileScannerRef = useRef<Html5Qrcode | null>(null);
-  const photoInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
   const samplesRef = useRef<ScanSample[]>([]);
   const startedAtRef = useRef(0);
   const settledRef = useRef(false);
-  const lastHtml5ScanRef = useRef(0);
+  const lastFrameDecodeRef = useRef(0);
+  const frameDecodeBusyRef = useRef(false);
+  const pickerActiveRef = useRef(false);
+  const openRef = useRef(open);
+  const startLiveCameraRef = useRef<(() => Promise<void>) | null>(null);
 
   const [error, setError] = useState<string | null>(null);
   const [manual, setManual] = useState("");
   const [scanning, setScanning] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
   const [permissionBlocked, setPermissionBlocked] = useState(false);
   const [photoScanning, setPhotoScanning] = useState(false);
 
-  const formats = scanKind === "id" ? ID_FORMATS : DISC_FORMATS;
+  openRef.current = open;
 
   const stopCamera = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -173,10 +140,15 @@ export function BarcodeScanner({
         onOpenChange(false);
         return;
       }
-      if (elapsed >= 5_000 && best.replace(/\D/g, "").length === 13) {
+      const digitsOnly = best.replace(/\D/g, "");
+      if (elapsed >= 4_000 && digitsOnly.length === 13 && best.length <= 14) {
         settledRef.current = true;
         onScan(best);
         onOpenChange(false);
+        return;
+      }
+      if (elapsed >= 2_000 && digitsOnly.length === 13) {
+        setStatus("Only the small barcode was read — move closer to the large square PDF417.");
       }
       return;
     }
@@ -186,52 +158,90 @@ export function BarcodeScanner({
     onOpenChange(false);
   }, [onOpenChange, onScan, scanKind]);
 
-  const recordSample = useCallback((rawValue: string, format?: string) => {
-    const raw = rawValue.trim();
-    if (!raw || settledRef.current) return;
-    const now = Date.now();
-    samplesRef.current.push({ rawValue: raw, format, at: now });
-    samplesRef.current = samplesRef.current.filter((s) => now - s.at < 3_000);
-    tryAcceptScan();
-  }, [tryAcceptScan]);
+  const recordHits = useCallback(
+    (hits: Array<{ rawValue: string; format?: string }>) => {
+      if (settledRef.current) return;
+      const now = Date.now();
+      for (const hit of hits) {
+        const raw = hit.rawValue?.trim();
+        if (!raw) continue;
+        samplesRef.current.push({ rawValue: raw, format: hit.format, at: now });
+      }
+      samplesRef.current = samplesRef.current.filter((s) => now - s.at < 4_000);
+      tryAcceptScan();
+    },
+    [tryAcceptScan],
+  );
 
   const ensureFileScanner = useCallback(() => {
     if (fileScannerRef.current) return fileScannerRef.current;
     const el = document.getElementById(HIDDEN_SCANNER_ID);
     if (!el) return null;
-    const scanner = new Html5Qrcode(HIDDEN_SCANNER_ID, {
-      verbose: false,
-      formatsToSupport: formats,
-    });
-    fileScannerRef.current = scanner;
-    return scanner;
-  }, [formats]);
+    fileScannerRef.current = createHtml5FileScanner(HIDDEN_SCANNER_ID);
+    return fileScannerRef.current;
+  }, []);
 
-  const decodeImageFile = useCallback(async (file: File): Promise<boolean> => {
-    const scanner = ensureFileScanner();
-    if (!scanner) return false;
-    try {
-      const result = await scanner.scanFileV2(file, false);
-      recordSample(result.decodedText, formatName(result));
-      return true;
-    } catch {
-      return false;
-    }
-  }, [ensureFileScanner, recordSample]);
-
-  const handlePhotoSelected = useCallback(async (file: File | undefined) => {
-    if (!file || settledRef.current) return;
-    setPhotoScanning(true);
-    setError(null);
-    try {
-      const ok = await decodeImageFile(file);
-      if (!ok && !settledRef.current) {
-        setError("No barcode found in that photo — try again with the PDF417 in focus.");
+  const decodeImageFile = useCallback(
+    async (file: File): Promise<boolean> => {
+      const scanner = ensureFileScanner();
+      const hits = await decodeBarcodesFromFile(file, scanner);
+      if (hits.length) {
+        recordHits(hits);
+        return true;
       }
-    } finally {
-      setPhotoScanning(false);
-    }
-  }, [decodeImageFile]);
+      return false;
+    },
+    [ensureFileScanner, recordHits],
+  );
+
+  const pauseForPicker = useCallback(() => {
+    pickerActiveRef.current = true;
+    stopCamera();
+  }, [stopCamera]);
+
+  const scheduleResumeIfPickerCancelled = useCallback(() => {
+    window.setTimeout(() => {
+      if (!pickerActiveRef.current || settledRef.current || !openRef.current) return;
+      pickerActiveRef.current = false;
+      void startLiveCameraRef.current?.();
+    }, 12_000);
+  }, []);
+
+  const openCameraPicker = useCallback(() => {
+    pauseForPicker();
+    cameraInputRef.current?.click();
+    scheduleResumeIfPickerCancelled();
+  }, [pauseForPicker, scheduleResumeIfPickerCancelled]);
+
+  const openGalleryPicker = useCallback(() => {
+    pauseForPicker();
+    galleryInputRef.current?.click();
+    scheduleResumeIfPickerCancelled();
+  }, [pauseForPicker, scheduleResumeIfPickerCancelled]);
+
+  const handlePhotoSelected = useCallback(
+    async (file: File | undefined) => {
+      pickerActiveRef.current = false;
+      if (!file || settledRef.current) {
+        if (openRef.current && !settledRef.current) void startLiveCameraRef.current?.();
+        return;
+      }
+      setPhotoScanning(true);
+      setError(null);
+      setStatus("Reading barcode from photo…");
+      try {
+        const ok = await decodeImageFile(file);
+        if (!ok && !settledRef.current) {
+          setError("No barcode found — fill the frame with the large PDF417 and keep the card sharp.");
+          setStatus(null);
+          void startLiveCameraRef.current?.();
+        }
+      } finally {
+        setPhotoScanning(false);
+      }
+    },
+    [decodeImageFile],
+  );
 
   useEffect(() => {
     if (!open) {
@@ -239,8 +249,10 @@ export function BarcodeScanner({
       setError(null);
       setManual("");
       setHint(null);
+      setStatus(null);
       setPermissionBlocked(false);
       setPhotoScanning(false);
+      pickerActiveRef.current = false;
       samplesRef.current = [];
       settledRef.current = false;
       return;
@@ -250,29 +262,35 @@ export function BarcodeScanner({
     settledRef.current = false;
     samplesRef.current = [];
     startedAtRef.current = Date.now();
-    lastHtml5ScanRef.current = 0;
+    lastFrameDecodeRef.current = 0;
+    frameDecodeBusyRef.current = false;
 
     setHint(
       scanKind === "id"
-        ? "Scan the large square PDF417 on the back of a Smart ID or driver's licence — not the small line barcode."
+        ? "Fill the green frame with the large square PDF417 on the back — not the small line barcode."
         : "Centre the licence disc barcode in the frame.",
     );
+    setStatus("Hold the card steady for 2–3 seconds.");
 
     const detector =
       typeof window.BarcodeDetector !== "undefined"
         ? new window.BarcodeDetector({ formats: BARCODE_DETECTOR_FORMATS })
         : null;
 
-    void (async () => {
-      await delay(350);
-      if (cancelled) return;
+    const startLiveCamera = async () => {
+      await delay(300);
+      if (cancelled || pickerActiveRef.current) return;
 
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: "environment" } },
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+          },
           audio: false,
         });
-        if (cancelled) {
+        if (cancelled || pickerActiveRef.current) {
           stream.getTracks().forEach((t) => t.stop());
           return;
         }
@@ -288,34 +306,43 @@ export function BarcodeScanner({
         await video.play();
         if (!cancelled) setScanning(true);
 
-        const tick = async () => {
-          if (cancelled || settledRef.current) return;
+        const tick = () => {
+          if (cancelled || settledRef.current || pickerActiveRef.current) return;
           const activeVideo = videoRef.current;
           if (!activeVideo || activeVideo.readyState < 2) {
             rafRef.current = requestAnimationFrame(tick);
             return;
           }
 
-          if (detector) {
-            try {
-              const codes = await detector.detect(activeVideo);
-              for (const code of codes) {
-                recordSample(code.rawValue, code.format);
+          void (async () => {
+            if (detector) {
+              try {
+                const codes = await detector.detect(activeVideo);
+                recordHits(codes);
                 if (settledRef.current) return;
+              } catch {
+                /* frame skip */
               }
-            } catch {
-              /* frame skip */
             }
-          }
 
-          const now = Date.now();
-          if (now - lastHtml5ScanRef.current >= 700) {
-            lastHtml5ScanRef.current = now;
-            const frame = captureVideoFrameFile(activeVideo);
-            if (frame) {
-              await decodeImageFile(frame);
+            const now = Date.now();
+            if (
+              !frameDecodeBusyRef.current &&
+              now - lastFrameDecodeRef.current >= 450
+            ) {
+              lastFrameDecodeRef.current = now;
+              frameDecodeBusyRef.current = true;
+              try {
+                const scanner = ensureFileScanner();
+                const hits = await decodeBarcodesFromVideoFrame(activeVideo, scanner);
+                recordHits(hits);
+              } catch {
+                /* skip */
+              } finally {
+                frameDecodeBusyRef.current = false;
+              }
             }
-          }
+          })();
 
           if (!cancelled && !settledRef.current) {
             rafRef.current = requestAnimationFrame(tick);
@@ -323,32 +350,33 @@ export function BarcodeScanner({
         };
 
         rafRef.current = requestAnimationFrame(tick);
-
-        if (!detector) {
-          setHint("Hold the PDF417 steady. If live scan is slow, tap Scan photo.");
-        }
       } catch (err) {
         if (cancelled) return;
         const name = err instanceof DOMException ? err.name : "";
         if (name === "NotAllowedError" || name === "PermissionDeniedError") {
           setPermissionBlocked(true);
-          setError("Camera permission is blocked for OMT Pulse. Allow Camera in app settings, or use Scan photo.");
+          setError("Camera blocked — allow Camera in app settings, or use Take photo / Gallery.");
         } else {
-          setError("Camera unavailable — tap Scan photo or enter the code manually.");
+          setError("Camera unavailable — use Take photo or Gallery below.");
         }
+        setStatus(null);
       }
-    })();
+    };
+
+    startLiveCameraRef.current = startLiveCamera;
+    void startLiveCamera();
 
     const poll = window.setInterval(() => {
       if (!cancelled && !settledRef.current) tryAcceptScan();
-    }, 500);
+    }, 400);
 
     return () => {
       cancelled = true;
+      startLiveCameraRef.current = null;
       window.clearInterval(poll);
       stopCamera();
     };
-  }, [decodeImageFile, open, recordSample, scanKind, stopCamera, tryAcceptScan]);
+  }, [ensureFileScanner, open, recordHits, scanKind, stopCamera, tryAcceptScan]);
 
   useEffect(() => {
     return () => {
@@ -363,98 +391,121 @@ export function BarcodeScanner({
   }, []);
 
   return (
-    <>
-      <div id={HIDDEN_SCANNER_ID} className="sr-only" aria-hidden />
-      <input
-        ref={photoInputRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        className="hidden"
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          void handlePhotoSelected(file);
-          e.target.value = "";
-        }}
-      />
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-sm p-0 gap-0 overflow-hidden">
-          <DialogHeader className="p-4 pb-2">
-            <DialogTitle className="flex items-center gap-2 text-base">
-              <ScanLine className="h-5 w-5" />
-              {title}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="relative aspect-[4/3] bg-black overflow-hidden">
-            <video
-              ref={videoRef}
-              className="h-full w-full object-cover"
-              playsInline
-              muted
-              autoPlay
-            />
-            {!scanning && !error && (
-              <div className="absolute inset-0 flex items-center justify-center text-white text-sm px-6 text-center">
-                Starting camera…
-              </div>
-            )}
-            <div className="pointer-events-none absolute inset-8 border-2 border-primary/80 rounded-lg" />
-          </div>
-          <div className="p-4 space-y-3">
-            {hint && !error && (
-              <p className="text-xs text-muted-foreground">{hint}</p>
-            )}
-            {error && <p className="text-xs text-destructive">{error}</p>}
-            <div className="flex gap-2">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm p-0 gap-0 overflow-hidden" hideDefaultClose>
+        <div id={HIDDEN_SCANNER_ID} aria-hidden className="fixed -left-[9999px] h-1 w-1" />
+        <input
+          ref={cameraInputRef}
+          id="ac-scan-camera-input"
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className={FILE_INPUT_CLASS}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            void handlePhotoSelected(file);
+            e.target.value = "";
+          }}
+        />
+        <input
+          ref={galleryInputRef}
+          id="ac-scan-gallery-input"
+          type="file"
+          accept="image/*"
+          className={FILE_INPUT_CLASS}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            void handlePhotoSelected(file);
+            e.target.value = "";
+          }}
+        />
+
+        <DialogHeader className="p-4 pb-2 pr-12">
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <ScanLine className="h-5 w-5" />
+            {title}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="relative aspect-[4/3] bg-black overflow-hidden">
+          <video
+            ref={videoRef}
+            className="h-full w-full object-cover"
+            playsInline
+            muted
+            autoPlay
+          />
+          {!scanning && !error && (
+            <div className="absolute inset-0 flex items-center justify-center text-white text-sm px-6 text-center">
+              Starting camera…
+            </div>
+          )}
+          <div className="pointer-events-none absolute inset-6 border-2 border-primary rounded-lg" />
+        </div>
+        <div className="p-4 space-y-3">
+          {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+          {status && !error && (
+            <p className="text-xs text-primary font-medium">{status}</p>
+          )}
+          {error && <p className="text-xs text-destructive">{error}</p>}
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="flex-1"
+              disabled={photoScanning}
+              onClick={openCameraPicker}
+            >
+              <Camera className="h-4 w-4 mr-1" />
+              {photoScanning ? "Reading…" : "Take photo"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="flex-1"
+              disabled={photoScanning}
+              onClick={openGalleryPicker}
+            >
+              <ImageIcon className="h-4 w-4 mr-1" />
+              Gallery
+            </Button>
+            {permissionBlocked && (
               <Button
                 type="button"
                 variant="outline"
-                className="flex-1"
-                disabled={photoScanning}
-                onClick={() => photoInputRef.current?.click()}
+                size="icon"
+                onClick={() => void openCameraPermissionSettings()}
+                title="Open camera settings"
               >
-                <Camera className="h-4 w-4 mr-1" />
-                {photoScanning ? "Scanning photo…" : "Scan photo"}
+                <Settings className="h-4 w-4" />
               </Button>
-              {permissionBlocked && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  onClick={() => void openCameraPermissionSettings()}
-                  title="Open camera settings"
-                >
-                  <Settings className="h-4 w-4" />
-                </Button>
-              )}
-            </div>
-            <input
-              type="text"
-              className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-              placeholder={scanKind === "id" ? "Or paste full ID barcode text" : "Type licence disc code"}
-              value={manual}
-              onChange={(e) => setManual(e.target.value)}
-              autoComplete="off"
-            />
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                className="flex-1"
-                disabled={!manual.trim()}
-                onClick={() => {
-                  onScan(manual.trim());
-                  onOpenChange(false);
-                }}
-              >
-                Use code
-              </Button>
-              <Button type="button" variant="outline" size="icon" onClick={() => onOpenChange(false)}>
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
+            )}
           </div>
-        </DialogContent>
-      </Dialog>
-    </>
+          <input
+            type="text"
+            className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+            placeholder={scanKind === "id" ? "Or paste full ID barcode text" : "Type licence disc code"}
+            value={manual}
+            onChange={(e) => setManual(e.target.value)}
+            autoComplete="off"
+          />
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              className="flex-1"
+              disabled={!manual.trim()}
+              onClick={() => {
+                onScan(manual.trim());
+                onOpenChange(false);
+              }}
+            >
+              Use code
+            </Button>
+            <Button type="button" variant="outline" size="icon" onClick={() => onOpenChange(false)}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
