@@ -18,7 +18,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { prepareAndUploadFile } from "@/lib/upload-media";
 import { ACCESS_CATEGORY_LABELS } from "@/lib/access-control-labels";
 import { currentlyInsideQueryKey } from "@/lib/access-control-queries";
-import { parseSaIdBarcode, parseSaVehicleDiscBarcode } from "@/lib/parse-sa-barcodes";
+import { parseSaIdentityScan, parseSaVehicleDiscBarcode } from "@/lib/parse-sa-barcodes";
 import { BarcodeScanner } from "@/components/access-control/barcode-scanner";
 import { Camera, Car, Loader2, ScanLine, User } from "lucide-react";
 import type { Destination } from "@shared/schema";
@@ -55,6 +55,18 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
   const [vehiclePhotoUrl, setVehiclePhotoUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [scanTarget, setScanTarget] = useState<"id" | "disc" | null>(null);
+  const [licenceScanNote, setLicenceScanNote] = useState<string | null>(null);
+
+  function buildLicenceNote(parsed: ReturnType<typeof parseSaIdentityScan>): string | null {
+    if (parsed.documentType !== "drivers_licence") return null;
+    const parts: string[] = [];
+    if (parsed.driversLicenceNumber) parts.push(`DL ${parsed.driversLicenceNumber}`);
+    if (parsed.licenceExpiryDate) parts.push(`expires ${parsed.licenceExpiryDate}`);
+    if (parsed.vehicleCodes?.length) parts.push(`codes ${parsed.vehicleCodes.join(", ")}`);
+    if (parsed.prdpCode) parts.push(`PrDP ${parsed.prdpCode}`);
+    if (parsed.prdpExpiryDate) parts.push(`PrDP exp ${parsed.prdpExpiryDate}`);
+    return parts.length ? parts.join(" · ") : null;
+  }
 
   async function uploadPhoto(file: File, setter: (url: string) => void) {
     setUploading(true);
@@ -114,6 +126,7 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
       setVehicle(emptyVehicle);
       setPersonPhotoUrl(null);
       setVehiclePhotoUrl(null);
+      setLicenceScanNote(null);
       void qc.invalidateQueries({ queryKey: currentlyInsideQueryKey });
       onCreated();
     },
@@ -194,6 +207,11 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
             Scan
           </Button>
         </div>
+        {licenceScanNote && (
+          <p className="text-xs text-muted-foreground rounded-md border bg-muted/40 px-3 py-2">
+            {licenceScanNote}
+          </p>
+        )}
         <div className="grid grid-cols-2 gap-2">
           <div>
             <Label htmlFor="ac-company">Company</Label>
@@ -351,7 +369,8 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
       <BarcodeScanner
         open={scanTarget !== null}
         onOpenChange={(o) => { if (!o) setScanTarget(null); }}
-        title={scanTarget === "disc" ? "Scan licence disc" : "Scan ID card"}
+        title={scanTarget === "disc" ? "Scan licence disc" : "Scan ID or driver's licence"}
+        scanKind={scanTarget === "disc" ? "disc" : "id"}
         onScan={(value) => {
           if (scanTarget === "disc") {
             const parsed = parseSaVehicleDiscBarcode(value);
@@ -369,11 +388,18 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
               toast({ title: "Registration captured", description: parsed.registration });
             }
           } else {
-            const parsed = parseSaIdBarcode(value);
+            const parsed = parseSaIdentityScan(value);
             if (parsed.personFullName) setPersonFullName(parsed.personFullName);
             if (parsed.personIdNumber) setPersonIdNumber(parsed.personIdNumber);
+            const note = buildLicenceNote(parsed);
+            setLicenceScanNote(parsed.documentType === "drivers_licence" ? note : null);
             if (parsed.hint) {
               toast({ title: "ID scan", description: parsed.hint });
+            } else if (parsed.documentType === "drivers_licence") {
+              toast({
+                title: "Driver's licence captured",
+                description: note ?? parsed.personFullName ?? "Details filled in",
+              });
             } else if (parsed.personFullName) {
               toast({ title: "ID captured", description: parsed.personFullName });
             }

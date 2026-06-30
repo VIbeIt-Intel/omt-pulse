@@ -2,15 +2,31 @@
  * Best-effort parsers for South African access-control barcodes.
  *
  * Smart ID PDF417: pipe-delimited text (Surname|Names|…|ID Number|…).
+ * Driver's licence PDF417: 720-byte RSA-encrypted SADL payload.
  * Green ID book Code 39: 13-digit ID only — no name in barcode.
  * Vehicle licence disc PDF417: encrypted in eNaTIS — full make/model/colour needs a licensed decoder SDK/API.
  */
+
+import {
+  isSadlEncryptedString,
+  latin1ToBytes,
+  parseSaDriversLicenceBytes,
+  type SaDriversLicence,
+} from "@/lib/sa-drivers-licence";
 
 export type ParsedSaId = {
   personFullName?: string;
   personIdNumber?: string;
   /** True when barcode only had ID digits (green book / partial scan). */
   idOnly?: boolean;
+  documentType?: "smart_id" | "drivers_licence" | "id_book";
+  driversLicenceNumber?: string;
+  licenceExpiryDate?: string;
+  licenceValidFrom?: string;
+  vehicleCodes?: string[];
+  prdpCode?: string;
+  prdpExpiryDate?: string;
+  driversLicence?: SaDriversLicence;
   hint?: string;
 };
 
@@ -22,6 +38,44 @@ export type ParsedSaVehicleDisc = {
   licenceDiscData: string;
   hint?: string;
 };
+
+function driversLicenceToParsed(dl: SaDriversLicence): ParsedSaId {
+  const personFullName = [dl.initials, dl.surname].filter(Boolean).join(" ").trim();
+  return {
+    documentType: "drivers_licence",
+    personFullName: personFullName || undefined,
+    personIdNumber: dl.idNumber || undefined,
+    driversLicenceNumber: dl.licenseNumber || undefined,
+    licenceExpiryDate: dl.licenseExpiryDate || undefined,
+    licenceValidFrom: dl.licenseIssueDate || undefined,
+    vehicleCodes: dl.vehicleCodes.length ? dl.vehicleCodes : undefined,
+    prdpCode: dl.prdpCode || undefined,
+    prdpExpiryDate: dl.prdpExpiryDate || undefined,
+    driversLicence: dl,
+  };
+}
+
+/** Smart ID pipe text, driver's licence binary, or green-book ID-only. */
+export function parseSaIdentityScan(raw: string): ParsedSaId {
+  const trimmed = raw.trim();
+  if (!trimmed) return {};
+
+  if (trimmed.includes("|")) {
+    return { ...parseSaIdBarcode(trimmed), documentType: "smart_id" };
+  }
+
+  if (isSadlEncryptedString(trimmed)) {
+    const dl = parseSaDriversLicenceBytes(latin1ToBytes(trimmed), true);
+    if (dl) return driversLicenceToParsed(dl);
+    return {
+      documentType: "drivers_licence",
+      hint:
+        "Driver's licence barcode detected but could not be decoded. Hold the back PDF417 steady for 2–3 seconds, or enter details manually.",
+    };
+  }
+
+  return parseSaIdBarcode(trimmed);
+}
 
 /** Smart ID: SURNAME|NAMES|SEX|NATIONALITY|ID|DOB|… */
 export function parseSaIdBarcode(raw: string): ParsedSaId {
@@ -47,8 +101,9 @@ export function parseSaIdBarcode(raw: string): ParsedSaId {
     return {
       personIdNumber: digitsOnly,
       idOnly: true,
+      documentType: "id_book",
       hint:
-        "This scan only returned the ID number (common on green ID books). Please type the visitor's name.",
+        "Only the ID number was read. Scan the large square PDF417 on the back of a Smart ID or driver's licence (hold steady for 2–3 seconds).",
     };
   }
 

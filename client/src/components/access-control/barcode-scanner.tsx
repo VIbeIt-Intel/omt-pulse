@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useId } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -7,109 +7,192 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ScanLine, X } from "lucide-react";
-
-type BarcodeDetectorLike = {
-  detect: (source: ImageBitmapSource) => Promise<Array<{ rawValue: string }>>;
-};
-
-type BarcodeDetectorCtor = new (options?: { formats?: string[] }) => BarcodeDetectorLike;
-
-declare global {
-  interface Window {
-    BarcodeDetector?: BarcodeDetectorCtor;
-  }
-}
+import {
+  Html5Qrcode,
+  Html5QrcodeSupportedFormats,
+  type Html5QrcodeResult,
+} from "html5-qrcode";
+import {
+  isSmartIdPipePayload,
+  pickBestBarcodePayload,
+} from "@/lib/pick-best-barcode";
+import { isSadlEncryptedString } from "@/lib/sa-drivers-licence";
 
 type BarcodeScannerProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
+  /** id = Smart ID PDF417 on back; disc = vehicle licence disc */
+  scanKind?: "id" | "disc";
   onScan: (value: string) => void;
 };
 
-/** Camera barcode scan — BarcodeDetector on supported Android; manual entry always available. */
-export function BarcodeScanner({ open, onOpenChange, title, onScan }: BarcodeScannerProps) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const rafRef = useRef<number>(0);
+type ScanSample = { rawValue: string; format?: string; at: number };
+
+const ID_FORMATS = [
+  Html5QrcodeSupportedFormats.PDF_417,
+  Html5QrcodeSupportedFormats.QR_CODE,
+  Html5QrcodeSupportedFormats.CODE_128,
+  Html5QrcodeSupportedFormats.CODE_39,
+];
+
+const DISC_FORMATS = [
+  Html5QrcodeSupportedFormats.PDF_417,
+  Html5QrcodeSupportedFormats.CODE_128,
+  Html5QrcodeSupportedFormats.CODE_39,
+];
+
+function formatName(result: Html5QrcodeResult): string | undefined {
+  const fmt = result.result.format;
+  if (typeof fmt === "object" && fmt !== null && "formatName" in fmt) {
+    return String((fmt as { formatName?: string }).formatName ?? "");
+  }
+  return undefined;
+}
+
+/**
+ * Camera scanner — html5-qrcode for reliable PDF417 (Smart ID back).
+ * Buffers frames and prefers pipe-delimited ID payloads over 13-digit-only reads.
+ */
+export function BarcodeScanner({
+  open,
+  onOpenChange,
+  title,
+  scanKind = "id",
+  onScan,
+}: BarcodeScannerProps) {
+  const reactId = useId();
+  const regionId = `ac-scanner-${reactId.replace(/:/g, "")}`;
+  const scannerRef = useRef<Html5Qrcode | null>(null);
+  const samplesRef = useRef<ScanSample[]>([]);
+  const startedAtRef = useRef(0);
+  const settledRef = useRef(false);
+
   const [error, setError] = useState<string | null>(null);
   const [manual, setManual] = useState("");
   const [scanning, setScanning] = useState(false);
+  const [hint, setHint] = useState<string | null>(null);
 
-  const stopCamera = useCallback(() => {
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
+  const stopCamera = useCallback(async () => {
+    const scanner = scannerRef.current;
+    scannerRef.current = null;
+    if (scanner) {
+      try {
+        if (scanner.isScanning) await scanner.stop();
+      } catch { /* ignore */ }
+      try {
+        scanner.clear();
+      } catch { /* ignore */ }
+    }
     setScanning(false);
   }, []);
 
+  const tryAcceptScan = useCallback(() => {
+    if (settledRef.current) return;
+    const best = pickBestBarcodePayload(
+      samplesRef.current.map((s) => ({ rawValue: s.rawValue, format: s.format })),
+    );
+    if (!best) return;
+
+    const elapsed = Date.now() - startedAtRef.current;
+    const smartId = isSmartIdPipePayload(best);
+
+    if (scanKind === "id") {
+      const sadl = isSadlEncryptedString(best);
+      if (smartId || sadl) {
+        settledRef.current = true;
+        onScan(best);
+        onOpenChange(false);
+        return;
+      }
+      if (elapsed >= 5_000 && best.replace(/\D/g, "").length === 13) {
+        settledRef.current = true;
+        onScan(best);
+        onOpenChange(false);
+      }
+      return;
+    }
+
+    settledRef.current = true;
+    onScan(best);
+    onOpenChange(false);
+  }, [onOpenChange, onScan, scanKind]);
+
   useEffect(() => {
     if (!open) {
-      stopCamera();
+      void stopCamera();
       setError(null);
       setManual("");
+      setHint(null);
+      samplesRef.current = [];
+      settledRef.current = false;
       return;
     }
 
     let cancelled = false;
-    const detector =
-      typeof window.BarcodeDetector !== "undefined"
-        ? new window.BarcodeDetector({
-            formats: ["code_128", "code_39", "ean_13", "qr_code", "pdf417", "data_matrix", "aztec"],
-          })
-        : null;
+    settledRef.current = false;
+    samplesRef.current = [];
+    startedAtRef.current = Date.now();
+
+    setHint(
+      scanKind === "id"
+        ? "Scan the large square PDF417 on the back of a Smart ID or driver's licence — not the small line barcode."
+        : "Centre the licence disc barcode in the frame.",
+    );
 
     void (async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: "environment" } },
-          audio: false,
+        const scanner = new Html5Qrcode(regionId, {
+          verbose: false,
+          formatsToSupport: scanKind === "id" ? ID_FORMATS : DISC_FORMATS,
         });
-        if (cancelled) {
-          stream.getTracks().forEach((t) => t.stop());
-          return;
-        }
-        streamRef.current = stream;
-        const video = videoRef.current;
-        if (!video) return;
-        video.srcObject = stream;
-        await video.play();
-        setScanning(true);
-
-        if (!detector) {
-          setError("Point camera at barcode — or type the code below.");
-          return;
-        }
-
-        const tick = async () => {
-          if (cancelled || !videoRef.current || videoRef.current.readyState < 2) {
-            rafRef.current = requestAnimationFrame(tick);
-            return;
-          }
-          try {
-            const codes = await detector.detect(videoRef.current);
-            const hit = codes[0]?.rawValue?.trim();
-            if (hit) {
-              onScan(hit);
-              onOpenChange(false);
-              return;
-            }
-          } catch {
-            /* frame skip */
-          }
-          rafRef.current = requestAnimationFrame(tick);
-        };
-        rafRef.current = requestAnimationFrame(tick);
+        scannerRef.current = scanner;
+        await scanner.start(
+          { facingMode: "environment" },
+          {
+            fps: 10,
+            aspectRatio: 1.333,
+            qrbox: (viewfinderWidth, viewfinderHeight) => {
+              const width = Math.floor(Math.min(viewfinderWidth * 0.92, 380));
+              const height = Math.floor(
+                Math.min(viewfinderHeight * (scanKind === "id" ? 0.62 : 0.5), 260),
+              );
+              return { width, height };
+            },
+          },
+          (decodedText, decodedResult) => {
+            if (cancelled || settledRef.current) return;
+            const raw = decodedText.trim();
+            if (!raw) return;
+            const now = Date.now();
+            samplesRef.current.push({
+              rawValue: raw,
+              format: formatName(decodedResult),
+              at: now,
+            });
+            samplesRef.current = samplesRef.current.filter((s) => now - s.at < 3_000);
+            tryAcceptScan();
+          },
+          () => { /* per-frame miss */ },
+        );
+        if (!cancelled) setScanning(true);
       } catch {
-        setError("Camera unavailable — enter the code manually below.");
+        if (!cancelled) {
+          setError("Camera unavailable — enter the code manually below.");
+        }
       }
     })();
 
+    const poll = window.setInterval(() => {
+      if (!cancelled && !settledRef.current) tryAcceptScan();
+    }, 500);
+
     return () => {
       cancelled = true;
-      stopCamera();
+      window.clearInterval(poll);
+      void stopCamera();
     };
-  }, [open, onOpenChange, onScan, stopCamera]);
+  }, [open, scanKind, stopCamera, tryAcceptScan]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -120,26 +203,23 @@ export function BarcodeScanner({ open, onOpenChange, title, onScan }: BarcodeSca
             {title}
           </DialogTitle>
         </DialogHeader>
-        <div className="relative aspect-[4/3] bg-black">
-          <video
-            ref={videoRef}
-            className="h-full w-full object-cover"
-            playsInline
-            muted
-          />
+        <div className="relative aspect-[4/3] bg-black overflow-hidden">
+          <div id={regionId} className="h-full w-full" />
           {!scanning && !error && (
-            <div className="absolute inset-0 flex items-center justify-center text-white text-sm">
+            <div className="absolute inset-0 flex items-center justify-center text-white text-sm px-6 text-center">
               Starting camera…
             </div>
           )}
-          <div className="pointer-events-none absolute inset-8 border-2 border-primary/80 rounded-lg" />
         </div>
         <div className="p-4 space-y-3">
-          {error && <p className="text-xs text-muted-foreground">{error}</p>}
+          {hint && !error && (
+            <p className="text-xs text-muted-foreground">{hint}</p>
+          )}
+          {error && <p className="text-xs text-destructive">{error}</p>}
           <input
             type="text"
             className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-            placeholder="Type ID or licence disc number"
+            placeholder={scanKind === "id" ? "Or paste full ID barcode text" : "Type licence disc code"}
             value={manual}
             onChange={(e) => setManual(e.target.value)}
             autoComplete="off"
