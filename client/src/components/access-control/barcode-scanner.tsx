@@ -494,9 +494,10 @@ export function BarcodeScanner({
 
     if (isLicenceOnlyMode) {
       setHint(
-        "Line up the large PDF417 on the back of the driver's licence inside the green frame, then tap Capture.",
+        "Photograph the back of the card so the large PDF417 barcode is sharp and well lit.",
       );
-      setStatus(PDF417_PHOTO_REQUIRED_MSG);
+      setStatus("Tap Take photo (opens your camera app) or choose Gallery — no live scanning.");
+      startLiveCameraRef.current = null;
     } else if (scanKind === "id") {
       setHint(
         "Hold a Smart ID or ID book in the green frame for 2–3 seconds. For a driver's licence, use Scan licence.",
@@ -612,7 +613,9 @@ export function BarcodeScanner({
     };
 
     startLiveCameraRef.current = startLiveCamera;
-    void startLiveCamera();
+    if (!isLicenceOnlyMode) {
+      void startLiveCamera();
+    }
 
     const poll = window.setInterval(() => {
       if (cancelled || settledRef.current || decodeBusyRef.current || isLicenceOnlyMode) return;
@@ -733,19 +736,32 @@ export function BarcodeScanner({
           </DialogTitle>
         </DialogHeader>
         <div className="relative aspect-[4/3] bg-black overflow-hidden">
-          <video
-            ref={videoRef}
-            className="h-full w-full object-cover"
-            playsInline
-            muted
-            autoPlay
-          />
-          {!scanning && !error && (
-            <div className="absolute inset-0 flex items-center justify-center text-white text-sm px-6 text-center">
-              Starting camera…
+          {isLicenceOnlyMode ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-8 text-center text-white">
+              <Camera className="h-12 w-12 text-primary opacity-90" />
+              <p className="text-sm font-medium">Driver&apos;s licence photo</p>
+              <p className="text-xs text-white/70">
+                Photograph the back of the licence with the large barcode in focus.
+              </p>
+              <div className="pointer-events-none absolute inset-6 border-2 border-primary rounded-lg" />
             </div>
+          ) : (
+            <>
+              <video
+                ref={videoRef}
+                className="h-full w-full object-cover"
+                playsInline
+                muted
+                autoPlay
+              />
+              {!scanning && !error && (
+                <div className="absolute inset-0 flex items-center justify-center text-white text-sm px-6 text-center">
+                  Starting camera…
+                </div>
+              )}
+              <div className="pointer-events-none absolute inset-6 border-2 border-primary rounded-lg" />
+            </>
           )}
-          <div className="pointer-events-none absolute inset-6 border-2 border-primary rounded-lg" />
         </div>
         <div className="p-4 space-y-3">
           {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
@@ -764,7 +780,7 @@ export function BarcodeScanner({
               className="flex-1"
               disabled={photoScanning}
               onClick={() => {
-                if (isLicenceOnlyMode) void captureAndDecodeLicence();
+                if (isLicenceOnlyMode) openCameraPicker();
                 else if (licencePhotoRequired && scanKind === "id") void captureAndDecodeLicence();
                 else openCameraPicker();
               }}
@@ -773,7 +789,7 @@ export function BarcodeScanner({
               {photoScanning
                 ? "Reading…"
                 : isLicenceOnlyMode
-                  ? "Capture"
+                  ? "Take photo"
                   : licencePhotoRequired
                     ? "Take photo now"
                     : "Take photo"}
