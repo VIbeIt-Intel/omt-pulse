@@ -24,6 +24,7 @@ import {
   type ZxingScanMode,
 } from "@/lib/zxing-live-scanner";
 import { openOmtAppDetailsSettings } from "@/lib/omt-app-settings";
+import { APP_CACHE_VERSION } from "@shared/cache-version";
 import {
   NativeSettings,
   AndroidSettings,
@@ -46,10 +47,38 @@ const LIVE_SCAN_TIMEOUT_MS = 4_500;
 const LIVE_LICENCE_SCAN_TIMEOUT_MS = 8_000;
 const LICENCE_FRAME_RETRY_MS = 700;
 const ID_1D_SETTLE_MS = 1_800;
-const SCANNER_BUILD = "v104";
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+/** Drop stale service-worker caches and native overlay state left by old builds. */
+async function purgeStaleScannerCaches(): Promise<void> {
+  try {
+    document.body.classList.remove("barcode-scanner-active");
+  } catch {
+    /* ignore */
+  }
+  if ("caches" in window) {
+    try {
+      const keys = await caches.keys();
+      await Promise.all(
+        keys
+          .filter((k) => k.startsWith("omt-v") && k !== APP_CACHE_VERSION)
+          .map((k) => caches.delete(k)),
+      );
+    } catch {
+      /* ignore */
+    }
+  }
+  if ("serviceWorker" in navigator) {
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      await reg?.update();
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 function cleanupNativeScanOverlay(): void {
@@ -357,6 +386,9 @@ export function BarcodeScanner({
     }
 
     cleanupNativeScanOverlay();
+    if (isLicenceMode) {
+      void purgeStaleScannerCaches();
+    }
     settledRef.current = false;
     busyRef.current = false;
     samplesRef.current = [];
@@ -367,7 +399,7 @@ export function BarcodeScanner({
 
     if (isLicenceMode) {
       setHint(
-        `ZXing live scan (${SCANNER_BUILD}) — centre the large PDF417 on the back of the card.`,
+        `ZXing live scan (${APP_CACHE_VERSION}) — centre the large PDF417 on the back of the card.`,
       );
     } else if (scanKind === "id") {
       setHint("Hold a Smart ID or ID book in the green frame for 2–3 seconds.");

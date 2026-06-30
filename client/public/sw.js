@@ -1,4 +1,4 @@
-const CACHE_NAME = "omt-v104";
+const CACHE_NAME = "omt-v106";
 
 // When the page asks us to nuke everything (after a new deploy), wipe all
 // caches and tell every controlled tab to reload. The page also unregisters
@@ -78,6 +78,12 @@ self.addEventListener("fetch", (event) => {
 
   // Never cache API calls or streamed object/file responses.
   if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/objects/")) return;
+
+  // Always fetch a fresh service worker script so CACHE_NAME bumps propagate.
+  if (url.pathname === "/sw.js") {
+    event.respondWith(fetch(event.request));
+    return;
+  }
 
   // Navigation requests (full-page loads / Android WebView restores) must always
   // receive the cached app shell so the SPA can boot even after a process kill.

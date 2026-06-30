@@ -12,6 +12,7 @@ import { eq, and, sql } from "drizzle-orm";
 import bcrypt from "bcrypt";
 import { z } from "zod";
 import { DEFAULT_FORM_FIELDS } from "./seed";
+import { APP_CACHE_VERSION } from "@shared/cache-version";
 import { ObjectStorageService, ObjectNotFoundError } from "./replit_integrations/object_storage/objectStorage";
 import { parseFile, suggestMapping, resolveRows, collectUnknownReferences, buildTemplateXLSX, buildErrorsCSV, type ImportMapping, type ParsedFile } from "./import-parser";
 import * as XLSX from "xlsx";
@@ -973,7 +974,7 @@ export async function registerRoutes(
   // problem where a deploy ships but users keep seeing the old UI.
   app.get("/api/version", (_req, res) => {
     res.set("Cache-Control", "no-store");
-    res.json({ build: BUILD_ID });
+    res.json({ build: BUILD_ID, cacheVersion: APP_CACHE_VERSION });
   });
 
   // --- Push Notification Routes ---

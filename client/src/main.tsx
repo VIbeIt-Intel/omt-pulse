@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 import { Capacitor } from "@capacitor/core";
 import { initNativePushListeners } from "./lib/native-push";
+import { ensureAppCacheCurrent } from "./lib/ensure-app-cache-current";
 import App from "./App";
 import "./index.css";
 
@@ -13,7 +14,7 @@ if (Capacitor.isNativePlatform()) {
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch(() => {});
+    navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).catch(() => {});
   });
 }
 
@@ -61,3 +62,5 @@ window.addEventListener("pageshow", (event) => {
 });
 
 createRoot(document.getElementById(ROOT_ID)!).render(<App />);
+
+void ensureAppCacheCurrent();
