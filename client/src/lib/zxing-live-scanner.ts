@@ -1,12 +1,16 @@
-import { BrowserMultiFormatReader } from "@zxing/browser";
+import { BrowserMultiFormatReader, HTMLCanvasElementLuminanceSource } from "@zxing/browser";
 import {
   BarcodeFormat,
   BinaryBitmap,
   DecodeHintType,
   HybridBinarizer,
-  RGBLuminanceSource,
   type Result,
 } from "@zxing/library";
+import type { IScannerControls } from "@zxing/browser";
+import {
+  decodeBarcodesFromVideoFrame,
+  type BarcodeHit,
+} from "@/lib/decode-barcode-image";
 import { isSmartIdPipePayload } from "@/lib/pick-best-barcode";
 import {
   isSadlEncryptedPayload,
@@ -21,6 +25,15 @@ export type ZxingLiveHit =
   | { kind: "id_1d"; text: string }
   | { kind: "licence_bytes"; bytes: Uint8Array }
   | { kind: "disc"; text: string };
+
+const REAR_CAMERA: MediaStreamConstraints = {
+  audio: false,
+  video: {
+    facingMode: { ideal: "environment" },
+    width: { ideal: 1920, min: 640 },
+    height: { ideal: 1080, min: 480 },
+  },
+};
 
 function formatsForMode(mode: ZxingScanMode): BarcodeFormat[] {
   if (mode === "drivers_licence") return [BarcodeFormat.PDF_417];
@@ -100,41 +113,71 @@ export function classifyZxingResult(
   return null;
 }
 
+function hitFromDetector(barcode: BarcodeHit, mode: ZxingScanMode): ZxingLiveHit | null {
+  try {
+    const text = barcode.rawValue?.trim() ?? "";
+    if (!text) return null;
+    if (text.includes("|") && isSmartIdPipePayload(text)) {
+      return { kind: "smart_id", text };
+    }
+    if (mode === "disc") return { kind: "disc", text };
+    if (text.length <= 64) return { kind: "id_1d", text };
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 function buildHints(mode: ZxingScanMode): Map<DecodeHintType, unknown> {
-  const hints = new Map<DecodeHintType, unknown>([
+  return new Map<DecodeHintType, unknown>([
     [DecodeHintType.POSSIBLE_FORMATS, formatsForMode(mode)],
     [DecodeHintType.TRY_HARDER, true],
     [DecodeHintType.PURE_BARCODE, false],
   ]);
-  if (mode === "drivers_licence") {
-    hints.set(DecodeHintType.ASSUME_GS1, false);
-  }
-  return hints;
 }
 
-function scanIntervalMs(mode: ZxingScanMode): number {
-  return mode === "drivers_licence" ? 250 : 500;
+function scanOptions(mode: ZxingScanMode) {
+  return {
+    delayBetweenScanAttempts: mode === "drivers_licence" ? 150 : 250,
+    delayBetweenScanSuccess: 400,
+    tryPlayVideoTimeout: 8000,
+  };
 }
 
 function cropsForMode(mode: ZxingScanMode): Array<{ x: number; y: number; w: number; h: number }> {
   if (mode === "drivers_licence") {
     return [
-      { x: 0.48, y: 0.04, w: 0.5, h: 0.92 },
-      { x: 0.35, y: 0.04, w: 0.62, h: 0.92 },
-      { x: 0.2, y: 0.04, w: 0.78, h: 0.92 },
+      { x: 0.5, y: 0.03, w: 0.47, h: 0.94 },
+      { x: 0.38, y: 0.03, w: 0.6, h: 0.94 },
+      { x: 0.22, y: 0.03, w: 0.76, h: 0.94 },
       { x: 0, y: 0, w: 1, h: 1 },
     ];
   }
   return [
-    { x: 0.04, y: 0.02, w: 0.92, h: 0.42 },
-    { x: 0.04, y: 0.02, w: 0.92, h: 0.58 },
+    { x: 0.04, y: 0.02, w: 0.92, h: 0.45 },
+    { x: 0.04, y: 0.02, w: 0.92, h: 0.62 },
     { x: 0, y: 0, w: 1, h: 1 },
   ];
 }
 
-/** Continuous live scan from a video element (ZXing manages camera stream). */
+async function waitForVideoDimensions(video: HTMLVideoElement): Promise<void> {
+  if (video.videoWidth > 0 && video.videoHeight > 0) return;
+  await new Promise<void>((resolve) => {
+    const done = () => {
+      video.removeEventListener("loadeddata", done);
+      resolve();
+    };
+    video.addEventListener("loadeddata", done);
+    window.setTimeout(done, 2000);
+  });
+}
+
+/** Continuous live scan — rear camera + ZXing + (for ID) native BarcodeDetector. */
 export class ZxingLiveScanner {
   private reader: BrowserMultiFormatReader | null = null;
+  private controls: IScannerControls | null = null;
+  private frameTimer = 0;
+  private stream: MediaStream | null = null;
 
   async start(
     video: HTMLVideoElement,
@@ -142,27 +185,71 @@ export class ZxingLiveScanner {
     onHit: (hit: ZxingLiveHit) => void,
   ): Promise<void> {
     this.stop();
-    const hints = buildHints(mode);
-    this.reader = new BrowserMultiFormatReader(hints, scanIntervalMs(mode));
 
-    await this.reader.decodeFromVideoDevice(undefined, video, (result, _err, _controls) => {
-      if (!result) return;
-      try {
-        const hit = classifyZxingResult(result, mode);
-        if (hit) onHit(hit);
-      } catch {
-        /* never crash on bad frame */
-      }
-    });
+    const hints = buildHints(mode);
+    this.reader = new BrowserMultiFormatReader(hints, scanOptions(mode));
+
+    this.controls = await this.reader.decodeFromConstraints(
+      REAR_CAMERA,
+      video,
+      (result) => {
+        if (!result) return;
+        try {
+          const hit = classifyZxingResult(result, mode);
+          if (hit) onHit(hit);
+        } catch {
+          /* never crash on bad frame */
+        }
+      },
+    );
+
+    this.stream = video.srcObject instanceof MediaStream ? video.srcObject : null;
+    await waitForVideoDimensions(video);
+
+    const useDetector = mode === "national_id" || mode === "disc";
+    this.frameTimer = window.setInterval(() => {
+      void (async () => {
+        try {
+          if (video.readyState < 2) return;
+
+          if (useDetector) {
+            const detectorHits = await decodeBarcodesFromVideoFrame(video, null);
+            for (const barcode of detectorHits) {
+              const hit = hitFromDetector(barcode, mode);
+              if (hit) onHit(hit);
+            }
+          }
+
+          const zxingHit = await decodeZxingFromVideo(video, mode);
+          if (zxingHit) onHit(zxingHit);
+        } catch {
+          /* ignore frame errors */
+        }
+      })();
+    }, mode === "drivers_licence" ? 350 : 300);
   }
 
   stop(): void {
+    window.clearInterval(this.frameTimer);
+    this.frameTimer = 0;
+    try {
+      this.controls?.stop();
+    } catch {
+      /* ignore */
+    }
+    this.controls = null;
     try {
       this.reader?.reset();
     } catch {
       /* ignore */
     }
     this.reader = null;
+    try {
+      this.stream?.getTracks().forEach((track) => track.stop());
+    } catch {
+      /* ignore */
+    }
+    this.stream = null;
   }
 }
 
@@ -176,11 +263,41 @@ function imageDataFromImage(img: HTMLImageElement): ImageData | null {
   return ctx.getImageData(0, 0, canvas.width, canvas.height);
 }
 
+function cropImageData(
+  source: ImageData,
+  crop: { x: number; y: number; w: number; h: number },
+): ImageData | null {
+  const sw = Math.max(1, Math.floor(source.width * crop.w));
+  const sh = Math.max(1, Math.floor(source.height * crop.h));
+  const sx = Math.floor(source.width * crop.x);
+  const sy = Math.floor(source.height * crop.y);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = sw;
+  canvas.height = sh;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  const cropData = ctx.createImageData(sw, sh);
+  for (let y = 0; y < sh; y++) {
+    for (let x = 0; x < sw; x++) {
+      const src = ((sy + y) * source.width + (sx + x)) * 4;
+      const dst = (y * sw + x) * 4;
+      cropData.data[dst] = source.data[src] ?? 0;
+      cropData.data[dst + 1] = source.data[src + 1] ?? 0;
+      cropData.data[dst + 2] = source.data[src + 2] ?? 0;
+      cropData.data[dst + 3] = 255;
+    }
+  }
+  ctx.putImageData(cropData, 0, 0);
+  return cropData;
+}
+
 async function decodeImageElement(
   img: HTMLImageElement,
   mode: ZxingScanMode,
 ): Promise<ZxingLiveHit | null> {
-  const reader = new BrowserMultiFormatReader(buildHints(mode));
+  const reader = new BrowserMultiFormatReader(buildHints(mode), scanOptions(mode));
   try {
     const result = await reader.decodeFromImageElement(img);
     return result ? classifyZxingResult(result, mode) : null;
@@ -208,32 +325,20 @@ async function decodeImageDataCrop(
   crop: { x: number; y: number; w: number; h: number },
   mode: ZxingScanMode,
 ): Promise<ZxingLiveHit | null> {
-  const sw = Math.max(1, Math.floor(source.width * crop.w));
-  const sh = Math.max(1, Math.floor(source.height * crop.h));
-  const sx = Math.floor(source.width * crop.x);
-  const sy = Math.floor(source.height * crop.y);
+  const cropData = cropImageData(source, crop);
+  if (!cropData) return null;
 
-  const rgba = new Uint8ClampedArray(sw * sh * 4);
-  for (let y = 0; y < sh; y++) {
-    for (let x = 0; x < sw; x++) {
-      const src = ((sy + y) * source.width + (sx + x)) * 4;
-      const dst = (y * sw + x) * 4;
-      rgba[dst] = source.data[src] ?? 0;
-      rgba[dst + 1] = source.data[src + 1] ?? 0;
-      rgba[dst + 2] = source.data[src + 2] ?? 0;
-      rgba[dst + 3] = 255;
-    }
-  }
+  const canvas = document.createElement("canvas");
+  canvas.width = cropData.width;
+  canvas.height = cropData.height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.putImageData(cropData, 0, 0);
 
-  const luminances = new Uint8ClampedArray(sw * sh);
-  for (let i = 0; i < sw * sh; i++) {
-    const o = i * 4;
-    luminances[i] = ((rgba[o] + rgba[o + 1] * 2 + rgba[o + 2]) / 4) & 0xff;
-  }
-
-  const bitmap = new BinaryBitmap(new HybridBinarizer(new RGBLuminanceSource(luminances, sw, sh)));
-  const reader = new BrowserMultiFormatReader(buildHints(mode));
+  const reader = new BrowserMultiFormatReader(buildHints(mode), scanOptions(mode));
   try {
+    const sourceLuminance = new HTMLCanvasElementLuminanceSource(canvas);
+    const bitmap = new BinaryBitmap(new HybridBinarizer(sourceLuminance));
     const result = reader.decodeBitmap(bitmap);
     return result ? classifyZxingResult(result, mode) : null;
   } catch {

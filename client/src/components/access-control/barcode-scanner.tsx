@@ -44,8 +44,7 @@ const FILE_INPUT_CLASS =
   "absolute left-0 top-0 h-px w-px overflow-hidden opacity-0 [clip:rect(0,0,0,0)]";
 
 const LIVE_SCAN_TIMEOUT_MS = 4_500;
-const LIVE_LICENCE_SCAN_TIMEOUT_MS = 8_000;
-const LICENCE_FRAME_RETRY_MS = 700;
+const LIVE_LICENCE_SCAN_TIMEOUT_MS = 10_000;
 const ID_1D_SETTLE_MS = 1_800;
 
 function delay(ms: number): Promise<void> {
@@ -402,7 +401,7 @@ export function BarcodeScanner({
         `ZXing live scan (${APP_CACHE_VERSION}) — centre the large PDF417 on the back of the card.`,
       );
     } else if (scanKind === "id") {
-      setHint("Hold a Smart ID or ID book in the green frame for 2–3 seconds.");
+      setHint(`Hold Smart ID or ID book in the green frame (${APP_CACHE_VERSION}).`);
     } else {
       setHint("Centre the licence disc barcode in the frame.");
     }
@@ -410,27 +409,9 @@ export function BarcodeScanner({
     let cancelled = false;
 
     void (async () => {
-      await delay(250);
+      await delay(400);
       if (!cancelled) await startZxingLive();
     })();
-
-    const frameRetry = isLicenceMode
-      ? window.setInterval(() => {
-          if (cancelled || settledRef.current || busyRef.current) return;
-          const video = videoRef.current;
-          if (!video || video.readyState < 2) return;
-          void (async () => {
-            try {
-              const hit = await decodeZxingFromVideo(video, "drivers_licence");
-              if (hit?.kind === "licence_bytes") {
-                await finishLicenceBytes(hit.bytes);
-              }
-            } catch {
-              /* ignore frame errors */
-            }
-          })();
-        }, LICENCE_FRAME_RETRY_MS)
-      : 0;
 
     const timeout = window.setTimeout(
       () => {
@@ -444,12 +425,10 @@ export function BarcodeScanner({
     return () => {
       cancelled = true;
       window.clearTimeout(timeout);
-      if (frameRetry) window.clearInterval(frameRetry);
       stopLiveScan();
       cleanupNativeScanOverlay();
     };
   }, [
-    finishLicenceBytes,
     isLicenceMode,
     open,
     scanKind,
