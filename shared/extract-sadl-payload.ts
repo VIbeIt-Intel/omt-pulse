@@ -104,7 +104,6 @@ export function extractSadl720FromScan(input: BinaryEyeScanPayload): Uint8Array 
   for (const candidate of candidates) {
     const found = findSadl720InBuffer(candidate);
     if (found) return found;
-    if (candidate.length >= 700) return padSadlTo720(candidate);
   }
 
   return null;

@@ -13,10 +13,10 @@ import {
 } from "@/lib/decode-barcode-image";
 import { isSmartIdPipePayload } from "@/lib/pick-best-barcode";
 import {
-  isSadlEncryptedPayload,
   latin1ToBytes,
   looksLikeSadlEncryptedString,
 } from "@shared/sa-drivers-licence";
+import { findSadl720InBuffer } from "@shared/extract-sadl-payload";
 
 export type ZxingScanMode = "national_id" | "drivers_licence" | "disc";
 
@@ -59,10 +59,8 @@ function sadlBytesFromResult(result: Result): Uint8Array | null {
   try {
     const raw = result.getRawBytes();
     if (raw?.length) {
-      const slice = raw.length >= 720 ? raw.subarray(0, 720) : raw;
-      if (slice.length === 720 && isSadlEncryptedPayload(slice)) {
-        return new Uint8Array(slice);
-      }
+      const found = findSadl720InBuffer(new Uint8Array(raw));
+      if (found) return found;
     }
   } catch {
     /* raw bytes unavailable */
@@ -70,6 +68,13 @@ function sadlBytesFromResult(result: Result): Uint8Array | null {
 
   try {
     const text = result.getText();
+    if (text && text.length >= 700) {
+      const out = new Uint8Array(720);
+      const len = Math.min(text.length, 720);
+      for (let i = 0; i < len; i++) out[i] = text.charCodeAt(i) & 0xff;
+      const found = findSadl720InBuffer(out);
+      if (found) return found;
+    }
     if (text?.length === 720 && looksLikeSadlEncryptedString(text)) {
       return latin1ToBytes(text);
     }
@@ -149,6 +154,7 @@ function scanOptions(mode: ZxingScanMode) {
 function cropsForMode(mode: ZxingScanMode): Array<{ x: number; y: number; w: number; h: number }> {
   if (mode === "drivers_licence") {
     return [
+      { x: 0.62, y: 0.04, w: 0.36, h: 0.92 },
       { x: 0.5, y: 0.03, w: 0.47, h: 0.94 },
       { x: 0.38, y: 0.03, w: 0.6, h: 0.94 },
       { x: 0.22, y: 0.03, w: 0.76, h: 0.94 },

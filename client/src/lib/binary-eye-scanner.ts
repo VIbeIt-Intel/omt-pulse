@@ -8,11 +8,20 @@ import {
   sadlBytesToBase64,
 } from "@/lib/decode-drivers-licence-api";
 import type { ParsedSaId } from "@/lib/parse-sa-barcodes";
-import type { NativeLicenceScanFailure, NativeLicenceScanResult } from "@/lib/native-licence-barcode";
+import type { NativeLicenceScanFailure } from "@/lib/native-licence-barcode";
 
 export const BINARY_EYE_PACKAGE = "de.markusfisch.android.binaryeye";
 export const BINARY_EYE_PLAY_URL =
   "https://play.google.com/store/apps/details?id=de.markusfisch.android.binaryeye";
+
+export type BinaryEyeScanDiagnostics = {
+  via?: string;
+  format?: string;
+  textLength?: number;
+  bytesLength?: number;
+  hexLength?: number;
+  hadSadlPayload?: boolean;
+};
 
 export interface OmtBinaryEyeScannerPlugin {
   isAvailable(): Promise<{ installed: boolean }>;
@@ -21,6 +30,7 @@ export interface OmtBinaryEyeScannerPlugin {
       format?: string;
       textLength?: number;
       bytesLength?: number;
+      via?: string;
     }
   >;
 }
@@ -45,10 +55,28 @@ export async function isBinaryEyeInstalled(): Promise<boolean> {
   }
 }
 
-async function decodeScanPayload(scan: BinaryEyeScanPayload): Promise<ParsedSaId | null> {
+function scanDiagnostics(scan: BinaryEyeScanPayload & { via?: string }): BinaryEyeScanDiagnostics {
+  return {
+    via: scan.via,
+    format: scan.format,
+    textLength: scan.text?.length,
+    bytesLength: scan.bytesBase64
+      ? Math.floor((scan.bytesBase64.length * 3) / 4)
+      : undefined,
+    hexLength: scan.hex?.replace(/\s/g, "").length,
+  };
+}
+
+async function decodeScanPayload(scan: BinaryEyeScanPayload): Promise<{
+  parsed: ParsedSaId | null;
+  hadSadlPayload: boolean;
+}> {
   const sadl = extractSadl720FromScan(scan);
-  if (!sadl) return null;
-  return decodeDriversLicenceViaApiFromBase64(sadlBytesToBase64(sadl));
+  if (!sadl) {
+    return { parsed: null, hadSadlPayload: false };
+  }
+  const parsed = await decodeDriversLicenceViaApiFromBase64(sadlBytesToBase64(sadl));
+  return { parsed, hadSadlPayload: true };
 }
 
 function failureFromError(err: unknown): NativeLicenceScanFailure {
@@ -83,8 +111,16 @@ function withScanTimeout<T>(promise: Promise<T>): Promise<T> {
   });
 }
 
+export type BinaryEyeScanOutcome =
+  | { ok: true; parsed: ParsedSaId }
+  | {
+      ok: false;
+      reason: NativeLicenceScanFailure;
+      diagnostics?: BinaryEyeScanDiagnostics;
+    };
+
 /** Opens Binary Eye directly — same scanner the user confirmed works through plastic. */
-export async function scanDriversLicenceViaBinaryEye(): Promise<NativeLicenceScanResult> {
+export async function scanDriversLicenceViaBinaryEye(): Promise<BinaryEyeScanOutcome> {
   if (!canUseBinaryEyeScanner()) {
     return { ok: false, reason: "unsupported" };
   }
@@ -96,13 +132,42 @@ export async function scanDriversLicenceViaBinaryEye(): Promise<NativeLicenceSca
     }
 
     const scan = await withScanTimeout(OmtBinaryEyeScanner.scanPdf417());
-    const parsed = await decodeScanPayload(scan);
+    const diagnostics = scanDiagnostics(scan);
+    const { parsed, hadSadlPayload } = await decodeScanPayload(scan);
+    diagnostics.hadSadlPayload = hadSadlPayload;
+
     if (!parsed?.personIdNumber && !parsed?.personFullName) {
-      return { ok: false, reason: "decode_failed" };
+      return {
+        ok: false,
+        reason: hadSadlPayload ? "decode_failed" : "no_barcode",
+        diagnostics,
+      };
     }
 
     return { ok: true, parsed };
   } catch (err) {
     return { ok: false, reason: failureFromError(err) };
   }
+}
+
+export function describeBinaryEyeFailure(
+  outcome: Extract<BinaryEyeScanOutcome, { ok: false }>,
+): string {
+  const d = outcome.diagnostics;
+  if (!d) {
+    return "Try Binary Eye again with the PDF417 on the back right, or take a photo of the back of the card.";
+  }
+
+  const parts: string[] = [];
+  if (d.bytesLength != null) parts.push(`${d.bytesLength} raw bytes`);
+  if (d.textLength != null) parts.push(`text ${d.textLength} chars`);
+  if (d.hexLength != null) parts.push(`hex ${d.hexLength} chars`);
+  if (d.format) parts.push(d.format);
+  if (d.via) parts.push(`via ${d.via}`);
+
+  const detail = parts.length ? ` (${parts.join(", ")})` : "";
+  if (!d.hadSadlPayload) {
+    return `No 720-byte licence payload in scan result${detail}. Hold the back-right PDF417 steady in good light, or take a photo of the back.`;
+  }
+  return `Barcode read but decrypt failed${detail}. Try again or take a photo of the back of the card.`;
 }

@@ -4,7 +4,10 @@ import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
 import androidx.activity.result.ActivityResult;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -15,7 +18,13 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 
-/** Launches Binary Eye (ZXing SCAN intent) and returns PDF417 scan bytes/text. */
+/**
+ * Launches Binary Eye and returns PDF417 scan bytes.
+ *
+ * <p>Uses a deep link return ({@code omtpulse://binary-eye?hex={RESULT_BYTES}}) so the 720-byte
+ * SADL payload arrives as hex — the ZXing SCAN intent often drops or mangles binary {@code
+ * SCAN_RESULT_BYTES} / Latin-1 {@code SCAN_RESULT} text.
+ */
 @CapacitorPlugin(name = "OmtBinaryEyeScanner")
 public class OmtBinaryEyeScannerPlugin extends Plugin {
 
@@ -26,6 +35,18 @@ public class OmtBinaryEyeScannerPlugin extends Plugin {
     private static final String SCAN_RESULT_BYTES = "SCAN_RESULT_BYTES";
     private static final String SCAN_RESULT_BYTE_SEGMENTS = "SCAN_RESULT_BYTE_SEGMENTS";
     private static final String SCAN_RESULT_FORMAT = "SCAN_RESULT_FORMAT";
+
+    private static final String RETURN_SCHEME = "omtpulse";
+    private static final String RETURN_HOST = "binary-eye";
+    private static final String RETURN_HEX_PARAM = "hex";
+    private static final String RETURN_FORMAT_PARAM = "fmt";
+
+    private static final long RESUME_CANCEL_GRACE_MS = 450;
+
+    private PluginCall pendingDeepLinkCall;
+    private boolean awaitingDeepLinkReturn;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private Runnable resumeCancelCheck;
 
     @PluginMethod
     public void isAvailable(PluginCall call) {
@@ -41,26 +62,107 @@ public class OmtBinaryEyeScannerPlugin extends Plugin {
             return;
         }
 
+        if (pendingDeepLinkCall != null) {
+            call.reject("Scan already in progress", "busy");
+            return;
+        }
+
+        call.setKeepAlive(true);
+        pendingDeepLinkCall = call;
+        awaitingDeepLinkReturn = true;
+        cancelResumeCheck();
+
+        if (launchBinaryEyeDeepLink()) {
+            return;
+        }
+
+        // Fallback: classic ZXing SCAN intent (older Binary Eye builds).
         Intent intent = new Intent(SCAN_ACTION);
         intent.setPackage(BINARY_EYE_PACKAGE);
         intent.putExtra(SCAN_FORMATS, "PDF_417");
 
         if (intent.resolveActivity(getContext().getPackageManager()) == null) {
-            call.reject("Binary Eye cannot handle scan requests", "not_installed");
+            clearPendingDeepLink(call, "Binary Eye cannot handle scan requests", "not_installed");
             return;
         }
-
-        call.setKeepAlive(true);
 
         try {
             startActivityForResult(call, intent, "handleScanResult");
         } catch (ActivityNotFoundException e) {
-            call.reject("Binary Eye is not installed", "not_installed", e);
+            clearPendingDeepLink(call, "Binary Eye is not installed", "not_installed");
         }
+    }
+
+    /** Called from {@link MainActivity#onNewIntent(Intent)} when Binary Eye returns scan hex. */
+    public boolean handleReturnUri(Uri uri) {
+        if (uri == null || pendingDeepLinkCall == null) {
+            return false;
+        }
+        if (!RETURN_SCHEME.equals(uri.getScheme()) || !RETURN_HOST.equals(uri.getHost())) {
+            return false;
+        }
+
+        PluginCall call = pendingDeepLinkCall;
+        pendingDeepLinkCall = null;
+        awaitingDeepLinkReturn = false;
+        cancelResumeCheck();
+
+        JSObject ret = new JSObject();
+        String hex = uri.getQueryParameter(RETURN_HEX_PARAM);
+        if (hex != null && !hex.isEmpty()) {
+            ret.put("hex", hex.replaceAll("\\s+", ""));
+        }
+
+        String format = uri.getQueryParameter(RETURN_FORMAT_PARAM);
+        if (format != null && !format.isEmpty()) {
+            ret.put("format", format);
+        }
+
+        byte[] bytes = hexToBytes(hex);
+        if (bytes != null && bytes.length > 0) {
+            ret.put(
+                    "bytesBase64",
+                    android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP));
+            ret.put("bytesLength", bytes.length);
+        }
+
+        if (!ret.has("hex") && !ret.has("bytesBase64")) {
+            call.reject("Empty scan result", "no_result");
+            return true;
+        }
+
+        ret.put("via", "deeplink");
+        call.resolve(ret);
+        return true;
+    }
+
+    @Override
+    protected void handleOnResume() {
+        super.handleOnResume();
+        if (!awaitingDeepLinkReturn || pendingDeepLinkCall == null) {
+            return;
+        }
+
+        cancelResumeCheck();
+        resumeCancelCheck =
+                () -> {
+                    if (!awaitingDeepLinkReturn || pendingDeepLinkCall == null) {
+                        return;
+                    }
+                    PluginCall call = pendingDeepLinkCall;
+                    clearPendingDeepLink(call, "Scan cancelled", "cancelled");
+                };
+        mainHandler.postDelayed(resumeCancelCheck, RESUME_CANCEL_GRACE_MS);
     }
 
     @ActivityCallback
     private void handleScanResult(PluginCall call, ActivityResult result) {
+        awaitingDeepLinkReturn = false;
+        cancelResumeCheck();
+        if (call == pendingDeepLinkCall) {
+            pendingDeepLinkCall = null;
+        }
+
         if (call == null) {
             return;
         }
@@ -81,6 +183,45 @@ public class OmtBinaryEyeScannerPlugin extends Plugin {
             return;
         }
 
+        JSObject ret = buildResultFromScanIntent(data);
+        if (ret == null) {
+            call.reject("Empty scan result", "no_result");
+            return;
+        }
+
+        ret.put("via", "intent");
+        call.resolve(ret);
+    }
+
+    private boolean launchBinaryEyeDeepLink() {
+        String returnTemplate =
+                RETURN_SCHEME
+                        + "://"
+                        + RETURN_HOST
+                        + "?"
+                        + RETURN_HEX_PARAM
+                        + "={RESULT_BYTES}&"
+                        + RETURN_FORMAT_PARAM
+                        + "={FORMAT}";
+        String launchUri =
+                "binaryeye://scan/?ret=" + Uri.encode(returnTemplate, StandardCharsets.UTF_8.name());
+
+        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(launchUri));
+        intent.setPackage(BINARY_EYE_PACKAGE);
+
+        if (intent.resolveActivity(getContext().getPackageManager()) == null) {
+            return false;
+        }
+
+        try {
+            getActivity().startActivity(intent);
+            return true;
+        } catch (ActivityNotFoundException e) {
+            return false;
+        }
+    }
+
+    private JSObject buildResultFromScanIntent(Intent data) {
         JSObject ret = new JSObject();
         String text = data.getStringExtra(SCAN_RESULT);
         if (text != null) {
@@ -111,11 +252,42 @@ public class OmtBinaryEyeScannerPlugin extends Plugin {
         }
 
         if (!ret.has("text") && !ret.has("bytesBase64") && !ret.has("latin1TextBase64")) {
-            call.reject("Empty scan result", "no_result");
-            return;
+            return null;
         }
 
-        call.resolve(ret);
+        return ret;
+    }
+
+    private void clearPendingDeepLink(PluginCall call, String message, String code) {
+        pendingDeepLinkCall = null;
+        awaitingDeepLinkReturn = false;
+        cancelResumeCheck();
+        call.reject(message, code);
+    }
+
+    private void cancelResumeCheck() {
+        if (resumeCancelCheck != null) {
+            mainHandler.removeCallbacks(resumeCancelCheck);
+            resumeCancelCheck = null;
+        }
+    }
+
+    private static byte[] hexToBytes(String hex) {
+        if (hex == null) {
+            return null;
+        }
+        String cleaned = hex.replaceAll("\\s+", "");
+        if (cleaned.isEmpty() || cleaned.length() % 2 != 0) {
+            return null;
+        }
+        if (!cleaned.matches("(?i)[0-9a-f]+")) {
+            return null;
+        }
+        byte[] out = new byte[cleaned.length() / 2];
+        for (int i = 0; i < out.length; i++) {
+            out[i] = (byte) Integer.parseInt(cleaned.substring(i * 2, i * 2 + 2), 16);
+        }
+        return out;
     }
 
     private static boolean looksLikeHex(String text) {

@@ -26,6 +26,13 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="omtpulse" android:host="binary-eye" />
+            </intent-filter>
+
         </activity>
 
         <provider
@@ -54,6 +61,10 @@
         <package android:name="de.markusfisch.android.binaryeye" />
         <intent>
             <action android:name="com.google.zxing.client.android.SCAN" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="binaryeye" />
         </intent>
     </queries>
 </manifest>

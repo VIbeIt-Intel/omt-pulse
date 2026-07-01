@@ -1,12 +1,12 @@
-import {
-  parseSaLicenceFrontOcr,
-  type ParsedLicenceFrontOcr,
-} from "@shared/parse-sa-licence-front";
+import { apiRequest } from "@/lib/queryClient";
+import type { ParsedLicenceFrontOcr } from "@shared/parse-sa-licence-front";
 import type { ParsedSaId } from "@/lib/parse-sa-barcodes";
 
 export type LicenceFrontOcrResult =
   | { ok: true; parsed: ParsedSaId }
   | { ok: false; message: string };
+
+const MAX_OCR_WIDTH = 1600;
 
 function toParsedSaId(ocr: ParsedLicenceFrontOcr): ParsedSaId | null {
   if (!ocr.personIdNumber && !ocr.personFullName) return null;
@@ -19,39 +19,82 @@ function toParsedSaId(ocr: ParsedLicenceFrontOcr): ParsedSaId | null {
   };
 }
 
-/** Run OCR on a photo of the front of a SA driver's licence. */
-export async function readLicenceFrontFromPhoto(file: File): Promise<LicenceFrontOcrResult> {
+/** Downscale a phone photo before upload — keeps OCR detail without huge payloads. */
+async function compactLicencePhotoBase64(file: File): Promise<string> {
+  const url = URL.createObjectURL(file);
   try {
-    const { createWorker } = await import("tesseract.js");
-    const worker = await createWorker("eng", 1, {
-      logger: () => {
-        /* quiet */
-      },
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error("Could not load image"));
+      el.src = url;
     });
 
-    try {
-      await worker.setParameters({
-        tessedit_pageseg_mode: "6" as unknown as string,
-      });
-      const { data } = await worker.recognize(file);
-      const ocr = parseSaLicenceFrontOcr(data.text ?? "");
-      const parsed = toParsedSaId(ocr);
-      if (parsed?.personIdNumber || parsed?.personFullName) {
-        return { ok: true, parsed };
-      }
-      return {
-        ok: false,
-        message:
-          ocr.hint ??
-          "Could not read the front of the licence. Try brighter light, less glare on the plastic, and fill the frame with the text side.",
-      };
-    } finally {
-      await worker.terminate();
+    const scale = img.naturalWidth > MAX_OCR_WIDTH ? MAX_OCR_WIDTH / img.naturalWidth : 1;
+    const width = Math.max(1, Math.round(img.naturalWidth * scale));
+    const height = Math.max(1, Math.round(img.naturalHeight * scale));
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      return blobToDataUrl(file);
     }
+
+    ctx.drawImage(img, 0, 0, width, height);
+
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (b) => (b ? resolve(b) : reject(new Error("Could not compress image"))),
+        "image/jpeg",
+        0.9,
+      );
+    });
+    return blobToDataUrl(blob);
   } catch {
+    return blobToDataUrl(file);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(reader.error ?? new Error("Could not read image"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * Read the front of a SA driver's licence from a photo.
+ * OCR runs on the server so the phone WebView does not load Tesseract (which crashes Android).
+ */
+export async function readLicenceFrontFromPhoto(file: File): Promise<LicenceFrontOcrResult> {
+  try {
+    const imageBase64 = await compactLicencePhotoBase64(file);
+    const ocr = (await apiRequest("POST", "/api/access-control/decode-licence-front-image", {
+      imageBase64,
+    })) as ParsedLicenceFrontOcr;
+
+    const parsed = toParsedSaId(ocr);
+    if (parsed?.personIdNumber || parsed?.personFullName) {
+      return { ok: true, parsed };
+    }
+
     return {
       ok: false,
-      message: "Could not read text from this photo. Try again or type details on the form.",
+      message:
+        ocr.hint ??
+        "Could not read the front of the licence. Try brighter light, less glare on the plastic, and fill the frame with the text side.",
     };
+  } catch (err) {
+    const message =
+      err instanceof Error && err.message
+        ? err.message
+        : "Could not read text from this photo. Try again or type details on the form.";
+    return { ok: false, message };
   }
 }

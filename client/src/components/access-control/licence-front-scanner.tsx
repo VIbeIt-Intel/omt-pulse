@@ -9,10 +9,11 @@ import {
 import { Camera, ImageIcon, ScanLine, X } from "lucide-react";
 import type { AccessIdentityScanResult, ParsedSaId } from "@/lib/parse-sa-barcodes";
 import { readLicenceFrontFromPhoto } from "@/lib/licence-front-ocr";
-import { decodeDriversLicenceFromImageViaApi } from "@/lib/decode-drivers-licence-api";
+import { decodeLicenceBackFromPhoto } from "@/lib/decode-licence-back-photo";
 import {
   BINARY_EYE_PLAY_URL,
   canUseBinaryEyeScanner,
+  describeBinaryEyeFailure,
   isBinaryEyeInstalled,
   scanDriversLicenceViaBinaryEye,
 } from "@/lib/binary-eye-scanner";
@@ -28,10 +29,12 @@ type LicenceFrontScannerProps = {
 const FILE_INPUT_CLASS =
   "absolute left-0 top-0 h-px w-px overflow-hidden opacity-0 [clip:rect(0,0,0,0)]";
 
-/** Brief pause so the modal overlay is gone before launching Binary Eye. */
+/** Brief pause so the modal overlay is gone before camera / heavy work. */
 function waitForDialogToClose(): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, 250));
 }
+
+type PhotoKind = "back" | "front";
 
 export function LicenceFrontScanner({
   open,
@@ -48,14 +51,12 @@ export function LicenceFrontScanner({
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [showFrontOcr, setShowFrontOcr] = useState(false);
   const [binaryEyeMissing, setBinaryEyeMissing] = useState(false);
 
   const reset = useCallback(() => {
     setBusy(false);
     setStatus(null);
     setError(null);
-    setShowFrontOcr(false);
     setBinaryEyeMissing(false);
     externalScanRef.current = false;
   }, []);
@@ -93,8 +94,6 @@ export function LicenceFrontScanner({
     setError(null);
     setBinaryEyeMissing(false);
 
-    // Close the modal before opening Binary Eye — leaving the black overlay up
-    // while the activity pauses leaves the phone stuck on a blank screen.
     onOpenChange(false);
     await waitForDialogToClose();
 
@@ -115,8 +114,7 @@ export function LicenceFrontScanner({
 
       toast({
         title: "Could not read licence barcode",
-        description:
-          "Try Binary Eye again with the PDF417 on the back right, or take a photo of the back of the card.",
+        description: describeBinaryEyeFailure(binaryEye),
         variant: "destructive",
       });
       onOpenChange(true);
@@ -126,46 +124,62 @@ export function LicenceFrontScanner({
     }
   }, [busy, onOpenChange, settle, toast]);
 
-  const readBackBarcodePhoto = useCallback(
-    async (file: File) => {
+  const processPhotoFile = useCallback(
+    async (file: File, kind: PhotoKind) => {
+      if (externalScanRef.current) return;
+
+      externalScanRef.current = true;
       setBusy(true);
       setError(null);
-      setStatus("Reading PDF417 from photo…");
 
-      const parsed = await decodeDriversLicenceFromImageViaApi(file);
-      if (parsed?.personIdNumber || parsed?.personFullName) {
-        setStatus("Licence barcode read");
-        settle(parsed);
-        return;
+      // Close the modal before camera return / OCR — Tesseract in WebView crashed Android.
+      onOpenChange(false);
+      await waitForDialogToClose();
+
+      const toastTitle = kind === "front" ? "Reading front of card…" : "Reading back barcode…";
+      toast({ title: toastTitle, description: "This may take a few seconds." });
+
+      try {
+        if (kind === "back") {
+          const parsed = await decodeLicenceBackFromPhoto(file);
+          if (parsed?.personIdNumber || parsed?.personFullName) {
+            settle(parsed);
+            return;
+          }
+          toast({
+            title: "No barcode in photo",
+            description:
+              "Fill the frame with the back of the card, PDF417 on the right, bright light. Or try Photo of front.",
+            variant: "destructive",
+          });
+        } else {
+          const result = await readLicenceFrontFromPhoto(file);
+          if (result.ok) {
+            settle(result.parsed);
+            return;
+          }
+          toast({
+            title: "Could not read front of card",
+            description: result.message,
+            variant: "destructive",
+          });
+        }
+
+        onOpenChange(true);
+      } catch {
+        toast({
+          title: "Photo scan failed",
+          description: "Try again or type the details on the form.",
+          variant: "destructive",
+        });
+        onOpenChange(true);
+      } finally {
+        externalScanRef.current = false;
+        setBusy(false);
+        setStatus(null);
       }
-
-      setError(
-        "No barcode found in this photo. Fill the frame with the back of the card, PDF417 on the right, good light, then try again.",
-      );
-      setStatus(null);
-      setBusy(false);
     },
-    [settle],
-  );
-
-  const readFrontPhoto = useCallback(
-    async (file: File) => {
-      setBusy(true);
-      setError(null);
-      setStatus("Reading text from front of card…");
-
-      const result = await readLicenceFrontFromPhoto(file);
-      if (result.ok) {
-        setStatus("Details captured from front");
-        settle(result.parsed);
-        return;
-      }
-
-      setError(result.message);
-      setStatus(null);
-      setBusy(false);
-    },
-    [settle],
+    [onOpenChange, settle, toast],
   );
 
   const handleOpenChange = useCallback(
@@ -178,146 +192,101 @@ export function LicenceFrontScanner({
   );
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-sm p-0 gap-0 overflow-hidden" hideDefaultClose>
-        <input
-          ref={backCameraRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          className={FILE_INPUT_CLASS}
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) void readBackBarcodePhoto(file);
-            e.target.value = "";
-          }}
-        />
-        <input
-          ref={backGalleryRef}
-          type="file"
-          accept="image/*"
-          className={FILE_INPUT_CLASS}
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) void readBackBarcodePhoto(file);
-            e.target.value = "";
-          }}
-        />
-        <input
-          ref={frontCameraRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          className={FILE_INPUT_CLASS}
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) void readFrontPhoto(file);
-            e.target.value = "";
-          }}
-        />
-        <input
-          ref={frontGalleryRef}
-          type="file"
-          accept="image/*"
-          className={FILE_INPUT_CLASS}
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) void readFrontPhoto(file);
-            e.target.value = "";
-          }}
-        />
+    <>
+      {/* Inputs live outside the dialog so they stay mounted when the modal closes. */}
+      <input
+        ref={backCameraRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className={FILE_INPUT_CLASS}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) void processPhotoFile(file, "back");
+          e.target.value = "";
+        }}
+      />
+      <input
+        ref={backGalleryRef}
+        type="file"
+        accept="image/*"
+        className={FILE_INPUT_CLASS}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) void processPhotoFile(file, "back");
+          e.target.value = "";
+        }}
+      />
+      <input
+        ref={frontCameraRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className={FILE_INPUT_CLASS}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) void processPhotoFile(file, "front");
+          e.target.value = "";
+        }}
+      />
+      <input
+        ref={frontGalleryRef}
+        type="file"
+        accept="image/*"
+        className={FILE_INPUT_CLASS}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) void processPhotoFile(file, "front");
+          e.target.value = "";
+        }}
+      />
 
-        <DialogHeader className="p-4 pb-2 pr-12">
-          <DialogTitle className="flex items-center gap-2 text-base">
-            <ScanLine className="h-5 w-5" />
-            Scan driver&apos;s licence
-          </DialogTitle>
-        </DialogHeader>
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+        <DialogContent className="max-w-sm p-0 gap-0 overflow-hidden" hideDefaultClose>
+          <DialogHeader className="p-4 pb-2 pr-12">
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <ScanLine className="h-5 w-5" />
+              Scan driver&apos;s licence
+            </DialogTitle>
+          </DialogHeader>
 
-        <div className="mx-4 mb-2 flex aspect-[4/3] items-center justify-center rounded-lg border-2 border-dashed border-primary/40 bg-muted/30 px-4 text-center">
-          <p className="text-sm text-muted-foreground">
-            Tap <strong>Scan barcode</strong> to open <strong>Binary Eye</strong> — point at the{" "}
-            <strong>PDF417 on the back right</strong>. Works through plastic covers ({APP_CACHE_VERSION}).
-          </p>
-        </div>
-
-        <div className="p-4 space-y-3">
-          {status && !error && (
-            <p className="text-xs text-primary font-medium">{status}</p>
-          )}
-          {error && (
-            <p className="text-xs text-destructive rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2">
-              {error}
+          <div className="mx-4 mb-2 flex aspect-[4/3] items-center justify-center rounded-lg border-2 border-dashed border-primary/40 bg-muted/30 px-4 text-center">
+            <p className="text-sm text-muted-foreground">
+              Through plastic sleeves, use <strong>Photo of front</strong> for the ID number, or{" "}
+              <strong>Binary Eye</strong> for the back barcode ({APP_CACHE_VERSION}).
             </p>
-          )}
-
-          {binaryEyeMissing && (
-            <p className="text-xs text-muted-foreground rounded-md border px-3 py-2">
-              Install{" "}
-              <a
-                href={BINARY_EYE_PLAY_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-primary underline"
-              >
-                Binary Eye
-              </a>{" "}
-              from Play Store for the most reliable scan through plastic sleeves.
-            </p>
-          )}
-
-          {canUseBinaryEyeScanner() && (
-            <Button
-              type="button"
-              variant="default"
-              className="w-full"
-              disabled={busy}
-              onClick={() => void runLiveBarcodeScan()}
-            >
-              <ScanLine className="h-4 w-4 mr-1" />
-              {busy ? "Opening Binary Eye…" : "Scan barcode (Binary Eye)"}
-            </Button>
-          )}
-
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              variant={canUseBinaryEyeScanner() ? "outline" : "default"}
-              className="flex-1"
-              disabled={busy}
-              onClick={() => backCameraRef.current?.click()}
-            >
-              <Camera className="h-4 w-4 mr-1" />
-              Photo of back
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="flex-1"
-              disabled={busy}
-              onClick={() => backGalleryRef.current?.click()}
-            >
-              <ImageIcon className="h-4 w-4 mr-1" />
-              Gallery
-            </Button>
           </div>
 
-          {!showFrontOcr ? (
-            <Button
-              type="button"
-              variant="ghost"
-              className="w-full text-xs"
-              disabled={busy}
-              onClick={() => setShowFrontOcr(true)}
-            >
-              Try front of card instead (read name &amp; ID)
-            </Button>
-          ) : (
+          <div className="p-4 space-y-3">
+            {status && !error && (
+              <p className="text-xs text-primary font-medium">{status}</p>
+            )}
+            {error && (
+              <p className="text-xs text-destructive rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2">
+                {error}
+              </p>
+            )}
+
+            {binaryEyeMissing && (
+              <p className="text-xs text-muted-foreground rounded-md border px-3 py-2">
+                Install{" "}
+                <a
+                  href={BINARY_EYE_PLAY_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary underline"
+                >
+                  Binary Eye
+                </a>{" "}
+                from Play Store for the most reliable scan through plastic sleeves.
+              </p>
+            )}
+
             <div className="flex gap-2">
               <Button
                 type="button"
-                variant="outline"
-                className="flex-1 text-xs"
+                variant="default"
+                className="flex-1"
                 disabled={busy}
                 onClick={() => frontCameraRef.current?.click()}
               >
@@ -327,7 +296,7 @@ export function LicenceFrontScanner({
               <Button
                 type="button"
                 variant="outline"
-                className="flex-1 text-xs"
+                className="flex-1"
                 disabled={busy}
                 onClick={() => frontGalleryRef.current?.click()}
               >
@@ -335,28 +304,68 @@ export function LicenceFrontScanner({
                 Front gallery
               </Button>
             </div>
-          )}
 
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              className="flex-1"
-              onClick={() => handleOpenChange(false)}
-            >
-              Close — type on form
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              onClick={() => handleOpenChange(false)}
-            >
-              <X className="h-4 w-4" />
-            </Button>
+            <p className="text-[11px] text-muted-foreground text-center px-1">
+              Best option through plastic — reads the <strong>ID number</strong> from the text on the front.
+            </p>
+
+            {canUseBinaryEyeScanner() && (
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                disabled={busy}
+                onClick={() => void runLiveBarcodeScan()}
+              >
+                <ScanLine className="h-4 w-4 mr-1" />
+                {busy ? "Opening Binary Eye…" : "Scan barcode (Binary Eye)"}
+              </Button>
+            )}
+
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1"
+                disabled={busy}
+                onClick={() => backCameraRef.current?.click()}
+              >
+                <Camera className="h-4 w-4 mr-1" />
+                Photo of back
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1"
+                disabled={busy}
+                onClick={() => backGalleryRef.current?.click()}
+              >
+                <ImageIcon className="h-4 w-4 mr-1" />
+                Gallery
+              </Button>
+            </div>
+
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1"
+                onClick={() => handleOpenChange(false)}
+              >
+                Close — type on form
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={() => handleOpenChange(false)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
-        </div>
-      </DialogContent>
-    </Dialog>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
