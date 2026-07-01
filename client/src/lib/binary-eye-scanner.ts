@@ -106,9 +106,30 @@ function failureFromError(err: unknown): NativeLicenceScanFailure {
       ? String((err as { code?: string }).code ?? "")
       : "";
   if (code === "cancelled") return "cancelled";
+  if (code === "timeout") return "cancelled";
   if (code === "not_installed") return "unsupported";
   if (code === "no_result") return "no_barcode";
   return "decode_failed";
+}
+
+const BINARY_EYE_SCAN_TIMEOUT_MS = 120_000;
+
+function withScanTimeout<T>(promise: Promise<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      reject(Object.assign(new Error("Binary Eye scan timed out"), { code: "timeout" }));
+    }, BINARY_EYE_SCAN_TIMEOUT_MS);
+    promise.then(
+      (value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 }
 
 /** Opens Binary Eye directly — same scanner the user confirmed works through plastic. */
@@ -123,7 +144,7 @@ export async function scanDriversLicenceViaBinaryEye(): Promise<NativeLicenceSca
       return { ok: false, reason: "unsupported" };
     }
 
-    const scan = await OmtBinaryEyeScanner.scanPdf417();
+    const scan = await withScanTimeout(OmtBinaryEyeScanner.scanPdf417());
     const parsed = await decodeScanPayload(scan.text, scan.bytesBase64);
     if (!parsed?.personIdNumber && !parsed?.personFullName) {
       return { ok: false, reason: "decode_failed" };

@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, useEffect } from "react";
+import { useRef, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -17,6 +17,7 @@ import {
   isBinaryEyeInstalled,
   scanDriversLicenceViaBinaryEye,
 } from "@/lib/binary-eye-scanner";
+import { useToast } from "@/hooks/use-toast";
 import { APP_CACHE_VERSION } from "@shared/cache-version";
 
 type LicenceFrontScannerProps = {
@@ -28,6 +29,11 @@ type LicenceFrontScannerProps = {
 const FILE_INPUT_CLASS =
   "absolute left-0 top-0 h-px w-px overflow-hidden opacity-0 [clip:rect(0,0,0,0)]";
 
+/** Brief pause so the modal overlay is gone before launching Binary Eye. */
+function waitForDialogToClose(): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, 250));
+}
+
 export function LicenceFrontScanner({
   open,
   onOpenChange,
@@ -37,8 +43,9 @@ export function LicenceFrontScanner({
   const backGalleryRef = useRef<HTMLInputElement>(null);
   const frontCameraRef = useRef<HTMLInputElement>(null);
   const frontGalleryRef = useRef<HTMLInputElement>(null);
-  const autoScanStartedRef = useRef(false);
+  const externalScanRef = useRef(false);
 
+  const { toast } = useToast();
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -51,7 +58,7 @@ export function LicenceFrontScanner({
     setError(null);
     setShowFrontOcr(false);
     setBinaryEyeMissing(false);
-    autoScanStartedRef.current = false;
+    externalScanRef.current = false;
   }, []);
 
   const settle = useCallback(
@@ -64,13 +71,9 @@ export function LicenceFrontScanner({
   );
 
   const runLiveBarcodeScan = useCallback(async () => {
-    if (busy) return;
-    setBusy(true);
-    setError(null);
-    setBinaryEyeMissing(false);
+    if (busy || externalScanRef.current) return;
 
     if (!canUseBinaryEyeScanner()) {
-      setBusy(false);
       setError(
         "Live barcode scan needs the latest OMT Pulse app. Install Binary Eye from Play Store, or take a photo of the back of the card.",
       );
@@ -79,7 +82,6 @@ export function LicenceFrontScanner({
 
     const installed = await isBinaryEyeInstalled();
     if (!installed) {
-      setBusy(false);
       setBinaryEyeMissing(true);
       setError(
         "Install Binary Eye from Play Store to scan the licence barcode, or take a photo of the back of the card.",
@@ -87,25 +89,42 @@ export function LicenceFrontScanner({
       return;
     }
 
-    setStatus("Opening Binary Eye — point at the PDF417 on the back right…");
-    const binaryEye = await scanDriversLicenceViaBinaryEye();
-    if (binaryEye.ok) {
-      setStatus("Licence captured");
-      settle(binaryEye.parsed);
-      return;
-    }
+    externalScanRef.current = true;
+    setBusy(true);
+    setError(null);
+    setBinaryEyeMissing(false);
 
-    setBusy(false);
-    if (binaryEye.reason === "cancelled") {
-      setStatus("Scan cancelled — take a photo of the back barcode or try again.");
-      return;
-    }
+    // Close the modal before opening Binary Eye — leaving the black overlay up
+    // while the activity pauses leaves the phone stuck on a blank screen.
+    onOpenChange(false);
+    await waitForDialogToClose();
 
-    setStatus(null);
-    setError(
-      "Binary Eye could not read this barcode. Take a clear photo of the back of the card (PDF417 on the right), or try the front of the card.",
-    );
-  }, [busy, settle]);
+    try {
+      const binaryEye = await scanDriversLicenceViaBinaryEye();
+      if (binaryEye.ok) {
+        settle(binaryEye.parsed);
+        return;
+      }
+
+      if (binaryEye.reason === "cancelled") {
+        toast({
+          title: "Scan cancelled",
+          description: "Tap Scan licence again, or take a photo of the back of the card.",
+        });
+        return;
+      }
+
+      toast({
+        title: "Could not read licence barcode",
+        description:
+          "Try Binary Eye again with the PDF417 on the back right, or take a photo of the back of the card.",
+        variant: "destructive",
+      });
+    } finally {
+      externalScanRef.current = false;
+      setBusy(false);
+    }
+  }, [busy, onOpenChange, settle, toast]);
 
   const readBackBarcodePhoto = useCallback(
     async (file: File) => {
@@ -151,21 +170,12 @@ export function LicenceFrontScanner({
 
   const handleOpenChange = useCallback(
     (next: boolean) => {
+      if (externalScanRef.current) return;
       if (!next) reset();
       onOpenChange(next);
     },
     [onOpenChange, reset],
   );
-
-  useEffect(() => {
-    if (!open) return;
-
-    reset();
-    if (Capacitor.isNativePlatform() && !autoScanStartedRef.current) {
-      autoScanStartedRef.current = true;
-      void runLiveBarcodeScan();
-    }
-  }, [open, reset, runLiveBarcodeScan]);
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -226,8 +236,8 @@ export function LicenceFrontScanner({
 
         <div className="mx-4 mb-2 flex aspect-[4/3] items-center justify-center rounded-lg border-2 border-dashed border-primary/40 bg-muted/30 px-4 text-center">
           <p className="text-sm text-muted-foreground">
-            Opens <strong>Binary Eye</strong> when installed — point at the <strong>PDF417 on the back right</strong>.
-            Works through plastic covers ({APP_CACHE_VERSION}).
+            Tap <strong>Scan barcode</strong> to open <strong>Binary Eye</strong> — point at the{" "}
+            <strong>PDF417 on the back right</strong>. Works through plastic covers ({APP_CACHE_VERSION}).
           </p>
         </div>
 
@@ -265,7 +275,7 @@ export function LicenceFrontScanner({
               onClick={() => void runLiveBarcodeScan()}
             >
               <ScanLine className="h-4 w-4 mr-1" />
-              {busy ? "Scanning…" : "Scan barcode (Binary Eye)"}
+              {busy ? "Opening Binary Eye…" : "Scan barcode (Binary Eye)"}
             </Button>
           )}
 

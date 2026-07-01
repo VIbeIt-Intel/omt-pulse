@@ -1,6 +1,7 @@
 package com.intelafri.omtpulse;
 
 import android.app.Activity;
+import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import androidx.activity.result.ActivityResult;
@@ -39,7 +40,20 @@ public class OmtBinaryEyeScannerPlugin extends Plugin {
         Intent intent = new Intent(SCAN_ACTION);
         intent.setPackage(BINARY_EYE_PACKAGE);
         intent.putExtra(SCAN_FORMATS, "PDF_417");
-        startActivityForResult(call, intent, "handleScanResult");
+
+        if (intent.resolveActivity(getContext().getPackageManager()) == null) {
+            call.reject("Binary Eye cannot handle scan requests", "not_installed");
+            return;
+        }
+
+        // Required: keep the bridge call alive while Binary Eye is in the foreground.
+        call.setKeepAlive(true);
+
+        try {
+            startActivityForResult(call, intent, "handleScanResult");
+        } catch (ActivityNotFoundException e) {
+            call.reject("Binary Eye is not installed", "not_installed", e);
+        }
     }
 
     @ActivityCallback
