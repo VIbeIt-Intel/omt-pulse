@@ -6,7 +6,8 @@ export type LicenceFrontOcrResult =
   | { ok: true; parsed: ParsedSaId }
   | { ok: false; message: string };
 
-const MAX_OCR_WIDTH = 1600;
+const MIN_OCR_WIDTH = 2200;
+const MAX_OCR_WIDTH = 2800;
 
 function toParsedSaId(ocr: ParsedLicenceFrontOcr): ParsedSaId | null {
   if (!ocr.personIdNumber && !ocr.personFullName) return null;
@@ -19,7 +20,7 @@ function toParsedSaId(ocr: ParsedLicenceFrontOcr): ParsedSaId | null {
   };
 }
 
-/** Downscale a phone photo before upload — keeps OCR detail without huge payloads. */
+/** Upscale and boost contrast before upload — helps OCR through plastic glare. */
 async function compactLicencePhotoBase64(file: File): Promise<string> {
   const url = URL.createObjectURL(file);
   try {
@@ -30,7 +31,11 @@ async function compactLicencePhotoBase64(file: File): Promise<string> {
       el.src = url;
     });
 
-    const scale = img.naturalWidth > MAX_OCR_WIDTH ? MAX_OCR_WIDTH / img.naturalWidth : 1;
+    const upscale =
+      img.naturalWidth < MIN_OCR_WIDTH ? MIN_OCR_WIDTH / Math.max(img.naturalWidth, 1) : 1;
+    const downscale =
+      img.naturalWidth * upscale > MAX_OCR_WIDTH ? MAX_OCR_WIDTH / (img.naturalWidth * upscale) : 1;
+    const scale = upscale * downscale;
     const width = Math.max(1, Math.round(img.naturalWidth * scale));
     const height = Math.max(1, Math.round(img.naturalHeight * scale));
 
@@ -42,13 +47,15 @@ async function compactLicencePhotoBase64(file: File): Promise<string> {
       return blobToDataUrl(file);
     }
 
+    ctx.imageSmoothingEnabled = scale > 1;
+    ctx.filter = "contrast(1.35) brightness(1.08)";
     ctx.drawImage(img, 0, 0, width, height);
 
     const blob = await new Promise<Blob>((resolve, reject) => {
       canvas.toBlob(
         (b) => (b ? resolve(b) : reject(new Error("Could not compress image"))),
         "image/jpeg",
-        0.9,
+        0.95,
       );
     });
     return blobToDataUrl(blob);

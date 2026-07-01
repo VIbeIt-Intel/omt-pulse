@@ -23,19 +23,64 @@ export type ParsedLicenceFrontOcr = {
   hint?: string;
 };
 
-/** Find all 13-digit SA ID candidates in OCR text and return the first valid one. */
+/** Map common OCR misreads to digits inside ID-like runs. */
+function normalizeOcrDigitChar(ch: string): string {
+  const c = ch.toUpperCase();
+  if (c === "O" || c === "Q" || c === "D") return "0";
+  if (c === "I" || c === "L" || c === "|" || c === "!") return "1";
+  if (c === "Z") return "2";
+  if (c === "S") return "5";
+  if (c === "G") return "6";
+  if (c === "B") return "8";
+  if (c >= "0" && c <= "9") return c;
+  return "";
+}
+
+/** Collapse OCR noise into digits only, fixing common letter→digit swaps. */
+export function ocrTextToDigitRuns(text: string): string {
+  let out = "";
+  for (const ch of text) {
+    out += normalizeOcrDigitChar(ch);
+  }
+  return out;
+}
+
+/** Find a valid SA ID in noisy OCR (plastic glare, split digits, O/0 confusion). */
 export function extractSaIdFromOcrText(text: string): string | null {
   const compact = text.replace(/\s+/g, "");
-  const spaced = text.replace(/[^\d]/g, " ").split(/\s+/).filter(Boolean);
-
   const candidates = new Set<string>();
 
   for (const match of compact.matchAll(/\d{13}/g)) {
     candidates.add(match[0]!);
   }
 
+  const spaced = text.replace(/[^\d]/g, " ").split(/\s+/).filter(Boolean);
   for (const chunk of spaced) {
     if (chunk.length === 13) candidates.add(chunk);
+  }
+
+  // Grouped layout on card: YYMMDD SSSS CC A Z or similar spacing
+  for (const match of text.matchAll(
+    /(\d{2})\s*(\d{2})\s*(\d{2})\s*(\d{4})\s*(\d{2,3})/g,
+  )) {
+    const joined = `${match[1]}${match[2]}${match[3]}${match[4]}${match[5]}`.slice(0, 13);
+    if (joined.length === 13) candidates.add(joined);
+  }
+
+  for (const match of text.matchAll(
+    /(?:id\s*(?:no|number)?\.?|identity)\s*[:\.]?\s*([\dOIlSsBZo\s]{10,20})/gi,
+  )) {
+    const digits = ocrTextToDigitRuns(match[1] ?? "");
+    if (digits.length >= 13) {
+      for (let i = 0; i <= digits.length - 13; i++) {
+        candidates.add(digits.slice(i, i + 13));
+      }
+    }
+  }
+
+  const digitRun = ocrTextToDigitRuns(text);
+  for (let i = 0; i <= digitRun.length - 13; i++) {
+    candidates.add(digitRun.slice(i, i + 13));
   }
 
   for (const id of candidates) {
