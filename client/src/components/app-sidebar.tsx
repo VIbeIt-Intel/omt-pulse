@@ -1,4 +1,4 @@
-import { BookOpen, Settings, BarChart3, LogOut, Users, Upload, Bell, Radio, LayoutDashboard, MessageSquare, Shield, Network } from "lucide-react";
+import { BookOpen, Settings, BarChart3, LogOut, Users, Upload, Bell, Radio, LayoutDashboard, MessageSquare, Shield, Network, Car, ShieldCheck } from "lucide-react";
 import { useState, useEffect } from "react";
 import africaLogo from "../assets/africa-logo.png";
 import { useLocation, Link } from "wouter";
@@ -141,6 +141,7 @@ function CommandSwitcher() {
       queryClient.invalidateQueries({ queryKey: ["/api/form-fields"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/trackers"] });
       queryClient.invalidateQueries({ queryKey: ["/api/custom-maps"] });
       queryClient.invalidateQueries({ queryKey: ["/api/commands/visibility-grants"] });
       queryClient.invalidateQueries({ queryKey: ["/api/commands/visibility-requests"] });
@@ -202,9 +203,13 @@ function getNavItems(role: string, isSuperadmin: boolean) {
     { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
     { title: "Occurrence Book", url: "/occurrence-book", icon: BookOpen },
   ];
+  if (role === "administrator" || role === "supervisor" || role === "reporter") {
+    items.push({ title: "Access Control", url: "/access-control", icon: ShieldCheck });
+  }
   if (role === "administrator" || role === "supervisor") {
     items.push({ title: "Analytics", url: "/analytics", icon: BarChart3 });
     items.push({ title: "Live Monitor", url: "/live-monitor", icon: Radio });
+    items.push({ title: "Fleet", url: "/fleet", icon: Car });
   }
   if (role === "reporter") {
     items.push({ title: "Live Incident", url: "/live-incident", icon: Radio });
@@ -258,14 +263,14 @@ export function AppSidebar({ user, onLogout, avatarPreview }: AppSidebarProps) {
   const chatUnread = chatConvos.reduce((sum, c) => sum + c.unreadCount, 0);
 
   return (
-    <Sidebar>
-      <SidebarHeader className="p-4">
-        <div className="flex flex-col items-center gap-2 pb-1">
-          <OmtShield variant="mark" className="h-14 w-14 rounded-2xl" />
+    <Sidebar className="border-r border-slate-800/80">
+      <SidebarHeader className="p-3">
+        <div className="flex flex-col items-center gap-1.5 pb-0.5">
+          <OmtShield variant="mark" className="h-11 w-11 rounded-xl" />
           <div className="text-center">
-            <div className="flex items-center justify-center gap-2">
-              <h2 className="text-base font-bold tracking-tight" data-testid="text-app-title">OMT Pulse</h2>
-              <HeartbeatLine className="w-14 h-4" />
+            <div className="flex items-center justify-center gap-1.5">
+              <h2 className="text-sm font-bold tracking-tight" data-testid="text-app-title">OMT Pulse</h2>
+              <HeartbeatLine className="w-12 h-3.5" />
             </div>
             <div className="flex items-center justify-center gap-1.5 mt-0.5">
               <div className="h-px w-4 bg-gradient-to-r from-transparent to-primary/40" />
@@ -279,7 +284,7 @@ export function AppSidebar({ user, onLogout, avatarPreview }: AppSidebarProps) {
       <SidebarContent>
         <CommandSwitcher />
         <SidebarGroup>
-          <SidebarGroupLabel>Navigation</SidebarGroupLabel>
+          <SidebarGroupLabel className="text-[10px] uppercase tracking-wider">Navigation</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {navItems.map((item) => (
@@ -311,9 +316,9 @@ export function AppSidebar({ user, onLogout, avatarPreview }: AppSidebarProps) {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter className="p-4 space-y-3">
-        <div className="flex items-center gap-3">
-          <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden shrink-0 border border-border" data-testid="avatar-sidebar">
+      <SidebarFooter className="p-3 space-y-2">
+        <div className="flex items-center gap-2.5">
+          <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden shrink-0 border border-border" data-testid="avatar-sidebar">
             {(avatarPreview || user.avatarUrl) ? (
               <img src={avatarPreview ?? user.avatarUrl!} alt={user.firstName} className="h-full w-full object-cover" />
             ) : (

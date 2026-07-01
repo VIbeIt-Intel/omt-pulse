@@ -18,7 +18,44 @@ import {
   type CommandVisibilityRequest, type InsertCommandVisibilityRequest,
   users, organizations, locations, incidentCategories, incidents, formFields, userLocationAssignments, incidentAttachments, incidentEvidenceNotes, auditLogs, customMaps, importBatches, pushSubscriptions, notificationLogs, liveResponders, chatMessages, chatReads, panicAcknowledgers, fcmTokens,
   commands, commandUsers, commandVisibilityGrants, commandVisibilityRequests,
+  trackerDevices,
+  trackerPositions,
 } from "@shared/schema";
+
+export type TrackerDeviceSummary = {
+  id: number;
+  imei: string;
+  label: string | null;
+  vehicleMake: string | null;
+  vehicleModel: string | null;
+  vehicleRegistration: string | null;
+  assignedUserId: string | null;
+  assignedUserName: string | null;
+  notes: string | null;
+  commandId: number | null;
+  commandName: string | null;
+  lastLat: number | null;
+  lastLng: number | null;
+  lastSpeedKph: number | null;
+  lastHeading: number | null;
+  lastIgnitionOn: boolean | null;
+  lastMileageKm: number | null;
+  lastGpsValid: boolean | null;
+  lastPositionAt: string | null;
+  lastSeenAt: string | null;
+};
+
+export type TrackerPositionSummary = {
+  id: number;
+  latitude: number;
+  longitude: number;
+  speedKph: number | null;
+  heading: number | null;
+  ignitionOn: boolean | null;
+  mileageKm: number | null;
+  gpsValid: boolean;
+  recordedAt: string;
+};
 
 export type LiveResponderSummary = {
   id: number;
@@ -97,7 +134,7 @@ export interface IStorage {
   atomicConsumeInviteToken(token: string): Promise<User | undefined>;
   createUser(user: InsertUser & { role?: string }): Promise<User>;
   updateUser(id: string, data: Partial<User>): Promise<User | undefined>;
-  updateUserLastSeen(id: string): Promise<void>;
+  updateUserLastSeen(id: string, position?: { lat: number; lng: number }): Promise<void>;
   deleteUser(id: string, orgId: string): Promise<boolean>;
   getUserCount(): Promise<number>;
 
@@ -200,7 +237,8 @@ export interface IStorage {
   // FCM Tokens (native push)
   upsertFcmToken(orgId: string, userId: string, token: string): Promise<void>;
   deleteFcmToken(token: string): Promise<void>;
-  getFcmTokensByOrg(orgId: string, excludeUserId?: string, roles?: string[]): Promise<Array<{ token: string; userId: string }>>;
+  getFcmTokensByOrg(orgId: string, excludeUserId?: string, roles?: string[], commandIds?: number[]): Promise<Array<{ token: string; userId: string }>>;
+  getUserIdsInCommands(orgId: string, commandIds: number[]): Promise<Set<string>>;
   getFcmTokensByUser(userId: string): Promise<Array<{ token: string }>>;
 
   countLiveIncidents(orgId: string): Promise<number>;
@@ -224,12 +262,33 @@ export interface IStorage {
   getChatConversations(orgId: string, userId: string): Promise<Array<{ recipientId: string | null; recipientFirstName: string | null; recipientLastName: string | null; recipientAvatarUrl: string | null; lastMessage: string | null; lastMessageAt: string | null; unreadCount: number }>>;
   markThreadRead(orgId: string, userId: string, recipientId: string | null): Promise<void>;
 
+  getTrackerDevices(orgId: string, commandFilter?: number[]): Promise<TrackerDeviceSummary[]>;
+  getTrackerDeviceById(id: number, orgId: string): Promise<TrackerDeviceSummary | undefined>;
+  updateTrackerDevice(
+    id: number,
+    orgId: string,
+    patch: {
+      label?: string | null;
+      vehicleMake?: string | null;
+      vehicleModel?: string | null;
+      vehicleRegistration?: string | null;
+      assignedUserId?: string | null;
+      commandId?: number | null;
+      notes?: string | null;
+    },
+  ): Promise<TrackerDeviceSummary | undefined>;
+  getTrackerPositionHistory(
+    deviceId: number,
+    orgId: string,
+    opts?: { limit?: number; since?: Date },
+  ): Promise<TrackerPositionSummary[]>;
+
   // Dashboard
   getDashboardSummary(orgId: string, period: 'day' | 'week', restrictToLocationIds?: number[], commandFilter?: number[], restrictToUserId?: string): Promise<{
     totalIncidents: number;
     liveCount: number;
     chartData: Array<{ label: string; count: number }>;
-    users: Array<{ id: string; firstName: string; lastName: string; role: string; avatarUrl: string | null; incidentCount: number; isLive: boolean; liveIncidentId: number | null; lastSeenAt: Date | null }>;
+    users: Array<{ id: string; firstName: string; lastName: string; role: string; avatarUrl: string | null; incidentCount: number; isLive: boolean; liveIncidentId: number | null; lastSeenAt: Date | null; lastLat: number | null; lastLng: number | null; lastPositionAt: Date | null }>;
   }>;
 }
 
@@ -527,8 +586,18 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async updateUserLastSeen(id: string): Promise<void> {
-    await db.update(users).set({ lastSeenAt: new Date() }).where(eq(users.id, id));
+  async updateUserLastSeen(id: string, position?: { lat: number; lng: number }): Promise<void> {
+    const patch: Partial<User> = { lastSeenAt: new Date() };
+    if (
+      position &&
+      Number.isFinite(position.lat) &&
+      Number.isFinite(position.lng)
+    ) {
+      patch.lastLat = position.lat;
+      patch.lastLng = position.lng;
+      patch.lastPositionAt = new Date();
+    }
+    await db.update(users).set(patch).where(eq(users.id, id));
   }
 
   async deleteUser(id: string, orgId: string): Promise<boolean> {
@@ -1732,17 +1801,33 @@ export class DatabaseStorage implements IStorage {
     await db.delete(fcmTokens).where(eq(fcmTokens.token, token));
   }
 
-  async getFcmTokensByOrg(orgId: string, excludeUserId?: string, roles?: string[]): Promise<Array<{ token: string; userId: string }>> {
+  async getFcmTokensByOrg(orgId: string, excludeUserId?: string, roles?: string[], commandIds?: number[]): Promise<Array<{ token: string; userId: string }>> {
     const conditions: ReturnType<typeof and>[] = [
       eq(fcmTokens.organizationId, orgId),
       eq(users.isActive, true),
     ];
     if (excludeUserId) conditions.push(ne(fcmTokens.userId, excludeUserId));
     if (roles && roles.length > 0) conditions.push(inArray(users.role, roles));
+    if (commandIds && commandIds.length > 0) {
+      const memberSubquery = db
+        .selectDistinct({ userId: commandUsers.userId })
+        .from(commandUsers)
+        .where(inArray(commandUsers.commandId, commandIds));
+      conditions.push(inArray(fcmTokens.userId, memberSubquery));
+    }
     return db.select({ token: fcmTokens.token, userId: fcmTokens.userId })
       .from(fcmTokens)
       .innerJoin(users, eq(fcmTokens.userId, users.id))
       .where(and(...conditions));
+  }
+
+  async getUserIdsInCommands(orgId: string, commandIds: number[]): Promise<Set<string>> {
+    if (commandIds.length === 0) return new Set();
+    const rows = await db
+      .selectDistinct({ userId: commandUsers.userId })
+      .from(commandUsers)
+      .where(and(eq(commandUsers.organizationId, orgId), inArray(commandUsers.commandId, commandIds)));
+    return new Set(rows.map((r) => r.userId));
   }
 
   async getFcmTokensByUser(userId: string): Promise<Array<{ token: string }>> {
@@ -1928,12 +2013,187 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
+  // --- Vehicle trackers (GT06 / fleet) ---
+  private mapTrackerDeviceRow(r: {
+    id: number;
+    imei: string;
+    label: string | null;
+    vehicleMake: string | null;
+    vehicleModel: string | null;
+    vehicleRegistration: string | null;
+    assignedUserId: string | null;
+    assignedFirstName: string | null;
+    assignedLastName: string | null;
+    notes: string | null;
+    commandId: number | null;
+    commandName: string | null;
+    lastLat: number | null;
+    lastLng: number | null;
+    lastSpeedKph: number | null;
+    lastHeading: number | null;
+    lastIgnitionOn: boolean | null;
+    lastMileageKm: number | null;
+    lastGpsValid: boolean | null;
+    lastPositionAt: Date | null;
+    lastSeenAt: Date | null;
+  }): TrackerDeviceSummary {
+    const assignedUserName =
+      r.assignedFirstName || r.assignedLastName
+        ? `${r.assignedFirstName ?? ""} ${r.assignedLastName ?? ""}`.trim()
+        : null;
+    return {
+      id: r.id,
+      imei: r.imei,
+      label: r.label,
+      vehicleMake: r.vehicleMake,
+      vehicleModel: r.vehicleModel,
+      vehicleRegistration: r.vehicleRegistration,
+      assignedUserId: r.assignedUserId,
+      assignedUserName: assignedUserName || null,
+      notes: r.notes,
+      commandId: r.commandId,
+      commandName: r.commandName,
+      lastLat: r.lastLat,
+      lastLng: r.lastLng,
+      lastSpeedKph: r.lastSpeedKph,
+      lastHeading: r.lastHeading,
+      lastIgnitionOn: r.lastIgnitionOn,
+      lastMileageKm: r.lastMileageKm,
+      lastGpsValid: r.lastGpsValid,
+      lastPositionAt: r.lastPositionAt?.toISOString() ?? null,
+      lastSeenAt: r.lastSeenAt?.toISOString() ?? null,
+    };
+  }
+
+  private trackerDeviceSelectFields() {
+    return {
+      id: trackerDevices.id,
+      imei: trackerDevices.imei,
+      label: trackerDevices.label,
+      vehicleMake: trackerDevices.vehicleMake,
+      vehicleModel: trackerDevices.vehicleModel,
+      vehicleRegistration: trackerDevices.vehicleRegistration,
+      assignedUserId: trackerDevices.assignedUserId,
+      assignedFirstName: users.firstName,
+      assignedLastName: users.lastName,
+      notes: trackerDevices.notes,
+      commandId: trackerDevices.commandId,
+      commandName: commands.name,
+      lastLat: trackerDevices.lastLat,
+      lastLng: trackerDevices.lastLng,
+      lastSpeedKph: trackerDevices.lastSpeedKph,
+      lastHeading: trackerDevices.lastHeading,
+      lastIgnitionOn: trackerDevices.lastIgnitionOn,
+      lastMileageKm: trackerDevices.lastMileageKm,
+      lastGpsValid: trackerDevices.lastGpsValid,
+      lastPositionAt: trackerDevices.lastPositionAt,
+      lastSeenAt: trackerDevices.lastSeenAt,
+    };
+  }
+
+  async getTrackerDevices(orgId: string, commandFilter?: number[]): Promise<TrackerDeviceSummary[]> {
+    const conditions = [eq(trackerDevices.organizationId, orgId)];
+    if (commandFilter && commandFilter.length > 0) {
+      conditions.push(inArray(trackerDevices.commandId, commandFilter));
+    }
+
+    const rows = await db
+      .select(this.trackerDeviceSelectFields())
+      .from(trackerDevices)
+      .leftJoin(commands, eq(trackerDevices.commandId, commands.id))
+      .leftJoin(users, eq(trackerDevices.assignedUserId, users.id))
+      .where(and(...conditions))
+      .orderBy(desc(trackerDevices.lastSeenAt));
+
+    return rows.map((r) => this.mapTrackerDeviceRow(r));
+  }
+
+  async getTrackerDeviceById(id: number, orgId: string): Promise<TrackerDeviceSummary | undefined> {
+    const rows = await db
+      .select(this.trackerDeviceSelectFields())
+      .from(trackerDevices)
+      .leftJoin(commands, eq(trackerDevices.commandId, commands.id))
+      .leftJoin(users, eq(trackerDevices.assignedUserId, users.id))
+      .where(and(eq(trackerDevices.id, id), eq(trackerDevices.organizationId, orgId)))
+      .limit(1);
+    const row = rows[0];
+    return row ? this.mapTrackerDeviceRow(row) : undefined;
+  }
+
+  async updateTrackerDevice(
+    id: number,
+    orgId: string,
+    patch: {
+      label?: string | null;
+      vehicleMake?: string | null;
+      vehicleModel?: string | null;
+      vehicleRegistration?: string | null;
+      assignedUserId?: string | null;
+      commandId?: number | null;
+      notes?: string | null;
+    },
+  ): Promise<TrackerDeviceSummary | undefined> {
+    const existing = await this.getTrackerDeviceById(id, orgId);
+    if (!existing) return undefined;
+
+    await db
+      .update(trackerDevices)
+      .set(patch)
+      .where(and(eq(trackerDevices.id, id), eq(trackerDevices.organizationId, orgId)));
+
+    return this.getTrackerDeviceById(id, orgId);
+  }
+
+  async getTrackerPositionHistory(
+    deviceId: number,
+    orgId: string,
+    opts?: { limit?: number; since?: Date },
+  ): Promise<TrackerPositionSummary[]> {
+    const limit = Math.min(Math.max(opts?.limit ?? 200, 1), 2000);
+    const conditions = [
+      eq(trackerPositions.deviceId, deviceId),
+      eq(trackerPositions.organizationId, orgId),
+    ];
+    if (opts?.since) {
+      conditions.push(gte(trackerPositions.recordedAt, opts.since));
+    }
+
+    const rows = await db
+      .select({
+        id: trackerPositions.id,
+        latitude: trackerPositions.latitude,
+        longitude: trackerPositions.longitude,
+        speedKph: trackerPositions.speedKph,
+        heading: trackerPositions.heading,
+        ignitionOn: trackerPositions.ignitionOn,
+        mileageKm: trackerPositions.mileageKm,
+        gpsValid: trackerPositions.gpsValid,
+        recordedAt: trackerPositions.recordedAt,
+      })
+      .from(trackerPositions)
+      .where(and(...conditions))
+      .orderBy(desc(trackerPositions.recordedAt))
+      .limit(limit);
+
+    return rows.map((r) => ({
+      id: r.id,
+      latitude: r.latitude,
+      longitude: r.longitude,
+      speedKph: r.speedKph,
+      heading: r.heading,
+      ignitionOn: r.ignitionOn,
+      mileageKm: r.mileageKm,
+      gpsValid: r.gpsValid,
+      recordedAt: r.recordedAt.toISOString(),
+    }));
+  }
+
   // --- Dashboard ---
   async getDashboardSummary(orgId: string, period: 'day' | 'week', restrictToLocationIds?: number[], commandFilter?: number[], restrictToUserId?: string): Promise<{
     totalIncidents: number;
     liveCount: number;
     chartData: Array<{ label: string; count: number }>;
-    users: Array<{ id: string; firstName: string; lastName: string; role: string; avatarUrl: string | null; incidentCount: number; isLive: boolean; liveIncidentId: number | null; lastSeenAt: Date | null }>;
+    users: Array<{ id: string; firstName: string; lastName: string; role: string; avatarUrl: string | null; incidentCount: number; isLive: boolean; liveIncidentId: number | null; lastSeenAt: Date | null; lastLat: number | null; lastLng: number | null; lastPositionAt: Date | null }>;
   }> {
     const now = new Date();
     const todayStr = now.toISOString().slice(0, 10);
@@ -2083,6 +2343,9 @@ export class DatabaseStorage implements IStorage {
       isLive: liveByUser.has(u.id),
       liveIncidentId: liveByUser.get(u.id) ?? null,
       lastSeenAt: u.lastSeenAt ?? null,
+      lastLat: u.lastLat ?? null,
+      lastLng: u.lastLng ?? null,
+      lastPositionAt: u.lastPositionAt ?? null,
     }));
     userSummaries.sort((a, b) => {
       if (a.isLive !== b.isLive) return a.isLive ? -1 : 1;

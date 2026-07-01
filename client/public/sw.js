@@ -1,4 +1,4 @@
-const CACHE_NAME = "omt-v102";
+const CACHE_NAME = "omt-v120";
 
 // When the page asks us to nuke everything (after a new deploy), wipe all
 // caches and tell every controlled tab to reload. The page also unregisters
@@ -79,6 +79,12 @@ self.addEventListener("fetch", (event) => {
   // Never cache API calls or streamed object/file responses.
   if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/objects/")) return;
 
+  // Always fetch a fresh service worker script so CACHE_NAME bumps propagate.
+  if (url.pathname === "/sw.js") {
+    event.respondWith(fetch(event.request));
+    return;
+  }
+
   // Navigation requests (full-page loads / Android WebView restores) must always
   // receive the cached app shell so the SPA can boot even after a process kill.
   // Serve the cached "/" response for every navigate request; update the shell
@@ -99,6 +105,26 @@ self.addEventListener("fetch", (event) => {
         const shell = await cache.match("/");
         return shell || Response.error();
       })
+    );
+    return;
+  }
+
+  // Hashed Vite bundles: network-first so deploys reach devices without stale JS.
+  if (url.pathname.startsWith("/assets/")) {
+    event.respondWith(
+      caches.open(CACHE_NAME).then(async (cache) => {
+        try {
+          const networkResponse = await fetch(event.request);
+          if (networkResponse.ok) {
+            await cache.put(event.request, networkResponse.clone());
+            return networkResponse;
+          }
+        } catch {
+          const cached = await cache.match(event.request);
+          if (cached) return cached;
+        }
+        return Response.error();
+      }),
     );
     return;
   }

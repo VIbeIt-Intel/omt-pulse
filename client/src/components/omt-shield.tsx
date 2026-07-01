@@ -7,9 +7,12 @@ interface OmtShieldProps {
   variant?: "hero" | "mark";
 }
 
+/** Shared frame: PNG black matte matches this plate so the 3D shield reads in light + dark UI. */
+const SHIELD_PLATE = "bg-[#050505]";
+
 /**
- * Wide 3D PNG (shield centred on black). We crop/zoom into the shield and use
- * mix-blend-screen so the black matte disappears on light and dark UI.
+ * Wide 3D PNG (shield centred on black). Crop/zoom into the shield; dark plate
+ * behind it replaces blend-mode tricks that wash out on light backgrounds.
  */
 export function OmtShield({ className, variant = "mark" }: OmtShieldProps) {
   const croppedImg = (
@@ -20,8 +23,7 @@ export function OmtShield({ className, variant = "mark" }: OmtShieldProps) {
       className={cn(
         "absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2",
         "h-full w-auto min-w-[240%] max-w-none object-cover object-center",
-        "select-none pointer-events-none mix-blend-screen",
-        "brightness-[1.03] contrast-[1.06] saturate-[1.08]",
+        "select-none pointer-events-none",
       )}
     />
   );
@@ -33,17 +35,18 @@ export function OmtShield({ className, variant = "mark" }: OmtShieldProps) {
         data-testid="omt-shield-hero"
       >
         <div
-          className="pointer-events-none absolute h-32 w-32 rounded-full bg-primary/20 blur-3xl dark:bg-primary/30"
+          className="pointer-events-none absolute h-32 w-32 rounded-full bg-primary/25 blur-3xl dark:bg-primary/35"
           aria-hidden
         />
         <div
           className={cn(
             "relative overflow-hidden",
+            SHIELD_PLATE,
             "h-[5.75rem] w-[5.75rem] sm:h-[6.5rem] sm:w-[6.5rem]",
             "rounded-[1.35rem]",
-            "ring-1 ring-primary/15 dark:ring-primary/25",
-            "shadow-[0_12px_40px_-8px_rgba(0,77,46,0.45)]",
-            "dark:shadow-[0_12px_44px_-6px_rgba(0,122,71,0.35)]",
+            "ring-1 ring-primary/20 dark:ring-primary/30",
+            "shadow-[0_12px_40px_-8px_rgba(0,77,46,0.5)]",
+            "dark:shadow-[0_12px_44px_-6px_rgba(0,122,71,0.4)]",
           )}
         >
           {croppedImg}
@@ -54,7 +57,11 @@ export function OmtShield({ className, variant = "mark" }: OmtShieldProps) {
 
   return (
     <div
-      className={cn("relative shrink-0 overflow-hidden rounded-xl", className ?? "h-10 w-10")}
+      className={cn(
+        "relative shrink-0 overflow-hidden rounded-xl",
+        SHIELD_PLATE,
+        className ?? "h-10 w-10",
+      )}
       data-testid="omt-shield-mark"
     >
       {croppedImg}

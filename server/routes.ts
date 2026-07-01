@@ -12,6 +12,7 @@ import { eq, and, sql } from "drizzle-orm";
 import bcrypt from "bcrypt";
 import { z } from "zod";
 import { DEFAULT_FORM_FIELDS } from "./seed";
+import { APP_CACHE_VERSION } from "@shared/cache-version";
 import { ObjectStorageService, ObjectNotFoundError } from "./replit_integrations/object_storage/objectStorage";
 import { parseFile, suggestMapping, resolveRows, collectUnknownReferences, buildTemplateXLSX, buildErrorsCSV, type ImportMapping, type ParsedFile } from "./import-parser";
 import * as XLSX from "xlsx";
@@ -290,6 +291,145 @@ async function dispatchLiveIncidentPush(orgId: string, triggerUserId: string, in
   })();
 }
 
+const DISPATCH_STAFF_ROLES = ["administrator", "supervisor"] as const;
+
+function reportIncidentSeverityEmoji(severity: string | null | undefined, isOther: boolean): string {
+  if (isOther) return "📋";
+  if (severity === "red") return "🔴";
+  if (severity === "orange") return "🟠";
+  if (severity === "yellow") return "🟡";
+  return "📋";
+}
+
+/** Notify administrators and supervisors when a standard (non-live) incident is filed. */
+async function dispatchReportIncidentPush(orgId: string, triggerUserId: string, incident: Incident) {
+  if (incident.isLive) return;
+
+  const commandIds = incident.commandId != null ? [incident.commandId] : undefined;
+  const subs = await storage.getPushSubscriptionsByOrg(
+    orgId,
+    triggerUserId,
+    [...DISPATCH_STAFF_ROLES],
+    commandIds,
+  );
+
+  const reporter = await storage.getUserById(triggerUserId);
+  const fullName = reporter ? `${reporter.firstName} ${reporter.lastName}`.trim() : "A user";
+
+  let catName: string | null = null;
+  let catSeverity: string | null = null;
+  let catIsOther = false;
+  if (incident.categoryId) {
+    const cat = await storage.getCategory(incident.categoryId, orgId);
+    catName = cat?.name ?? null;
+    catSeverity = cat?.severity ?? null;
+    catIsOther = !!cat?.isOther;
+  }
+
+  const effectiveSeverity = incident.severity && incident.severity !== "none"
+    ? incident.severity
+    : catSeverity;
+  const emoji = reportIncidentSeverityEmoji(effectiveSeverity, catIsOther);
+  const typeLabel = catName ?? (catIsOther && incident.otherCategoryNote?.trim()
+    ? incident.otherCategoryNote.trim()
+    : "Incident reported");
+  const title = `${emoji} New Report — ${fullName}`;
+  const locPart = incident.locationName?.trim()
+    || (incident.latitude != null && incident.longitude != null
+      ? `${Number(incident.latitude).toFixed(4)}, ${Number(incident.longitude).toFixed(4)}`
+      : null);
+  const bodyParts = [typeLabel, `${incident.incidentDate} ${incident.incidentTime}`];
+  if (locPart) bodyParts.push(locPart);
+  const body = `${bodyParts.join(" · ")} · Tap to review`;
+
+  const detailUrl = `/occurrence-book?incident=${incident.id}`;
+  const payload = JSON.stringify({
+    type: "incident_reported",
+    title,
+    body,
+    incidentId: incident.id,
+    url: detailUrl,
+  });
+
+  const pushedUserIds = new Set<string>();
+
+  if (subs.length > 0) {
+    await Promise.allSettled(
+      dedupeByEndpoint(subs).map(async (sub) => {
+        try {
+          await webpush.sendNotification(
+            { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+            payload,
+            URGENT_PUSH,
+          );
+          pushedUserIds.add(sub.userId);
+          storage.createNotificationLog({
+            organizationId: orgId,
+            userId: sub.userId,
+            title,
+            body,
+            url: detailUrl,
+            incidentId: incident.id,
+          }).catch(() => {});
+        } catch (err: unknown) {
+          const statusCode = typeof err === "object" && err !== null && "statusCode" in err
+            ? (err as { statusCode: number }).statusCode
+            : 0;
+
+          if (statusCode === 410 || statusCode === 404) {
+            await storage.deletePushSubscription(sub.endpoint);
+          } else {
+            console.error("[push] report incident notify failed (status=%d):", statusCode, err instanceof Error ? err.message : err);
+          }
+        }
+      }),
+    );
+  }
+
+  try {
+    const fcmSubs = await storage.getFcmTokensByOrg(orgId, triggerUserId, [...DISPATCH_STAFF_ROLES], commandIds);
+    if (fcmSubs.length > 0) {
+      await sendFcmBatch(fcmSubs.map((s) => s.token), {
+        title,
+        body,
+        data: {
+          type: "incident_reported",
+          incidentId: String(incident.id),
+          url: detailUrl,
+        },
+        notificationTag: `report-${incident.id}`,
+      }).catch(() => {});
+      for (const s of fcmSubs) pushedUserIds.add(s.userId);
+    }
+  } catch { /* best-effort */ }
+
+  try {
+    const allActive = await storage.getActiveUsersByOrg(orgId);
+    const commandMemberIds = commandIds
+      ? await storage.getUserIdsInCommands(orgId, commandIds)
+      : null;
+    const noPushUsers = allActive.filter(
+      (u) =>
+        u.id !== triggerUserId &&
+        (u.role === "administrator" || u.role === "supervisor") &&
+        !pushedUserIds.has(u.id) &&
+        (!commandMemberIds || commandMemberIds.has(u.id)),
+    );
+    await Promise.allSettled(
+      noPushUsers.map((u) =>
+        storage.createNotificationLog({
+          organizationId: orgId,
+          userId: u.id,
+          title,
+          body,
+          url: detailUrl,
+          incidentId: incident.id,
+        }).catch(() => {}),
+      ),
+    );
+  } catch { /* best-effort */ }
+}
+
 /** Replace stale live-incident FCM alerts on native devices when an incident closes. */
 async function dispatchLiveIncidentCloseFcm(
   orgId: string,
@@ -560,6 +700,7 @@ const AUTH_WHITELIST = [
   "/auth/has-users",
   "/invite/",
   "/contact",
+  "/version",
 ];
 
 const SUBSCRIPTION_WHITELIST = [
@@ -741,6 +882,8 @@ function canManageChatMessage(user: User, msg: { senderId: string }): boolean {
 // polls /api/version and prompts the user to refresh when this value changes.
 const BUILD_ID = String(Date.now());
 
+import { registerAccessControlRoutes } from "./access-control/routes";
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -832,7 +975,7 @@ export async function registerRoutes(
   // problem where a deploy ships but users keep seeing the old UI.
   app.get("/api/version", (_req, res) => {
     res.set("Cache-Control", "no-store");
-    res.json({ build: BUILD_ID });
+    res.json({ build: BUILD_ID, cacheVersion: APP_CACHE_VERSION });
   });
 
   // --- Push Notification Routes ---
@@ -1119,7 +1262,12 @@ export async function registerRoutes(
 
   app.post("/api/auth/heartbeat", async (req, res) => {
     const { id: userId } = req.currentUser!;
-    await storage.updateUserLastSeen(userId);
+    const body = req.body as { lat?: unknown; lng?: unknown } | undefined;
+    const lat = typeof body?.lat === "number" ? body.lat : Number(body?.lat);
+    const lng = typeof body?.lng === "number" ? body.lng : Number(body?.lng);
+    const position =
+      Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : undefined;
+    await storage.updateUserLastSeen(userId, position);
     res.json({ ok: true });
   });
 
@@ -2597,6 +2745,10 @@ export async function registerRoutes(
     audit(userId, orgId, "incident.create", `Created incident on ${parsed.data.incidentDate}`, { entityType: "incident", entityId: String(incident.id) });
     if (incident.isLive) {
       dispatchLiveIncidentPush(orgId, userId, incident).catch((e) => console.error("[push] dispatch error:", e));
+    } else {
+      dispatchReportIncidentPush(orgId, userId, incident).catch((e) => console.error("[push] report incident dispatch error:", e));
+    }
+    if (incident.isLive) {
       // Retry push after 2 minutes — catches devices that had the first push
       // dropped due to brief offline windows, battery optimisation, or TTL expiry.
       // Only fires once per incident and only if the incident is still live.
@@ -3560,6 +3712,122 @@ export async function registerRoutes(
     const { commandFilter } = await getCommandScope(req);
     const summary = await storage.getDashboardSummary(orgId, period, restrictToLocationIds, commandFilter, restrictToUserId);
     res.json(summary);
+  });
+
+  app.get("/api/trackers", async (req, res) => {
+    const { organizationId: orgId, role } = req.currentUser!;
+    if (role !== "administrator" && role !== "supervisor") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+    const { commandFilter } = await getCommandScope(req);
+    const devices = await storage.getTrackerDevices(orgId, commandFilter);
+    res.json(devices);
+  });
+
+  app.get("/api/trackers/assignees", async (req, res) => {
+    const { organizationId: orgId, role } = req.currentUser!;
+    if (role !== "administrator" && role !== "supervisor") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+    const users = await storage.getUsersByOrg(orgId);
+    res.json(
+      users
+        .filter((u) => u.isActive)
+        .map((u) => ({ id: u.id, firstName: u.firstName, lastName: u.lastName, role: u.role })),
+    );
+  });
+
+  app.get("/api/trackers/:id", async (req, res) => {
+    const { organizationId: orgId, role } = req.currentUser!;
+    if (role !== "administrator" && role !== "supervisor") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid id" });
+    const device = await storage.getTrackerDeviceById(id, orgId);
+    if (!device) return res.status(404).json({ message: "Not found" });
+    const { commandFilter } = await getCommandScope(req);
+    if (commandFilter && device.commandId != null && !commandFilter.includes(device.commandId)) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+    res.json(device);
+  });
+
+  app.patch("/api/trackers/:id", async (req, res) => {
+    const { organizationId: orgId, role } = req.currentUser!;
+    if (role !== "administrator" && role !== "supervisor") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid id" });
+    const existing = await storage.getTrackerDeviceById(id, orgId);
+    if (!existing) return res.status(404).json({ message: "Not found" });
+    const { commandFilter, writeAccessCommandIds } = await getCommandScope(req);
+    if (commandFilter && existing.commandId != null && !commandFilter.includes(existing.commandId)) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const body = req.body as Record<string, unknown>;
+    const patch: Parameters<typeof storage.updateTrackerDevice>[2] = {};
+    if ("label" in body) patch.label = typeof body.label === "string" ? body.label.trim() || null : null;
+    if ("vehicleMake" in body) patch.vehicleMake = typeof body.vehicleMake === "string" ? body.vehicleMake.trim() || null : null;
+    if ("vehicleModel" in body) patch.vehicleModel = typeof body.vehicleModel === "string" ? body.vehicleModel.trim() || null : null;
+    if ("vehicleRegistration" in body) {
+      patch.vehicleRegistration = typeof body.vehicleRegistration === "string" ? body.vehicleRegistration.trim() || null : null;
+    }
+    if ("assignedUserId" in body) {
+      patch.assignedUserId = typeof body.assignedUserId === "string" ? body.assignedUserId || null : null;
+    }
+    if ("notes" in body) patch.notes = typeof body.notes === "string" ? body.notes.trim() || null : null;
+    if ("commandId" in body) {
+      const cmdId = body.commandId === null ? null : Number(body.commandId);
+      if (cmdId !== null && !Number.isFinite(cmdId)) {
+        return res.status(400).json({ message: "Invalid commandId" });
+      }
+      if (cmdId !== null && writeAccessCommandIds && !writeAccessCommandIds.includes(cmdId)) {
+        return res.status(403).json({ message: "Cannot assign to that group" });
+      }
+      patch.commandId = cmdId;
+    }
+
+    const updated = await storage.updateTrackerDevice(id, orgId, patch);
+    res.json(updated);
+  });
+
+  app.get("/api/trackers/:id/positions", async (req, res) => {
+    const { organizationId: orgId, role } = req.currentUser!;
+    if (role !== "administrator" && role !== "supervisor") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid id" });
+    const device = await storage.getTrackerDeviceById(id, orgId);
+    if (!device) return res.status(404).json({ message: "Not found" });
+    const { commandFilter } = await getCommandScope(req);
+    if (commandFilter && device.commandId != null && !commandFilter.includes(device.commandId)) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const hours = parseInt(String(req.query.hours ?? "24"), 10);
+    const limit = parseInt(String(req.query.limit ?? "200"), 10);
+    const since =
+      Number.isFinite(hours) && hours > 0
+        ? new Date(Date.now() - hours * 60 * 60 * 1000)
+        : undefined;
+
+    const positions = await storage.getTrackerPositionHistory(id, orgId, {
+      limit: Number.isFinite(limit) ? limit : 200,
+      since,
+    });
+
+    const maxSpeedKph = positions.reduce((max, p) => Math.max(max, p.speedKph ?? 0), 0);
+    res.json({
+      deviceId: id,
+      hours: Number.isFinite(hours) ? hours : null,
+      count: positions.length,
+      maxSpeedKph: maxSpeedKph > 0 ? maxSpeedKph : null,
+      positions,
+    });
   });
 
   // Stats
@@ -4856,6 +5124,8 @@ export async function registerRoutes(
       console.error("[panic-reminder] Interval check failed:", err instanceof Error ? err.message : err);
     }
   }, 2 * 60_000);
+
+  registerAccessControlRoutes(app);
 
   return httpServer;
 }

@@ -309,6 +309,10 @@ html.capacitor-native .live-scroll,
 html.capacitor-native .native-map-host {
   background-color: transparent !important;
 }
+/* Pinned field map — transparent host; native tiles show through the WebView hole */
+html.capacitor-native .live-field-map-host {
+  background-color: transparent !important;
+}
 /* Only the actual map element itself — not its siblings (action bar,
  * permission overlays) which carry their own opaque bg-background. */
 html.capacitor-native #cap-live-map {
@@ -331,4 +335,50 @@ html.capacitor-native #cap-live-map {
 
 .action-tile-ring {
   animation: pulse-ring 2s ease-out infinite;
+}
+
+/* Control room dashboard — slim dark scrollbars */
+.ops-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(51 65 85 / 0.8) transparent;
+}
+.ops-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.ops-scroll::-webkit-scrollbar-thumb {
+  background: rgb(51 65 85 / 0.8);
+  border-radius: 3px;
+}
+.ops-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Native ML Kit licence scan — camera renders behind the WebView */
+body.barcode-scanner-active {
+  visibility: hidden;
+  background: transparent !important;
+}
+
+body.barcode-scanner-active [data-radix-dialog-overlay] {
+  background: transparent !important;
+}
+
+body.barcode-scanner-active .barcode-scanner-modal {
+  visibility: visible;
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+body.barcode-scanner-active .barcode-scanner-viewport {
+  background: transparent !important;
+}
+
+body.barcode-scanner-active .barcode-scanner-chrome {
+  background: hsl(var(--background) / 0.92) !important;
+  backdrop-filter: blur(6px);
+}
+
+.barcode-scanner-modal {
+  background: transparent !important;
 }

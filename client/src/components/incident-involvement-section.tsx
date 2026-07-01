@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -14,6 +13,17 @@ import { Camera, Car, ChevronDown, ChevronUp, Loader2, Plus, Upload, User, X } f
 import { prepareAndUploadFile, UploadValidationError } from "@/lib/upload-media";
 import { useToast } from "@/hooks/use-toast";
 import { AttachmentPreview } from "@/components/attachment-preview";
+import { cn } from "@/lib/utils";
+import {
+  incidentOptionTileBase,
+  incidentOptionTileGridClass,
+  incidentOptionTileGridThreeClass,
+  incidentOptionTileIconClass,
+  incidentOptionTileIconWrap,
+  incidentOptionTileLabelClass,
+  incidentOptionTileClass,
+  incidentOptionTileInactive,
+} from "@/components/incident-option-tile-styles";
 
 export const MAX_INVOLVEMENT_PERSONS = 3;
 export const MAX_INVOLVEMENT_VEHICLES = 3;
@@ -150,12 +160,16 @@ function legacyVehicleFromFields(cf: InvolvementValues): VehicleEntry {
   };
 }
 
+function involvementFlagOn(value: string | number | null | undefined): boolean {
+  return value === "yes" || value === 1 || value === "1";
+}
+
 export function parsePersons(cf: InvolvementValues | null | undefined): PersonEntry[] {
   const data = cf ?? {};
   const fromJson = parseJsonEntries(data.personsJson, normalizePerson);
   if (fromJson && fromJson.length > 0) return fromJson;
 
-  const flag = data.personInvolved === "yes" || data.personInvolved === true;
+  const flag = involvementFlagOn(data.personInvolved);
   const legacy = legacyPersonFromFields(data);
   if (flag || personEntryHasData(legacy)) return [legacy];
   return [];
@@ -166,7 +180,7 @@ export function parseVehicles(cf: InvolvementValues | null | undefined): Vehicle
   const fromJson = parseJsonEntries(data.vehiclesJson, normalizeVehicle);
   if (fromJson && fromJson.length > 0) return fromJson;
 
-  const flag = data.vehicleInvolved === "yes" || data.vehicleInvolved === true;
+  const flag = involvementFlagOn(data.vehicleInvolved);
   const legacy = legacyVehicleFromFields(data);
   if (flag || vehicleEntryHasData(legacy)) return [legacy];
   return [];
@@ -283,6 +297,52 @@ const VEHICLE_TYPE_LABELS: Record<string, string> = {
 
 function labelFor(map: Record<string, string>, value: string) {
   return value ? (map[value] ?? value.replace(/_/g, " ")) : "";
+}
+
+const involvementTileClass = cn(incidentOptionTileBase, incidentOptionTileInactive);
+
+function InvolvementFieldCard({
+  label,
+  children,
+  className,
+}: {
+  label: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-xl border border-border/70 bg-card p-3 space-y-2 shadow-sm",
+        className,
+      )}
+    >
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
+      {children}
+    </div>
+  );
+}
+
+function InvolvementSectionHeader({
+  icon: Icon,
+  title,
+  subtitle,
+}: {
+  icon: typeof User;
+  title: string;
+  subtitle?: string;
+}) {
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-2">
+        <Icon className="h-3.5 w-3.5 text-primary/70 shrink-0" />
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</h3>
+      </div>
+      {subtitle ? (
+        <p className="text-[11px] text-muted-foreground/90 leading-relaxed">{subtitle}</p>
+      ) : null}
+    </div>
+  );
 }
 
 export function hasInvolvementData(customFields: InvolvementValues | null | undefined): boolean {
@@ -520,7 +580,9 @@ function InvolvementPhotoPicker({
 
   return (
     <div className="space-y-2 pt-1">
-      <Label className="text-xs">{label}</Label>
+      {label ? (
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
+      ) : null}
       <input
         ref={fileInputRef}
         type="file"
@@ -545,31 +607,31 @@ function InvolvementPhotoPicker({
           e.target.value = "";
         }}
       />
-      <div className="flex flex-wrap gap-2">
-        <Button
+      <div className="grid grid-cols-2 gap-2">
+        <button
           type="button"
-          variant="outline"
-          size="sm"
-          className="gap-1.5 h-8 text-xs"
           disabled={uploading || urls.length >= MAX_INVOLVEMENT_PHOTOS}
           onClick={() => cameraInputRef.current?.click()}
           data-testid={`${testIdPrefix}-take-photo`}
+          className={cn(involvementTileClass, "disabled:opacity-50 disabled:pointer-events-none")}
         >
-          {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}
-          Take photo
-        </Button>
-        <Button
+          <span className={incidentOptionTileIconWrap(false)}>
+            {uploading ? <Loader2 className={cn(incidentOptionTileIconClass, "animate-spin")} /> : <Camera className={incidentOptionTileIconClass} />}
+          </span>
+          <span className={incidentOptionTileLabelClass}>Photo</span>
+        </button>
+        <button
           type="button"
-          variant="outline"
-          size="sm"
-          className="gap-1.5 h-8 text-xs"
           disabled={uploading || urls.length >= MAX_INVOLVEMENT_PHOTOS}
           onClick={() => fileInputRef.current?.click()}
           data-testid={`${testIdPrefix}-upload-photo`}
+          className={cn(involvementTileClass, "disabled:opacity-50 disabled:pointer-events-none")}
         >
-          {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
-          Upload photo
-        </Button>
+          <span className={incidentOptionTileIconWrap(false)}>
+            {uploading ? <Loader2 className={cn(incidentOptionTileIconClass, "animate-spin")} /> : <Upload className={incidentOptionTileIconClass} />}
+          </span>
+          <span className={incidentOptionTileLabelClass}>Upload</span>
+        </button>
       </div>
       <InvolvementPhotoGrid
         urls={urls}
@@ -602,7 +664,7 @@ function CollapsibleEntryHeader({
       <button
         type="button"
         onClick={onToggle}
-        className="flex-1 min-w-0 text-left rounded-lg border border-border/60 bg-background px-3 py-2.5 hover:bg-muted/30 transition-colors touch-manipulation"
+        className="flex-1 min-w-0 text-left rounded-xl border border-border/70 bg-card px-3 py-2.5 hover:border-primary/30 hover:bg-muted/30 transition-colors touch-manipulation shadow-sm"
         data-testid={`${testIdPrefix}-toggle`}
       >
         <div className="flex items-center justify-between gap-2">
@@ -671,12 +733,11 @@ function PersonEntryForm({
       ) : null}
 
       {(!multi || expanded) && (
-        <div className={multi ? "pl-0 space-y-3" : "space-y-3"}>
+        <div className={cn("space-y-3", multi && "pt-1")}>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-xs">Role</Label>
+            <InvolvementFieldCard label="Role">
               <Select value={person.role || ""} onValueChange={(v) => onChange({ ...person, role: v })}>
-                <SelectTrigger data-testid={`${prefix}-role`}>
+                <SelectTrigger data-testid={`${prefix}-role`} className="h-9 border-border/60 bg-background">
                   <SelectValue placeholder="Select role" />
                 </SelectTrigger>
                 <SelectContent>
@@ -686,56 +747,54 @@ function PersonEntryForm({
                   <SelectItem value="other">Other</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Gender</Label>
+            </InvolvementFieldCard>
+            <InvolvementFieldCard label="Gender">
               <Select value={person.gender || ""} onValueChange={(v) => onChange({ ...person, gender: v })}>
-                <SelectTrigger data-testid={`${prefix}-gender`}>
+                <SelectTrigger data-testid={`${prefix}-gender`} className="h-9 border-border/60 bg-background">
                   <SelectValue placeholder="Select gender" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="male">Male</SelectItem>
                   <SelectItem value="female">Female</SelectItem>
-                  <SelectItem value="unknown">Unknown</SelectItem>
-                  <SelectItem value="prefer_not_to_say">Prefer not to say</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Name (if known)</Label>
+            </InvolvementFieldCard>
+            <InvolvementFieldCard label="Name (if known)">
               <Input
                 value={person.name}
                 onChange={(e) => onChange({ ...person, name: e.target.value })}
                 placeholder="First name or alias"
+                className="h-9 border-border/60 bg-background"
                 data-testid={`${prefix}-name`}
               />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Approx. age</Label>
+            </InvolvementFieldCard>
+            <InvolvementFieldCard label="Approx. age">
               <Input
                 value={person.approxAge}
                 onChange={(e) => onChange({ ...person, approxAge: e.target.value })}
                 placeholder="e.g. 30s, teenager"
+                className="h-9 border-border/60 bg-background"
                 data-testid={`${prefix}-age`}
               />
-            </div>
+            </InvolvementFieldCard>
           </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs">Clothing / appearance</Label>
+          <InvolvementFieldCard label="Clothing / appearance" className="sm:col-span-2">
             <Textarea
               value={person.description}
               onChange={(e) => onChange({ ...person, description: e.target.value })}
               placeholder="Brief description — clothing, height, distinguishing marks…"
-              className="min-h-[72px] resize-none text-sm"
+              className="min-h-[80px] resize-none text-sm border-border/60 bg-background"
               data-testid={`${prefix}-description`}
             />
-          </div>
-          <InvolvementPhotoPicker
-            label="Photos"
-            testIdPrefix={prefix}
-            urls={person.photoUrls}
-            onChange={(urls) => onChange({ ...person, photoUrls: urls })}
-          />
+          </InvolvementFieldCard>
+          <InvolvementFieldCard label="Identification photos">
+            <InvolvementPhotoPicker
+              label=""
+              testIdPrefix={prefix}
+              urls={person.photoUrls}
+              onChange={(urls) => onChange({ ...person, photoUrls: urls })}
+            />
+          </InvolvementFieldCard>
         </div>
       )}
     </div>
@@ -779,12 +838,11 @@ function VehicleEntryForm({
       ) : null}
 
       {(!multi || expanded) && (
-        <div className="space-y-3">
+        <div className={cn("space-y-3", multi && "pt-1")}>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-xs">Type</Label>
+            <InvolvementFieldCard label="Type">
               <Select value={vehicle.type || ""} onValueChange={(v) => onChange({ ...vehicle, type: v })}>
-                <SelectTrigger data-testid={`${prefix}-type`}>
+                <SelectTrigger data-testid={`${prefix}-type`} className="h-9 border-border/60 bg-background">
                   <SelectValue placeholder="Select type" />
                 </SelectTrigger>
                 <SelectContent>
@@ -795,41 +853,43 @@ function VehicleEntryForm({
                   <SelectItem value="other">Other</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Colour</Label>
+            </InvolvementFieldCard>
+            <InvolvementFieldCard label="Colour">
               <Input
                 value={vehicle.colour}
                 onChange={(e) => onChange({ ...vehicle, colour: e.target.value })}
                 placeholder="e.g. White"
+                className="h-9 border-border/60 bg-background"
                 data-testid={`${prefix}-colour`}
               />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Registration (if known)</Label>
+            </InvolvementFieldCard>
+            <InvolvementFieldCard label="Registration (if known)">
               <Input
                 value={vehicle.registration}
                 onChange={(e) => onChange({ ...vehicle, registration: e.target.value })}
                 placeholder="Number plate"
+                className="h-9 border-border/60 bg-background"
                 data-testid={`${prefix}-registration`}
               />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Make / model</Label>
+            </InvolvementFieldCard>
+            <InvolvementFieldCard label="Make / model">
               <Input
                 value={vehicle.description}
                 onChange={(e) => onChange({ ...vehicle, description: e.target.value })}
                 placeholder="e.g. White Toyota Hilux"
+                className="h-9 border-border/60 bg-background"
                 data-testid={`${prefix}-description`}
               />
-            </div>
+            </InvolvementFieldCard>
           </div>
-          <InvolvementPhotoPicker
-            label="Photos"
-            testIdPrefix={prefix}
-            urls={vehicle.photoUrls}
-            onChange={(urls) => onChange({ ...vehicle, photoUrls: urls })}
-          />
+          <InvolvementFieldCard label="Vehicle photos">
+            <InvolvementPhotoPicker
+              label=""
+              testIdPrefix={prefix}
+              urls={vehicle.photoUrls}
+              onChange={(urls) => onChange({ ...vehicle, photoUrls: urls })}
+            />
+          </InvolvementFieldCard>
         </div>
       )}
     </div>
@@ -843,6 +903,9 @@ type Props = {
   vehicleInvolved: boolean;
   onPersonInvolvedChange: (on: boolean) => void;
   onVehicleInvolvedChange: (on: boolean) => void;
+  /** Render Person / Vehicle / SAPS tiles on one row. */
+  threeColumnTiles?: boolean;
+  thirdColumnTile?: ReactNode;
 };
 
 export function IncidentInvolvementSection({
@@ -852,6 +915,8 @@ export function IncidentInvolvementSection({
   vehicleInvolved,
   onPersonInvolvedChange,
   onVehicleInvolvedChange,
+  threeColumnTiles = false,
+  thirdColumnTile,
 }: Props) {
   const persons = parsePersons(customFields);
   const vehicles = parseVehicles(customFields);
@@ -891,7 +956,7 @@ export function IncidentInvolvementSection({
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-2">
+      <div className={threeColumnTiles ? incidentOptionTileGridThreeClass : incidentOptionTileGridClass}>
         <button
           type="button"
           onClick={() => {
@@ -904,15 +969,13 @@ export function IncidentInvolvementSection({
               onChange(clearPersonFields(customFields));
             }
           }}
-          className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-3 text-sm font-medium transition-colors touch-manipulation ${
-            personInvolved
-              ? "border-primary bg-primary/10 text-primary"
-              : "border-border bg-background text-muted-foreground hover:bg-muted/40"
-          }`}
+          className={incidentOptionTileClass(personInvolved)}
           data-testid="toggle-person-involved"
         >
-          <User className="h-4 w-4 shrink-0" />
-          Person involved
+          <span className={incidentOptionTileIconWrap(personInvolved)}>
+            <User className={incidentOptionTileIconClass} />
+          </span>
+          <span className={incidentOptionTileLabelClass}>Person</span>
         </button>
         <button
           type="button"
@@ -926,25 +989,28 @@ export function IncidentInvolvementSection({
               onChange(clearVehicleFields(customFields));
             }
           }}
-          className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-3 text-sm font-medium transition-colors touch-manipulation ${
-            vehicleInvolved
-              ? "border-primary bg-primary/10 text-primary"
-              : "border-border bg-background text-muted-foreground hover:bg-muted/40"
-          }`}
+          className={incidentOptionTileClass(vehicleInvolved)}
           data-testid="toggle-vehicle-involved"
         >
-          <Car className="h-4 w-4 shrink-0" />
-          Vehicle involved
+          <span className={incidentOptionTileIconWrap(vehicleInvolved)}>
+            <Car className={incidentOptionTileIconClass} />
+          </span>
+          <span className={incidentOptionTileLabelClass}>Vehicle</span>
         </button>
+        {thirdColumnTile}
       </div>
 
       {personInvolved && persons.length > 0 && (
-        <div className="rounded-xl border bg-muted/20 p-4 space-y-4" data-testid="section-person-involved">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-sm font-semibold flex items-center gap-2 min-w-0">
-              <User className="h-4 w-4 shrink-0" />
-              {persons.length === 1 ? "Person details" : `People (${persons.length})`}
-            </p>
+        <section
+          className="rounded-xl border border-border/70 bg-card/40 p-4 space-y-4 shadow-sm"
+          data-testid="section-person-involved"
+        >
+          <div className="flex items-start justify-between gap-2">
+            <InvolvementSectionHeader
+              icon={User}
+              title={persons.length === 1 ? "Person details" : `People (${persons.length})`}
+              subtitle="Role, description, and identification photos for each person."
+            />
             {persons.length < MAX_INVOLVEMENT_PERSONS && (
               <Button
                 type="button"
@@ -989,16 +1055,20 @@ export function IncidentInvolvementSection({
               }}
             />
           ))}
-        </div>
+        </section>
       )}
 
       {vehicleInvolved && vehicles.length > 0 && (
-        <div className="rounded-xl border bg-muted/20 p-4 space-y-4" data-testid="section-vehicle-involved">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-sm font-semibold flex items-center gap-2 min-w-0">
-              <Car className="h-4 w-4 shrink-0" />
-              {vehicles.length === 1 ? "Vehicle details" : `Vehicles (${vehicles.length})`}
-            </p>
+        <section
+          className="rounded-xl border border-border/70 bg-card/40 p-4 space-y-4 shadow-sm"
+          data-testid="section-vehicle-involved"
+        >
+          <div className="flex items-start justify-between gap-2">
+            <InvolvementSectionHeader
+              icon={Car}
+              title={vehicles.length === 1 ? "Vehicle details" : `Vehicles (${vehicles.length})`}
+              subtitle="Type, registration, and photos for each vehicle."
+            />
             {vehicles.length < MAX_INVOLVEMENT_VEHICLES && (
               <Button
                 type="button"
@@ -1043,7 +1113,7 @@ export function IncidentInvolvementSection({
               }}
             />
           ))}
-        </div>
+        </section>
       )}
     </div>
   );

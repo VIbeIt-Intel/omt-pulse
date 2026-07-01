@@ -49,6 +49,9 @@ export const users = pgTable("users", {
   inviteToken: text("invite_token").unique(),
   inviteTokenExpiresAt: timestamp("invite_token_expires_at"),
   lastSeenAt: timestamp("last_seen_at"),
+  lastLat: doublePrecision("last_lat"),
+  lastLng: doublePrecision("last_lng"),
+  lastPositionAt: timestamp("last_position_at"),
   isSuperadmin: boolean("is_superadmin").notNull().default(false),
 });
 
@@ -433,3 +436,139 @@ export const fcmTokens = pgTable("fcm_tokens", {
   token: text("token").notNull().unique(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+/** GPS tracker hardware registered by IMEI (GT06 and future protocols). */
+export const trackerDevices = pgTable("tracker_devices", {
+  id: serial("id").primaryKey(),
+  imei: varchar("imei", { length: 20 }).notNull().unique(),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  commandId: integer("command_id").references(() => commands.id, { onDelete: "set null" }),
+  protocol: varchar("protocol", { length: 32 }).notNull().default("gt06"),
+  label: text("label"),
+  vehicleMake: text("vehicle_make"),
+  vehicleModel: text("vehicle_model"),
+  vehicleRegistration: text("vehicle_registration"),
+  assignedUserId: varchar("assigned_user_id").references(() => users.id, { onDelete: "set null" }),
+  notes: text("notes"),
+  lastLat: doublePrecision("last_lat"),
+  lastLng: doublePrecision("last_lng"),
+  lastSpeedKph: doublePrecision("last_speed_kph"),
+  lastHeading: doublePrecision("last_heading"),
+  lastIgnitionOn: boolean("last_ignition_on"),
+  lastMileageKm: doublePrecision("last_mileage_km"),
+  lastGpsValid: boolean("last_gps_valid"),
+  lastPositionAt: timestamp("last_position_at"),
+  lastSeenAt: timestamp("last_seen_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertTrackerDeviceSchema = createInsertSchema(trackerDevices).omit({ id: true, createdAt: true });
+export type InsertTrackerDevice = z.infer<typeof insertTrackerDeviceSchema>;
+export type TrackerDevice = typeof trackerDevices.$inferSelect;
+
+/** Historical GPS positions from tracker devices. */
+export const trackerPositions = pgTable("tracker_positions", {
+  id: serial("id").primaryKey(),
+  deviceId: integer("device_id").notNull().references(() => trackerDevices.id, { onDelete: "cascade" }),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  latitude: doublePrecision("latitude").notNull(),
+  longitude: doublePrecision("longitude").notNull(),
+  speedKph: doublePrecision("speed_kph"),
+  heading: doublePrecision("heading"),
+  ignitionOn: boolean("ignition_on"),
+  mileageKm: doublePrecision("mileage_km"),
+  gpsValid: boolean("gps_valid").notNull().default(true),
+  packetType: varchar("packet_type", { length: 16 }),
+  recordedAt: timestamp("recorded_at").notNull(),
+  receivedAt: timestamp("received_at").defaultNow().notNull(),
+});
+
+export const insertTrackerPositionSchema = createInsertSchema(trackerPositions).omit({ id: true, receivedAt: true });
+export type InsertTrackerPosition = z.infer<typeof insertTrackerPositionSchema>;
+export type TrackerPosition = typeof trackerPositions.$inferSelect;
+
+// ── Access Control (Phase 1) ─────────────────────────────────────────────────
+
+export const ACCESS_ENTRY_CATEGORIES = [
+  "visitor",
+  "contractor",
+  "delivery",
+  "official_vehicle",
+  "other",
+] as const;
+export type AccessEntryCategory = (typeof ACCESS_ENTRY_CATEGORIES)[number];
+
+export const ACCESS_LOG_STATUSES = ["inside", "exited"] as const;
+export type AccessLogStatus = (typeof ACCESS_LOG_STATUSES)[number];
+
+/** Pre-configured destinations guards must select when logging entry. */
+export const destinations = pgTable("destinations", {
+  id: serial("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  type: text("type").notNull().default("building"),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertDestinationSchema = createInsertSchema(destinations).omit({ id: true, createdAt: true, organizationId: true });
+export type InsertDestination = z.infer<typeof insertDestinationSchema>;
+export type Destination = typeof destinations.$inferSelect;
+
+export const accessLogs = pgTable("access_logs", {
+  id: serial("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  category: text("category").notNull(),
+  destinationId: integer("destination_id").notNull().references(() => destinations.id, { onDelete: "restrict" }),
+  status: text("status").notNull().default("inside"),
+  personFullName: text("person_full_name").notNull(),
+  personIdNumber: text("person_id_number"),
+  companyName: text("company_name"),
+  contactNumber: text("contact_number"),
+  purpose: text("purpose"),
+  personPhotoUrl: text("person_photo_url"),
+  vehiclePhotoUrl: text("vehicle_photo_url"),
+  timeIn: timestamp("time_in").defaultNow().notNull(),
+  timeOut: timestamp("time_out"),
+  loggedByUserId: varchar("logged_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertAccessLogSchema = createInsertSchema(accessLogs).omit({
+  id: true,
+  createdAt: true,
+  organizationId: true,
+  status: true,
+  timeIn: true,
+  timeOut: true,
+  loggedByUserId: true,
+});
+export type InsertAccessLog = z.infer<typeof insertAccessLogSchema>;
+export type AccessLog = typeof accessLogs.$inferSelect;
+
+export const accessLogVehicles = pgTable("access_log_vehicles", {
+  id: serial("id").primaryKey(),
+  accessLogId: integer("access_log_id").notNull().references(() => accessLogs.id, { onDelete: "cascade" }),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  registration: text("registration"),
+  make: text("make"),
+  model: text("model"),
+  colour: text("colour"),
+  licenceDiscData: text("licence_disc_data"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertAccessLogVehicleSchema = createInsertSchema(accessLogVehicles).omit({
+  id: true,
+  createdAt: true,
+  organizationId: true,
+  accessLogId: true,
+});
+export type InsertAccessLogVehicle = z.infer<typeof insertAccessLogVehicleSchema>;
+export type AccessLogVehicle = typeof accessLogVehicles.$inferSelect;
+
+export type AccessLogWithDetails = AccessLog & {
+  destinationName: string;
+  loggedByName: string | null;
+  vehicle: AccessLogVehicle | null;
+};

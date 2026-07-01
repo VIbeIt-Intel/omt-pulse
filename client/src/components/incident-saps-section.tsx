@@ -10,6 +10,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Shield } from "lucide-react";
+import { cn } from "@/lib/utils";
+import {
+  incidentOptionTileClass,
+  incidentOptionTileIconClass,
+  incidentOptionTileIconWrap,
+  incidentOptionTileLabelClass,
+} from "@/components/incident-option-tile-styles";
 
 export type SapsCustomValues = Record<string, string | number | null | undefined>;
 
@@ -38,18 +45,68 @@ function clearSapsFields(
   return next;
 }
 
+export function clearSapsCustomFields(
+  fields: Array<{ fieldKey: string }>,
+  customFields: SapsCustomValues,
+): SapsCustomValues {
+  return clearSapsFields(customFields, fields);
+}
+
 type Props = {
   fields: FormField[];
   customFields: SapsCustomValues;
   onChange: (next: SapsCustomValues) => void;
+  /** Hide toggle tile — use when tile is rendered in the Person/Vehicle grid row. */
+  hideTile?: boolean;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 };
 
-export function IncidentSapsSection({ fields, customFields, onChange }: Props) {
-  const [open, setOpen] = useState(() => hasSapsCaseData(fields, customFields));
+export function SapsCaseTile({
+  open,
+  onToggle,
+  className,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className={cn(incidentOptionTileClass(open), className)}
+      data-testid="toggle-saps-case"
+    >
+      <span className={incidentOptionTileIconWrap(open)}>
+        <Shield className={incidentOptionTileIconClass} />
+      </span>
+      <span className={incidentOptionTileLabelClass}>SAPS case</span>
+    </button>
+  );
+}
+
+export function IncidentSapsSection({
+  fields,
+  customFields,
+  onChange,
+  hideTile = false,
+  open: controlledOpen,
+  onOpenChange,
+}: Props) {
+  const [internalOpen, setInternalOpen] = useState(() => hasSapsCaseData(fields, customFields));
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = (next: boolean) => {
+    onOpenChange?.(next);
+    if (controlledOpen === undefined) setInternalOpen(next);
+  };
 
   useEffect(() => {
-    if (hasSapsCaseData(fields, customFields)) setOpen(true);
-  }, [fields, customFields]);
+    if (hasSapsCaseData(fields, customFields)) {
+      if (controlledOpen === undefined) setInternalOpen(true);
+      else onOpenChange?.(true);
+    }
+  }, [fields, customFields, controlledOpen, onOpenChange]);
 
   if (fields.length === 0) return null;
 
@@ -57,30 +114,23 @@ export function IncidentSapsSection({ fields, customFields, onChange }: Props) {
     onChange({ ...customFields, [key]: value.trim() ? value : null });
   };
 
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    if (!next) onChange(clearSapsFields(customFields, fields));
+  };
+
   return (
-    <div className="space-y-4">
-      <button
-        type="button"
-        onClick={() => {
-          const next = !open;
-          setOpen(next);
-          if (!next) onChange(clearSapsFields(customFields, fields));
-        }}
-        className={`w-full flex items-center justify-center gap-2 rounded-xl border px-3 py-3 text-sm font-medium transition-colors touch-manipulation ${
-          open
-            ? "border-primary bg-primary/10 text-primary"
-            : "border-border bg-background text-muted-foreground hover:bg-muted/40"
-        }`}
-        data-testid="toggle-saps-case"
-      >
-        <Shield className="h-4 w-4 shrink-0" />
-        SAPS case
-      </button>
+    <div className={cn(!hideTile && "space-y-3")}>
+      {!hideTile && <SapsCaseTile open={open} onToggle={toggle} />}
 
       {open && (
-        <div className="rounded-xl border bg-muted/20 p-4 space-y-3" data-testid="section-saps-case">
-          <p className="text-sm font-semibold flex items-center gap-2">
-            <Shield className="h-4 w-4" />
+        <div
+          className="rounded-xl border border-border/70 bg-card/40 p-4 space-y-3 shadow-sm"
+          data-testid="section-saps-case"
+        >
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+            <Shield className="h-3.5 w-3.5 text-primary/70" />
             SAPS case details
           </p>
           <div className="space-y-3">
