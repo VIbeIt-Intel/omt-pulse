@@ -7,7 +7,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Camera, ImageIcon, ScanLine, X } from "lucide-react";
-import { Capacitor } from "@capacitor/core";
 import type { AccessIdentityScanResult, ParsedSaId } from "@/lib/parse-sa-barcodes";
 import { readLicenceFrontFromPhoto } from "@/lib/licence-front-ocr";
 import { decodeDriversLicenceFromImageViaApi } from "@/lib/decode-drivers-licence-api";
@@ -120,6 +119,7 @@ export function LicenceFrontScanner({
           "Try Binary Eye again with the PDF417 on the back right, or take a photo of the back of the card.",
         variant: "destructive",
       });
+      onOpenChange(true);
     } finally {
       externalScanRef.current = false;
       setBusy(false);

@@ -13,6 +13,7 @@ import {
   updateDestination,
 } from "./storage";
 import { parseSaDriversLicenceBytes } from "@shared/sa-drivers-licence";
+import { findSadl720InBuffer, padSadlTo720 } from "@shared/extract-sadl-payload";
 import { decodeSadlBytesFromImageBuffer } from "@shared/decode-sadl-from-image";
 
 const ACCESS_ROLES = ["administrator", "supervisor", "reporter"] as const;
@@ -99,11 +100,19 @@ export function registerAccessControlRoutes(app: Express) {
     } catch {
       return res.status(400).json({ message: "Invalid base64 payload" });
     }
-    if (bytes.length !== 720) {
+
+    let sadl =
+      bytes.length === 720
+        ? new Uint8Array(bytes)
+        : findSadl720InBuffer(new Uint8Array(bytes)) ?? null;
+    if (!sadl && bytes.length >= 700 && bytes.length < 720) {
+      sadl = padSadlTo720(new Uint8Array(bytes));
+    }
+    if (!sadl) {
       return res.status(400).json({ message: "Driver licence barcode must be 720 bytes" });
     }
 
-    const dl = parseSaDriversLicenceBytes(new Uint8Array(bytes), true);
+    const dl = parseSaDriversLicenceBytes(sadl, true);
     if (!dl) {
       return res.status(422).json({ message: "Could not decode driver licence barcode" });
     }

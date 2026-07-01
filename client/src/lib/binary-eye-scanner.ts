@@ -1,11 +1,9 @@
 import { Capacitor, registerPlugin } from "@capacitor/core";
 import {
-  isSadlEncryptedPayload,
-  latin1ToBytes,
-  looksLikeSadlEncryptedString,
-} from "@shared/sa-drivers-licence";
+  extractSadl720FromScan,
+  type BinaryEyeScanPayload,
+} from "@shared/extract-sadl-payload";
 import {
-  decodeDriversLicenceViaApi,
   decodeDriversLicenceViaApiFromBase64,
   sadlBytesToBase64,
 } from "@/lib/decode-drivers-licence-api";
@@ -18,11 +16,13 @@ export const BINARY_EYE_PLAY_URL =
 
 export interface OmtBinaryEyeScannerPlugin {
   isAvailable(): Promise<{ installed: boolean }>;
-  scanPdf417(): Promise<{
-    text?: string;
-    bytesBase64?: string;
-    format?: string;
-  }>;
+  scanPdf417(): Promise<
+    BinaryEyeScanPayload & {
+      format?: string;
+      textLength?: number;
+      bytesLength?: number;
+    }
+  >;
 }
 
 const OmtBinaryEyeScanner = registerPlugin<OmtBinaryEyeScannerPlugin>("OmtBinaryEyeScanner");
@@ -45,59 +45,10 @@ export async function isBinaryEyeInstalled(): Promise<boolean> {
   }
 }
 
-function base64ToBytes(b64: string): Uint8Array {
-  const binary = atob(b64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
-}
-
-function sadlBytesFromScanResult(text?: string, bytesBase64?: string): Uint8Array | null {
-  if (bytesBase64) {
-    const raw = base64ToBytes(bytesBase64);
-    if (raw.length === 720 && isSadlEncryptedPayload(raw)) return raw;
-    if (raw.length > 720) {
-      const trimmed = raw.subarray(0, 720);
-      if (isSadlEncryptedPayload(trimmed)) return trimmed;
-    }
-    if (raw.length >= 700 && raw.length < 720) {
-      const padded = new Uint8Array(720);
-      padded.set(raw);
-      if (isSadlEncryptedPayload(padded)) return padded;
-    }
-  }
-
-  const trimmed = text?.trim();
-  if (trimmed && trimmed.length === 720 && looksLikeSadlEncryptedString(trimmed)) {
-    return latin1ToBytes(trimmed);
-  }
-
-  return null;
-}
-
-async function decodeScanPayload(text?: string, bytesBase64?: string): Promise<ParsedSaId | null> {
-  const bytes = sadlBytesFromScanResult(text, bytesBase64);
-  if (bytes) {
-    return decodeDriversLicenceViaApiFromBase64(sadlBytesToBase64(bytes));
-  }
-
-  const trimmed = text?.trim();
-  if (trimmed && looksLikeSadlEncryptedString(trimmed)) {
-    return decodeDriversLicenceViaApi(trimmed);
-  }
-
-  if (bytesBase64) {
-    const raw = base64ToBytes(bytesBase64);
-    if (raw.length >= 700) {
-      const slice = new Uint8Array(720);
-      slice.set(raw.subarray(0, Math.min(720, raw.length)));
-      return decodeDriversLicenceViaApiFromBase64(sadlBytesToBase64(slice));
-    }
-  }
-
-  return null;
+async function decodeScanPayload(scan: BinaryEyeScanPayload): Promise<ParsedSaId | null> {
+  const sadl = extractSadl720FromScan(scan);
+  if (!sadl) return null;
+  return decodeDriversLicenceViaApiFromBase64(sadlBytesToBase64(sadl));
 }
 
 function failureFromError(err: unknown): NativeLicenceScanFailure {
@@ -145,7 +96,7 @@ export async function scanDriversLicenceViaBinaryEye(): Promise<NativeLicenceSca
     }
 
     const scan = await withScanTimeout(OmtBinaryEyeScanner.scanPdf417());
-    const parsed = await decodeScanPayload(scan.text, scan.bytesBase64);
+    const parsed = await decodeScanPayload(scan);
     if (!parsed?.personIdNumber && !parsed?.personFullName) {
       return { ok: false, reason: "decode_failed" };
     }
