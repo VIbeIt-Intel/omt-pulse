@@ -24,6 +24,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         registerPlugin(OmtAppSettingsPlugin.class);
+        registerPlugin(OmtBinaryEyeScannerPlugin.class);
         super.onCreate(savedInstanceState);
 
         // Transparent WebView background so @capacitor/google-maps native

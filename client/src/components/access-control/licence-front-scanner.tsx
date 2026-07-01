@@ -15,6 +15,12 @@ import {
   decodeLicenceBarcodeFromPhoto,
   scanDriversLicenceNative,
 } from "@/lib/native-licence-barcode";
+import {
+  BINARY_EYE_PLAY_URL,
+  canUseBinaryEyeScanner,
+  isBinaryEyeInstalled,
+  scanDriversLicenceViaBinaryEye,
+} from "@/lib/binary-eye-scanner";
 import { APP_CACHE_VERSION } from "@shared/cache-version";
 
 type LicenceFrontScannerProps = {
@@ -41,12 +47,14 @@ export function LicenceFrontScanner({
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showFrontOcr, setShowFrontOcr] = useState(false);
+  const [binaryEyeMissing, setBinaryEyeMissing] = useState(false);
 
   const reset = useCallback(() => {
     setBusy(false);
     setStatus(null);
     setError(null);
     setShowFrontOcr(false);
+    setBinaryEyeMissing(false);
     autoScanStartedRef.current = false;
   }, []);
 
@@ -60,9 +68,41 @@ export function LicenceFrontScanner({
   );
 
   const runLiveBarcodeScan = useCallback(async () => {
-    if (!canUseNativeLicenceScanner() || busy) return;
+    if (busy) return;
     setBusy(true);
     setError(null);
+    setBinaryEyeMissing(false);
+
+    if (canUseBinaryEyeScanner()) {
+      const installed = await isBinaryEyeInstalled();
+      if (installed) {
+        setStatus("Opening Binary Eye — point at the PDF417 on the back right…");
+        const binaryEye = await scanDriversLicenceViaBinaryEye();
+        if (binaryEye.ok) {
+          setStatus("Licence captured");
+          settle(binaryEye.parsed);
+          return;
+        }
+        if (binaryEye.reason === "cancelled") {
+          setBusy(false);
+          setStatus("Scan cancelled — take a photo of the back barcode or try again.");
+          return;
+        }
+        setStatus("Binary Eye could not decode — trying built-in scanner…");
+      } else {
+        setBinaryEyeMissing(true);
+        setStatus("Install Binary Eye for best results — trying built-in scanner…");
+      }
+    }
+
+    if (!canUseNativeLicenceScanner()) {
+      setBusy(false);
+      setError(
+        "Barcode scanner not available. Install Binary Eye from Play Store, or take a photo of the back of the card.",
+      );
+      return;
+    }
+
     setStatus("Opening barcode scanner — point at the PDF417 on the back of the card…");
 
     const result = await scanDriversLicenceNative("google");
@@ -150,7 +190,7 @@ export function LicenceFrontScanner({
     if (!open) return;
 
     reset();
-    if (Capacitor.isNativePlatform() && canUseNativeLicenceScanner() && !autoScanStartedRef.current) {
+    if (Capacitor.isNativePlatform() && !autoScanStartedRef.current) {
       autoScanStartedRef.current = true;
       void runLiveBarcodeScan();
     }
@@ -215,7 +255,7 @@ export function LicenceFrontScanner({
 
         <div className="mx-4 mb-2 flex aspect-[4/3] items-center justify-center rounded-lg border-2 border-dashed border-primary/40 bg-muted/30 px-4 text-center">
           <p className="text-sm text-muted-foreground">
-            Point at the <strong>back</strong> of the card — large <strong>PDF417 on the right</strong>.
+            Opens <strong>Binary Eye</strong> when installed — point at the <strong>PDF417 on the back right</strong>.
             Works through plastic covers ({APP_CACHE_VERSION}).
           </p>
         </div>
@@ -230,7 +270,22 @@ export function LicenceFrontScanner({
             </p>
           )}
 
-          {canUseNativeLicenceScanner() && (
+          {binaryEyeMissing && (
+            <p className="text-xs text-muted-foreground rounded-md border px-3 py-2">
+              Install{" "}
+              <a
+                href={BINARY_EYE_PLAY_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary underline"
+              >
+                Binary Eye
+              </a>{" "}
+              from Play Store for the most reliable scan through plastic sleeves.
+            </p>
+          )}
+
+          {(canUseBinaryEyeScanner() || canUseNativeLicenceScanner()) && (
             <Button
               type="button"
               variant="default"
@@ -239,7 +294,7 @@ export function LicenceFrontScanner({
               onClick={() => void runLiveBarcodeScan()}
             >
               <ScanLine className="h-4 w-4 mr-1" />
-              {busy ? "Scanning…" : "Scan barcode (live)"}
+              {busy ? "Scanning…" : "Scan barcode (Binary Eye)"}
             </Button>
           )}
 

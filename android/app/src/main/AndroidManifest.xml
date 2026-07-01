@@ -53,4 +53,11 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+
+    <queries>
+        <package android:name="de.markusfisch.android.binaryeye" />
+        <intent>
+            <action android:name="com.google.zxing.client.android.SCAN" />
+        </intent>
+    </queries>
 </manifest>
