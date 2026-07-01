@@ -51,6 +51,12 @@ export function sadlBytesFromMlKitBarcode(barcode: MlKitBarcode): Uint8Array | n
       const trimmed = new Uint8Array(raw.slice(0, 720));
       if (isSadlEncryptedPayload(trimmed)) return trimmed;
     }
+    // Some devices return slightly short buffers — pad is unsafe; try exact slices.
+    if (raw.length > 700 && raw.length < 720) {
+      const padded = new Uint8Array(720);
+      padded.set(raw);
+      if (isSadlEncryptedPayload(padded)) return padded;
+    }
   }
 
   try {
@@ -65,14 +71,31 @@ export function sadlBytesFromMlKitBarcode(barcode: MlKitBarcode): Uint8Array | n
   return null;
 }
 
+/** True when ML Kit reports a PDF417 we should try to decrypt on the server. */
+function isPdf417Barcode(barcode: MlKitBarcode): boolean {
+  const fmt = (barcode.format ?? "").toLowerCase();
+  return fmt.includes("pdf417") || fmt.includes("pdf_417");
+}
+
 async function loadMlKit() {
   return import("@capacitor-mlkit/barcode-scanning");
 }
 
 async function decodeBarcode(barcode: MlKitBarcode): Promise<ParsedSaId | null> {
   const bytes = sadlBytesFromMlKitBarcode(barcode);
-  if (!bytes) return null;
-  return decodeDriversLicenceViaApiFromBase64(sadlBytesToBase64(bytes));
+  if (bytes) {
+    return decodeDriversLicenceViaApiFromBase64(sadlBytesToBase64(bytes));
+  }
+
+  // PDF417 read but header check failed — still try server with first 720 bytes.
+  const raw = barcode.bytes;
+  if (isPdf417Barcode(barcode) && raw && raw.length >= 700) {
+    const u8 = new Uint8Array(720);
+    u8.set(raw.subarray(0, Math.min(720, raw.length)));
+    return decodeDriversLicenceViaApiFromBase64(sadlBytesToBase64(u8));
+  }
+
+  return null;
 }
 
 /** Google Play full-screen scanner (fastest — same “point and scan” feel as Smart ID). */
@@ -121,7 +144,8 @@ async function tryMlKitLiveScan(
   const handleBarcode = (bc: MlKitBarcode): boolean => {
     if (signal.cancelled) return false;
     if (sadlBytesFromMlKitBarcode(bc)) return true;
-    return false;
+    // Accept any PDF417 hit — bytes may only validate after server decrypt.
+    return isPdf417Barcode(bc) && (bc.bytes?.length ?? 0) >= 700;
   };
 
   return new Promise((resolve) => {
@@ -186,14 +210,7 @@ async function tryMlKitLiveScan(
           lensFacing: LensFacing.Back,
         });
 
-        try {
-          const torch = await BarcodeScanner.isTorchAvailable();
-          if (torch.available) {
-            await BarcodeScanner.enableTorch();
-          }
-        } catch {
-          /* torch optional */
-        }
+        // Torch off by default — on plastic sleeves it causes glare, not clarity.
       } catch (err) {
         console.warn(
           "[mlkit-licence] startScan failed:",
@@ -237,8 +254,13 @@ export async function scanDriversLicenceNative(
   let barcode: MlKitBarcode | null = null;
   if (mode === "google") {
     barcode = await tryGoogleScanner();
-  } else if (mode === "live" || mode === "auto") {
+  } else if (mode === "live") {
     barcode = await tryMlKitLiveScan(signal);
+  } else if (mode === "auto") {
+    barcode = await tryMlKitLiveScan(signal);
+    if (!barcode && !signal.cancelled) {
+      barcode = await tryGoogleScanner();
+    }
   }
 
   if (signal.cancelled) {

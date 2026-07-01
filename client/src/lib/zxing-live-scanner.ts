@@ -88,7 +88,7 @@ export function classifyZxingResult(
   try {
     const licenceBytes = sadlBytesFromResult(result);
     if (licenceBytes) {
-      if (mode === "national_id" || mode === "drivers_licence") {
+      if (mode === "drivers_licence") {
         return { kind: "licence_bytes", bytes: licenceBytes };
       }
       return null;
@@ -215,7 +215,8 @@ export class ZxingLiveScanner {
           if (video.readyState < 2) return;
 
           if (useDetector) {
-            const detectorHits = await decodeBarcodesFromVideoFrame(video, null);
+            const nationalIdLive = mode === "national_id";
+            const detectorHits = await decodeBarcodesFromVideoFrame(video, null, nationalIdLive);
             for (const barcode of detectorHits) {
               const hit = hitFromDetector(barcode, mode);
               if (hit) onHit(hit);

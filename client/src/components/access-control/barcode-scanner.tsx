@@ -225,7 +225,7 @@ export function BarcodeScanner({
 
       try {
         if (hit.kind === "licence_bytes") {
-          if (isLicenceMode || identityMode === "national_id") {
+          if (isLicenceMode) {
             await finishLicenceBytes(hit.bytes);
           }
           return;
@@ -458,7 +458,7 @@ export function BarcodeScanner({
           setScanning(true);
           setNativeScanActive(true);
           setStatus("Native scan — point at the PDF417 on the right of the card back.");
-          const result = await scanDriversLicenceNative("live");
+          const result = await scanDriversLicenceNative("auto");
           setNativeScanActive(false);
           if (cancelled || settledRef.current) return;
 
@@ -472,6 +472,10 @@ export function BarcodeScanner({
             setError("Camera blocked — allow Camera in app settings.");
             setStatus(null);
             return;
+          }
+
+          if (!cancelled && !settledRef.current) {
+            setStatus("Trying camera scan — hold the back of the card steady.");
           }
         } catch {
           setNativeScanActive(false);

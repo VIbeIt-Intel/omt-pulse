@@ -25,6 +25,14 @@ const BARCODE_DETECTOR_FORMATS = [
   "aztec",
 ];
 
+/** Live ID scan only — encrypted SADL PDF417 crashes Android BarcodeDetector. */
+const NATIONAL_ID_LIVE_DETECTOR_FORMATS = [
+  "qr_code",
+  "code_128",
+  "code_39",
+  "ean_13",
+];
+
 /** SA Smart ID / licence — PDF417 is usually in the upper half of the card. */
 const CROP_REGIONS: CropRegion[] = [
   { x: 0.04, y: 0.02, w: 0.92, h: 0.42 },
@@ -44,11 +52,11 @@ type BarcodeDetectorLike = {
 
 type BarcodeDetectorCtor = new (options?: { formats?: string[] }) => BarcodeDetectorLike;
 
-function getBarcodeDetector(): BarcodeDetectorLike | null {
+function getBarcodeDetector(formats: string[] = BARCODE_DETECTOR_FORMATS): BarcodeDetectorLike | null {
   const ctor = (window as Window & { BarcodeDetector?: BarcodeDetectorCtor }).BarcodeDetector;
   if (!ctor) return null;
   try {
-    return new ctor({ formats: BARCODE_DETECTOR_FORMATS });
+    return new ctor({ formats });
   } catch {
     return null;
   }
@@ -238,8 +246,11 @@ async function decodeFromImageSource(
   height: number,
   html5Scanner: Html5Qrcode | null,
   allowBinaryPdf417: boolean,
+  nationalIdLive = false,
 ): Promise<BarcodeHit[]> {
-  const detector = getBarcodeDetector();
+  const detector = getBarcodeDetector(
+    nationalIdLive ? NATIONAL_ID_LIVE_DETECTOR_FORMATS : BARCODE_DETECTOR_FORMATS,
+  );
   const all: BarcodeHit[] = [];
 
   for (const crop of CROP_REGIONS) {
@@ -278,12 +289,13 @@ export async function decodeBarcodesFromFile(
 export async function decodeBarcodesFromVideoFrame(
   video: HTMLVideoElement,
   html5Scanner: Html5Qrcode | null,
+  nationalIdLive = false,
 ): Promise<BarcodeHit[]> {
   try {
     const width = video.videoWidth;
     const height = video.videoHeight;
     if (!width || !height) return [];
-    return await decodeFromImageSource(video, width, height, html5Scanner, false);
+    return await decodeFromImageSource(video, width, height, html5Scanner, false, nationalIdLive);
   } catch {
     return [];
   }
