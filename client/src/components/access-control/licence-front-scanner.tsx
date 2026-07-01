@@ -10,11 +10,7 @@ import { Camera, ImageIcon, ScanLine, X } from "lucide-react";
 import { Capacitor } from "@capacitor/core";
 import type { AccessIdentityScanResult, ParsedSaId } from "@/lib/parse-sa-barcodes";
 import { readLicenceFrontFromPhoto } from "@/lib/licence-front-ocr";
-import {
-  canUseNativeLicenceScanner,
-  decodeLicenceBarcodeFromPhoto,
-  scanDriversLicenceNative,
-} from "@/lib/native-licence-barcode";
+import { decodeDriversLicenceFromImageViaApi } from "@/lib/decode-drivers-licence-api";
 import {
   BINARY_EYE_PLAY_URL,
   canUseBinaryEyeScanner,
@@ -73,54 +69,41 @@ export function LicenceFrontScanner({
     setError(null);
     setBinaryEyeMissing(false);
 
-    if (canUseBinaryEyeScanner()) {
-      const installed = await isBinaryEyeInstalled();
-      if (installed) {
-        setStatus("Opening Binary Eye — point at the PDF417 on the back right…");
-        const binaryEye = await scanDriversLicenceViaBinaryEye();
-        if (binaryEye.ok) {
-          setStatus("Licence captured");
-          settle(binaryEye.parsed);
-          return;
-        }
-        if (binaryEye.reason === "cancelled") {
-          setBusy(false);
-          setStatus("Scan cancelled — take a photo of the back barcode or try again.");
-          return;
-        }
-        setStatus("Binary Eye could not decode — trying built-in scanner…");
-      } else {
-        setBinaryEyeMissing(true);
-        setStatus("Install Binary Eye for best results — trying built-in scanner…");
-      }
-    }
-
-    if (!canUseNativeLicenceScanner()) {
+    if (!canUseBinaryEyeScanner()) {
       setBusy(false);
       setError(
-        "Barcode scanner not available. Install Binary Eye from Play Store, or take a photo of the back of the card.",
+        "Live barcode scan needs the latest OMT Pulse app. Install Binary Eye from Play Store, or take a photo of the back of the card.",
       );
       return;
     }
 
-    setStatus("Opening barcode scanner — point at the PDF417 on the back of the card…");
+    const installed = await isBinaryEyeInstalled();
+    if (!installed) {
+      setBusy(false);
+      setBinaryEyeMissing(true);
+      setError(
+        "Install Binary Eye from Play Store to scan the licence barcode, or take a photo of the back of the card.",
+      );
+      return;
+    }
 
-    const result = await scanDriversLicenceNative("google");
-    if (result.ok) {
+    setStatus("Opening Binary Eye — point at the PDF417 on the back right…");
+    const binaryEye = await scanDriversLicenceViaBinaryEye();
+    if (binaryEye.ok) {
       setStatus("Licence captured");
-      settle(result.parsed);
+      settle(binaryEye.parsed);
       return;
     }
 
     setBusy(false);
-    if (result.reason === "cancelled") {
+    if (binaryEye.reason === "cancelled") {
       setStatus("Scan cancelled — take a photo of the back barcode or try again.");
       return;
     }
 
     setStatus(null);
     setError(
-      "Could not read the barcode. Take a clear photo of the back of the card (PDF417 on the right), or try the front of the card.",
+      "Binary Eye could not read this barcode. Take a clear photo of the back of the card (PDF417 on the right), or try the front of the card.",
     );
   }, [busy, settle]);
 
@@ -130,23 +113,11 @@ export function LicenceFrontScanner({
       setError(null);
       setStatus("Reading PDF417 from photo…");
 
-      if (canUseNativeLicenceScanner()) {
-        const native = await decodeLicenceBarcodeFromPhoto(file);
-        if (native.ok) {
-          setStatus("Licence barcode read");
-          settle(native.parsed);
-          return;
-        }
-      } else {
-        const { decodeDriversLicenceFromImageViaApi } = await import(
-          "@/lib/decode-drivers-licence-api"
-        );
-        const parsed = await decodeDriversLicenceFromImageViaApi(file);
-        if (parsed?.personIdNumber || parsed?.personFullName) {
-          setStatus("Licence barcode read");
-          settle(parsed);
-          return;
-        }
+      const parsed = await decodeDriversLicenceFromImageViaApi(file);
+      if (parsed?.personIdNumber || parsed?.personFullName) {
+        setStatus("Licence barcode read");
+        settle(parsed);
+        return;
       }
 
       setError(
@@ -285,7 +256,7 @@ export function LicenceFrontScanner({
             </p>
           )}
 
-          {(canUseBinaryEyeScanner() || canUseNativeLicenceScanner()) && (
+          {canUseBinaryEyeScanner() && (
             <Button
               type="button"
               variant="default"
@@ -301,7 +272,7 @@ export function LicenceFrontScanner({
           <div className="flex gap-2">
             <Button
               type="button"
-              variant={canUseNativeLicenceScanner() ? "outline" : "default"}
+              variant={canUseBinaryEyeScanner() ? "outline" : "default"}
               className="flex-1"
               disabled={busy}
               onClick={() => backCameraRef.current?.click()}
