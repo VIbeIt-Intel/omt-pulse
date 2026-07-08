@@ -4,8 +4,11 @@
  * Smart ID PDF417: pipe-delimited text (Surname|Names|…|ID Number|…).
  * Driver's licence PDF417: 720-byte RSA-encrypted SADL payload.
  * Green ID book Code 39: 13-digit ID only — no name in barcode.
- * Vehicle licence disc PDF417: encrypted in eNaTIS — full make/model/colour needs a licensed decoder SDK/API.
+ * Vehicle licence disc PDF417: encrypted in eNaTIS — use Photo of disc for full fields.
  */
+
+import { isPlausibleSaVehicleRegistration } from "@shared/parse-sa-licence-disc";
+import { parseSaMvlDiscBarcode } from "@shared/parse-sa-mvl-disc";
 
 import { looksLikeSadlEncryptedString, type SaDriversLicence, driversLicenceToParsedFields } from "@shared/sa-drivers-licence";
 
@@ -101,36 +104,35 @@ export function parseSaIdBarcode(raw: string): ParsedSaId {
 }
 
 /**
- * Vehicle disc — partial text patterns only.
- * Example from field: %MVL1CC17%01 → registration L1CC17
+ * Vehicle disc — MVL percent-delimited text from PDF417 (not SADL / not RSA like driver's licence).
  */
 export function parseSaVehicleDiscBarcode(raw: string): ParsedSaVehicleDisc {
   const trimmed = raw.trim();
   if (!trimmed) return { licenceDiscData: "" };
 
-  const mvMatch = trimmed.match(/^%MV([^%]+)(?:%(.+))?$/i);
-  if (mvMatch) {
-    const registration = mvMatch[1].trim().toUpperCase();
+  if (trimmed.includes("%")) {
+    const mvl = parseSaMvlDiscBarcode(trimmed);
     return {
-      registration,
+      registration: mvl.registration,
+      make: mvl.make,
+      model: mvl.model ?? mvl.description,
+      colour: mvl.colour,
       licenceDiscData: trimmed,
-      hint:
-        registration && !mvMatch[2]
-          ? "Registration captured. Make, model and colour need the full licence-disc decode — enter manually or share a sample scan with us."
-          : undefined,
+      hint: mvl.hint,
     };
   }
 
-  if (/^[A-Z]{1,3}\s?[0-9A-Z]{2,7}$/i.test(trimmed.replace(/\s/g, ""))) {
+  const plateLike = trimmed.replace(/\s/g, "").toUpperCase();
+  if (isPlausibleSaVehicleRegistration(plateLike)) {
     return {
-      registration: trimmed.replace(/\s/g, "").toUpperCase(),
+      registration: plateLike,
       licenceDiscData: trimmed,
+      hint: "Use Photo of disc for make and model if they are missing.",
     };
   }
 
   return {
     licenceDiscData: trimmed,
-    registration: trimmed.length <= 12 ? trimmed.toUpperCase() : undefined,
-    hint: "Could not read all vehicle fields from this scan. Enter make, model and colour manually.",
+    hint: "Could not read vehicle details from this barcode. Use Photo of disc or enter manually.",
   };
 }

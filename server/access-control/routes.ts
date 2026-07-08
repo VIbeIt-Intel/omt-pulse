@@ -12,10 +12,14 @@ import {
   markAccessExit,
   updateDestination,
 } from "./storage";
-import { parseSaDriversLicenceBytes } from "@shared/sa-drivers-licence";
+import {
+  diagnoseSadlParseFailure,
+  parseSaDriversLicenceBytes,
+} from "@shared/sa-drivers-licence";
 import { findSadl720InBuffer, padSadlTo720 } from "@shared/extract-sadl-payload";
 import { decodeSadlBytesFromImageBuffer } from "@shared/decode-sadl-from-image";
 import { decodeLicenceFrontFromImageBuffer } from "./decode-licence-front-image";
+import { decodeLicenceDiscFromImageBuffer } from "./decode-licence-disc-image";
 
 const ACCESS_ROLES = ["administrator", "supervisor", "reporter"] as const;
 
@@ -113,8 +117,17 @@ export function registerAccessControlRoutes(app: Express) {
       return res.status(400).json({ message: "Driver licence barcode must be 720 bytes" });
     }
 
-    const dl = parseSaDriversLicenceBytes(sadl, true);
+    // Hardware scanner (Binary Eye): exact 720-byte payload — try strict Luhn first, then
+    // relaxed field checks (image pipeline keeps strict-only via decode-sadl-from-image).
+    let dl = parseSaDriversLicenceBytes(sadl, true, { strictIdCheck: true });
     if (!dl) {
+      dl = parseSaDriversLicenceBytes(sadl, true, { strictIdCheck: false });
+    }
+    if (!dl) {
+      const diag = diagnoseSadlParseFailure(sadl);
+      console.warn(
+        `[sadl-scan] decrypt/parse failed — luhn=${diag.luhnOk} plausible=${diag.plausibleOk} id=${diag.idNumber ?? "?"} surname=${diag.surname ?? "?"} err=${diag.error ?? ""}`,
+      );
       return res.status(422).json({ message: "Could not decode driver licence barcode" });
     }
     res.json(dl);
@@ -215,6 +228,50 @@ export function registerAccessControlRoutes(app: Express) {
       return res
         .status(500)
         .json({ message: "Server error while reading licence front image" });
+    }
+  });
+
+  app.post("/api/access-control/decode-licence-disc-image", requireAccessRole, async (req, res) => {
+    const bodySchema = z.object({
+      imageBase64: z.string().min(100).max(8_000_000),
+    });
+    const parsed = bodySchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
+
+    const dataUrl = parsed.data.imageBase64;
+    const base64 = dataUrl.includes(",") ? dataUrl.split(",")[1]! : dataUrl;
+
+    let imageBuffer: Buffer;
+    try {
+      imageBuffer = Buffer.from(base64, "base64");
+    } catch {
+      return res.status(400).json({ message: "Invalid image base64" });
+    }
+    if (imageBuffer.length < 1_000 || imageBuffer.length > 6_000_000) {
+      return res.status(400).json({ message: "Image too small or too large" });
+    }
+
+    const startedAt = Date.now();
+    try {
+      const ocr = await decodeLicenceDiscFromImageBuffer(imageBuffer);
+      if (!ocr.registration && !ocr.make && !ocr.model) {
+        console.warn(`[licence-disc-ocr] no fields — imageBytes=${imageBuffer.length} ms=${Date.now() - startedAt}`);
+        return res.status(422).json({
+          message: ocr.hint ?? "Could not read the licence disc",
+        });
+      }
+      console.log(
+        `[licence-disc-ocr] success — reg=${ocr.registration ? "yes" : "no"} make=${ocr.make ? "yes" : "no"} ms=${Date.now() - startedAt}`,
+      );
+      res.json(ocr);
+    } catch (err) {
+      console.error(
+        "[licence-disc-ocr] decode threw:",
+        err instanceof Error ? err.message : err,
+      );
+      return res
+        .status(500)
+        .json({ message: "Server error while reading licence disc image" });
     }
   });
 

@@ -18,9 +18,9 @@ import { apiRequest } from "@/lib/queryClient";
 import { prepareAndUploadFile } from "@/lib/upload-media";
 import { ACCESS_CATEGORY_LABELS } from "@/lib/access-control-labels";
 import { currentlyInsideQueryKey } from "@/lib/access-control-queries";
-import { parseSaIdentityScan, parseSaVehicleDiscBarcode } from "@/lib/parse-sa-barcodes";
-import { BarcodeScanner } from "@/components/access-control/barcode-scanner";
-import { LicenceFrontScanner } from "@/components/access-control/licence-front-scanner";
+import { readLicenceDiscFromPhoto } from "@/lib/licence-disc-ocr";
+import type { ParsedSaVehicleDisc } from "@/lib/parse-sa-barcodes";
+import { AccessScanDialog } from "@/components/access-control/access-scan-dialog";
 import { Camera, Car, Loader2, ScanLine, User } from "lucide-react";
 import type { Destination } from "@shared/schema";
 
@@ -42,6 +42,7 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
   const qc = useQueryClient();
   const personPhotoRef = useRef<HTMLInputElement>(null);
   const vehiclePhotoRef = useRef<HTMLInputElement>(null);
+  const discPhotoRef = useRef<HTMLInputElement>(null);
 
   const [category, setCategory] = useState<AccessEntryCategory>("visitor");
   const [destinationId, setDestinationId] = useState("");
@@ -57,6 +58,20 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
   const [uploading, setUploading] = useState(false);
   const [scanTarget, setScanTarget] = useState<"national_id" | "drivers_licence" | "disc" | null>(null);
   const [licenceScanNote, setLicenceScanNote] = useState<string | null>(null);
+  const [discScanNote, setDiscScanNote] = useState<string | null>(null);
+  const [discPhotoBusy, setDiscPhotoBusy] = useState(false);
+
+  function applyDiscScan(parsed: ParsedSaVehicleDisc) {
+    setVehicle((v) => ({
+      ...v,
+      licenceDiscData: parsed.licenceDiscData || v.licenceDiscData,
+      registration: parsed.registration ?? v.registration,
+      make: parsed.make ?? v.make,
+      model: parsed.model ?? v.model,
+      colour: parsed.colour ?? v.colour,
+    }));
+    setDiscScanNote(parsed.hint ?? null);
+  }
 
   function buildLicenceNote(parsed: ReturnType<typeof parseSaIdentityScan>): string | null {
     if (parsed.documentType !== "drivers_licence") return null;
@@ -117,7 +132,10 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
       return apiRequest("POST", "/api/access-control/entries", body);
     },
     onSuccess: () => {
-      toast({ title: "Entry logged", description: "Person is now marked as inside." });
+      toast({
+        title: "Checked in",
+        description: "Person is inside. Use Check out tab to scan them on exit.",
+      });
       setPersonFullName("");
       setPersonIdNumber("");
       setCompanyName("");
@@ -220,8 +238,8 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
           </div>
         </div>
         <p className="text-xs text-muted-foreground -mt-1">
-          <span className="font-medium">Scan ID</span> for Smart ID or ID book.{" "}
-          <span className="font-medium">Scan licence</span> — live barcode scan or photo of the back; front of card if needed.
+          <span className="font-medium">Scan ID</span> for Smart ID or ID book (Binary Eye).
+          <span className="font-medium">Scan licence</span> — Binary Eye barcode scan; photo of front if needed.
         </p>
         {licenceScanNote && (
           <p className="text-xs text-muted-foreground rounded-md border bg-muted/40 px-3 py-2">
@@ -295,26 +313,72 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
 
       {hasVehicle && (
         <div className="space-y-3 rounded-lg border p-4">
-          <div className="flex gap-2">
-            <div className="flex-1">
-              <Label htmlFor="ac-reg">Registration</Label>
-              <Input
-                id="ac-reg"
-                className="mt-1 h-11 uppercase"
-                value={vehicle.registration}
-                onChange={(e) => setVehicle((v) => ({ ...v, registration: e.target.value }))}
-              />
-            </div>
+          <div>
+            <Label htmlFor="ac-reg">Registration</Label>
+            <Input
+              id="ac-reg"
+              className="mt-1 h-11 uppercase"
+              value={vehicle.registration}
+              onChange={(e) => setVehicle((v) => ({ ...v, registration: e.target.value }))}
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
             <Button
               type="button"
               variant="outline"
-              className="mt-6 shrink-0 h-11"
+              className="h-11 shrink-0"
               onClick={() => setScanTarget("disc")}
             >
               <ScanLine className="h-4 w-4 mr-1" />
               Scan disc
             </Button>
+            <input
+              ref={discPhotoRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (!f) return;
+                e.target.value = "";
+                setDiscPhotoBusy(true);
+                void readLicenceDiscFromPhoto(f)
+                  .then((result) => {
+                    if (result.ok) {
+                      applyDiscScan(result.parsed);
+                      toast({
+                        title: "Licence disc captured",
+                        description:
+                          [result.parsed.registration, result.parsed.make, result.parsed.model]
+                            .filter(Boolean)
+                            .join(" · ") || "Details filled in",
+                      });
+                    } else {
+                      toast({
+                        title: "Could not read disc",
+                        description: result.message,
+                        variant: "destructive",
+                      });
+                    }
+                  })
+                  .finally(() => setDiscPhotoBusy(false));
+              }}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 shrink-0"
+              disabled={discPhotoBusy}
+              onClick={() => discPhotoRef.current?.click()}
+            >
+              <Camera className="h-4 w-4 mr-1" />
+              {discPhotoBusy ? "Reading…" : "Photo of disc"}
+            </Button>
           </div>
+          {discScanNote && (
+            <p className="text-xs text-muted-foreground">{discScanNote}</p>
+          )}
           <div className="grid grid-cols-3 gap-2">
             <div>
               <Label>Make</Label>
@@ -375,77 +439,31 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
         {createMutation.isPending ? (
           <>
             <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            Logging entry…
+            Logging check-in…
           </>
         ) : (
-          "Log entry — mark inside"
+          "Check in"
         )}
       </Button>
 
-      <BarcodeScanner
-        open={scanTarget !== null && scanTarget !== "drivers_licence"}
+      <AccessScanDialog
+        open={scanTarget !== null}
+        kind={scanTarget}
         onOpenChange={(o) => {
           if (!o) setScanTarget(null);
         }}
-        title={
-          scanTarget === "disc"
-            ? "Scan licence disc"
-            : "Scan ID"
-        }
-        scanKind={scanTarget === "disc" ? "disc" : "id"}
-        identityMode="national_id"
-        onScan={(result) => {
-          if (scanTarget === "disc") {
-            const value = typeof result === "string" ? result : result.kind === "raw" ? result.value : "";
-            const parsed = parseSaVehicleDiscBarcode(value);
-            setVehicle((v) => ({
-              ...v,
-              licenceDiscData: parsed.licenceDiscData,
-              registration: parsed.registration ?? v.registration,
-              make: parsed.make ?? v.make,
-              model: parsed.model ?? v.model,
-              colour: parsed.colour ?? v.colour,
-            }));
-            if (parsed.hint) {
-              toast({ title: "Licence disc scan", description: parsed.hint });
-            } else if (parsed.registration) {
-              toast({ title: "Registration captured", description: parsed.registration });
-            }
-          } else {
-            const parsed =
-              typeof result === "object" && result.kind === "parsed"
-                ? result.parsed
-                : parseSaIdentityScan(typeof result === "string" ? result : result.value);
-            if (parsed.personFullName) setPersonFullName(parsed.personFullName);
-            if (parsed.personIdNumber) setPersonIdNumber(parsed.personIdNumber);
-            setLicenceScanNote(null);
-            if (parsed.hint) {
-              toast({ title: "ID scan", description: parsed.hint });
-            } else if (parsed.personFullName) {
-              toast({ title: "ID captured", description: parsed.personFullName });
-            }
-          }
-        }}
-      />
-
-      <LicenceFrontScanner
-        open={scanTarget === "drivers_licence"}
-        onOpenChange={(o) => {
-          if (!o) setScanTarget(null);
-        }}
-        onScan={({ parsed }) => {
+        onIdScan={(parsed) => {
           if (parsed.personFullName) setPersonFullName(parsed.personFullName);
           if (parsed.personIdNumber) setPersonIdNumber(parsed.personIdNumber);
-          const note = buildLicenceNote(parsed);
-          setLicenceScanNote(note);
-          if (parsed.hint) {
-            toast({ title: "Driver's licence photo", description: parsed.hint });
-          } else {
-            toast({
-              title: "Driver's licence captured",
-              description: note ?? parsed.personFullName ?? parsed.personIdNumber ?? "Details filled in",
-            });
-          }
+          setLicenceScanNote(null);
+        }}
+        onLicenceScan={(parsed) => {
+          if (parsed.personFullName) setPersonFullName(parsed.personFullName);
+          if (parsed.personIdNumber) setPersonIdNumber(parsed.personIdNumber);
+          setLicenceScanNote(buildLicenceNote(parsed));
+        }}
+        onDiscScan={(parsed) => {
+          applyDiscScan(parsed);
         }}
       />
     </div>
