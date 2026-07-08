@@ -181,6 +181,13 @@ export interface IStorage {
   getOrgLocationAssignments(orgId: string): Promise<Array<{ userId: string; locationId: number }>>;
   getOrgCommandUserAssignments(orgId: string): Promise<Array<{ userId: string; commandId: number }>>;
   setUserLocationAssignments(userId: string, locationIds: number[], orgId: string): Promise<void>;
+  getAllocatedPremisesForUser(userId: string, orgId: string): Promise<Array<{
+    locationId: number;
+    name: string;
+    lat: number;
+    lng: number;
+    commandId: number | null;
+  }>>;
 
   // Form Fields (org-scoped, optionally command-scoped)
   getFormFields(orgId: string, commandFilter?: number[]): Promise<FormField[]>;
@@ -1261,6 +1268,56 @@ export class DatabaseStorage implements IStorage {
         locationIds.map(locationId => ({ userId, locationId, organizationId: orgId }))
       );
     }
+  }
+
+  async getAllocatedPremisesForUser(userId: string, orgId: string): Promise<Array<{
+    locationId: number;
+    name: string;
+    lat: number;
+    lng: number;
+    commandId: number | null;
+  }>> {
+    const byLocationId = new Map<number, {
+      locationId: number;
+      name: string;
+      lat: number;
+      lng: number;
+      commandId: number | null;
+    }>();
+
+    const assignedLocationIds = await this.getUserLocationAssignments(userId, orgId);
+    for (const locationId of assignedLocationIds) {
+      const loc = await this.getLocation(locationId, orgId);
+      if (loc?.latitude != null && loc.longitude != null) {
+        byLocationId.set(loc.id, {
+          locationId: loc.id,
+          name: loc.name,
+          lat: loc.latitude,
+          lng: loc.longitude,
+          commandId: loc.commandId ?? null,
+        });
+      }
+    }
+
+    const commandRows = await db
+      .select({ commandId: commandUsers.commandId })
+      .from(commandUsers)
+      .where(and(eq(commandUsers.userId, userId), eq(commandUsers.organizationId, orgId)));
+    for (const row of commandRows) {
+      const primary = await this.getPrimaryLocationForCommand(row.commandId, orgId);
+      if (primary?.latitude == null || primary.longitude == null) continue;
+      if (!byLocationId.has(primary.id)) {
+        byLocationId.set(primary.id, {
+          locationId: primary.id,
+          name: primary.name,
+          lat: primary.latitude,
+          lng: primary.longitude,
+          commandId: primary.commandId ?? row.commandId,
+        });
+      }
+    }
+
+    return Array.from(byLocationId.values());
   }
 
   // --- Form Fields ---

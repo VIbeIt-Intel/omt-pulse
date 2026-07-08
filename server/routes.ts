@@ -13,6 +13,7 @@ import bcrypt from "bcrypt";
 import { z } from "zod";
 import { DEFAULT_FORM_FIELDS } from "./seed";
 import { APP_CACHE_VERSION } from "@shared/cache-version";
+import { isWithinPremiseRadius, PREMISE_COVERAGE_RADIUS_M } from "@shared/premises-geofence";
 import { ObjectStorageService, ObjectNotFoundError } from "./replit_integrations/object_storage/objectStorage";
 import { parseFile, suggestMapping, resolveRows, collectUnknownReferences, buildTemplateXLSX, buildErrorsCSV, type ImportMapping, type ParsedFile } from "./import-parser";
 import * as XLSX from "xlsx";
@@ -292,6 +293,119 @@ async function dispatchLiveIncidentPush(orgId: string, triggerUserId: string, in
 }
 
 const DISPATCH_STAFF_ROLES = ["administrator", "supervisor"] as const;
+
+/** userId:locationId → was inside premises radius on last known position */
+const premiseGeofenceInside = new Map<string, boolean>();
+
+async function dispatchPremiseBreachPush(
+  orgId: string,
+  triggerUserId: string,
+  user: User,
+  premise: { locationId: number; name: string },
+) {
+  const fullName = `${user.firstName} ${user.lastName}`.trim() || "Team member";
+  const title = "⚠️ Left premises zone";
+  const body = `${fullName} is outside the ${premise.name} ${PREMISE_COVERAGE_RADIUS_M / 1000} km radius`;
+  const detailUrl = "/live-monitor";
+  const payload = JSON.stringify({
+    type: "premise_breach",
+    title,
+    body,
+    url: detailUrl,
+    locationId: premise.locationId,
+    userId: triggerUserId,
+  });
+
+  const subs = await storage.getPushSubscriptionsByOrg(
+    orgId,
+    triggerUserId,
+    [...DISPATCH_STAFF_ROLES],
+  );
+  const pushedUserIds = new Set<string>();
+
+  if (subs.length > 0) {
+    await Promise.allSettled(
+      dedupeByEndpoint(subs).map(async (sub) => {
+        try {
+          await webpush.sendNotification(
+            { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+            payload,
+            URGENT_PUSH,
+          );
+          pushedUserIds.add(sub.userId);
+          storage.createNotificationLog({
+            organizationId: orgId,
+            userId: sub.userId,
+            title,
+            body,
+            url: detailUrl,
+          }).catch(() => {});
+        } catch (err: unknown) {
+          const statusCode = typeof err === "object" && err !== null && "statusCode" in err
+            ? (err as { statusCode: number }).statusCode
+            : 0;
+          if (statusCode === 410 || statusCode === 404) {
+            await storage.deletePushSubscription(sub.endpoint);
+          }
+        }
+      }),
+    );
+  }
+
+  const fcmSubs = await storage.getFcmTokensByOrg(orgId, triggerUserId, [...DISPATCH_STAFF_ROLES]);
+  if (fcmSubs.length > 0) {
+    await sendFcmBatch(fcmSubs.map((s) => s.token), {
+      title,
+      body,
+      url: detailUrl,
+      notificationTag: `premise-breach-${premise.locationId}-${triggerUserId}`,
+    });
+    for (const s of fcmSubs) pushedUserIds.add(s.userId);
+  }
+
+  try {
+    const allActive = await storage.getActiveUsersByOrg(orgId);
+    const noPushUsers = allActive.filter(
+      (u) =>
+        DISPATCH_STAFF_ROLES.includes(u.role as typeof DISPATCH_STAFF_ROLES[number]) &&
+        u.id !== triggerUserId &&
+        !pushedUserIds.has(u.id),
+    );
+    await Promise.allSettled(
+      noPushUsers.map((u) =>
+        storage.createNotificationLog({
+          organizationId: orgId,
+          userId: u.id,
+          title,
+          body,
+          url: detailUrl,
+        }),
+      ),
+    );
+  } catch { /* best-effort */ }
+}
+
+async function checkPremiseGeofenceOnPosition(
+  userId: string,
+  orgId: string,
+  lat: number,
+  lng: number,
+): Promise<void> {
+  const premises = await storage.getAllocatedPremisesForUser(userId, orgId);
+  if (premises.length === 0) return;
+  const user = await storage.getUserById(userId);
+  if (!user) return;
+
+  for (const premise of premises) {
+    const key = `${userId}:${premise.locationId}`;
+    const inside = isWithinPremiseRadius(lat, lng, premise.lat, premise.lng);
+    const wasInside = premiseGeofenceInside.get(key);
+    if (wasInside === true && !inside) {
+      await dispatchPremiseBreachPush(orgId, userId, user, premise);
+    }
+    premiseGeofenceInside.set(key, inside);
+  }
+}
 
 function reportIncidentSeverityEmoji(severity: string | null | undefined, isOther: boolean): string {
   if (isOther) return "📋";
@@ -1261,13 +1375,18 @@ export async function registerRoutes(
   });
 
   app.post("/api/auth/heartbeat", async (req, res) => {
-    const { id: userId } = req.currentUser!;
+    const { id: userId, organizationId: orgId } = req.currentUser!;
     const body = req.body as { lat?: unknown; lng?: unknown } | undefined;
     const lat = typeof body?.lat === "number" ? body.lat : Number(body?.lat);
     const lng = typeof body?.lng === "number" ? body.lng : Number(body?.lng);
     const position =
       Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : undefined;
     await storage.updateUserLastSeen(userId, position);
+    if (position) {
+      void checkPremiseGeofenceOnPosition(userId, orgId, position.lat, position.lng).catch((err) => {
+        console.error("[premise-geofence] check failed:", err instanceof Error ? err.message : err);
+      });
+    }
     res.json({ ok: true });
   });
 

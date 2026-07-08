@@ -10,6 +10,9 @@ import {
   type VehicleMotionStatus,
 } from "@/lib/fleet-intelligence";
 import { cn } from "@/lib/utils";
+import { PREMISE_COVERAGE_RADIUS_M } from "@shared/premises-geofence";
+
+export { PREMISE_COVERAGE_RADIUS_M };
 
 export type OnlineUserMapMarker = {
   id: string;
@@ -44,9 +47,9 @@ export type PremiseMapMarker = {
   address?: string | null;
   lat: number;
   lng: number;
+  locationId?: number | null;
+  commandId?: number | null;
 };
-
-export const PREMISE_COVERAGE_RADIUS_M = 2000;
 
 export type LiveIncidentMapResponder = {
   userId: string;
@@ -455,6 +458,7 @@ type Props = {
   highlightId?: number | null;
   highlightTrackerId?: number | null;
   highlightPremiseId?: string | null;
+  focusedPremiseId?: string | null;
   onIncidentMarkerClick?: (incidentId: number) => void;
   onTrackerMarkerClick?: (trackerId: number) => void;
   onPremiseMarkerClick?: (premiseId: string) => void;
@@ -490,6 +494,7 @@ export function LiveIncidentsMap({
   highlightId,
   highlightTrackerId,
   highlightPremiseId,
+  focusedPremiseId,
   onIncidentMarkerClick,
   onTrackerMarkerClick,
   onPremiseMarkerClick,
@@ -1146,28 +1151,30 @@ export function LiveIncidentsMap({
     premises.forEach((premise, index) => {
       const pos = { lat: premise.lat, lng: premise.lng };
       const color = premiseColorForIndex(index);
+      const isFocused = focusedPremiseId === premise.id;
+      const isDimmed = focusedPremiseId != null && !isFocused;
       const html = buildPremiseInfoHtml(premise, darkTheme);
       infoMap.set(premise.id, html);
 
       const existingCircle = circleMap.get(premise.id);
+      const circleOpts = {
+        strokeColor: color,
+        strokeOpacity: isDimmed ? 0.25 : isFocused ? 1 : 0.9,
+        strokeWeight: isFocused ? 3 : 2,
+        fillColor: color,
+        fillOpacity: isDimmed ? 0.03 : isFocused ? 0.18 : 0.1,
+      };
       if (existingCircle) {
         existingCircle.setCenter(pos);
-        existingCircle.setOptions({
-          strokeColor: color,
-          fillColor: color,
-        });
+        existingCircle.setOptions(circleOpts);
       } else {
         const circle = new google.maps.Circle({
           map,
           center: pos,
           radius: PREMISE_COVERAGE_RADIUS_M,
-          strokeColor: color,
-          strokeOpacity: 0.9,
-          strokeWeight: 2,
-          fillColor: color,
-          fillOpacity: 0.1,
+          ...circleOpts,
           clickable: false,
-          zIndex: 4,
+          zIndex: isFocused ? 6 : 4,
         });
         circleMap.set(premise.id, circle);
       }
@@ -1198,7 +1205,27 @@ export function LiveIncidentsMap({
         markerMap.set(premise.id, marker);
       }
     });
-  }, [premises, mapsReady, darkTheme, onPremiseMarkerClick]);
+  }, [premises, mapsReady, darkTheme, onPremiseMarkerClick, focusedPremiseId]);
+
+  useEffect(() => {
+    if (!focusedPremiseId) return;
+    const map = mapInstanceRef.current;
+    const premise = premises.find((p) => p.id === focusedPremiseId);
+    if (!map || !premise) return;
+    const circle = new google.maps.Circle({
+      center: { lat: premise.lat, lng: premise.lng },
+      radius: PREMISE_COVERAGE_RADIUS_M,
+    });
+    const bounds = circle.getBounds();
+    if (bounds) {
+      userViewportLockedRef.current = false;
+      map.fitBounds(bounds, 56);
+      const listener = google.maps.event.addListenerOnce(map, "bounds_changed", () => {
+        if ((map.getZoom() ?? 0) > 15) map.setZoom(15);
+      });
+      setTimeout(() => google.maps.event.removeListener(listener), 2000);
+    }
+  }, [focusedPremiseId, premises, mapsReady]);
 
   useEffect(() => {
     if (highlightId == null) return;

@@ -1,7 +1,8 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { Location } from "@shared/schema";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/hooks/use-toast";
 import {
   LiveIncidentsMap,
   SA_MAP_DEFAULT,
@@ -11,8 +12,12 @@ import {
   type PremiseMapMarker,
   type TrackerMapMarker,
 } from "@/components/live-incidents-map";
+import {
+  buildPremiseZoneRoster,
+  formatZoneDistance,
+} from "@/lib/premises-zone";
 import { cn } from "@/lib/utils";
-import { Building2, Car, ChevronDown, MapPin, Users } from "lucide-react";
+import { Building2, Car, ChevronDown, MapPin, Users, X } from "lucide-react";
 import { Link } from "wouter";
 import {
   getVehicleMotionStatus,
@@ -178,6 +183,8 @@ function buildPremises(commands: CommandWithSite[], locations: Location[]): Prem
       address: site.address,
       lat: site.latitude,
       lng: site.longitude,
+      locationId: site.id,
+      commandId: cmd.id,
     });
   }
 
@@ -192,6 +199,8 @@ function buildPremises(commands: CommandWithSite[], locations: Location[]): Prem
       address: loc.address,
       lat: loc.latitude,
       lng: loc.longitude,
+      locationId: loc.id,
+      commandId: loc.commandId ?? null,
     });
   }
 
@@ -208,6 +217,50 @@ function premiseColorClass(index: number): string {
     "border-cyan-500/40 bg-cyan-950/25",
   ];
   return colors[index % colors.length];
+}
+
+function PremiseZoneBlock({
+  title,
+  tone,
+  empty,
+  items,
+}: {
+  title: string;
+  tone: "emerald" | "red" | "blue" | "slate";
+  empty: string;
+  items: Array<{ key: string; primary: string; secondary?: string | null; meta: string }>;
+}) {
+  const toneClass =
+    tone === "emerald"
+      ? "text-emerald-400"
+      : tone === "red"
+        ? "text-red-400"
+        : tone === "blue"
+          ? "text-blue-400"
+          : "text-slate-400";
+
+  return (
+    <div className="px-3 py-2 border-b border-violet-900/15 last:border-b-0">
+      <p className={cn("text-[9px] font-bold uppercase tracking-wide mb-1.5", toneClass)}>{title}</p>
+      {items.length === 0 ? (
+        empty ? <p className="text-[10px] text-slate-600 italic">{empty}</p> : null
+      ) : (
+        <ul className="space-y-1.5">
+          {items.map((item) => (
+            <li key={item.key} className="flex items-start justify-between gap-2 text-[11px]">
+              <div className="min-w-0">
+                <p className="font-medium text-slate-200 truncate">{item.primary}</p>
+                {item.secondary && (
+                  <p className="text-[10px] text-slate-500 capitalize truncate">{item.secondary}</p>
+                )}
+              </div>
+              <span className="shrink-0 text-[10px] text-slate-500 tabular-nums">{item.meta}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 const LAYER_LABELS: Record<MapLayerMode, string> = {
@@ -242,23 +295,57 @@ export function ControlRoomMap({
   showSidePanels = true,
   darkTheme = true,
 }: ControlRoomMapProps) {
+  const { toast } = useToast();
   const [layerMode, setLayerMode] = useState<MapLayerMode>("all");
   const [highlightIdInternal, setHighlightIdInternal] = useState<number | null>(null);
   const [highlightTrackerId, setHighlightTrackerId] = useState<number | null>(null);
   const [teamPanelOpen, setTeamPanelOpen] = useState(true);
   const [fleetPanelOpen, setFleetPanelOpen] = useState(true);
   const [premisesPanelOpen, setPremisesPanelOpen] = useState(true);
-  const [highlightPremiseId, setHighlightPremiseId] = useState<string | null>(null);
+  const [selectedPremiseId, setSelectedPremiseId] = useState<string | null>(null);
   const [responderFilter, setResponderFilter] = useState<ResponderFilter>("all");
+  const premiseInsideStateRef = useRef<Map<string, boolean>>(new Map());
 
   const { data: commands = [] } = useQuery<CommandWithSite[]>({
     queryKey: ["/api/commands"],
   });
 
+  const { data: locationAssignmentsData } = useQuery<{ assignments: Array<{ userId: string; locationId: number }> }>({
+    queryKey: ["/api/location-assignments"],
+    queryFn: async () => {
+      const res = await fetch("/api/location-assignments", { credentials: "include" });
+      if (!res.ok) return { assignments: [] };
+      return res.json();
+    },
+    refetchInterval: 60_000,
+  });
+
+  const { data: commandAssignmentsData } = useQuery<{ assignments: Array<{ userId: string; commandId: number }> }>({
+    queryKey: ["/api/command-assignments"],
+    queryFn: async () => {
+      const res = await fetch("/api/command-assignments", { credentials: "include" });
+      if (!res.ok) return { assignments: [] };
+      return res.json();
+    },
+    refetchInterval: 60_000,
+  });
+
+  const locationAssignments = locationAssignmentsData?.assignments ?? [];
+  const commandAssignments = commandAssignmentsData?.assignments ?? [];
+
   const premises = useMemo(
     () => buildPremises(commands, locations),
     [commands, locations],
   );
+
+  const selectedPremise = useMemo(
+    () => premises.find((p) => p.id === selectedPremiseId) ?? null,
+    [premises, selectedPremiseId],
+  );
+
+  function selectPremise(premiseId: string) {
+    setSelectedPremiseId((prev) => (prev === premiseId ? null : premiseId));
+  }
 
   const highlightId = highlightIdProp ?? highlightIdInternal;
   const setHighlightId = (id: number | null) => {
@@ -289,6 +376,52 @@ export function ControlRoomMap({
   });
 
   const teamUsers = dayDashboard?.users ?? [];
+
+  const premiseZoneRoster = useMemo(() => {
+    if (!selectedPremise) return null;
+    return buildPremiseZoneRoster(
+      selectedPremise,
+      teamUsers.map((u) => ({
+        id: u.id,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        role: u.role,
+        lastLat: u.lastLat,
+        lastLng: u.lastLng,
+      })),
+      trackers
+        .filter((t) => t.lastLat != null && t.lastLng != null)
+        .map((t) => ({
+          id: t.id,
+          label: vehicleDisplayName(t),
+          registration: t.vehicleRegistration,
+          lat: t.lastLat!,
+          lng: t.lastLng!,
+          driverName: t.assignedUserName,
+        })),
+      locationAssignments,
+      commandAssignments,
+    );
+  }, [selectedPremise, teamUsers, trackers, locationAssignments, commandAssignments]);
+
+  useEffect(() => {
+    if (!selectedPremise || !premiseZoneRoster) return;
+    for (const person of [
+      ...premiseZoneRoster.allocatedInside,
+      ...premiseZoneRoster.allocatedOutside,
+    ]) {
+      const key = `${selectedPremise.id}:${person.id}`;
+      const wasInside = premiseInsideStateRef.current.get(key);
+      if (wasInside === true && !person.inside) {
+        toast({
+          title: "Left premises zone",
+          description: `${person.name} left ${selectedPremise.name} (${PREMISE_COVERAGE_RADIUS_M / 1000} km radius).`,
+          variant: "destructive",
+        });
+      }
+      premiseInsideStateRef.current.set(key, person.inside);
+    }
+  }, [premiseZoneRoster, selectedPremise, toast]);
 
   const filteredTeam = useMemo(() => {
     return teamUsers.filter((u) => {
@@ -386,13 +519,14 @@ export function ControlRoomMap({
           premises={premises}
           highlightId={highlightId}
           highlightTrackerId={highlightTrackerId}
-          highlightPremiseId={highlightPremiseId}
+          highlightPremiseId={selectedPremiseId}
+          focusedPremiseId={selectedPremiseId}
           onIncidentMarkerClick={(id) => {
             setHighlightId(id);
             onIncidentMarkerClick?.(id);
           }}
           onTrackerMarkerClick={setHighlightTrackerId}
-          onPremiseMarkerClick={setHighlightPremiseId}
+          onPremiseMarkerClick={selectPremise}
           className="absolute inset-0"
           testId={testId}
           darkTheme={darkTheme}
@@ -417,54 +551,124 @@ export function ControlRoomMap({
             manageHref="/commands"
             testId="control-room-premises-panel"
           >
-            <div className="flex-1 overflow-y-auto ops-scroll max-h-40">
+            <div className="flex-1 overflow-y-auto ops-scroll max-h-[min(42vh,360px)]">
               {premises.length === 0 ? (
                 <p className="text-xs text-slate-600 text-center py-6 px-3">
                   No premises pinned yet. Add locations in Groups.
                 </p>
               ) : (
-                <ul className="divide-y divide-violet-900/15">
-                  {premises.map((premise, index) => (
-                    <li key={premise.id}>
-                      <button
-                        type="button"
-                        onClick={() => setHighlightPremiseId(premise.id)}
-                        className={cn(
-                          "w-full text-left px-3 py-2.5 hover:bg-violet-950/25 transition-colors",
-                          highlightPremiseId === premise.id && "bg-violet-950/35",
-                        )}
-                        data-testid={`premise-row-${premise.id}`}
-                      >
-                        <div className="flex items-start gap-2">
-                          <div
-                            className={cn(
-                              "mt-0.5 h-7 w-7 shrink-0 rounded-md border flex items-center justify-center",
-                              premiseColorClass(index),
-                            )}
-                          >
-                            <MapPin className="h-3.5 w-3.5 text-violet-300" />
+                <>
+                  <p className="px-3 pt-1 pb-2 text-[10px] text-slate-500 leading-snug">
+                    Tap a premises to focus the map and see who is inside the {PREMISE_COVERAGE_RADIUS_M / 1000} km zone.
+                  </p>
+                  <ul className="divide-y divide-violet-900/15">
+                    {premises.map((premise, index) => (
+                      <li key={premise.id}>
+                        <button
+                          type="button"
+                          onClick={() => selectPremise(premise.id)}
+                          className={cn(
+                            "w-full text-left px-3 py-2.5 hover:bg-violet-950/25 transition-colors",
+                            selectedPremiseId === premise.id && "bg-violet-950/45 ring-1 ring-inset ring-violet-500/40",
+                          )}
+                          data-testid={`premise-row-${premise.id}`}
+                        >
+                          <div className="flex items-start gap-2">
+                            <div
+                              className={cn(
+                                "mt-0.5 h-7 w-7 shrink-0 rounded-md border flex items-center justify-center",
+                                premiseColorClass(index),
+                              )}
+                            >
+                              <MapPin className="h-3.5 w-3.5 text-violet-300" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium text-slate-200 truncate">{premise.name}</p>
+                              {premise.groupName && (
+                                <p className="text-[10px] text-violet-400/90 font-semibold uppercase tracking-wide truncate">
+                                  {premise.groupName}
+                                </p>
+                              )}
+                              {premise.address && (
+                                <p className="text-[10px] text-slate-500 mt-0.5 line-clamp-2 leading-snug">
+                                  {premise.address}
+                                </p>
+                              )}
+                            </div>
                           </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-medium text-slate-200 truncate">{premise.name}</p>
-                            {premise.groupName && (
-                              <p className="text-[10px] text-violet-400/90 font-semibold uppercase tracking-wide truncate">
-                                {premise.groupName}
-                              </p>
-                            )}
-                            {premise.address && (
-                              <p className="text-[10px] text-slate-500 mt-0.5 line-clamp-2 leading-snug">
-                                {premise.address}
-                              </p>
-                            )}
-                            <p className="text-[9px] text-slate-600 mt-1">
-                              {PREMISE_COVERAGE_RADIUS_M / 1000} km radius on map
-                            </p>
-                          </div>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+
+                  {selectedPremise && premiseZoneRoster && (
+                    <div className="border-t border-violet-900/30 bg-violet-950/20 mt-1">
+                      <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-violet-900/20">
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-bold uppercase tracking-wide text-violet-300">
+                            Inside zone
+                          </p>
+                          <p className="text-xs text-slate-300 truncate">{selectedPremise.name}</p>
                         </div>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedPremiseId(null)}
+                          className="shrink-0 p-1 rounded hover:bg-violet-900/40 text-slate-400 hover:text-slate-200"
+                          aria-label="Clear premises focus"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+
+                      <PremiseZoneBlock
+                        title="Allocated · in zone"
+                        tone="emerald"
+                        empty="No allocated members inside zone"
+                        items={premiseZoneRoster.allocatedInside.map((p) => ({
+                          key: p.id,
+                          primary: p.name,
+                          secondary: p.role,
+                          meta: formatZoneDistance(p.distanceM),
+                        }))}
+                      />
+                      <PremiseZoneBlock
+                        title="Allocated · outside zone"
+                        tone="red"
+                        empty="All allocated members inside zone"
+                        items={premiseZoneRoster.allocatedOutside.map((p) => ({
+                          key: p.id,
+                          primary: p.name,
+                          secondary: p.role,
+                          meta: formatZoneDistance(p.distanceM),
+                        }))}
+                      />
+                      <PremiseZoneBlock
+                        title="Fleet in zone"
+                        tone="blue"
+                        empty="No fleet inside zone"
+                        items={premiseZoneRoster.fleetInside.map((v) => ({
+                          key: String(v.id),
+                          primary: v.registration ?? v.label,
+                          secondary: v.driverName ?? v.label,
+                          meta: formatZoneDistance(v.distanceM),
+                        }))}
+                      />
+                      {premiseZoneRoster.visitorsInside.length > 0 && (
+                        <PremiseZoneBlock
+                          title="Others in zone"
+                          tone="slate"
+                          empty=""
+                          items={premiseZoneRoster.visitorsInside.map((p) => ({
+                            key: p.id,
+                            primary: p.name,
+                            secondary: p.role,
+                            meta: formatZoneDistance(p.distanceM),
+                          }))}
+                        />
+                      )}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </CollapsibleSection>
