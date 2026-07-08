@@ -1,7 +1,6 @@
 import { Capacitor, registerPlugin } from "@capacitor/core";
 import {
   extractSadl720FromScan,
-  hexToSadlBytes,
   type BinaryEyeScanPayload,
 } from "@shared/extract-sadl-payload";
 import {
@@ -96,20 +95,51 @@ function base64ToBytes(b64: string): Uint8Array {
   return bytes;
 }
 
-/** Text from PDF417 — Smart ID pipes, or MVL percent-string on licence discs. */
+/** Text from PDF417 — Smart ID pipes, MVL percent-string, or Code39 green-book ID bytes. */
 export function extractTextFromBinaryEyeScan(scan: BinaryEyeScanPayload): string | null {
   const text = scan.text?.trim();
   if (text && text.length > 0) {
     // MVL disc strings can be a few hundred chars; SADL binary as "text" is ~720 bytes — skip that path here.
     if (text.length < 700 || text.includes("%")) {
-      return text;
+      if (looksLikePlausibleBarcodeText(text)) return text;
     }
   }
 
   const fromBytes = bytesToLatin1Text(scan);
   if (fromBytes) return fromBytes;
 
-  return null;
+  return text && text.length > 0 && text.length < 700 ? text : null;
+}
+
+function hexToScanBytes(hex: string): Uint8Array | null {
+  const cleaned = hex.replace(/\s/g, "");
+  if (cleaned.length === 0 || cleaned.length % 2 !== 0) return null;
+  if (!/^[0-9a-fA-F]+$/.test(cleaned)) return null;
+  const out = new Uint8Array(cleaned.length / 2);
+  for (let i = 0; i < out.length; i++) {
+    out[i] = Number.parseInt(cleaned.slice(i * 2, i * 2 + 2), 16);
+  }
+  return out;
+}
+
+function latin1BytesToString(bytes: Uint8Array): string {
+  let out = "";
+  for (let i = 0; i < bytes.length; i++) {
+    out += String.fromCharCode(bytes[i]!);
+  }
+  return out;
+}
+
+/** Printable barcode text: Smart ID pipes, MVL %, or green-book 13-digit ID (Code39). */
+function looksLikePlausibleBarcodeText(raw: string): boolean {
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed.length > 700) return false;
+  if (trimmed.includes("%") || trimmed.includes("|")) return true;
+  const digits = trimmed.replace(/\D/g, "");
+  if (digits.length === 13 && /^\d{13}$/.test(digits)) return true;
+  // Code39 / Code128 text payloads (ID book, partial scans).
+  if (/^[\x20-\x7e]+$/.test(trimmed) && trimmed.length >= 3) return true;
+  return false;
 }
 
 function bytesToLatin1Text(scan: BinaryEyeScanPayload): string | null {
@@ -118,8 +148,8 @@ function bytesToLatin1Text(scan: BinaryEyeScanPayload): string | null {
   if (scan.hex) {
     const cleaned = scan.hex.replace(/\s/g, "");
     if (cleaned.length > 0 && cleaned.length < 1400 && cleaned.length % 2 === 0) {
-      const bytes = hexToSadlBytes(cleaned);
-      if (bytes && bytes.length < 700) sources.push(bytes);
+      const bytes = hexToScanBytes(cleaned);
+      if (bytes && bytes.length > 0 && bytes.length < 700) sources.push(bytes);
     }
   }
 
@@ -142,12 +172,8 @@ function bytesToLatin1Text(scan: BinaryEyeScanPayload): string | null {
   }
 
   for (const bytes of sources) {
-    let out = "";
-    for (let i = 0; i < bytes.length; i++) {
-      out += String.fromCharCode(bytes[i]!);
-    }
-    const trimmed = out.trim();
-    if (trimmed.includes("%")) return trimmed;
+    const trimmed = latin1BytesToString(bytes).trim();
+    if (looksLikePlausibleBarcodeText(trimmed)) return trimmed;
   }
 
   return null;
