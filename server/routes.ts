@@ -1913,6 +1913,15 @@ export async function registerRoutes(
     });
   });
 
+  app.get("/api/command-assignments", async (req, res) => {
+    const { organizationId: orgId, role } = req.currentUser!;
+    if (role !== "administrator" && role !== "supervisor") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+    const assignments = await storage.getOrgCommandUserAssignments(orgId);
+    res.json({ assignments });
+  });
+
   app.get("/api/location-assignments", async (req, res) => {
     const { organizationId: orgId, role } = req.currentUser!;
     if (role !== "administrator" && role !== "supervisor") {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Location } from "@shared/schema";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import {
 import { PanicBanner, type PanicAlert } from "@/components/panic-banner";
 import { type LiveIncidentMapItem } from "@/components/live-incidents-map";
 import { cn } from "@/lib/utils";
+import { apiRequest } from "@/lib/queryClient";
 import {
   Radio,
   Siren,
@@ -28,6 +29,7 @@ import {
   CalendarRange,
   Building2,
   Car,
+  Network,
 } from "lucide-react";
 import {
   getVehicleMotionStatus,
@@ -208,6 +210,32 @@ function filterTrackersForFacility(
       (location.commandId != null && t.commandId === location.commandId)
       || (t.assignedUserId != null && atSite.has(t.assignedUserId)),
   );
+}
+
+function userIdsInCommand(
+  assignments: Array<{ userId: string; commandId: number }>,
+  commandId: number,
+): Set<string> {
+  return new Set(assignments.filter((a) => a.commandId === commandId).map((a) => a.userId));
+}
+
+function filterTeamForCommand(
+  users: DashboardUserSummary[],
+  assignments: Array<{ userId: string; commandId: number }>,
+  activeCommandId: number | "all" | null,
+  accessibleCommandIds: number[],
+): DashboardUserSummary[] {
+  if (activeCommandId === "all" || activeCommandId == null) {
+    if (accessibleCommandIds.length === 0) return users;
+    const inAny = new Set(
+      assignments
+        .filter((a) => accessibleCommandIds.includes(a.commandId))
+        .map((a) => a.userId),
+    );
+    return users.filter((u) => inAny.has(u.id));
+  }
+  const atCommand = userIdsInCommand(assignments, activeCommandId);
+  return users.filter((u) => atCommand.has(u.id));
 }
 
 function OccurrenceList({
@@ -403,6 +431,7 @@ export function OperationsDashboard({
   onOpenOccurrence,
   onPanic,
 }: Props) {
+  const queryClient = useQueryClient();
   const [highlightId, setHighlightId] = useState<number | null>(null);
   const [clock, setClock] = useState(() => new Date());
   const [lastRefresh, setLastRefresh] = useState(() => new Date());
@@ -460,12 +489,57 @@ export function OperationsDashboard({
     refetchInterval: 60_000,
   });
 
+  const { data: commandAssignmentsData, isLoading: commandAssignmentsLoading } = useQuery<{
+    assignments: Array<{ userId: string; commandId: number }>;
+  }>({
+    queryKey: ["/api/command-assignments"],
+    queryFn: async () => {
+      const res = await fetch("/api/command-assignments", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load command assignments");
+      return res.json();
+    },
+    refetchInterval: 60_000,
+  });
+
   const locationAssignments = locationAssignmentsData?.assignments ?? [];
+  const commandAssignments = commandAssignmentsData?.assignments ?? [];
+
+  const { data: commandsData } = useQuery<{
+    commands: Array<{ id: number; name: string; isCentral: boolean; readOnly?: boolean }>;
+    activeCommandId: number | "all" | null;
+    canSeeAll: boolean;
+  }>({ queryKey: ["/api/me/commands"] });
+
+  const switchGroupMutation = useMutation({
+    mutationFn: (commandId: number | "all") =>
+      apiRequest("PATCH", "/api/me/active-command", { commandId }),
+    onSuccess: () => {
+      setSelectedFacility("all");
+      localStorage.setItem(OPS_FACILITY_STORAGE_KEY, "all");
+      queryClient.invalidateQueries({ queryKey: ["/api/me/commands"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/incidents"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/incidents/live"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/locations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/trackers"] });
+    },
+  });
+
+  const activeCommandId = commandsData?.activeCommandId ?? null;
+  const accessibleCommandIds = useMemo(
+    () => commandsData?.commands.map((c) => c.id) ?? [],
+    [commandsData],
+  );
+
+  const groupLocations = useMemo(() => {
+    if (activeCommandId === "all" || activeCommandId == null) return locations;
+    return locations.filter((l) => l.commandId === activeCommandId || l.commandId == null);
+  }, [locations, activeCommandId]);
 
   const selectedLocationId = selectedFacility === "all" ? null : Number(selectedFacility);
   const selectedLocation = useMemo(
-    () => (selectedLocationId != null ? locations.find((l) => l.id === selectedLocationId) : undefined),
-    [locations, selectedLocationId],
+    () => (selectedLocationId != null ? groupLocations.find((l) => l.id === selectedLocationId) : undefined),
+    [groupLocations, selectedLocationId],
   );
 
   const handleFacilityChange = (value: string) => {
@@ -476,11 +550,11 @@ export function OperationsDashboard({
   useEffect(() => {
     if (selectedFacility === "all") return;
     const id = Number(selectedFacility);
-    if (!Number.isFinite(id) || !locations.some((l) => l.id === id)) {
+    if (!Number.isFinite(id) || !groupLocations.some((l) => l.id === id)) {
       setSelectedFacility("all");
       localStorage.setItem(OPS_FACILITY_STORAGE_KEY, "all");
     }
-  }, [locations, selectedFacility]);
+  }, [groupLocations, selectedFacility]);
 
   useEffect(() => {
     const t = setInterval(() => setClock(new Date()), 1000);
@@ -490,11 +564,6 @@ export function OperationsDashboard({
   useEffect(() => {
     setLastRefresh(new Date());
   }, [liveIncidents, panicAlerts, dayDashboard, allIncidents]);
-
-  const { data: commandsData } = useQuery<{
-    commands: Array<{ id: number; name: string; isCentral: boolean }>;
-    activeCommandId: number | "all" | null;
-  }>({ queryKey: ["/api/me/commands"] });
 
   const groupLabel = useMemo(() => {
     if (!commandsData) return "—";
@@ -561,17 +630,30 @@ export function OperationsDashboard({
   const showQueue = queueItems.length > 0;
 
   const teamUsers = kpiSource?.users ?? [];
+  const commandScopedTeam = useMemo(
+    () => filterTeamForCommand(teamUsers, commandAssignments, activeCommandId, accessibleCommandIds),
+    [teamUsers, commandAssignments, activeCommandId, accessibleCommandIds],
+  );
   const siteTeam = useMemo(
-    () => filterTeamForFacility(teamUsers, locationAssignments, selectedLocationId),
-    [teamUsers, locationAssignments, selectedLocationId],
+    () => filterTeamForFacility(commandScopedTeam, locationAssignments, selectedLocationId),
+    [commandScopedTeam, locationAssignments, selectedLocationId],
   );
   const siteFleet = useMemo(
     () => filterTrackersForFacility(trackers, locationAssignments, selectedLocation, selectedLocationId),
     [trackers, locationAssignments, selectedLocation, selectedLocationId],
   );
-  const siteMonitorLoading = kpiLoading || trackersLoading || assignmentsLoading;
+  const siteMonitorLoading =
+    kpiLoading || trackersLoading || assignmentsLoading || commandAssignmentsLoading;
   const facilityLabel =
-    selectedLocationId == null ? "All facilities" : (selectedLocation?.name ?? "Selected facility");
+    selectedLocationId == null ? "All sites" : (selectedLocation?.name ?? "Selected site");
+  const showGroupSelector =
+    !!commandsData && (commandsData.canSeeAll || commandsData.commands.length > 1);
+  const activeGroupValue =
+    activeCommandId === "all"
+      ? "all"
+      : activeCommandId == null
+        ? ""
+        : String(activeCommandId);
 
   return (
     <div
@@ -665,20 +747,49 @@ export function OperationsDashboard({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 ml-auto">
-          {locations.length > 0 && (
+          {showGroupSelector && (
+            <Select
+              value={activeGroupValue}
+              onValueChange={(v) => switchGroupMutation.mutate(v === "all" ? "all" : Number(v))}
+              disabled={switchGroupMutation.isPending}
+            >
+              <SelectTrigger
+                className="w-[min(240px,42vw)] h-9 text-xs bg-slate-800 border-slate-600 text-slate-100"
+                data-testid="ops-group-select"
+              >
+                <div className="flex items-center gap-1.5 truncate">
+                  <Network className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
+                  <SelectValue placeholder="Select group" />
+                </div>
+              </SelectTrigger>
+              <SelectContent>
+                {commandsData?.canSeeAll && (
+                  <SelectItem value="all">All Groups</SelectItem>
+                )}
+                {commandsData?.commands.map((cmd) => (
+                  <SelectItem key={cmd.id} value={String(cmd.id)}>
+                    {cmd.name}
+                    {cmd.isCentral ? " (Central)" : ""}
+                    {cmd.readOnly ? " · read-only" : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          {groupLocations.length > 0 && (
             <Select value={selectedFacility} onValueChange={handleFacilityChange}>
               <SelectTrigger
-                className="w-[min(220px,40vw)] h-9 text-xs bg-slate-800 border-slate-600 text-slate-100"
+                className="w-[min(200px,36vw)] h-9 text-xs bg-slate-800 border-slate-600 text-slate-100"
                 data-testid="ops-facility-select"
               >
                 <div className="flex items-center gap-1.5 truncate">
                   <Building2 className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                  <SelectValue placeholder="All facilities" />
+                  <SelectValue placeholder="All sites" />
                 </div>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All facilities</SelectItem>
-                {locations.map((loc) => (
+                <SelectItem value="all">All sites</SelectItem>
+                {groupLocations.map((loc) => (
                   <SelectItem key={loc.id} value={String(loc.id)}>
                     {loc.name}
                   </SelectItem>
@@ -761,7 +872,10 @@ export function OperationsDashboard({
             <Building2 className="h-3.5 w-3.5 text-blue-400" />
             Site Monitor
           </p>
-          <p className="text-[10px] text-slate-500 truncate">{facilityLabel}</p>
+          <p className="text-[10px] text-slate-500 truncate">
+            {groupLabel}
+            {selectedLocationId != null ? ` · ${facilityLabel}` : ""}
+          </p>
         </div>
         <div className="grid grid-cols-2 gap-px bg-slate-800/40 max-h-[200px] min-h-[140px]">
           <div className="flex flex-col min-h-0 bg-[#131a22]">
@@ -781,8 +895,8 @@ export function OperationsDashboard({
               ) : siteTeam.length === 0 ? (
                 <p className="text-[11px] text-slate-600 text-center py-6 px-3">
                   {selectedLocationId == null
-                    ? "No team members in scope."
-                    : "No team assigned to this facility."}
+                    ? "No team members in this group."
+                    : "No team assigned to this site."}
                 </p>
               ) : (
                 <ul className="divide-y divide-emerald-900/15">
@@ -841,8 +955,8 @@ export function OperationsDashboard({
               ) : siteFleet.length === 0 ? (
                 <p className="text-[11px] text-slate-600 text-center py-6 px-3">
                   {selectedLocationId == null
-                    ? "No GPS trackers linked."
-                    : "No vehicles linked to this facility."}
+                    ? "No GPS trackers in this group."
+                    : "No vehicles linked to this site."}
                 </p>
               ) : (
                 <ul className="divide-y divide-blue-900/20">
