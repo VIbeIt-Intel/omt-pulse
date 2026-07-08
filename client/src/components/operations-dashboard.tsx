@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Location } from "@shared/schema";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -30,6 +30,7 @@ import {
   Building2,
   Car,
   Network,
+  type LucideIcon,
 } from "lucide-react";
 import {
   getVehicleMotionStatus,
@@ -355,6 +356,103 @@ type Props = {
   onPanic: () => void;
 };
 
+type OpsSectionTone = "blue" | "orange" | "slate" | "emerald";
+
+const OPS_SECTION_TONE: Record<
+  OpsSectionTone,
+  { bar: string; icon: string; title: string; border: string }
+> = {
+  blue: {
+    bar: "bg-blue-950/55",
+    border: "border-blue-500/35",
+    icon: "bg-blue-600 text-white shadow-sm shadow-blue-900/50",
+    title: "text-blue-50",
+  },
+  orange: {
+    bar: "bg-orange-950/50",
+    border: "border-orange-500/35",
+    icon: "bg-orange-600 text-white shadow-sm shadow-orange-900/50",
+    title: "text-orange-50",
+  },
+  slate: {
+    bar: "bg-slate-800/90",
+    border: "border-slate-500/40",
+    icon: "bg-slate-500 text-white shadow-sm shadow-slate-900/50",
+    title: "text-slate-50",
+  },
+  emerald: {
+    bar: "bg-emerald-950/45",
+    border: "border-emerald-500/35",
+    icon: "bg-emerald-600 text-white shadow-sm shadow-emerald-900/50",
+    title: "text-emerald-50",
+  },
+};
+
+function OpsSectionHeader({
+  title,
+  icon: Icon,
+  tone,
+  right,
+  testId,
+}: {
+  title: string;
+  icon: LucideIcon;
+  tone: OpsSectionTone;
+  right?: ReactNode;
+  testId?: string;
+}) {
+  const s = OPS_SECTION_TONE[tone];
+  return (
+    <div
+      className={cn(
+        "shrink-0 px-3 py-2.5 border-b border-l-[4px] flex items-center justify-between gap-2",
+        s.bar,
+        s.border,
+      )}
+      data-testid={testId}
+    >
+      <p className={cn("text-xs font-extrabold uppercase tracking-[0.14em] flex items-center gap-2", s.title)}>
+        <span className={cn("inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md", s.icon)}>
+          <Icon className="h-3.5 w-3.5" />
+        </span>
+        {title}
+      </p>
+      {right}
+    </div>
+  );
+}
+
+function OpsSubSectionHeader({
+  title,
+  icon: Icon,
+  tone,
+  count,
+}: {
+  title: string;
+  icon: LucideIcon;
+  tone: OpsSectionTone;
+  count?: number;
+}) {
+  const s = OPS_SECTION_TONE[tone];
+  return (
+    <div
+      className={cn(
+        "shrink-0 px-3 py-2 border-b border-l-[3px] flex items-center justify-between",
+        s.bar,
+        s.border,
+      )}
+    >
+      <p className={cn("text-[11px] font-bold uppercase tracking-[0.12em] flex items-center gap-1.5", s.title)}>
+        <Icon className="h-3.5 w-3.5 shrink-0 opacity-90" />
+        {title}
+      </p>
+      {count != null && (
+        <span className={cn("text-[11px] font-semibold tabular-nums", s.title, "opacity-80")}>{count}</span>
+      )}
+    </div>
+  );
+}
+
 function KpiCard({
   label,
   value,
@@ -385,7 +483,7 @@ function KpiCard({
 
   const inner = (
     <>
-      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</p>
+      <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-300">{label}</p>
       {loading ? (
         <Skeleton className="h-9 w-16 mt-1.5 bg-slate-700" />
       ) : (
@@ -867,25 +965,21 @@ export function OperationsDashboard({
         className="shrink-0 border-b border-slate-800/80 bg-[#111820]"
         data-testid="ops-site-monitor"
       >
-        <div className="px-3 py-2 border-b border-slate-800/60 flex items-center justify-between gap-2">
-          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400 flex items-center gap-1.5">
-            <Building2 className="h-3.5 w-3.5 text-blue-400" />
-            Site Monitor
-          </p>
-          <p className="text-[10px] text-slate-500 truncate">
+        <div className="px-3 py-0 border-b border-slate-700/60 flex items-center justify-end gap-2 bg-[#0f161e]">
+          <p className="mr-auto text-[11px] font-medium text-slate-400 truncate py-2">
             {groupLabel}
             {selectedLocationId != null ? ` · ${facilityLabel}` : ""}
           </p>
         </div>
+        <OpsSectionHeader
+          title="Site Monitor"
+          icon={Building2}
+          tone="blue"
+          testId="ops-site-monitor-header"
+        />
         <div className="grid grid-cols-2 gap-px bg-slate-800/40 max-h-[200px] min-h-[140px]">
           <div className="flex flex-col min-h-0 bg-[#131a22]">
-            <div className="shrink-0 px-3 py-1.5 border-b border-emerald-900/20 flex items-center justify-between">
-              <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-500/90 flex items-center gap-1">
-                <Users className="h-3 w-3" />
-                Team
-              </p>
-              <span className="text-[10px] text-slate-500 tabular-nums">{siteTeam.length}</span>
-            </div>
+            <OpsSubSectionHeader title="Team" icon={Users} tone="emerald" count={siteTeam.length} />
             <div className="flex-1 overflow-y-auto ops-scroll">
               {siteMonitorLoading ? (
                 <div className="p-2 space-y-2">
@@ -939,13 +1033,7 @@ export function OperationsDashboard({
           </div>
 
           <div className="flex flex-col min-h-0 bg-[#131a22]">
-            <div className="shrink-0 px-3 py-1.5 border-b border-blue-900/20 flex items-center justify-between">
-              <p className="text-[10px] font-bold uppercase tracking-wide text-blue-400/90 flex items-center gap-1">
-                <Car className="h-3 w-3" />
-                Fleet
-              </p>
-              <span className="text-[10px] text-slate-500 tabular-nums">{siteFleet.length}</span>
-            </div>
+            <OpsSubSectionHeader title="Fleet" icon={Car} tone="blue" count={siteFleet.length} />
             <div className="flex-1 overflow-y-auto ops-scroll">
               {siteMonitorLoading ? (
                 <div className="p-2 space-y-2">
@@ -1008,15 +1096,17 @@ export function OperationsDashboard({
           className="flex-1 min-w-0 flex flex-col border-r border-slate-800/80 bg-[#131a22]"
           data-testid="ops-live-panel"
         >
-          <div className="shrink-0 px-3 py-2 border-b border-slate-800/80 flex items-center justify-between">
-            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400 flex items-center gap-1.5">
-              <Radio className="h-3.5 w-3.5 text-orange-400" />
-              Live Incidents
-            </p>
-            <span className="text-[10px] font-medium text-orange-500/80 tabular-nums">
-              {queueItems.length} active
-            </span>
-          </div>
+          <OpsSectionHeader
+            title="Live Incidents"
+            icon={Radio}
+            tone="orange"
+            testId="ops-live-panel-header"
+            right={
+              <span className="text-[11px] font-bold text-orange-200 tabular-nums">
+                {queueItems.length} active
+              </span>
+            }
+          />
           <div className="flex-1 overflow-y-auto ops-scroll">
             {!showQueue ? (
               <div className="flex flex-col items-center justify-center h-full gap-3 px-6 py-10 text-center">
@@ -1120,19 +1210,21 @@ export function OperationsDashboard({
           className="flex-1 min-w-0 flex flex-col border-r border-slate-800/80 bg-[#131a22]"
           data-testid="ops-occurrences-today-panel"
         >
-          <div className="shrink-0 px-3 py-2 border-b border-slate-800/80 flex items-center justify-between">
-            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400 flex items-center gap-1.5">
-              <History className="h-3.5 w-3.5 text-slate-500" />
-              Today&apos;s Occurrences
-            </p>
-            <button
-              type="button"
-              onClick={() => onOpenOccurrence(undefined, "day")}
-              className="text-[10px] text-blue-400 hover:underline"
-            >
-              Full book →
-            </button>
-          </div>
+          <OpsSectionHeader
+            title="Today's Occurrences"
+            icon={History}
+            tone="slate"
+            testId="ops-occurrences-today-header"
+            right={
+              <button
+                type="button"
+                onClick={() => onOpenOccurrence(undefined, "day")}
+                className="text-[11px] font-semibold text-blue-300 hover:text-blue-200 hover:underline"
+              >
+                Full book →
+              </button>
+            }
+          />
           <div className="flex-1 overflow-y-auto ops-scroll">
             <OccurrenceList
               incidents={todayIncidents}
@@ -1147,19 +1239,21 @@ export function OperationsDashboard({
           className="flex-1 min-w-0 flex flex-col bg-[#131a22]"
           data-testid="ops-occurrences-week-panel"
         >
-          <div className="shrink-0 px-3 py-2 border-b border-slate-800/80 flex items-center justify-between">
-            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400 flex items-center gap-1.5">
-              <CalendarRange className="h-3.5 w-3.5 text-slate-500" />
-              This Week
-            </p>
-            <button
-              type="button"
-              onClick={() => onOpenOccurrence(undefined, "week")}
-              className="text-[10px] text-blue-400 hover:underline"
-            >
-              View week →
-            </button>
-          </div>
+          <OpsSectionHeader
+            title="This Week"
+            icon={CalendarRange}
+            tone="slate"
+            testId="ops-occurrences-week-header"
+            right={
+              <button
+                type="button"
+                onClick={() => onOpenOccurrence(undefined, "week")}
+                className="text-[11px] font-semibold text-blue-300 hover:text-blue-200 hover:underline"
+              >
+                View week →
+              </button>
+            }
+          />
           <div className="flex-1 overflow-y-auto ops-scroll">
             <OccurrenceList
               incidents={weekIncidents}
