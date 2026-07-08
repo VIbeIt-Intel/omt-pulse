@@ -591,8 +591,8 @@ export default function CommandDashboard() {
 
   const hasRedLive = visibleLiveIncidents.some((i) => i.severity === "red");
 
-  function openOccurrenceBook(incidentId?: number) {
-    const params = new URLSearchParams({ period });
+  function openOccurrenceBook(incidentId?: number, bookPeriod?: Period) {
+    const params = new URLSearchParams({ period: bookPeriod ?? period });
     if (incidentId != null) params.set("incident", String(incidentId));
     navigate(`/occurrence-book?${params.toString()}`);
   }

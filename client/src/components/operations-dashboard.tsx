@@ -19,6 +19,7 @@ import {
   CheckCircle2,
   Shield,
   History,
+  CalendarRange,
 } from "lucide-react";
 
 type Period = "day" | "week";
@@ -72,7 +73,7 @@ type LiveQueueItem = LiveIncidentMapItem & {
   locationId?: number | null;
 };
 
-type TodayIncidentRow = {
+type OccurrenceRow = {
   id: number;
   incidentDate: string;
   incidentTime: string;
@@ -83,7 +84,14 @@ type TodayIncidentRow = {
   severity: string | null;
   reporterFirstName: string | null;
   reporterLastName: string | null;
+  panicClosedAt?: string | Date | null;
 };
+
+/** True when the incident started as a panic alert (including later reclassified types e.g. Fire). */
+function isPanicOriginated(inc: OccurrenceRow): boolean {
+  if ((inc.categoryName ?? "").toLowerCase().includes("panic")) return true;
+  return inc.panicClosedAt != null && inc.panicClosedAt !== "";
+}
 
 function severityBadgeClass(severity: string | null): string {
   if (severity === "red") return "bg-red-500/20 text-red-300 border-red-500/40";
@@ -112,7 +120,7 @@ function formatStarterName(inc: LiveQueueItem): string | null {
   return name || null;
 }
 
-function formatReporterName(inc: TodayIncidentRow): string {
+function formatReporterName(inc: OccurrenceRow): string {
   const name = [inc.reporterFirstName, inc.reporterLastName].filter(Boolean).join(" ").trim();
   return name || "Unknown reporter";
 }
@@ -132,12 +140,110 @@ function formatClockTime(value: string | Date | null | undefined): string {
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-function formatLoggedTime(inc: TodayIncidentRow): string {
+function formatLoggedTime(inc: OccurrenceRow): string {
   return formatClockTime(inc.createdAt);
 }
 
-function formatOccurrenceTime(inc: TodayIncidentRow): string {
+function formatOccurrenceTime(inc: OccurrenceRow): string {
   return formatClockTime(inc.incidentTime);
+}
+
+function OccurrenceList({
+  incidents,
+  loading,
+  emptyMessage,
+  onOpenOccurrence,
+}: {
+  incidents: OccurrenceRow[];
+  loading: boolean;
+  emptyMessage: string;
+  onOpenOccurrence: (incidentId: number) => void;
+}) {
+  if (loading) {
+    return (
+      <div className="p-3 space-y-2">
+        <Skeleton className="h-12 bg-slate-800" />
+        <Skeleton className="h-12 bg-slate-800" />
+        <Skeleton className="h-12 bg-slate-800" />
+      </div>
+    );
+  }
+  if (incidents.length === 0) {
+    return <p className="text-xs text-slate-600 text-center py-10 px-4">{emptyMessage}</p>;
+  }
+  return (
+    <ul className="divide-y divide-slate-800/80">
+      {incidents.map((inc) => {
+        const panicOriginated = isPanicOriginated(inc);
+        return (
+          <li key={inc.id}>
+            <button
+              type="button"
+              onClick={() => onOpenOccurrence(inc.id)}
+              className={cn(
+                "w-full text-left px-3 py-3 hover:bg-slate-800/50 transition-colors",
+                inc.isLive && "bg-orange-950/15",
+                severityRowAccent(inc.severity, panicOriginated),
+              )}
+              data-testid={`ops-occurrence-row-${inc.id}`}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {panicOriginated && (
+                      <span title="Originated from panic alert">
+                        <Siren
+                          className="h-3.5 w-3.5 text-red-400 shrink-0"
+                          aria-label="Originated from panic"
+                        />
+                      </span>
+                    )}
+                    <p className="font-medium text-sm text-slate-200 truncate">
+                      {inc.categoryName ?? "Uncategorised"}
+                    </p>
+                    {inc.isLive && (
+                      <span className="inline-flex rounded border border-orange-500/40 bg-orange-950/40 px-1 py-0 text-[8px] font-bold uppercase text-orange-300">
+                        Live
+                      </span>
+                    )}
+                    {inc.severity && inc.severity !== "none" && (
+                      <span
+                        className={cn(
+                          "inline-flex rounded border px-1 py-0 text-[8px] font-bold uppercase",
+                          severityBadgeClass(inc.severity),
+                        )}
+                      >
+                        {inc.severity}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-slate-500 mt-0.5">
+                    #{inc.id} · {formatReporterName(inc)}
+                  </p>
+                  {inc.locationName && (
+                    <p className="text-[11px] text-slate-500 truncate mt-0.5 flex items-center gap-1">
+                      <MapPin className="h-3 w-3 shrink-0 text-slate-600" />
+                      {inc.locationName}
+                    </p>
+                  )}
+                </div>
+                <div className="text-[10px] text-slate-500 tabular-nums shrink-0 text-right leading-tight">
+                  <p>
+                    <span className="text-slate-600">Logged</span>{" "}
+                    <span className="text-slate-300">{formatLoggedTime(inc)}</span>
+                  </p>
+                  <p className="mt-0.5">
+                    <span className="text-slate-600">Occurred</span>{" "}
+                    <span>{formatOccurrenceTime(inc)}</span>
+                  </p>
+                </div>
+              </div>
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
 }
 
 type Props = {
@@ -155,7 +261,7 @@ type Props = {
   unreadSenders: string[];
   onOpenChat: () => void;
   onOpenLiveMonitor: (incidentId?: number) => void;
-  onOpenOccurrence: (incidentId?: number) => void;
+  onOpenOccurrence: (incidentId?: number, bookPeriod?: Period) => void;
   onPanic: () => void;
   onStartLive: () => void;
   onReportIncident: () => void;
@@ -244,6 +350,11 @@ export function OperationsDashboard({
   const [lastRefresh, setLastRefresh] = useState(() => new Date());
 
   const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), [clock]);
+  const weekStartStr = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 6);
+    return d.toISOString().slice(0, 10);
+  }, [clock]);
 
   const { data: dayDashboard, isLoading: dayLoading } = useQuery<DashboardData>({
     queryKey: ["/api/dashboard", "day"],
@@ -255,7 +366,7 @@ export function OperationsDashboard({
     refetchInterval: 30_000,
   });
 
-  const { data: allIncidents = [], isLoading: incidentsLoading } = useQuery<TodayIncidentRow[]>({
+  const { data: allIncidents = [], isLoading: incidentsLoading } = useQuery<OccurrenceRow[]>({
     queryKey: ["/api/incidents"],
     queryFn: async () => {
       const res = await fetch("/api/incidents", { credentials: "include" });
@@ -310,6 +421,16 @@ export function OperationsDashboard({
       .filter((inc) => inc.incidentDate === todayStr)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [allIncidents, todayStr]);
+
+  const weekIncidents = useMemo(() => {
+    return allIncidents
+      .filter(
+        (inc) =>
+          inc.incidentDate >= weekStartStr
+          && inc.incidentDate < todayStr,
+      )
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [allIncidents, weekStartStr, todayStr]);
 
   const todayClosed = useMemo(
     () => todayIncidents.filter((inc) => !inc.isLive),
@@ -623,8 +744,8 @@ export function OperationsDashboard({
         </div>
 
         <div
-          className="flex-1 min-w-0 flex flex-col bg-[#131a22]"
-          data-testid="ops-occurrences-panel"
+          className="flex-1 min-w-0 flex flex-col border-r border-slate-800/80 bg-[#131a22]"
+          data-testid="ops-occurrences-today-panel"
         >
           <div className="shrink-0 px-3 py-2 border-b border-slate-800/80 flex items-center justify-between">
             <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400 flex items-center gap-1.5">
@@ -633,90 +754,46 @@ export function OperationsDashboard({
             </p>
             <button
               type="button"
-              onClick={() => onOpenOccurrence()}
+              onClick={() => onOpenOccurrence(undefined, "day")}
               className="text-[10px] text-blue-400 hover:underline"
             >
               Full book →
             </button>
           </div>
           <div className="flex-1 overflow-y-auto ops-scroll">
-            {incidentsLoading ? (
-              <div className="p-3 space-y-2">
-                <Skeleton className="h-12 bg-slate-800" />
-                <Skeleton className="h-12 bg-slate-800" />
-                <Skeleton className="h-12 bg-slate-800" />
-              </div>
-            ) : todayIncidents.length === 0 ? (
-              <p className="text-xs text-slate-600 text-center py-10 px-4">
-                No occurrences logged today yet.
-              </p>
-            ) : (
-              <ul className="divide-y divide-slate-800/80">
-                {todayIncidents.map((inc) => {
-                  const isLive = inc.isLive;
-                  const isPanic = (inc.categoryName ?? "").toLowerCase().includes("panic");
-                  return (
-                    <li key={inc.id}>
-                      <button
-                        type="button"
-                        onClick={() => onOpenOccurrence(inc.id)}
-                        className={cn(
-                          "w-full text-left px-3 py-3 hover:bg-slate-800/50 transition-colors",
-                          isLive && "bg-orange-950/15",
-                          severityRowAccent(inc.severity, isPanic),
-                        )}
-                        data-testid={`ops-occurrence-row-${inc.id}`}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              {isPanic && <Siren className="h-3.5 w-3.5 text-red-400 shrink-0" />}
-                              <p className="font-medium text-sm text-slate-200 truncate">
-                                {inc.categoryName ?? "Uncategorised"}
-                              </p>
-                              {isLive && (
-                                <span className="inline-flex rounded border border-orange-500/40 bg-orange-950/40 px-1 py-0 text-[8px] font-bold uppercase text-orange-300">
-                                  Live
-                                </span>
-                              )}
-                              {inc.severity && inc.severity !== "none" && (
-                                <span
-                                  className={cn(
-                                    "inline-flex rounded border px-1 py-0 text-[8px] font-bold uppercase",
-                                    severityBadgeClass(inc.severity),
-                                  )}
-                                >
-                                  {inc.severity}
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-[10px] text-slate-500 mt-0.5">
-                              #{inc.id} · {formatReporterName(inc)}
-                            </p>
-                            {inc.locationName && (
-                              <p className="text-[11px] text-slate-500 truncate mt-0.5 flex items-center gap-1">
-                                <MapPin className="h-3 w-3 shrink-0 text-slate-600" />
-                                {inc.locationName}
-                              </p>
-                            )}
-                          </div>
-                          <div className="text-[10px] text-slate-500 tabular-nums shrink-0 text-right leading-tight">
-                            <p>
-                              <span className="text-slate-600">Logged</span>{" "}
-                              <span className="text-slate-300">{formatLoggedTime(inc)}</span>
-                            </p>
-                            <p className="mt-0.5">
-                              <span className="text-slate-600">Occurred</span>{" "}
-                              <span>{formatOccurrenceTime(inc)}</span>
-                            </p>
-                          </div>
-                        </div>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
+            <OccurrenceList
+              incidents={todayIncidents}
+              loading={incidentsLoading}
+              emptyMessage="No occurrences logged today yet."
+              onOpenOccurrence={(id) => onOpenOccurrence(id, "day")}
+            />
+          </div>
+        </div>
+
+        <div
+          className="flex-1 min-w-0 flex flex-col bg-[#131a22]"
+          data-testid="ops-occurrences-week-panel"
+        >
+          <div className="shrink-0 px-3 py-2 border-b border-slate-800/80 flex items-center justify-between">
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400 flex items-center gap-1.5">
+              <CalendarRange className="h-3.5 w-3.5 text-slate-500" />
+              This Week
+            </p>
+            <button
+              type="button"
+              onClick={() => onOpenOccurrence(undefined, "week")}
+              className="text-[10px] text-blue-400 hover:underline"
+            >
+              View week →
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto ops-scroll">
+            <OccurrenceList
+              incidents={weekIncidents}
+              loading={incidentsLoading}
+              emptyMessage="No other occurrences this week."
+              onOpenOccurrence={(id) => onOpenOccurrence(id, "week")}
+            />
           </div>
         </div>
       </div>
