@@ -633,6 +633,49 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
+  async getPrimaryLocationForCommand(commandId: number, orgId: string): Promise<Location | undefined> {
+    const [row] = await db
+      .select()
+      .from(locations)
+      .where(and(eq(locations.organizationId, orgId), eq(locations.commandId, commandId)))
+      .orderBy(asc(locations.id))
+      .limit(1);
+    return row;
+  }
+
+  async upsertCommandPrimaryLocation(
+    commandId: number,
+    orgId: string,
+    groupName: string,
+    site: {
+      siteName?: string | null;
+      address?: string | null;
+      latitude?: number | null;
+      longitude?: number | null;
+    },
+  ): Promise<Location | undefined> {
+    const address = site.address?.trim() || null;
+    const latitude = site.latitude ?? null;
+    const longitude = site.longitude ?? null;
+    if (!address && latitude == null && longitude == null) return undefined;
+
+    const name = (site.siteName?.trim() || groupName).trim();
+    const payload = {
+      name: name || groupName,
+      address,
+      latitude,
+      longitude,
+    };
+    const existing = await this.getPrimaryLocationForCommand(commandId, orgId);
+    if (existing) {
+      return this.updateLocation(existing.id, payload, orgId);
+    }
+    return this.createLocation(
+      { ...payload, commandId, color: "#6B7280", icon: "map-pin" },
+      orgId,
+    );
+  }
+
   async updateLocation(id: number, location: Partial<InsertLocation>, orgId: string): Promise<Location | undefined> {
     const [updated] = await db.update(locations).set(location).where(and(eq(locations.id, id), eq(locations.organizationId, orgId))).returning();
     return updated;
@@ -2380,20 +2423,59 @@ export class DatabaseStorage implements IStorage {
   }
 
   // --- Commands ---
-  async getCommands(orgId: string): Promise<Array<Command & { memberCount: number }>> {
+  async getCommands(orgId: string): Promise<Array<Command & {
+    memberCount: number;
+    primarySite: {
+      id: number;
+      name: string;
+      address: string | null;
+      latitude: number | null;
+      longitude: number | null;
+    } | null;
+  }>> {
     const rows = await db.execute<{ id: number; organization_id: string; name: string; is_central: boolean; created_at: Date; member_count: number }>(sql`
       SELECT c.id, c.organization_id, c.name, c.is_central, c.created_at,
              COALESCE((SELECT COUNT(*)::int FROM command_users cu WHERE cu.command_id = c.id), 0) AS member_count
       FROM commands c WHERE c.organization_id = ${orgId} ORDER BY c.is_central DESC, c.name ASC
     `);
-    return rows.rows.map(r => ({
-      id: r.id,
-      organizationId: r.organization_id,
-      name: r.name,
-      isCentral: r.is_central,
-      createdAt: r.created_at,
-      memberCount: Number(r.member_count ?? 0),
-    }));
+    const siteRows = await db
+      .select({
+        id: locations.id,
+        commandId: locations.commandId,
+        name: locations.name,
+        address: locations.address,
+        latitude: locations.latitude,
+        longitude: locations.longitude,
+      })
+      .from(locations)
+      .where(eq(locations.organizationId, orgId))
+      .orderBy(asc(locations.id));
+    const siteByCommand = new Map<number, typeof siteRows[number]>();
+    for (const site of siteRows) {
+      if (site.commandId != null && !siteByCommand.has(site.commandId)) {
+        siteByCommand.set(site.commandId, site);
+      }
+    }
+    return rows.rows.map(r => {
+      const site = siteByCommand.get(r.id);
+      return {
+        id: r.id,
+        organizationId: r.organization_id,
+        name: r.name,
+        isCentral: r.is_central,
+        createdAt: r.created_at,
+        memberCount: Number(r.member_count ?? 0),
+        primarySite: site
+          ? {
+              id: site.id,
+              name: site.name,
+              address: site.address ?? null,
+              latitude: site.latitude ?? null,
+              longitude: site.longitude ?? null,
+            }
+          : null,
+      };
+    });
   }
 
   async getCommand(id: number, orgId: string): Promise<Command | undefined> {

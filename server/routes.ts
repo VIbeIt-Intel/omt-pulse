@@ -1340,7 +1340,22 @@ export async function registerRoutes(
   }
 
   // ── Commands routes ─────────────────────────────────────────────────────────
-  const commandNameSchema = z.object({ name: z.string().min(1).max(120) });
+  const commandSiteSchema = z.object({
+    siteName: z.string().max(120).optional(),
+    address: z.string().max(500).nullable().optional(),
+    latitude: z.number().nullable().optional(),
+    longitude: z.number().nullable().optional(),
+  });
+
+  const createCommandSchema = z.object({
+    name: z.string().min(1).max(120),
+    site: commandSiteSchema.optional(),
+  });
+
+  const patchCommandSchema = z.object({
+    name: z.string().min(1).max(120).optional(),
+    site: commandSiteSchema.optional(),
+  });
 
   app.get("/api/commands", async (req, res) => {
     const orgId = req.currentUser!.organizationId;
@@ -1357,24 +1372,36 @@ export async function registerRoutes(
   });
 
   app.post("/api/commands", requireAdminOrSuperadmin, async (req, res) => {
-    const parsed = commandNameSchema.safeParse(req.body);
+    const parsed = createCommandSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: parsed.error.errors[0].message });
     const orgId = req.currentUser!.organizationId;
     const created = await storage.createCommand({ name: parsed.data.name, isCentral: false }, orgId);
+    if (parsed.data.site) {
+      await storage.upsertCommandPrimaryLocation(created.id, orgId, created.name, parsed.data.site);
+    }
     audit(req.currentUser!.id, orgId, "command.create", `Created Command "${created.name}"`, { entityType: "command", entityId: String(created.id) });
     res.json(created);
   });
 
   app.patch("/api/commands/:id", requireAdminOrSuperadmin, async (req, res) => {
     const id = Number(req.params.id);
-    const parsed = commandNameSchema.safeParse(req.body);
+    const parsed = patchCommandSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: parsed.error.errors[0].message });
     const orgId = req.currentUser!.organizationId;
     const existing = await storage.getCommand(id, orgId);
     if (!existing) return res.status(404).json({ message: "Command not found" });
-    if (existing.isCentral) return res.status(400).json({ message: "Central Command cannot be renamed" });
-    const updated = await storage.updateCommand(id, { name: parsed.data.name }, orgId);
-    audit(req.currentUser!.id, orgId, "command.update", `Renamed Command "${existing.name}" → "${parsed.data.name}"`, { entityType: "command", entityId: String(id) });
+    if (existing.isCentral && parsed.data.name != null) {
+      return res.status(400).json({ message: "Central Command cannot be renamed" });
+    }
+    let updated = existing;
+    if (parsed.data.name != null && !existing.isCentral) {
+      const row = await storage.updateCommand(id, { name: parsed.data.name }, orgId);
+      if (row) updated = row;
+    }
+    if (parsed.data.site) {
+      await storage.upsertCommandPrimaryLocation(id, orgId, updated.name, parsed.data.site);
+    }
+    audit(req.currentUser!.id, orgId, "command.update", `Updated Command "${existing.name}"`, { entityType: "command", entityId: String(id) });
     res.json(updated);
   });
 

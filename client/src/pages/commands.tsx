@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Shield, Plus, Pencil, Trash2, Users as UsersIcon, Star, Eye, ArrowRight, X } from "lucide-react";
+import { Shield, Plus, Pencil, Trash2, Users as UsersIcon, Star, Eye, ArrowRight, X, MapPin } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +16,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import {
+  GroupSiteLocationPicker,
+  emptyGroupSiteLocation,
+  type GroupSiteLocationValue,
+} from "@/components/group-site-location-picker";
 
 type Command = {
   id: number;
@@ -24,6 +29,13 @@ type Command = {
   isCentral: boolean;
   createdAt: string;
   memberCount: number;
+  primarySite?: {
+    id: number;
+    name: string;
+    address: string | null;
+    latitude: number | null;
+    longitude: number | null;
+  } | null;
 };
 
 type OrgUser = {
@@ -37,8 +49,40 @@ type OrgUser = {
 
 type Member = { userId: string; firstName: string; lastName: string; email: string; role: string };
 
-const nameSchema = z.object({ name: z.string().min(1, "Name is required").max(120) });
-type NameForm = z.infer<typeof nameSchema>;
+const siteFormSchema = z.object({
+  siteName: z.string().max(120),
+  address: z.string().max(500),
+  latitude: z.number().nullable(),
+  longitude: z.number().nullable(),
+});
+
+const groupFormSchema = z.object({
+  name: z.string().min(1, "Name is required").max(120),
+  site: siteFormSchema,
+});
+type GroupForm = z.infer<typeof groupFormSchema>;
+
+function sitePayload(site: GroupSiteLocationValue) {
+  if (!site.address.trim() && site.latitude == null && site.longitude == null) return undefined;
+  return {
+    siteName: site.siteName.trim() || undefined,
+    address: site.address.trim() || null,
+    latitude: site.latitude,
+    longitude: site.longitude,
+  };
+}
+
+function siteFromPrimary(
+  primarySite: Command["primarySite"],
+  groupName: string,
+): GroupSiteLocationValue {
+  return {
+    siteName: primarySite?.name ?? groupName,
+    address: primarySite?.address ?? "",
+    latitude: primarySite?.latitude ?? null,
+    longitude: primarySite?.longitude ?? null,
+  };
+}
 
 export default function CommandsPage() {
   const { toast } = useToast();
@@ -50,28 +94,43 @@ export default function CommandsPage() {
 
   const { data: commands = [], isLoading } = useQuery<Command[]>({ queryKey: ["/api/commands"] });
 
-  const createForm = useForm<NameForm>({ resolver: zodResolver(nameSchema), defaultValues: { name: "" } });
-  const editForm = useForm<NameForm>({ resolver: zodResolver(nameSchema), defaultValues: { name: "" } });
+  const createForm = useForm<GroupForm>({
+    resolver: zodResolver(groupFormSchema),
+    defaultValues: { name: "", site: emptyGroupSiteLocation() },
+  });
+  const editForm = useForm<GroupForm>({
+    resolver: zodResolver(groupFormSchema),
+    defaultValues: { name: "", site: emptyGroupSiteLocation() },
+  });
+
+  const createNameWatch = createForm.watch("name");
 
   const createMutation = useMutation({
-    mutationFn: (values: NameForm) => apiRequest("POST", "/api/commands", values),
+    mutationFn: (values: GroupForm) =>
+      apiRequest("POST", "/api/commands", { name: values.name, site: sitePayload(values.site) }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/commands"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/locations"] });
       toast({ title: "Group created" });
       setCreateOpen(false);
-      createForm.reset();
+      createForm.reset({ name: "", site: emptyGroupSiteLocation() });
     },
     onError: (err: Error) => toast({ title: "Could not create", description: err.message, variant: "destructive" }),
   });
 
   const editMutation = useMutation({
-    mutationFn: ({ id, name }: { id: number; name: string }) => apiRequest("PATCH", `/api/commands/${id}`, { name }),
+    mutationFn: ({ id, values, isCentral }: { id: number; values: GroupForm; isCentral: boolean }) =>
+      apiRequest("PATCH", `/api/commands/${id}`, {
+        ...(isCentral ? {} : { name: values.name }),
+        site: sitePayload(values.site),
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/commands"] });
-      toast({ title: "Group renamed" });
+      queryClient.invalidateQueries({ queryKey: ["/api/locations"] });
+      toast({ title: "Group updated" });
       setEditTarget(null);
     },
-    onError: (err: Error) => toast({ title: "Could not rename", description: err.message, variant: "destructive" }),
+    onError: (err: Error) => toast({ title: "Could not update", description: err.message, variant: "destructive" }),
   });
 
   const deleteMutation = useMutation({
@@ -85,7 +144,10 @@ export default function CommandsPage() {
   });
 
   function openEdit(c: Command) {
-    editForm.reset({ name: c.name });
+    editForm.reset({
+      name: c.name,
+      site: siteFromPrimary(c.primarySite, c.name),
+    });
     setEditTarget(c);
   }
 
@@ -179,6 +241,12 @@ export default function CommandsPage() {
                       {c.memberCount} {c.memberCount === 1 ? "member" : "members"}
                     </span>
                   </p>
+                  {c.primarySite?.address && (
+                    <p className="text-xs text-muted-foreground mt-1.5 flex items-start gap-1.5 line-clamp-2">
+                      <MapPin className="h-3 w-3 shrink-0 mt-0.5" />
+                      <span data-testid={`text-command-site-${c.id}`}>{c.primarySite.address}</span>
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -192,28 +260,26 @@ export default function CommandsPage() {
                 >
                   <UsersIcon className="h-3.5 w-3.5 mr-1.5" /> Members
                 </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => openEdit(c)}
+                  aria-label="Edit Group"
+                  data-testid={`button-edit-${c.id}`}
+                >
+                  <Pencil className="h-4 w-4" />
+                </Button>
                 {!c.isCentral && (
-                  <>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={() => openEdit(c)}
-                      aria-label="Rename Group"
-                      data-testid={`button-edit-${c.id}`}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="text-destructive hover:text-destructive"
-                      onClick={() => setDeleteTarget(c)}
-                      aria-label="Delete Group"
-                      data-testid={`button-delete-${c.id}`}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => setDeleteTarget(c)}
+                    aria-label="Delete Group"
+                    data-testid={`button-delete-${c.id}`}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
                 )}
               </div>
             </Card>
@@ -223,14 +289,26 @@ export default function CommandsPage() {
 
       {/* Create dialog */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent data-testid="dialog-create-command">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto" data-testid="dialog-create-command">
           <DialogHeader><DialogTitle>New Group</DialogTitle></DialogHeader>
           <Form {...createForm}>
             <form onSubmit={createForm.handleSubmit((v) => createMutation.mutate(v))} className="space-y-4">
               <FormField control={createForm.control} name="name" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Group name</FormLabel>
-                  <FormControl><Input placeholder="e.g. Alpha Group" {...field} data-testid="input-command-name" /></FormControl>
+                  <FormControl><Input placeholder="e.g. Site A" {...field} data-testid="input-command-name" /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={createForm.control} name="site" render={({ field }) => (
+                <FormItem>
+                  <FormControl>
+                    <GroupSiteLocationPicker
+                      value={field.value}
+                      onChange={field.onChange}
+                      groupNameHint={createNameWatch}
+                    />
+                  </FormControl>
                   <FormMessage />
                 </FormItem>
               )} />
@@ -245,14 +323,38 @@ export default function CommandsPage() {
 
       {/* Edit dialog */}
       <Dialog open={!!editTarget} onOpenChange={(v) => !v && setEditTarget(null)}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Rename Group</DialogTitle></DialogHeader>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editTarget?.isCentral ? "Edit Central Command premises" : "Edit Group"}</DialogTitle>
+          </DialogHeader>
           <Form {...editForm}>
-            <form onSubmit={editForm.handleSubmit((v) => editTarget && editMutation.mutate({ id: editTarget.id, name: v.name }))} className="space-y-4">
+            <form
+              onSubmit={editForm.handleSubmit((v) =>
+                editTarget && editMutation.mutate({ id: editTarget.id, values: v, isCentral: editTarget.isCentral }),
+              )}
+              className="space-y-4"
+            >
               <FormField control={editForm.control} name="name" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Group name</FormLabel>
-                  <FormControl><Input {...field} data-testid="input-edit-command-name" /></FormControl>
+                  <FormControl>
+                    <Input {...field} disabled={editTarget?.isCentral} data-testid="input-edit-command-name" />
+                  </FormControl>
+                  {editTarget?.isCentral && (
+                    <p className="text-xs text-muted-foreground">Central Command cannot be renamed.</p>
+                  )}
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={editForm.control} name="site" render={({ field }) => (
+                <FormItem>
+                  <FormControl>
+                    <GroupSiteLocationPicker
+                      value={field.value}
+                      onChange={field.onChange}
+                      groupNameHint={editForm.watch("name")}
+                    />
+                  </FormControl>
                   <FormMessage />
                 </FormItem>
               )} />
