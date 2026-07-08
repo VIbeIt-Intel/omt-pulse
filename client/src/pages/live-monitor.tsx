@@ -39,7 +39,8 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { GeoLocationSheet, type GeoMapView } from "@/components/incident-location-sheet";
 import { CoordinateLink } from "@/components/coordinate-link";
-import { LiveIncidentsMap } from "@/components/live-incidents-map";
+import { ControlRoomMap } from "@/components/control-room-map";
+import type { Location } from "@shared/schema";
 
 type LiveResponderSummary = {
   id: number;
@@ -188,6 +189,10 @@ export default function LiveMonitorPage() {
 
   const { data: me } = useQuery<{ id: string }>({ queryKey: ["/api/auth/me"] });
 
+  const { data: locations = [] } = useQuery<Location[]>({
+    queryKey: ["/api/locations"],
+  });
+
   const joinMutation = useMutation({
     mutationFn: (id: number) => apiRequest("POST", `/api/incidents/${id}/join-live`, {}),
     onSuccess: async (_, id) => {
@@ -305,17 +310,28 @@ export default function LiveMonitorPage() {
           )}
         </div>
 
-        <div className="order-1 md:order-2 h-[42vh] md:h-auto md:flex-1 min-w-0 relative shrink-0 md:shrink" data-testid="map-live-monitor">
-          <LiveIncidentsMap
+        <div className="order-1 md:order-2 h-[42vh] md:h-auto md:flex-1 min-w-0 relative shrink-0 md:shrink flex flex-col" data-testid="map-live-monitor">
+          <ControlRoomMap
             incidents={liveIncidents}
+            locations={locations}
             highlightId={highlightId}
-            showMapControls
-            className="absolute inset-0"
+            onHighlightId={setHighlightId}
+            showSidePanels
+            darkTheme
+            className="flex-1 min-h-0"
+            testId="map-live-monitor"
             onIncidentMarkerClick={(id) => {
               const inc = liveIncidents.find((i) => i.id === id);
               if (inc && isPanicIncident(inc)) {
                 setHighlightId(id);
                 const el = cardRefs.current.get(id);
+                if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+              }
+            }}
+            onOpenLiveMonitor={(incidentId) => {
+              if (incidentId != null) {
+                setHighlightId(incidentId);
+                const el = cardRefs.current.get(incidentId);
                 if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
               }
             }}

@@ -11,7 +11,7 @@ import { PanicBanner, type PanicAlert } from "@/components/panic-banner";
 import { PanicJoinBanner } from "@/components/panic-join-banner";
 import { LiveIncidentJoinBanner } from "@/components/live-incident-join-banner";
 import { PanicConfirmOverlay } from "@/components/panic-confirm-overlay";
-import { OperationsDashboard } from "@/components/operations-dashboard";
+import { OperationsDashboard, type DashboardUserSummary } from "@/components/operations-dashboard";
 import { useToast } from "@/hooks/use-toast";
 import {
   ClipboardList,
@@ -31,7 +31,7 @@ type DashboardData = {
   totalIncidents: number;
   liveCount: number;
   chartData: Array<{ label: string; count: number }>;
-  users: unknown[];
+  users: DashboardUserSummary[];
 };
 
 type LiveIncidentRow = {
@@ -54,7 +54,10 @@ type LiveIncidentRow = {
   liveStartedAt: string | null;
   responderFirstName: string | null;
   responderLastName: string | null;
-  isEscalated?: boolean;
+  responderArrivedAt: string | null;
+  responderPositionUpdatedAt: string | null;
+  panicAcknowledgedAt?: string | null;
+  isEscalated: boolean;
   responders?: Array<{
     userId: string;
     firstName: string;
