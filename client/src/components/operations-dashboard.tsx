@@ -417,7 +417,7 @@ function OpsSectionHeader({
         </span>
         {title}
       </p>
-      {right}
+      {right ? <div className="min-w-0 shrink">{right}</div> : null}
     </div>
   );
 }
@@ -742,8 +742,6 @@ export function OperationsDashboard({
   );
   const siteMonitorLoading =
     kpiLoading || trackersLoading || assignmentsLoading || commandAssignmentsLoading;
-  const facilityLabel =
-    selectedLocationId == null ? "All sites" : (selectedLocation?.name ?? "Selected site");
   const showGroupSelector =
     !!commandsData && (commandsData.canSeeAll || commandsData.commands.length > 1);
   const activeGroupValue =
@@ -752,6 +750,59 @@ export function OperationsDashboard({
       : activeCommandId == null
         ? ""
         : String(activeCommandId);
+
+  const groupSiteSelectors = (
+    <div className="flex flex-wrap items-center gap-2 justify-end">
+      {showGroupSelector && (
+        <Select
+          value={activeGroupValue}
+          onValueChange={(v) => switchGroupMutation.mutate(v === "all" ? "all" : Number(v))}
+          disabled={switchGroupMutation.isPending}
+        >
+          <SelectTrigger
+            className="w-[min(200px,38vw)] h-8 text-[11px] bg-slate-900/80 border-slate-500/50 text-slate-100"
+            data-testid="ops-group-select"
+          >
+            <div className="flex items-center gap-1.5 truncate">
+              <Network className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
+              <SelectValue placeholder="Select group" />
+            </div>
+          </SelectTrigger>
+          <SelectContent>
+            {commandsData?.canSeeAll && <SelectItem value="all">All Groups</SelectItem>}
+            {commandsData?.commands.map((cmd) => (
+              <SelectItem key={cmd.id} value={String(cmd.id)}>
+                {cmd.name}
+                {cmd.isCentral ? " (Central)" : ""}
+                {cmd.readOnly ? " · read-only" : ""}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+      {groupLocations.length > 0 && (
+        <Select value={selectedFacility} onValueChange={handleFacilityChange}>
+          <SelectTrigger
+            className="w-[min(180px,34vw)] h-8 text-[11px] bg-slate-900/80 border-slate-500/50 text-slate-100"
+            data-testid="ops-facility-select"
+          >
+            <div className="flex items-center gap-1.5 truncate">
+              <Building2 className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+              <SelectValue placeholder="All sites" />
+            </div>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All sites</SelectItem>
+            {groupLocations.map((loc) => (
+              <SelectItem key={loc.id} value={String(loc.id)}>
+                {loc.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+    </div>
+  );
 
   return (
     <div
@@ -845,56 +896,6 @@ export function OperationsDashboard({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 ml-auto">
-          {showGroupSelector && (
-            <Select
-              value={activeGroupValue}
-              onValueChange={(v) => switchGroupMutation.mutate(v === "all" ? "all" : Number(v))}
-              disabled={switchGroupMutation.isPending}
-            >
-              <SelectTrigger
-                className="w-[min(240px,42vw)] h-9 text-xs bg-slate-800 border-slate-600 text-slate-100"
-                data-testid="ops-group-select"
-              >
-                <div className="flex items-center gap-1.5 truncate">
-                  <Network className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
-                  <SelectValue placeholder="Select group" />
-                </div>
-              </SelectTrigger>
-              <SelectContent>
-                {commandsData?.canSeeAll && (
-                  <SelectItem value="all">All Groups</SelectItem>
-                )}
-                {commandsData?.commands.map((cmd) => (
-                  <SelectItem key={cmd.id} value={String(cmd.id)}>
-                    {cmd.name}
-                    {cmd.isCentral ? " (Central)" : ""}
-                    {cmd.readOnly ? " · read-only" : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-          {groupLocations.length > 0 && (
-            <Select value={selectedFacility} onValueChange={handleFacilityChange}>
-              <SelectTrigger
-                className="w-[min(200px,36vw)] h-9 text-xs bg-slate-800 border-slate-600 text-slate-100"
-                data-testid="ops-facility-select"
-              >
-                <div className="flex items-center gap-1.5 truncate">
-                  <Building2 className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                  <SelectValue placeholder="All sites" />
-                </div>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All sites</SelectItem>
-                {groupLocations.map((loc) => (
-                  <SelectItem key={loc.id} value={String(loc.id)}>
-                    {loc.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
           <button
             type="button"
             onClick={onPanic}
@@ -962,25 +963,20 @@ export function OperationsDashboard({
 
       {/* ── Site monitor: team + fleet for selected facility ── */}
       <div
-        className="shrink-0 border-b border-slate-800/80 bg-[#111820]"
+        className="shrink-0 border-b border-slate-800/80 bg-[#111820] flex flex-col min-h-0"
         data-testid="ops-site-monitor"
       >
-        <div className="px-3 py-0 border-b border-slate-700/60 flex items-center justify-end gap-2 bg-[#0f161e]">
-          <p className="mr-auto text-[11px] font-medium text-slate-400 truncate py-2">
-            {groupLabel}
-            {selectedLocationId != null ? ` · ${facilityLabel}` : ""}
-          </p>
-        </div>
         <OpsSectionHeader
           title="Site Monitor"
           icon={Building2}
           tone="blue"
           testId="ops-site-monitor-header"
+          right={groupSiteSelectors}
         />
-        <div className="grid grid-cols-2 gap-px bg-slate-800/40 max-h-[200px] min-h-[140px]">
-          <div className="flex flex-col min-h-0 bg-[#131a22]">
+        <div className="grid grid-cols-2 gap-px bg-slate-800/40 h-[min(320px,34vh)] min-h-[180px] overflow-hidden">
+          <div className="flex flex-col min-h-0 overflow-hidden bg-[#131a22]">
             <OpsSubSectionHeader title="Team" icon={Users} tone="emerald" count={siteTeam.length} />
-            <div className="flex-1 overflow-y-auto ops-scroll">
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain ops-scroll">
               {siteMonitorLoading ? (
                 <div className="p-2 space-y-2">
                   <Skeleton className="h-8 bg-slate-800" />
@@ -1032,9 +1028,9 @@ export function OperationsDashboard({
             </div>
           </div>
 
-          <div className="flex flex-col min-h-0 bg-[#131a22]">
+          <div className="flex flex-col min-h-0 overflow-hidden bg-[#131a22]">
             <OpsSubSectionHeader title="Fleet" icon={Car} tone="blue" count={siteFleet.length} />
-            <div className="flex-1 overflow-y-auto ops-scroll">
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain ops-scroll">
               {siteMonitorLoading ? (
                 <div className="p-2 space-y-2">
                   <Skeleton className="h-8 bg-slate-800" />
