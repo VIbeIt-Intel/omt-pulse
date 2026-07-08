@@ -168,17 +168,30 @@ function formatOccurrenceTime(inc: OccurrenceRow): string {
 }
 
 const OPS_FACILITY_STORAGE_KEY = "ops-selected-facility";
-const TEAM_ONLINE_WINDOW_MS = 30 * 60 * 1000;
+/** Control room treats members as visible only if seen within this window. */
+const TEAM_VISIBLE_MS = 3 * 60 * 1000;
 
-function isTeamMemberOnline(lastSeenAt: string | Date | null | undefined): boolean {
+function isTeamMemberVisible(lastSeenAt: string | Date | null | undefined): boolean {
   if (!lastSeenAt) return false;
-  return Date.now() - new Date(lastSeenAt).getTime() < TEAM_ONLINE_WINDOW_MS;
+  return Date.now() - new Date(lastSeenAt).getTime() < TEAM_VISIBLE_MS;
 }
 
 function teamMemberStatus(user: DashboardUserSummary): "responding" | "available" | "off-duty" {
   if (user.isLive) return "responding";
-  if (isTeamMemberOnline(user.lastSeenAt)) return "available";
+  if (isTeamMemberVisible(user.lastSeenAt)) return "available";
   return "off-duty";
+}
+
+function teamStatusLabel(status: ReturnType<typeof teamMemberStatus>): string {
+  if (status === "responding") return "Responding";
+  if (status === "available") return "Available";
+  return "Off duty";
+}
+
+function teamStatusClass(status: ReturnType<typeof teamMemberStatus>): string {
+  if (status === "responding") return "text-orange-300 font-bold";
+  if (status === "available") return "text-emerald-400 font-semibold";
+  return "text-red-400 font-bold";
 }
 
 function userIdsAtLocation(
@@ -1009,8 +1022,7 @@ export function OperationsDashboard({
                 <ul className="divide-y divide-emerald-900/15">
                   {siteTeam.map((user) => {
                     const status = teamMemberStatus(user);
-                    const statusLabel =
-                      status === "responding" ? "Responding" : status === "available" ? "Available" : "Off duty";
+                    const statusLabel = teamStatusLabel(status);
                     return (
                       <li key={user.id} className="px-3 py-2 hover:bg-emerald-950/20">
                         <div className="flex items-center gap-2 min-w-0">
@@ -1024,7 +1036,9 @@ export function OperationsDashboard({
                             </p>
                             <div className="flex items-center gap-2 mt-0.5">
                               <span className="text-[9px] text-slate-500 capitalize">{user.role}</span>
-                              <span className="text-[9px] font-semibold uppercase text-slate-400">{statusLabel}</span>
+                              <span className={cn("text-[9px] uppercase", teamStatusClass(status))}>
+                                {statusLabel}
+                              </span>
                             </div>
                           </div>
                           {user.isLive && user.liveIncidentId && (
