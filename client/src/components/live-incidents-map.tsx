@@ -36,6 +36,18 @@ export type TrackerMapMarker = {
   motionStatus?: "moving" | "idle" | "offline";
 };
 
+/** Group / site premises shown on control-room and live-monitor maps. */
+export type PremiseMapMarker = {
+  id: string;
+  name: string;
+  groupName?: string | null;
+  address?: string | null;
+  lat: number;
+  lng: number;
+};
+
+export const PREMISE_COVERAGE_RADIUS_M = 2000;
+
 export type LiveIncidentMapResponder = {
   userId: string;
   firstName: string;
@@ -252,6 +264,45 @@ function makeJoinerMarkerIcon(label: string, pendingGps: boolean): google.maps.I
   };
 }
 
+const PREMISE_MAP_COLORS = ["#10b981", "#3b82f6", "#8b5cf6", "#f59e0b", "#ec4899", "#06b6d4"];
+
+function premiseColorForIndex(index: number): string {
+  return PREMISE_MAP_COLORS[index % PREMISE_MAP_COLORS.length];
+}
+
+function makePremiseMarkerIcon(color: string): google.maps.Icon {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="30" height="38" viewBox="0 0 30 38">
+    <path d="M15 0C6.75 0 0 6.75 0 15c0 9.5 15 23 15 23s15-13.5 15-23C30 6.75 23.25 0 15 0z" fill="${color}" stroke="white" stroke-width="2"/>
+    <circle cx="15" cy="15" r="5.5" fill="white" fill-opacity="0.95"/>
+  </svg>`;
+  return {
+    url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
+    scaledSize: new google.maps.Size(26, 33),
+    anchor: new google.maps.Point(13, 33),
+  };
+}
+
+function buildPremiseInfoHtml(premise: PremiseMapMarker, darkTheme: boolean): string {
+  const safeName = premise.name.replace(/[<>&]/g, "");
+  const group = premise.groupName?.replace(/[<>&]/g, "") ?? "";
+  const address = premise.address?.replace(/[<>&]/g, "") ?? "";
+  const radiusKm = (PREMISE_COVERAGE_RADIUS_M / 1000).toFixed(0);
+  if (darkTheme) {
+    return `<div class="omt-map-iw-card" style="background:#0c1220;border:1px solid #2d3a4f;border-radius:10px;padding:11px 13px;min-width:190px;box-shadow:0 10px 28px rgba(0,0,0,0.5);font-family:system-ui,-apple-system,sans-serif;">
+      <p style="margin:0 0 4px;font-size:13px;font-weight:700;color:#f8fafc">${safeName}</p>
+      ${group ? `<p style="margin:0 0 6px;font-size:10px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.06em">${group}</p>` : ""}
+      ${address ? `<p style="margin:0 0 8px;font-size:11px;color:#cbd5e1;line-height:1.35">${address}</p>` : ""}
+      <p style="margin:0;font-size:10px;color:#64748b">${radiusKm} km coverage radius</p>
+    </div>`;
+  }
+  return `<div style="min-width:180px;font-family:system-ui,sans-serif;padding:2px 0">
+    <div style="font-weight:700;font-size:14px;color:#111827">${safeName}</div>
+    ${group ? `<div style="font-size:11px;color:#6b7280;margin-top:2px">${group}</div>` : ""}
+    ${address ? `<div style="font-size:11px;color:#374151;margin-top:4px">${address}</div>` : ""}
+    <div style="font-size:10px;color:#9ca3af;margin-top:6px">${radiusKm} km radius</div>
+  </div>`;
+}
+
 function makeTeamMarkerIcon(firstName: string, lastName: string): google.maps.Icon {
   const initials =
     `${(firstName.charAt(0) || "").toUpperCase()}${(lastName.charAt(0) || "").toUpperCase()}` || "?";
@@ -400,10 +451,13 @@ type Props = {
   incidents: LiveIncidentMapItem[];
   onlineUsers?: OnlineUserMapMarker[];
   trackers?: TrackerMapMarker[];
+  premises?: PremiseMapMarker[];
   highlightId?: number | null;
   highlightTrackerId?: number | null;
+  highlightPremiseId?: string | null;
   onIncidentMarkerClick?: (incidentId: number) => void;
   onTrackerMarkerClick?: (trackerId: number) => void;
+  onPremiseMarkerClick?: (premiseId: string) => void;
   className?: string;
   testId?: string;
   showMapControls?: boolean;
@@ -432,10 +486,13 @@ export function LiveIncidentsMap({
   incidents,
   onlineUsers = [],
   trackers = [],
+  premises = [],
   highlightId,
   highlightTrackerId,
+  highlightPremiseId,
   onIncidentMarkerClick,
   onTrackerMarkerClick,
+  onPremiseMarkerClick,
   className,
   testId = "map-live-incidents",
   showMapControls = false,
@@ -459,6 +516,9 @@ export function LiveIncidentsMap({
   const teamInfoRef = useRef<Map<string, string>>(new Map());
   const vehicleMarkersRef = useRef<Map<number, google.maps.Marker>>(new Map());
   const vehicleInfoRef = useRef<Map<number, string>>(new Map());
+  const premiseCirclesRef = useRef<Map<string, google.maps.Circle>>(new Map());
+  const premiseMarkersRef = useRef<Map<string, google.maps.Marker>>(new Map());
+  const premiseInfoRef = useRef<Map<string, string>>(new Map());
   const infoWindowRef = useRef<google.maps.InfoWindow | null>(null);
   const trafficLayerRef = useRef<google.maps.TrafficLayer | null>(null);
   const lastFitSignatureRef = useRef<string>("");
@@ -537,6 +597,11 @@ export function LiveIncidentsMap({
       teamMarkersRef.current.forEach((m) => m.setMap(null));
       teamMarkersRef.current.clear();
       teamInfoRef.current.clear();
+      premiseCirclesRef.current.forEach((c) => c.setMap(null));
+      premiseCirclesRef.current.clear();
+      premiseMarkersRef.current.forEach((m) => m.setMap(null));
+      premiseMarkersRef.current.clear();
+      premiseInfoRef.current.clear();
       mapInstanceRef.current = null;
     };
   }, [mapsReady]);
@@ -1056,6 +1121,86 @@ export function LiveIncidentsMap({
   }, [trackers, mapsReady, darkTheme, onTrackerMarkerClick]);
 
   useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapsReady) return;
+
+    const circleMap = premiseCirclesRef.current;
+    const markerMap = premiseMarkersRef.current;
+    const infoMap = premiseInfoRef.current;
+    const activeIds = new Set(premises.map((p) => p.id));
+
+    for (const [id, circle] of Array.from(circleMap.entries())) {
+      if (!activeIds.has(id)) {
+        circle.setMap(null);
+        circleMap.delete(id);
+      }
+    }
+    for (const [id, marker] of Array.from(markerMap.entries())) {
+      if (!activeIds.has(id)) {
+        marker.setMap(null);
+        markerMap.delete(id);
+        infoMap.delete(id);
+      }
+    }
+
+    premises.forEach((premise, index) => {
+      const pos = { lat: premise.lat, lng: premise.lng };
+      const color = premiseColorForIndex(index);
+      const html = buildPremiseInfoHtml(premise, darkTheme);
+      infoMap.set(premise.id, html);
+
+      const existingCircle = circleMap.get(premise.id);
+      if (existingCircle) {
+        existingCircle.setCenter(pos);
+        existingCircle.setOptions({
+          strokeColor: color,
+          fillColor: color,
+        });
+      } else {
+        const circle = new google.maps.Circle({
+          map,
+          center: pos,
+          radius: PREMISE_COVERAGE_RADIUS_M,
+          strokeColor: color,
+          strokeOpacity: 0.9,
+          strokeWeight: 2,
+          fillColor: color,
+          fillOpacity: 0.1,
+          clickable: false,
+          zIndex: 4,
+        });
+        circleMap.set(premise.id, circle);
+      }
+
+      const icon = makePremiseMarkerIcon(color);
+      const existingMarker = markerMap.get(premise.id);
+      if (existingMarker) {
+        existingMarker.setPosition(pos);
+        existingMarker.setIcon(icon);
+        existingMarker.setTitle(premise.name);
+      } else {
+        const marker = new google.maps.Marker({
+          position: pos,
+          map,
+          icon,
+          title: premise.name,
+          zIndex: 20,
+        });
+        marker.addListener("click", () => {
+          onPremiseMarkerClick?.(premise.id);
+          const iw = infoWindowRef.current;
+          const content = infoMap.get(premise.id);
+          if (iw && content) {
+            iw.setContent(content);
+            iw.open(map, marker);
+          }
+        });
+        markerMap.set(premise.id, marker);
+      }
+    });
+  }, [premises, mapsReady, darkTheme, onPremiseMarkerClick]);
+
+  useEffect(() => {
     if (highlightId == null) return;
     const map = mapInstanceRef.current;
     const marker = markersRef.current.get(highlightId);
@@ -1078,6 +1223,21 @@ export function LiveIncidentsMap({
       iw.open(map, marker);
     }
   }, [highlightTrackerId, trackers]);
+
+  useEffect(() => {
+    if (highlightPremiseId == null) return;
+    const map = mapInstanceRef.current;
+    const marker = premiseMarkersRef.current.get(highlightPremiseId);
+    if (!map || !marker) return;
+    map.panTo(marker.getPosition()!);
+    if ((map.getZoom() ?? 0) < 12) map.setZoom(12);
+    const iw = infoWindowRef.current;
+    const content = premiseInfoRef.current.get(highlightPremiseId);
+    if (iw && content) {
+      iw.setContent(content);
+      iw.open(map, marker);
+    }
+  }, [highlightPremiseId, premises]);
 
   const resetToDefaultView = () => {
     const map = mapInstanceRef.current;

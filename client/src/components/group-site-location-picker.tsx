@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, MapPin } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Loader2, Map, MapPin } from "lucide-react";
 import { loadGoogleMaps } from "@/lib/google-maps-loader";
 import { cn } from "@/lib/utils";
 
@@ -31,10 +39,24 @@ export function GroupSiteLocationPicker({ value, onChange, groupNameHint = "", d
   const [mapsReady, setMapsReady] = useState(false);
   const [mapsError, setMapsError] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
+  const [mapOpen, setMapOpen] = useState(false);
+  const [mapDraft, setMapDraft] = useState<GroupSiteLocationValue | null>(null);
+  const [mapGeocoding, setMapGeocoding] = useState(false);
 
   const autocompleteRef = useRef<google.maps.places.AutocompleteService | null>(null);
   const geocoderRef = useRef<google.maps.Geocoder | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mapRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<google.maps.Map | null>(null);
+  const markerRef = useRef<google.maps.Marker | null>(null);
+  const mapInitRef = useRef<{ lat: number; lng: number; hasCoords: boolean } | null>(null);
+  const valueRef = useRef(value);
+  const groupNameHintRef = useRef(groupNameHint);
+
+  useEffect(() => {
+    valueRef.current = value;
+    groupNameHintRef.current = groupNameHint;
+  }, [value, groupNameHint]);
 
   useEffect(() => {
     setSearch(value.address);
@@ -106,6 +128,121 @@ export function GroupSiteLocationPicker({ value, onChange, groupNameHint = "", d
     onChange(emptyGroupSiteLocation());
   }
 
+  function openMapDialog() {
+    const hasCoords = value.latitude != null && value.longitude != null;
+    mapInitRef.current = {
+      lat: value.latitude ?? -26.2041,
+      lng: value.longitude ?? 28.0473,
+      hasCoords,
+    };
+    setMapDraft(
+      hasCoords
+        ? { ...value }
+        : {
+            siteName: value.siteName.trim() || groupNameHint.trim(),
+            address: value.address,
+            latitude: null,
+            longitude: null,
+          },
+    );
+    setMapOpen(true);
+  }
+
+  function closeMapDialog() {
+    setMapOpen(false);
+    setMapDraft(null);
+    setMapGeocoding(false);
+  }
+
+  function confirmMapSelection() {
+    if (mapDraft?.latitude != null && mapDraft.longitude != null) {
+      onChange(mapDraft);
+      setSearch(mapDraft.address);
+    }
+    closeMapDialog();
+  }
+
+  useEffect(() => {
+    if (!mapOpen || !mapsReady || !geocoderRef.current) return;
+
+    let cancelled = false;
+    const init = mapInitRef.current ?? { lat: -26.2041, lng: 28.0473, hasCoords: false };
+
+    const timer = window.setTimeout(() => {
+      if (cancelled || !mapRef.current || mapInstanceRef.current) return;
+
+      const map = new google.maps.Map(mapRef.current, {
+        center: { lat: init.lat, lng: init.lng },
+        zoom: init.hasCoords ? 14 : 6,
+        mapTypeControl: true,
+        streetViewControl: false,
+        fullscreenControl: false,
+        gestureHandling: "greedy",
+      });
+      mapInstanceRef.current = map;
+
+      if (init.hasCoords) {
+        markerRef.current = new google.maps.Marker({
+          position: { lat: init.lat, lng: init.lng },
+          map,
+          title: "Site location",
+        });
+      }
+
+      map.addListener("click", (e: google.maps.MapMouseEvent) => {
+        const latLng = e.latLng;
+        if (!latLng || !geocoderRef.current) return;
+        const lat = latLng.lat();
+        const lng = latLng.lng();
+        const position = { lat, lng };
+        if (markerRef.current) {
+          markerRef.current.setPosition(position);
+        } else {
+          markerRef.current = new google.maps.Marker({ position, map, title: "Site location" });
+        }
+        map.setCenter(position);
+        map.setZoom(14);
+        setMapGeocoding(true);
+        geocoderRef.current.geocode({ location: position }, (results, status) => {
+          setMapGeocoding(false);
+          const address =
+            status === google.maps.GeocoderStatus.OK && results?.[0]
+              ? results[0].formatted_address
+              : `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+          const currentValue = valueRef.current;
+          const hint = groupNameHintRef.current;
+          setMapDraft((prev) => ({
+            siteName:
+              prev?.siteName.trim() ||
+              currentValue.siteName.trim() ||
+              hint.trim() ||
+              address.split(",")[0]?.trim() ||
+              "",
+            address,
+            latitude: lat,
+            longitude: lng,
+          }));
+          if (markerRef.current) {
+            markerRef.current.setTitle(address);
+          }
+        });
+      });
+    }, 50);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      if (markerRef.current) {
+        markerRef.current.setMap(null);
+        markerRef.current = null;
+      }
+      if (mapInstanceRef.current) {
+        google.maps.event.clearInstanceListeners(mapInstanceRef.current);
+        mapInstanceRef.current = null;
+      }
+    };
+  }, [mapOpen, mapsReady]);
+
   return (
     <div className="space-y-3 rounded-lg border border-border/80 bg-muted/20 p-3">
       <div className="flex items-center gap-2 text-sm font-medium text-foreground">
@@ -131,9 +268,23 @@ export function GroupSiteLocationPicker({ value, onChange, groupNameHint = "", d
       </div>
 
       <div className="space-y-1.5 relative">
-        <Label htmlFor="group-site-search" className="text-xs">
-          Search address
-        </Label>
+        <div className="flex items-center justify-between gap-2">
+          <Label htmlFor="group-site-search" className="text-xs">
+            Search address
+          </Label>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs shrink-0"
+            disabled={disabled || !mapsReady}
+            onClick={openMapDialog}
+            data-testid="button-group-choose-on-map"
+          >
+            <Map className="h-3.5 w-3.5 mr-1.5" />
+            Choose on map
+          </Button>
+        </div>
         <div className="relative">
           <Input
             id="group-site-search"
@@ -190,6 +341,54 @@ export function GroupSiteLocationPicker({ value, onChange, groupNameHint = "", d
           </button>
         </div>
       )}
+
+      <Dialog open={mapOpen} onOpenChange={(open) => !open && closeMapDialog()}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Choose premises on map</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Click anywhere on the map to place the site pin. The address will be filled automatically.
+            </p>
+            <div
+              ref={mapRef}
+              className="h-[min(55vh,420px)] w-full rounded-md border bg-muted/30"
+              data-testid="group-site-map-picker"
+            />
+            <div className="rounded-md border bg-card/60 px-3 py-2 text-xs space-y-1 min-h-[3rem]">
+              {mapGeocoding ? (
+                <p className="text-muted-foreground flex items-center gap-2">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Looking up address…
+                </p>
+              ) : mapDraft?.latitude != null && mapDraft.longitude != null ? (
+                <>
+                  <p className="font-medium text-foreground">{mapDraft.address}</p>
+                  <p className="text-muted-foreground tabular-nums">
+                    {mapDraft.latitude.toFixed(5)}, {mapDraft.longitude.toFixed(5)}
+                  </p>
+                </>
+              ) : (
+                <p className="text-muted-foreground italic">No pin selected — click the map</p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={closeMapDialog}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={confirmMapSelection}
+              disabled={mapGeocoding || mapDraft?.latitude == null || mapDraft.longitude == null}
+              data-testid="button-confirm-group-map"
+            >
+              Confirm location
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -5,12 +5,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   LiveIncidentsMap,
   SA_MAP_DEFAULT,
+  PREMISE_COVERAGE_RADIUS_M,
   type LiveIncidentMapItem,
   type OnlineUserMapMarker,
+  type PremiseMapMarker,
   type TrackerMapMarker,
 } from "@/components/live-incidents-map";
 import { cn } from "@/lib/utils";
-import { Car, ChevronDown, MapPin, Users } from "lucide-react";
+import { Building2, Car, ChevronDown, MapPin, Users } from "lucide-react";
 import { Link } from "wouter";
 import {
   getVehicleMotionStatus,
@@ -147,6 +149,67 @@ function CollapsibleSection({
   );
 }
 
+type CommandWithSite = {
+  id: number;
+  name: string;
+  primarySite?: {
+    id: number;
+    name: string;
+    address: string | null;
+    latitude: number | null;
+    longitude: number | null;
+  } | null;
+};
+
+function buildPremises(commands: CommandWithSite[], locations: Location[]): PremiseMapMarker[] {
+  const items: PremiseMapMarker[] = [];
+  const seen = new Set<string>();
+
+  for (const cmd of commands) {
+    const site = cmd.primarySite;
+    if (site?.latitude == null || site.longitude == null) continue;
+    const key = `${site.latitude.toFixed(5)},${site.longitude.toFixed(5)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    items.push({
+      id: `cmd-${cmd.id}`,
+      name: site.name,
+      groupName: cmd.name,
+      address: site.address,
+      lat: site.latitude,
+      lng: site.longitude,
+    });
+  }
+
+  for (const loc of locations) {
+    if (loc.latitude == null || loc.longitude == null) continue;
+    const key = `${loc.latitude.toFixed(5)},${loc.longitude.toFixed(5)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    items.push({
+      id: `loc-${loc.id}`,
+      name: loc.name,
+      address: loc.address,
+      lat: loc.latitude,
+      lng: loc.longitude,
+    });
+  }
+
+  return items;
+}
+
+function premiseColorClass(index: number): string {
+  const colors = [
+    "border-emerald-500/40 bg-emerald-950/25",
+    "border-blue-500/40 bg-blue-950/25",
+    "border-violet-500/40 bg-violet-950/25",
+    "border-amber-500/40 bg-amber-950/25",
+    "border-pink-500/40 bg-pink-950/25",
+    "border-cyan-500/40 bg-cyan-950/25",
+  ];
+  return colors[index % colors.length];
+}
+
 const LAYER_LABELS: Record<MapLayerMode, string> = {
   all: "All",
   incidents: "Incidents",
@@ -184,7 +247,18 @@ export function ControlRoomMap({
   const [highlightTrackerId, setHighlightTrackerId] = useState<number | null>(null);
   const [teamPanelOpen, setTeamPanelOpen] = useState(true);
   const [fleetPanelOpen, setFleetPanelOpen] = useState(true);
+  const [premisesPanelOpen, setPremisesPanelOpen] = useState(true);
+  const [highlightPremiseId, setHighlightPremiseId] = useState<string | null>(null);
   const [responderFilter, setResponderFilter] = useState<ResponderFilter>("all");
+
+  const { data: commands = [] } = useQuery<CommandWithSite[]>({
+    queryKey: ["/api/commands"],
+  });
+
+  const premises = useMemo(
+    () => buildPremises(commands, locations),
+    [commands, locations],
+  );
 
   const highlightId = highlightIdProp ?? highlightIdInternal;
   const setHighlightId = (id: number | null) => {
@@ -309,13 +383,16 @@ export function ControlRoomMap({
           incidents={mapIncidents}
           onlineUsers={onlineMapUsers}
           trackers={trackerMapMarkers}
+          premises={premises}
           highlightId={highlightId}
           highlightTrackerId={highlightTrackerId}
+          highlightPremiseId={highlightPremiseId}
           onIncidentMarkerClick={(id) => {
             setHighlightId(id);
             onIncidentMarkerClick?.(id);
           }}
           onTrackerMarkerClick={setHighlightTrackerId}
+          onPremiseMarkerClick={setHighlightPremiseId}
           className="absolute inset-0"
           testId={testId}
           darkTheme={darkTheme}
@@ -329,6 +406,69 @@ export function ControlRoomMap({
           className="w-[24%] min-w-[200px] max-w-xs flex flex-col min-h-0 border-l border-slate-800/80 bg-[#131a22] shrink-0"
           data-testid="control-room-side-panel"
         >
+          <CollapsibleSection
+            title="Premises"
+            icon={Building2}
+            accentClass="bg-violet-950/30"
+            borderClass="border-violet-900/25"
+            count={premises.length > 0 ? String(premises.length) : undefined}
+            open={premisesPanelOpen}
+            onToggle={() => setPremisesPanelOpen((v) => !v)}
+            manageHref="/commands"
+            testId="control-room-premises-panel"
+          >
+            <div className="flex-1 overflow-y-auto ops-scroll max-h-40">
+              {premises.length === 0 ? (
+                <p className="text-xs text-slate-600 text-center py-6 px-3">
+                  No premises pinned yet. Add locations in Groups.
+                </p>
+              ) : (
+                <ul className="divide-y divide-violet-900/15">
+                  {premises.map((premise, index) => (
+                    <li key={premise.id}>
+                      <button
+                        type="button"
+                        onClick={() => setHighlightPremiseId(premise.id)}
+                        className={cn(
+                          "w-full text-left px-3 py-2.5 hover:bg-violet-950/25 transition-colors",
+                          highlightPremiseId === premise.id && "bg-violet-950/35",
+                        )}
+                        data-testid={`premise-row-${premise.id}`}
+                      >
+                        <div className="flex items-start gap-2">
+                          <div
+                            className={cn(
+                              "mt-0.5 h-7 w-7 shrink-0 rounded-md border flex items-center justify-center",
+                              premiseColorClass(index),
+                            )}
+                          >
+                            <MapPin className="h-3.5 w-3.5 text-violet-300" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium text-slate-200 truncate">{premise.name}</p>
+                            {premise.groupName && (
+                              <p className="text-[10px] text-violet-400/90 font-semibold uppercase tracking-wide truncate">
+                                {premise.groupName}
+                              </p>
+                            )}
+                            {premise.address && (
+                              <p className="text-[10px] text-slate-500 mt-0.5 line-clamp-2 leading-snug">
+                                {premise.address}
+                              </p>
+                            )}
+                            <p className="text-[9px] text-slate-600 mt-1">
+                              {PREMISE_COVERAGE_RADIUS_M / 1000} km radius on map
+                            </p>
+                          </div>
+                        </div>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </CollapsibleSection>
+
           <CollapsibleSection
             title="Fleet"
             icon={Car}
