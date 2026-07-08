@@ -2200,6 +2200,8 @@ export async function registerRoutes(
       if (assigned.length > 0) restrictToLocationIds = assigned;
     }
     const incidentList = await storage.getIncidents(orgId, restrictToLocationIds, commandFilter);
+    const categories = await storage.getCategories(orgId, commandFilter);
+    const categoryNameById = new Map(categories.map((c) => [c.id, c.name]));
     const attachmentCounts = await storage.getAttachmentCountsByOrg(orgId);
     // Batch-resolve closer names from closedByUserId FKs
     const closerIds = [...new Set(incidentList.map(inc => (inc as any).closedByUserId).filter(Boolean))] as string[];
@@ -2222,6 +2224,7 @@ export async function registerRoutes(
     const incidentsWithCounts = incidentList.map(inc => ({
       ...inc,
       attachmentCount: attachmentCounts[inc.id] || 0,
+      categoryName: inc.categoryId != null ? (categoryNameById.get(inc.categoryId) ?? null) : null,
       closedByName: closerMap[(inc as any).closedByUserId] ?? null,
       reporterFirstName: inc.userId ? (reporterMap[inc.userId]?.firstName ?? null) : null,
       reporterLastName: inc.userId ? (reporterMap[inc.userId]?.lastName ?? null) : null,

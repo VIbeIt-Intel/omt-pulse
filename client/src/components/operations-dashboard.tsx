@@ -76,6 +76,7 @@ type TodayIncidentRow = {
   id: number;
   incidentDate: string;
   incidentTime: string;
+  createdAt: string | Date;
   isLive: boolean;
   categoryName: string | null;
   locationName: string | null;
@@ -116,13 +117,27 @@ function formatReporterName(inc: TodayIncidentRow): string {
   return name || "Unknown reporter";
 }
 
-function formatIncidentTime(inc: TodayIncidentRow): string {
-  if (!inc.incidentTime) return "—";
-  const [h, m] = inc.incidentTime.split(":");
-  if (h == null || m == null) return inc.incidentTime;
+function formatClockTime(value: string | Date | null | undefined): string {
+  if (!value) return "—";
+  if (value instanceof Date) {
+    return value.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+  if (value.includes("T")) {
+    return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+  const [h, m] = value.split(":");
+  if (h == null || m == null) return value;
   const d = new Date();
   d.setHours(parseInt(h, 10), parseInt(m, 10), 0, 0);
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatLoggedTime(inc: TodayIncidentRow): string {
+  return formatClockTime(inc.createdAt);
+}
+
+function formatOccurrenceTime(inc: TodayIncidentRow): string {
+  return formatClockTime(inc.incidentTime);
 }
 
 type Props = {
@@ -293,11 +308,7 @@ export function OperationsDashboard({
   const todayIncidents = useMemo(() => {
     return allIncidents
       .filter((inc) => inc.incidentDate === todayStr)
-      .sort((a, b) => {
-        const ta = `${a.incidentDate}T${a.incidentTime ?? "00:00"}`;
-        const tb = `${b.incidentDate}T${b.incidentTime ?? "00:00"}`;
-        return tb.localeCompare(ta);
-      });
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [allIncidents, todayStr]);
 
   const todayClosed = useMemo(
@@ -659,8 +670,9 @@ export function OperationsDashboard({
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-1.5 flex-wrap">
+                              {isPanic && <Siren className="h-3.5 w-3.5 text-red-400 shrink-0" />}
                               <p className="font-medium text-sm text-slate-200 truncate">
-                                {inc.categoryName ?? "Incident"}
+                                {inc.categoryName ?? "Uncategorised"}
                               </p>
                               {isLive && (
                                 <span className="inline-flex rounded border border-orange-500/40 bg-orange-950/40 px-1 py-0 text-[8px] font-bold uppercase text-orange-300">
@@ -688,9 +700,16 @@ export function OperationsDashboard({
                               </p>
                             )}
                           </div>
-                          <span className="text-[10px] text-slate-500 tabular-nums shrink-0">
-                            {formatIncidentTime(inc)}
-                          </span>
+                          <div className="text-[10px] text-slate-500 tabular-nums shrink-0 text-right leading-tight">
+                            <p>
+                              <span className="text-slate-600">Logged</span>{" "}
+                              <span className="text-slate-300">{formatLoggedTime(inc)}</span>
+                            </p>
+                            <p className="mt-0.5">
+                              <span className="text-slate-600">Occurred</span>{" "}
+                              <span>{formatOccurrenceTime(inc)}</span>
+                            </p>
+                          </div>
                         </div>
                       </button>
                     </li>
