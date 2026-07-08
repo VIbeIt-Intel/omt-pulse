@@ -3,7 +3,7 @@
  * Ported from https://github.com/yushulx/south-africa-driving-license (MIT).
  */
 
-import { isValidSaIdNumber } from "./parse-sa-licence-front";
+import { isPlausibleSaIdBirthDate, isValidSaIdNumber } from "./parse-sa-licence-front";
 
 const V1 = [0x01, 0xe1, 0x02, 0x45] as const;
 const V2 = [0x01, 0x9b, 0x09, 0x45] as const;
@@ -208,7 +208,8 @@ function decryptSadlData(data: Uint8Array): Uint8Array {
   const key128 = rsaKeyFor(isV2 ? PK_V2_128 : PK_V1_128, isV2 ? "v2_128" : "v1_128");
   const key74 = rsaKeyFor(isV2 ? PK_V2_74 : PK_V1_74, isV2 ? "v2_74" : "v1_74");
 
-  const all = new Uint8Array(684);
+  // 5×128-byte blocks + 1×74-byte block = 714 bytes plaintext (see yushulx/sadl reference).
+  const all = new Uint8Array(714);
   let offset = 0;
   let start = 6;
 
@@ -387,21 +388,86 @@ function parseSadlDecrypted(data: Uint8Array): SaDriversLicence {
   };
 }
 
+export type ParseSaDriversLicenceOptions = {
+  /**
+   * When true (default), require a Luhn-valid ID — used by the image-decode pipeline
+   * where false-positive headers from partial crops are common.
+   * Hardware scanner / Binary Eye paths pass strictIdCheck: false after the strict pass.
+   */
+  strictIdCheck?: boolean;
+};
+
+function isPlausibleDecryptedLicence(dl: SaDriversLicence): boolean {
+  if (!/^\d{13}$/.test(dl.idNumber)) return false;
+  if (!isPlausibleSaIdBirthDate(dl.idNumber)) return false;
+  if ((dl.surname.replace(/[^A-Za-z]/g, "") || "").length < 2) return false;
+  if ((dl.initials.replace(/[^A-Za-z]/g, "") || "").length < 1) return false;
+  return true;
+}
+
+export type SadlParseDiagnosis = {
+  ok: boolean;
+  headerOk: boolean;
+  decryptOk: boolean;
+  parseOk: boolean;
+  luhnOk?: boolean;
+  plausibleOk?: boolean;
+  idNumber?: string;
+  surname?: string;
+  error?: string;
+};
+
+/** Inspect why a 720-byte SADL payload failed to parse (for server logs). */
+export function diagnoseSadlParseFailure(bytes: Uint8Array): SadlParseDiagnosis {
+  const headerOk = bytes.length === 720 && isSadlEncryptedPayload(bytes);
+  if (!headerOk) {
+    return { ok: false, headerOk: false, decryptOk: false, parseOk: false };
+  }
+  try {
+    const dl = parseSadlDecrypted(decryptSadlData(bytes));
+    const luhnOk = isValidSaIdNumber(dl.idNumber);
+    const plausibleOk = isPlausibleDecryptedLicence(dl);
+    return {
+      ok: luhnOk,
+      headerOk: true,
+      decryptOk: true,
+      parseOk: true,
+      luhnOk,
+      plausibleOk,
+      idNumber: dl.idNumber,
+      surname: dl.surname,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      headerOk: true,
+      decryptOk: false,
+      parseOk: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
 export function parseSaDriversLicenceBytes(
   bytes: Uint8Array,
   encrypted = true,
+  options?: ParseSaDriversLicenceOptions,
 ): SaDriversLicence | null {
+  const strictIdCheck = options?.strictIdCheck !== false;
   if (encrypted && bytes.length !== 720) return null;
   if (encrypted && !isSadlEncryptedPayload(bytes)) return null;
 
   try {
     const payload = encrypted ? decryptSadlData(bytes) : bytes;
     const dl = parseSadlDecrypted(payload);
-    // A corrupted photo/barcode read can still pass the coarse 4-byte header check but
-    // decrypt to garbage. Require a Luhn-valid 13-digit ID before trusting the result —
-    // this is what lets the image-decode pipeline keep trying other crops instead of
-    // silently returning a wrong ID number.
-    if (encrypted && !isValidSaIdNumber(dl.idNumber)) return null;
+    if (encrypted) {
+      if (strictIdCheck) {
+        // Image crops can match the 4-byte header but decrypt to garbage — Luhn filters those.
+        if (!isValidSaIdNumber(dl.idNumber)) return null;
+      } else if (!isPlausibleDecryptedLicence(dl)) {
+        return null;
+      }
+    }
     return dl;
   } catch {
     return null;
