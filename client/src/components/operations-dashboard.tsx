@@ -691,19 +691,6 @@ export function OperationsDashboard({
   const visiblePanics = panicAlerts.filter(
     (a) => !dismissedPanicIds.has(a.id) && !a.panicClosedAt,
   );
-  const panicsToday = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
-    return panicAlerts.filter((a) => {
-      const d = new Date(a.createdAt).toISOString().slice(0, 10);
-      return d === today;
-    }).length;
-  }, [panicAlerts]);
-
-  const liveCount = liveIncidents.length;
-  const hasRedLive = liveIncidents.some((i) => i.severity === "red");
-  const hasActive = liveCount > 0 || visiblePanics.length > 0;
-  const isCritical = visiblePanics.length > 0 || hasRedLive;
-
   const kpiSource = dayDashboard ?? dashboardData;
   const kpiLoading = dayLoading || dashboardLoading;
 
@@ -712,6 +699,18 @@ export function OperationsDashboard({
       .filter((inc) => inc.incidentDate === todayStr)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [allIncidents, todayStr]);
+
+  // Count panic-origin incidents logged today (includes closed/reclassified e.g. Fire after panic).
+  // Do not use /api/panic/recent — that endpoint only returns the last 30 minutes for live banners.
+  const panicsToday = useMemo(
+    () => todayIncidents.filter(isPanicOriginated).length,
+    [todayIncidents],
+  );
+
+  const liveCount = liveIncidents.length;
+  const hasRedLive = liveIncidents.some((i) => i.severity === "red");
+  const hasActive = liveCount > 0 || visiblePanics.length > 0;
+  const isCritical = visiblePanics.length > 0 || hasRedLive;
 
   const weekIncidents = useMemo(() => {
     return allIncidents
