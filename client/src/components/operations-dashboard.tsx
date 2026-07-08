@@ -170,6 +170,32 @@ function formatOccurrenceTime(inc: OccurrenceRow): string {
 const OPS_FACILITY_STORAGE_KEY = "ops-selected-facility";
 /** Control room treats members as visible only if seen within this window. */
 const TEAM_VISIBLE_MS = 3 * 60 * 1000;
+const TEAM_STALE_ACTIVITY_MS = 4 * 60 * 60 * 1000;
+
+function teamLastActivityAt(user: DashboardUserSummary): Date | null {
+  const stamps = [user.lastSeenAt, user.lastPositionAt]
+    .filter((v): v is string | Date => v != null && v !== "")
+    .map((v) => new Date(v).getTime())
+    .filter((t) => Number.isFinite(t));
+  if (stamps.length === 0) return null;
+  return new Date(Math.max(...stamps));
+}
+
+function formatTeamLastActivity(lastAt: Date | null): string {
+  if (!lastAt) return "No activity";
+  const secs = Math.max(0, Math.round((Date.now() - lastAt.getTime()) / 1000));
+  if (secs < 60) return "Just now";
+  if (secs < 3600) return `${Math.round(secs / 60)}m ago`;
+  if (secs < 86400) return `${Math.round(secs / 3600)}h ago`;
+  return `${Math.round(secs / 86400)}d ago`;
+}
+
+function isTeamActivityStale(user: DashboardUserSummary): boolean {
+  if (user.isLive) return false;
+  const lastAt = teamLastActivityAt(user);
+  if (!lastAt) return true;
+  return Date.now() - lastAt.getTime() > TEAM_STALE_ACTIVITY_MS;
+}
 
 function isTeamMemberVisible(lastSeenAt: string | Date | null | undefined): boolean {
   if (!lastSeenAt) return false;
@@ -1006,6 +1032,12 @@ export function OperationsDashboard({
         <div className="grid grid-cols-2 gap-px bg-slate-800/40 h-[min(320px,34vh)] min-h-[180px] overflow-hidden">
           <div className="flex flex-col min-h-0 overflow-hidden bg-[#131a22]">
             <OpsSubSectionHeader title="Team" icon={Users} tone="emerald" count={siteTeam.length} />
+            {!siteMonitorLoading && siteTeam.length > 0 && (
+              <div className="shrink-0 px-3 py-1 border-b border-emerald-900/15 flex items-center text-[9px] font-semibold uppercase tracking-wide text-slate-500">
+                <span className="flex-1">Member</span>
+                <span className="shrink-0 w-[76px] text-right">Last activity</span>
+              </div>
+            )}
             <div className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain ops-scroll">
               {siteMonitorLoading ? (
                 <div className="p-2 space-y-2">
@@ -1023,6 +1055,9 @@ export function OperationsDashboard({
                   {siteTeam.map((user) => {
                     const status = teamMemberStatus(user);
                     const statusLabel = teamStatusLabel(status);
+                    const lastActivityAt = teamLastActivityAt(user);
+                    const activityLabel = user.isLive ? "Live now" : formatTeamLastActivity(lastActivityAt);
+                    const activityStale = isTeamActivityStale(user);
                     return (
                       <li key={user.id} className="px-3 py-2 hover:bg-emerald-950/20">
                         <div className="flex items-center gap-2 min-w-0">
@@ -1040,6 +1075,25 @@ export function OperationsDashboard({
                                 {statusLabel}
                               </span>
                             </div>
+                          </div>
+                          <div className="shrink-0 w-[76px] text-right">
+                            <p
+                              className={cn(
+                                "text-[10px] tabular-nums leading-tight",
+                                user.isLive
+                                  ? "text-orange-300 font-semibold"
+                                  : activityStale
+                                    ? "text-red-400 font-bold"
+                                    : "text-slate-400",
+                              )}
+                            >
+                              {activityLabel}
+                            </p>
+                            {activityStale && !user.isLive && (
+                              <p className="text-[8px] font-bold uppercase text-red-400/90 mt-0.5 leading-none">
+                                4h+ idle
+                              </p>
+                            )}
                           </div>
                           {user.isLive && user.liveIncidentId && (
                             <button
