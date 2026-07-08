@@ -155,6 +155,53 @@ const JOINED_INCIDENT_KEY = "omt_joined_incident_id";
 const ARRIVAL_QUEUE_KEY = "omt_arrival_queue";
 const ARRIVAL_FORM_SESSION_KEY = "omt_arrival_form_session";
 const NAV_STARTED_KEY = "omt_nav_started";
+/** Debounce before clearing joiner state when the live list momentarily omits the incident. */
+const JOINER_MISSING_RESET_MS = 3000;
+
+type ArrivalMedia = { id: string; url: string; filename: string; mimeType: string };
+
+type ArrivalFormDraft = {
+  incidentId: number;
+  arrivalTime?: string;
+  description?: string;
+  categoryId?: number | null;
+  otherType?: string;
+  media?: ArrivalMedia[];
+  blobMedia?: Array<{ id: string; filename: string; mimeType: string; dataBase64: string }>;
+};
+
+function readArrivalFormDraft(): ArrivalFormDraft | null {
+  try {
+    const raw = sessionStorage.getItem(ARRIVAL_FORM_SESSION_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as ArrivalFormDraft;
+  } catch {
+    return null;
+  }
+}
+
+function clearArrivalFormSession(): void {
+  try { sessionStorage.removeItem(ARRIVAL_FORM_SESSION_KEY); } catch { /* ignore */ }
+}
+
+function isArrivalFormSessionActive(incidentId?: number | null): boolean {
+  const draft = readArrivalFormDraft();
+  if (!draft) return false;
+  if (incidentId != null && draft.incidentId !== incidentId) return false;
+  return true;
+}
+
+async function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      resolve(result.split(",")[1] ?? "");
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
 // Accuracy thresholds for PATCH sends:
 //   First send (or stale >60 s): accept anything under 500 m — get SOMETHING to admin quickly
 //   Ongoing: only accept under 200 m — avoids spamming with cell-tower approximations
@@ -162,7 +209,6 @@ const GPS_ACCURACY_FIRST = 500;    // metres
 const GPS_ACCURACY_ONGOING = 200;  // metres
 
 type PlaceSuggestion = { place_id: string; description: string };
-type ArrivalMedia = { id: string; url: string; filename: string; mimeType: string };
 const MAX_ARRIVAL_MEDIA = 5;
 const MAX_MEDIA_BYTES = 10 * 1024 * 1024; // 10 MB per item
 
@@ -568,6 +614,8 @@ export default function LiveIncidentPage() {
   const lastHeadingRef = useRef<number | null>(null); // last valid GPS heading — persisted through brief null gaps (e.g. mid-turn)
   const arrivalCameraRef = useRef<HTMLInputElement>(null);
   const arrivalUploadRef = useRef<HTMLInputElement>(null);
+  const showArrivalFormRef = useRef(false);
+  const arrivalDraftRestoredRef = useRef<number | null>(null);
   // Holds offline image blobs or in-memory audio blobs.
   // Never persisted to localStorage; lost if the app is closed before upload.
   // Keyed by stable item ID — immune to array mutations such as removes or concurrent adds
@@ -670,6 +718,12 @@ export default function LiveIncidentPage() {
 
   // Arrival form state
   const [showArrivalForm, setShowArrivalForm] = useState(false);
+  useEffect(() => { showArrivalFormRef.current = showArrivalForm; }, [showArrivalForm]);
+
+  function isArrivalFormInProgress(incidentId?: number | null): boolean {
+    if (showArrivalFormRef.current) return true;
+    return isArrivalFormSessionActive(incidentId);
+  }
   const [sessionClosing, setSessionClosing] = useState(false);
   const [arrivalCategoryId, setArrivalCategoryId] = useState<number | null>(null);
   const [arrivalOtherType, setArrivalOtherType] = useState("");
@@ -787,14 +841,10 @@ export default function LiveIncidentPage() {
     && !navStarted
     && !(currentIncident?.categoryName ?? "").toLowerCase().includes("panic");
 
-  // Fresh live-incident join (notification prompt): skip field-view buttons — go straight to guided nav.
+  // After join confirm: start turn-by-turn when destination/map are ready (panic + live).
   useEffect(() => {
     if (!autoNavAfterJoinRef.current) return;
     if (!joinedId || !isJoinerMode || !currentIncident) return;
-    if ((currentIncident.categoryName ?? "").toLowerCase().includes("panic")) {
-      autoNavAfterJoinRef.current = false;
-      return;
-    }
     if (!joinerNavDestination) return;
     const mapActuallyReady = isNative ? nativeMapStatus === "ready" : mapsReady;
     if (!mapActuallyReady) return;
@@ -1241,19 +1291,17 @@ export default function LiveIncidentPage() {
       const speedMs = pos.coords.speed;
       setSpeedKmh(speedMs != null && speedMs >= 0 ? Math.round(speedMs * 3.6) : null);
 
-      // --- BULLETPROOF PANIC GUARD ---
-      // Panic incidents set destinationLat/Lng to the panicker's own coords.
-      // We must NEVER trigger arrival logic (speech, UI, or server push) for them.
+      // Panic destination is the panicker's GPS — block arrival UI for the panicker
+      // (they are always "at" their own coords). Responders who joined must still
+      // get the 150 m "I've Arrived" banner like other live incidents.
       const catName = (currentIncident?.categoryName ?? "").toLowerCase();
       const isPanic = catName.includes("panic");
-      console.log("[ARRIVAL] isPanicIncident =", isPanic, "categoryName =", currentIncident?.categoryName);
-      if (isPanic) {
-        console.log("[ARRIVAL] Panic detected — blocking arrival notification/push entirely");
+      const isJoinerTracking = gpsEndpointRef.current === "joiner-position";
+      const blockArrivalProximity = isPanic && !isJoinerTracking;
+      if (blockArrivalProximity) {
         setIsNearDestination(false);
-        // Do NOT null destPositionRef here — it is still needed for route rerouting in nav mode.
-        // Arrival logic is already suppressed via isPanicIncidentRef.current in the else-if below.
         arrivedAnnouncedRef.current = false;
-      } else if (destPositionRef.current && !isPanicIncidentRef.current) {
+      } else if (destPositionRef.current) {
         const distM = haversineM(p, destPositionRef.current);
         setDistToDestinationM(distM);
         setIsNearDestination(distM <= NAV_ARRIVAL_AT_SCENE_M);
@@ -1380,6 +1428,12 @@ export default function LiveIncidentPage() {
           setPatchState(`fail:${res.status}`);
           console.warn(`[GPS] PATCH HTTP ${res.status} for incident ${incidentId} — clearing stale tracking session`);
           if (endpoint === "joiner-position") {
+            // Camera / app-switch can produce transient 403s while the user is
+            // still drafting on-scene evidence — never wipe the arrival form.
+            if (isArrivalFormInProgress(incidentId)) {
+              console.warn(`[GPS] PATCH ${res.status} suppressed — arrival form in progress`);
+              return;
+            }
             resetAfterLeave();
             toast({
               title: "Joiner session ended",
@@ -1476,40 +1530,133 @@ export default function LiveIncidentPage() {
         void queryClient.refetchQueries({ queryKey: ["/api/incidents/live"] });
       }
       // Camera / gallery on Android can reload the WebView — restore arrival form.
-      if (currentIncidentId !== null) {
-        try {
-          const raw = sessionStorage.getItem(ARRIVAL_FORM_SESSION_KEY);
-          if (raw) {
-            const parsed = JSON.parse(raw) as { incidentId: number; arrivalTime?: string };
-            if (parsed.incidentId === currentIncidentId) {
-              if (parsed.arrivalTime) arrivalTimeRef.current = new Date(parsed.arrivalTime);
-              setShowArrivalForm(true);
-            }
-          }
-        } catch { /* ignore */ }
+      if (currentIncidentId !== null && isArrivalFormSessionActive(currentIncidentId)) {
+        restoreArrivalFormFromSession(currentIncidentId);
+        void persistArrivalFormDraftFull();
       }
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [active?.id, joinedIncident?.id, currentIncidentId, queryClient]);
 
+  function restoreArrivalFormFromSession(incidentId: number) {
+    const draft = readArrivalFormDraft();
+    if (!draft || draft.incidentId !== incidentId) {
+      if (draft && draft.incidentId !== incidentId) clearArrivalFormSession();
+      return;
+    }
+    if (draft.arrivalTime) arrivalTimeRef.current = new Date(draft.arrivalTime);
+    if (draft.description != null) setArrivalDescription(draft.description);
+    if (draft.categoryId !== undefined) setArrivalCategoryId(draft.categoryId);
+    if (draft.otherType != null) setArrivalOtherType(draft.otherType);
+    // Re-enter joiner mode if WebView reload cleared in-memory state but draft remains.
+    if (liveId === null && joinedId !== incidentId) {
+      setJoinedId(incidentId);
+      try { localStorage.setItem(JOINED_INCIDENT_KEY, String(incidentId)); } catch { /* ignore */ }
+    }
+    const restoredMedia: ArrivalMedia[] = [];
+    for (const item of draft.media ?? []) {
+      if (!item.url.startsWith("blob:")) restoredMedia.push(item);
+    }
+    for (const item of draft.blobMedia ?? []) {
+      try {
+        const binary = atob(item.dataBase64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        const blob = new Blob([bytes], { type: item.mimeType });
+        arrivalMediaBlobsRef.current.set(item.id, { blob, filename: item.filename, mimeType: item.mimeType });
+        restoredMedia.push({
+          id: item.id,
+          url: URL.createObjectURL(blob),
+          filename: item.filename,
+          mimeType: item.mimeType,
+        });
+      } catch { /* skip corrupt blob */ }
+    }
+    if (restoredMedia.length > 0) {
+      setArrivalMedia((prev) => {
+        const ids = new Set(prev.map((m) => m.id));
+        const merged = [...prev];
+        for (const item of restoredMedia) {
+          if (!ids.has(item.id)) merged.push(item);
+        }
+        return merged;
+      });
+    }
+    setShowArrivalForm(true);
+  }
+
+  function persistArrivalFormDraftLight() {
+    if (currentIncidentId === null) return;
+    try {
+      const persistedMedia = arrivalMedia
+        .filter((m) => !m.url.startsWith("blob:"))
+        .map(({ id, url, filename, mimeType }) => ({ id, url, filename, mimeType }));
+      const existing = readArrivalFormDraft();
+      sessionStorage.setItem(
+        ARRIVAL_FORM_SESSION_KEY,
+        JSON.stringify({
+          incidentId: currentIncidentId,
+          arrivalTime: arrivalTimeRef.current.toISOString(),
+          description: arrivalDescription,
+          categoryId: arrivalCategoryId,
+          otherType: arrivalOtherType,
+          media: persistedMedia,
+          blobMedia: existing?.incidentId === currentIncidentId ? existing.blobMedia : undefined,
+        } satisfies ArrivalFormDraft),
+      );
+    } catch { /* quota — best effort */ }
+  }
+
+  async function persistArrivalFormDraftFull() {
+    if (currentIncidentId === null) return;
+    try {
+      const blobMedia: ArrivalFormDraft["blobMedia"] = [];
+      for (const [id, entry] of arrivalMediaBlobsRef.current) {
+        blobMedia.push({
+          id,
+          filename: entry.filename,
+          mimeType: entry.mimeType,
+          dataBase64: await blobToBase64(entry.blob),
+        });
+      }
+      const persistedMedia = arrivalMedia
+        .filter((m) => !m.url.startsWith("blob:"))
+        .map(({ id, url, filename, mimeType }) => ({ id, url, filename, mimeType }));
+      sessionStorage.setItem(
+        ARRIVAL_FORM_SESSION_KEY,
+        JSON.stringify({
+          incidentId: currentIncidentId,
+          arrivalTime: arrivalTimeRef.current.toISOString(),
+          description: arrivalDescription,
+          categoryId: arrivalCategoryId,
+          otherType: arrivalOtherType,
+          media: persistedMedia,
+          blobMedia,
+        } satisfies ArrivalFormDraft),
+      );
+    } catch { /* quota — best effort */ }
+  }
+
   // Restore arrival form after WebView reload while recording on-scene evidence.
   useEffect(() => {
     if (!currentIncidentId) return;
-    try {
-      const raw = sessionStorage.getItem(ARRIVAL_FORM_SESSION_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as { incidentId: number; arrivalTime?: string };
-      if (parsed.incidentId !== currentIncidentId) {
-        sessionStorage.removeItem(ARRIVAL_FORM_SESSION_KEY);
-        return;
-      }
-      if (parsed.arrivalTime) arrivalTimeRef.current = new Date(parsed.arrivalTime);
-      setShowArrivalForm(true);
-    } catch {
-      sessionStorage.removeItem(ARRIVAL_FORM_SESSION_KEY);
+    if (arrivalDraftRestoredRef.current === currentIncidentId) return;
+    const draft = readArrivalFormDraft();
+    if (!draft || draft.incidentId !== currentIncidentId) {
+      if (draft && draft.incidentId !== currentIncidentId) clearArrivalFormSession();
+      return;
     }
+    arrivalDraftRestoredRef.current = currentIncidentId;
+    restoreArrivalFormFromSession(currentIncidentId);
   }, [currentIncidentId]);
+
+  // Keep arrival draft in sessionStorage while the form is open (text + uploaded media).
+  useEffect(() => {
+    if (!showArrivalForm || currentIncidentId === null) return;
+    const t = setTimeout(() => { persistArrivalFormDraftLight(); }, 400);
+    return () => clearTimeout(t);
+  }, [showArrivalForm, arrivalDescription, arrivalCategoryId, arrivalOtherType, arrivalMedia, currentIncidentId]);
 
   useEffect(() => {
     if (!active) return;
@@ -1568,7 +1715,11 @@ export default function LiveIncidentPage() {
     queryClient.invalidateQueries({ queryKey: ["/api/incidents"] });
   }
 
-  function resetAfterLeave() {
+  function resetAfterLeave(force = false) {
+    if (!force && isArrivalFormInProgress()) {
+      console.warn("[joiner] resetAfterLeave suppressed — arrival form in progress");
+      return;
+    }
     trackingIncidentIdRef.current = null;
     stopTracking();
     void stopSpeaking();
@@ -1611,6 +1762,8 @@ export default function LiveIncidentPage() {
     if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
     setIsRecording(false);
     setRecordingSeconds(0);
+    arrivalDraftRestoredRef.current = null;
+    clearArrivalFormSession();
     queryClient.invalidateQueries({ queryKey: ["/api/incidents/live"] });
   }
 
@@ -1671,57 +1824,6 @@ export default function LiveIncidentPage() {
     return dest;
   }
 
-  async function autoRespondToPanic(id: number, inc: LiveIncidentWithResponders | Incident) {
-    if (joinPromptSubmitting) return;
-    setJoinPromptSubmitting(true);
-    try {
-      const responders = (inc as LiveIncidentWithResponders).responders ?? [];
-      const activeResponder = responders.some((r) => r.userId === me?.id && !r.arrivedAt);
-      if (activeResponder) {
-        const dest = reopenPanicResponse(id, inc);
-        if (!dest) {
-          toast({
-            title: "Responding to panic",
-            description: "No GPS yet — the map will update when they turn location on.",
-          });
-        }
-        return;
-      }
-
-      try {
-        await apiRequest("POST", `/api/incidents/${id}/acknowledge-panic`, {});
-        queryClient.invalidateQueries({ queryKey: ["/api/panic/recent"] });
-      } catch { /* may already be acknowledged */ }
-
-      await apiRequest("POST", `/api/incidents/${id}/join-live`, {});
-      await queryClient.refetchQueries({ queryKey: ["/api/incidents/live"] });
-
-      const fullInc =
-        liveIncidents.find((i) => i.id === id)
-        ?? ((await (await fetch(`/api/incidents/${id}`, { credentials: "include" })).json()) as Incident);
-
-      setStaleJoinNotice(null);
-      setJoinPrompt(null);
-      const dest = reopenPanicResponse(id, fullInc);
-      await queryClient.refetchQueries({ queryKey: ["/api/panic/recent"] });
-      if (!dest) {
-        toast({
-          title: "Responding to panic",
-          description: "No GPS yet — the map will update when they turn location on.",
-        });
-      }
-    } catch (e: unknown) {
-      toast({
-        title: "Could not respond",
-        description: e instanceof Error ? e.message : "Please try again.",
-        variant: "destructive",
-      });
-      navigate("/");
-    } finally {
-      setJoinPromptSubmitting(false);
-    }
-  }
-
   function openJoinPrompt(inc: LiveIncidentWithResponders) {
     setJoinPrompt(buildJoinPromptDetails(inc));
   }
@@ -1742,17 +1844,18 @@ export default function LiveIncidentPage() {
         const inc =
           liveIncidents.find((i) => i.id === joinPrompt.id)
           ?? ((await (await fetch(`/api/incidents/${joinPrompt.id}`, { credentials: "include" })).json()) as Incident);
-        const dest = resolveJoinerNavDestination(inc as LiveIncidentWithResponders);
-        if (dest) {
-          try {
-            localStorage.setItem("omt_panic_target", JSON.stringify({ lat: dest.lat, lng: dest.lng, name: dest.name }));
-          } catch { /* ignore */ }
-        }
+        stashPanicTarget(inc);
+        panicTargetAppliedRef.current = false;
         setStaleJoinNotice(null);
         setJoinPrompt(null);
+        // Start turn-by-turn once map + panicker GPS are ready (see panic-target / autoNav effects).
+        autoNavAfterJoinRef.current = true;
         enterJoinedIncident(joinPrompt.id);
         await queryClient.refetchQueries({ queryKey: ["/api/panic/recent"] });
-        toast({ title: "Responding", description: "You are now tracking their live location." });
+        toast({
+          title: "Responding",
+          description: "Starting turn-by-turn navigation to the panicker.",
+        });
       } catch (e: unknown) {
         toast({
           title: "Could not respond",
@@ -1807,7 +1910,8 @@ export default function LiveIncidentPage() {
     },
   });
 
-  // Opened from push or dashboard ?join= — panic auto-responds; live incidents show join prompt.
+  // Opened from push or dashboard ?join= — always confirm before joining (panic + live).
+  // If already responding, reopen without asking again.
   useEffect(() => {
     if (!liveQueryLoaded || !me) return;
     const joinParam = new URLSearchParams(window.location.search).get("join");
@@ -1829,6 +1933,7 @@ export default function LiveIncidentPage() {
     if (joinedId === id || liveId === id) {
       if (liveIncForJoin && isPanicCategory(liveIncForJoin.categoryName)) {
         reopenPanicResponse(id, liveIncForJoin);
+        autoNavAfterJoinRef.current = true;
       }
       releaseJoinLock();
       return;
@@ -1840,6 +1945,7 @@ export default function LiveIncidentPage() {
     if (alreadyJoined) {
       if (liveIncForJoin && isPanicCategory(liveIncForJoin.categoryName)) {
         reopenPanicResponse(id, liveIncForJoin);
+        autoNavAfterJoinRef.current = true;
       } else {
         enterJoinedIncident(id);
       }
@@ -1848,10 +1954,6 @@ export default function LiveIncidentPage() {
     }
 
     if (liveIncForJoin) {
-      if (isPanicCategory(liveIncForJoin.categoryName)) {
-        void autoRespondToPanic(id, liveIncForJoin).finally(releaseJoinLock);
-        return;
-      }
       setJoinPrompt(buildJoinPromptDetails(liveIncForJoin));
       releaseJoinLock();
       return;
@@ -1870,10 +1972,6 @@ export default function LiveIncidentPage() {
             return;
           }
           const cat = categories.find((c) => c.id === inc.categoryId)?.name ?? inc.categoryName ?? null;
-          if (isPanicCategory(cat)) {
-            await autoRespondToPanic(id, inc);
-            return;
-          }
           setJoinPrompt(buildJoinPromptFromIncident(inc, cat));
           return;
         }
@@ -1887,7 +1985,7 @@ export default function LiveIncidentPage() {
   const leaveLiveMutation = useMutation({
     mutationFn: (id: number) => apiRequest("POST", `/api/incidents/${id}/leave-live`, {}),
     onSuccess: () => {
-      resetAfterLeave();
+      resetAfterLeave(true);
       toast({ title: "Left incident", description: "You have left the live incident response." });
     },
     onError: () => toast({ title: "Error", description: "Could not leave the incident.", variant: "destructive" }),
@@ -1992,7 +2090,8 @@ export default function LiveIncidentPage() {
       // 4. End the live session
       await apiRequest("POST", `/api/incidents/${liveId}/end-live`, closureCoords ?? {});
       localStorage.removeItem(ARRIVAL_QUEUE_KEY);
-      sessionStorage.removeItem(ARRIVAL_FORM_SESSION_KEY);
+      clearArrivalFormSession();
+      arrivalDraftRestoredRef.current = null;
       setSessionClosing(true);
       resetAfterEnd();
       toast({ title: "Incident recorded", description: "Safe return. Incident saved to the Occurrence Book." });
@@ -2022,6 +2121,9 @@ export default function LiveIncidentPage() {
       toast({ title: "File too large", description: "Each file must be under 10 MB.", variant: "destructive" });
       return;
     }
+    if (source === "camera" || source === "file") {
+      await persistArrivalFormDraftFull();
+    }
     const id = crypto.randomUUID();
     setArrivalUploading(true);
     setArrivalUploadSource(source);
@@ -2031,6 +2133,7 @@ export default function LiveIncidentPage() {
       const filename = isImage ? file.name.replace(/\.[^.]+$/, ".jpg") : file.name;
       const mimeType = isImage ? "image/jpeg" : (file.type || "application/octet-stream");
       if (navigator.onLine) {
+        arrivalMediaBlobsRef.current.set(id, { blob, filename, mimeType });
         const tempUrl = URL.createObjectURL(blob);
         setArrivalMedia((prev) => [...prev, { id, url: tempUrl, filename, mimeType }]);
         const uploadResp = await fetch("/api/uploads", {
@@ -2042,12 +2145,15 @@ export default function LiveIncidentPage() {
         if (!uploadResp.ok) throw new Error("Upload failed");
         const { objectUrl } = await uploadResp.json();
         URL.revokeObjectURL(tempUrl);
+        arrivalMediaBlobsRef.current.delete(id);
         setArrivalMedia((prev) => prev.map((m) => m.id === id ? { ...m, url: objectUrl } : m));
+        persistArrivalFormDraftLight();
       } else {
         arrivalMediaBlobsRef.current.set(id, { blob, filename, mimeType });
         const previewUrl = URL.createObjectURL(blob);
         setArrivalMedia((prev) => [...prev, { id, url: previewUrl, filename, mimeType }]);
         toast({ title: "Saved locally", description: "No connection — media will upload when your arrival is submitted." });
+        void persistArrivalFormDraftFull();
       }
     } catch {
       setArrivalMedia((prev) => {
@@ -2386,6 +2492,7 @@ export default function LiveIncidentPage() {
   useEffect(() => {
     if (!liveQueryLoaded) return;
     if (liveId !== null || joinedId !== null) return;
+    if (isArrivalFormSessionActive()) return;
     if (!hadIncidentRef.current) return;
     // Don't redirect if we're mid-flow from severity selection — autostart will
     // create a new incident immediately after. Redirecting here would send the
@@ -2519,10 +2626,38 @@ export default function LiveIncidentPage() {
       if (trackingIncidentIdRef.current === joinedId) return;
       gpsEndpointRef.current = "joiner-position";
       startTracking(joinedId);
-    } else {
-      // Joined incident no longer live — auto-clear joiner state
-      resetAfterLeave();
+      return;
     }
+
+    // User may be on the arrival form while the live list refetches — never
+    // clear joiner state during on-scene evidence capture.
+    if (isArrivalFormInProgress(joinedId)) {
+      if (trackingIncidentIdRef.current !== joinedId) {
+        gpsEndpointRef.current = "joiner-position";
+        startTracking(joinedId);
+      }
+      return;
+    }
+
+    const missingId = joinedId;
+    const timer = setTimeout(() => {
+      if (isArrivalFormInProgress(missingId)) return;
+      void (async () => {
+        try {
+          const res = await fetch(`/api/incidents/${missingId}`, { credentials: "include" });
+          if (res.ok) {
+            const inc = (await res.json()) as { isLive?: boolean };
+            if (inc.isLive) {
+              void queryClient.invalidateQueries({ queryKey: ["/api/incidents/live"] });
+              return;
+            }
+          }
+        } catch { /* fall through to cleanup */ }
+        resetAfterLeave();
+      })();
+    }, JOINER_MISSING_RESET_MS);
+
+    return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [joinedIncident?.id, liveQueryLoaded, joinedId]);
 
@@ -2626,6 +2761,7 @@ export default function LiveIncidentPage() {
     // to avoid a race condition where categories haven't loaded yet.
     const catName = (dest?.categoryName ?? "").toLowerCase();
     const isPanicCat = catName.includes("panic");
+    const allowArrivalProximity = !isPanicCat || isJoinerMode;
     const navPos = isJoinerMode && joinerNavDestination
       ? { lat: joinerNavDestination.lat, lng: joinerNavDestination.lng }
       : dest?.destinationLat != null && dest?.destinationLng != null
@@ -2633,10 +2769,8 @@ export default function LiveIncidentPage() {
         : null;
     if (navPos) {
       const destPos = navPos;
-      // Always store destination for rerouting, even for panic incidents.
-      // Arrival UI is suppressed separately via isPanicIncidentRef in sendPosition.
       destPositionRef.current = destPos;
-      if (!isPanicCat && lastPosRef.current) {
+      if (allowArrivalProximity && lastPosRef.current) {
         const distM = haversineM(lastPosRef.current, destPos);
         setDistToDestinationM(distM);
         setIsNearDestination(distM <= NAV_ARRIVAL_AT_SCENE_M);
@@ -2646,7 +2780,7 @@ export default function LiveIncidentPage() {
       setIsNearDestination(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentIncident?.destinationLat, currentIncident?.destinationLng, currentIncident?.categoryName]);
+  }, [currentIncident?.destinationLat, currentIncident?.destinationLng, currentIncident?.categoryName, isJoinerMode, joinerNavDestination?.lat, joinerNavDestination?.lng]);
 
   // Restore destination state after PWA kill/reopen or session expiry.
   // The server holds destinationLat/Lng/Name — read them back once when the
@@ -2710,8 +2844,10 @@ export default function LiveIncidentPage() {
         variant: "destructive",
       });
     });
+    // Apply destination for responder map; turn-by-turn starts via autoNavAfterJoinRef
+    // after the user confirms Respond (do not auto-start Direct from the notification alone).
     if (isJoinerMode) {
-      void dispatchJoinerInApp("direct");
+      void refreshDestMarker(target.lat, target.lng, target.name);
     } else {
       void beginInAppNavigation(target);
     }
@@ -3220,9 +3356,10 @@ export default function LiveIncidentPage() {
       // call above (or will get cleaned up server-side). Either way, this
       // client must NOT keep PATCHing joiner-position.
       if (arrivalCommitted) {
-        sessionStorage.removeItem(ARRIVAL_FORM_SESSION_KEY);
+        clearArrivalFormSession();
+        arrivalDraftRestoredRef.current = null;
         setSessionClosing(true);
-        resetAfterLeave();
+        resetAfterLeave(true);
         navigate("/");
       }
       setArrivalSubmitting(false);
@@ -3264,13 +3401,24 @@ export default function LiveIncidentPage() {
     (currentIncident?.categoryName ?? "").toLowerCase().includes("panic");
   const navFieldPhase = navMode ? resolveNavFieldPhase(distToDestinationM) : null;
   const showProminentArrived =
-    !isPanicIncident
+    (!isPanicIncident || isJoinerMode)
     && distToDestinationM != null
     && distToDestinationM <= NAV_ARRIVAL_SOON_M;
 
   function cancelArrivalForm() {
-    sessionStorage.removeItem(ARRIVAL_FORM_SESSION_KEY);
+    clearArrivalFormSession();
+    arrivalDraftRestoredRef.current = null;
     setShowArrivalForm(false);
+  }
+
+  async function pickArrivalCamera() {
+    await persistArrivalFormDraftFull();
+    arrivalCameraRef.current?.click();
+  }
+
+  async function pickArrivalUpload() {
+    await persistArrivalFormDraftFull();
+    arrivalUploadRef.current?.click();
   }
 
   function recordArrival() {
@@ -3280,18 +3428,8 @@ export default function LiveIncidentPage() {
     if (!isJoinerMode && currentIncident) {
       apiRequest("PATCH", `/api/incidents/${currentIncident.id}/mark-arrived`, {}).catch(() => {});
     }
-    if (currentIncidentId !== null) {
-      try {
-        sessionStorage.setItem(
-          ARRIVAL_FORM_SESSION_KEY,
-          JSON.stringify({
-            incidentId: currentIncidentId,
-            arrivalTime: arrivalTimeRef.current.toISOString(),
-          }),
-        );
-      } catch { /* ignore */ }
-    }
     setShowArrivalForm(true);
+    persistArrivalFormDraftLight();
   }
 
   // Keep isPanicIncidentRef in sync so the sendPosition closure inside
@@ -4812,8 +4950,8 @@ export default function LiveIncidentPage() {
               onStartRecording={startRecording}
               onStopRecording={stopRecording}
               onRemoveMedia={removeMedia}
-              onPickUpload={() => arrivalUploadRef.current?.click()}
-              onPickCamera={() => arrivalCameraRef.current?.click()}
+              onPickUpload={() => { void pickArrivalUpload(); }}
+              onPickCamera={() => { void pickArrivalCamera(); }}
               cameraInputRef={arrivalCameraRef}
               uploadInputRef={arrivalUploadRef}
               onCameraChange={(file) => { if (file) void addArrivalAttachment(file, "camera"); }}
@@ -4831,7 +4969,7 @@ export default function LiveIncidentPage() {
               sapsSectionOpen={arrivalSapsOpen}
               onSapsSectionOpenChange={setArrivalSapsOpen}
             />
-          ) : navMode ? null : showProminentArrived && !isPanicIncident ? (
+          ) : navMode ? null : showProminentArrived ? (
             /* ---- Approaching destination (within 500 m) ---- */
             <div className={fieldActionFooterClass} ref={fieldFooterRef} style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
               <div className="rounded-lg bg-amber-500/10 border border-amber-500/40 px-4 py-2 text-sm text-amber-900 dark:text-amber-200 flex items-center gap-2">

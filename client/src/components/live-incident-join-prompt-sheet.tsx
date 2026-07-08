@@ -85,7 +85,7 @@ export function LiveIncidentJoinPromptSheet({
 
             <p className="text-xs text-center text-muted-foreground px-2">
               {isPanic
-                ? "If you respond, your GPS will be shared with dispatch and the panicker will be notified."
+                ? "If you respond, GPS is shared with dispatch and turn-by-turn navigation to the panicker starts."
                 : "If you join, your GPS will be shared with dispatch for this response."}
             </p>
 
