@@ -1058,19 +1058,42 @@ export function OperationsDashboard({
                     const lastActivityAt = teamLastActivityAt(user);
                     const activityLabel = user.isLive ? "Live now" : formatTeamLastActivity(lastActivityAt);
                     const activityStale = isTeamActivityStale(user);
+                    const isLongIdle = activityStale && !user.isLive;
                     return (
-                      <li key={user.id} className="px-3 py-2 hover:bg-emerald-950/20">
+                      <li
+                        key={user.id}
+                        className={cn(
+                          "px-3 py-2 border-l-2 transition-colors",
+                          isLongIdle
+                            ? "bg-red-950/40 border-l-red-500 hover:bg-red-950/55"
+                            : "border-l-transparent hover:bg-emerald-950/20",
+                        )}
+                      >
                         <div className="flex items-center gap-2 min-w-0">
-                          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-950/40 border border-emerald-800/30 text-[10px] font-bold text-emerald-200">
+                          <div
+                            className={cn(
+                              "flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-[10px] font-bold",
+                              isLongIdle
+                                ? "bg-red-950/60 border-red-700/60 text-red-200"
+                                : "bg-emerald-950/40 border-emerald-800/30 text-emerald-200",
+                            )}
+                          >
                             {user.firstName.charAt(0)}
                             {user.lastName.charAt(0)}
                           </div>
                           <div className="min-w-0 flex-1">
-                            <p className="text-xs font-medium text-slate-200 truncate">
+                            <p
+                              className={cn(
+                                "text-xs font-medium truncate",
+                                isLongIdle ? "text-red-100" : "text-slate-200",
+                              )}
+                            >
                               {user.firstName} {user.lastName}
                             </p>
                             <div className="flex items-center gap-2 mt-0.5">
-                              <span className="text-[9px] text-slate-500 capitalize">{user.role}</span>
+                              <span className={cn("text-[9px] capitalize", isLongIdle ? "text-red-300/70" : "text-slate-500")}>
+                                {user.role}
+                              </span>
                               <span className={cn("text-[9px] uppercase", teamStatusClass(status))}>
                                 {statusLabel}
                               </span>
@@ -1082,15 +1105,15 @@ export function OperationsDashboard({
                                 "text-[10px] tabular-nums leading-tight",
                                 user.isLive
                                   ? "text-orange-300 font-semibold"
-                                  : activityStale
-                                    ? "text-red-400 font-bold"
+                                  : isLongIdle
+                                    ? "text-red-300 font-bold"
                                     : "text-slate-400",
                               )}
                             >
                               {activityLabel}
                             </p>
-                            {activityStale && !user.isLive && (
-                              <p className="text-[8px] font-bold uppercase text-red-400/90 mt-0.5 leading-none">
+                            {isLongIdle && (
+                              <p className="text-[8px] font-bold uppercase text-red-300 mt-0.5 leading-none tracking-wide">
                                 4h+ idle
                               </p>
                             )}
