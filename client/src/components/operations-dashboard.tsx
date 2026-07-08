@@ -356,7 +356,7 @@ type Props = {
   onPanic: () => void;
 };
 
-type OpsSectionTone = "blue" | "orange" | "slate" | "emerald";
+type OpsSectionTone = "blue" | "orange" | "slate" | "emerald" | "indigo" | "cyan" | "violet";
 
 const OPS_SECTION_TONE: Record<
   OpsSectionTone,
@@ -367,6 +367,24 @@ const OPS_SECTION_TONE: Record<
     border: "border-blue-500/35",
     icon: "bg-blue-600 text-white shadow-sm shadow-blue-900/50",
     title: "text-blue-50",
+  },
+  indigo: {
+    bar: "bg-indigo-950/55",
+    border: "border-indigo-500/40",
+    icon: "bg-indigo-600 text-white shadow-sm shadow-indigo-900/50",
+    title: "text-indigo-50",
+  },
+  cyan: {
+    bar: "bg-cyan-950/50",
+    border: "border-cyan-500/40",
+    icon: "bg-cyan-600 text-white shadow-sm shadow-cyan-900/50",
+    title: "text-cyan-50",
+  },
+  violet: {
+    bar: "bg-violet-950/50",
+    border: "border-violet-500/40",
+    icon: "bg-violet-600 text-white shadow-sm shadow-violet-900/50",
+    title: "text-violet-50",
   },
   orange: {
     bar: "bg-orange-950/50",
@@ -969,7 +987,7 @@ export function OperationsDashboard({
         <OpsSectionHeader
           title="Site Monitor"
           icon={Building2}
-          tone="blue"
+          tone="indigo"
           testId="ops-site-monitor-header"
           right={groupSiteSelectors}
         />
@@ -1029,7 +1047,7 @@ export function OperationsDashboard({
           </div>
 
           <div className="flex flex-col min-h-0 overflow-hidden bg-[#131a22]">
-            <OpsSubSectionHeader title="Fleet" icon={Car} tone="blue" count={siteFleet.length} />
+            <OpsSubSectionHeader title="Fleet" icon={Car} tone="cyan" count={siteFleet.length} />
             <div className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain ops-scroll">
               {siteMonitorLoading ? (
                 <div className="p-2 space-y-2">
@@ -1238,7 +1256,7 @@ export function OperationsDashboard({
           <OpsSectionHeader
             title="This Week"
             icon={CalendarRange}
-            tone="slate"
+            tone="violet"
             testId="ops-occurrences-week-header"
             right={
               <button
