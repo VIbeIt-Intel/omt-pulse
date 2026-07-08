@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "leaflet.heat";
 import html2canvas from "html2canvas";
+import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -63,6 +64,12 @@ const severityLabels: Record<string, string> = {
   critical: "Critical",
 };
 
+function formatIncidentDateTime(incident: Incident): string {
+  const date = incident.incidentDate ?? "";
+  const time = incident.incidentTime ?? "";
+  return [date, time].filter(Boolean).join(" ") || "—";
+}
+
 function MapPanel({ incidents, categories, locations, customMaps }: {
   incidents: Incident[];
   categories: Category[];
@@ -84,6 +91,7 @@ function MapPanel({ incidents, categories, locations, customMaps }: {
   const [showIncidents, setShowIncidents] = useState(true);
   const [showLocations, setShowLocations] = useState(true);
   const [selectedLayer, setSelectedLayer] = useState<"geographic" | number>("geographic");
+  const [selectedIncidentId, setSelectedIncidentId] = useState<number | null>(null);
 
   const isCustomMap = typeof selectedLayer === "number";
   const activeCustomMap = isCustomMap ? customMaps.find((m) => m.id === selectedLayer) ?? null : null;
@@ -122,6 +130,27 @@ function MapPanel({ incidents, categories, locations, customMaps }: {
   const visibleGeoIncidents = selectedTypeIds.size === 0
     ? allGeoIncidents
     : allGeoIncidents.filter((i) => i.categoryId != null && selectedTypeIds.has(i.categoryId));
+
+  const selectedIncident = useMemo(
+    () => (selectedIncidentId != null ? incidents.find((i) => i.id === selectedIncidentId) ?? null : null),
+    [incidents, selectedIncidentId],
+  );
+
+  const selectIncident = useCallback((incident: Incident) => {
+    setSelectedIncidentId(incident.id);
+    const coords = resolveLatLng(incident);
+    const map = mapInstanceRef.current;
+    if (coords && map) {
+      map.panTo(coords);
+      if ((map.getZoom() ?? 0) < 14) map.setZoom(14);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (selectedIncidentId == null) return;
+    const stillVisible = visibleGeoIncidents.some((i) => i.id === selectedIncidentId);
+    if (!stillVisible) setSelectedIncidentId(null);
+  }, [selectedIncidentId, visibleGeoIncidents]);
 
   function toggleType(id: number) {
     setSelectedTypeIds((prev) => {
@@ -185,12 +214,8 @@ function MapPanel({ incidents, categories, locations, customMaps }: {
             anchor: new google.maps.Point(18, 18),
           },
           zIndex: 1,
-          title: loc.name,
+          title: loc.address ? `${loc.name} — ${loc.address}` : loc.name,
         });
-        const info = new google.maps.InfoWindow({
-          content: `<div style="min-width:160px;font-family:system-ui,sans-serif;"><div style="font-weight:600;margin-bottom:4px;font-size:14px;">${loc.name}</div>${loc.address ? `<div style="font-size:12px;color:#666;">${loc.address}</div>` : ""}</div>`,
-        });
-        marker.addListener("click", () => info.open(map, marker));
         markersRef.current.push(marker);
       });
     }
@@ -200,25 +225,21 @@ function MapPanel({ incidents, categories, locations, customMaps }: {
         const coords = resolveLatLng(incident);
         if (!coords) return;
         const catColor = getCategoryColor(incident.categoryId);
-        const catName = getCategoryName(incident.categoryId);
         const catIconKey = getCategoryIcon(incident.categoryId);
+        const isSelected = incident.id === selectedIncidentId;
         const marker = new google.maps.Marker({
           position: { lat: coords.lat, lng: coords.lng },
           map,
           icon: {
             url: buildMarkerSvgUrl(catColor, getIconSvg(catIconKey)),
-            scaledSize: new google.maps.Size(36, 36),
-            anchor: new google.maps.Point(18, 18),
+            scaledSize: new google.maps.Size(isSelected ? 44 : 36, isSelected ? 44 : 36),
+            anchor: new google.maps.Point(isSelected ? 22 : 18, isSelected ? 22 : 18),
           },
-          zIndex: 2,
+          zIndex: isSelected ? 10 : 2,
+          title: getCategoryName(incident.categoryId),
         });
-        const info = new google.maps.InfoWindow({
-          content: `<div style="min-width:200px;font-family:system-ui,sans-serif;"><div style="font-weight:600;margin-bottom:6px;font-size:14px;">${catName}</div><div style="font-size:12px;color:#666;margin-bottom:4px;"><strong>Date:</strong> ${incident.incidentDate} ${incident.incidentTime}</div><div style="font-size:12px;color:#666;margin-bottom:4px;"><strong>Location:</strong> ${incident.locationName || "N/A"}</div>${incident.description ? `<div style="font-size:12px;color:#666;margin-top:6px;border-top:1px solid #eee;padding-top:6px;">${incident.description.substring(0, 100)}${incident.description.length > 100 ? "…" : ""}</div>` : ""}</div>`,
-        });
-        marker.addListener("click", () => info.open(map, marker));
+        marker.addListener("click", () => selectIncident(incident));
         markersRef.current.push(marker);
-
-
       });
     }
 
@@ -234,7 +255,7 @@ function MapPanel({ incidents, categories, locations, customMaps }: {
       allCoords.forEach((c) => bounds.extend(c));
       map.fitBounds(bounds, 50);
     }
-  }, [incidents, categories, locations, selectedTypeIds, showIncidents, showLocations, mapMode, mapsReady]);
+  }, [incidents, categories, locations, selectedTypeIds, showIncidents, showLocations, mapMode, mapsReady, selectedIncidentId, selectIncident]);
 
   // Leaflet heatmap — replaces the removed Google Maps HeatmapLayer (deprecated in v3.65).
   // The map container is always mounted (display:none when hidden) so the Leaflet
@@ -516,6 +537,93 @@ function MapPanel({ incidents, categories, locations, customMaps }: {
           </CardContent>
         </Card>
         </div>
+        {selectedIncident && !isCustomMap && mapMode === "markers" ? (
+          <Card data-testid="analytics-selected-incident">
+            <CardHeader className="pb-2">
+              <div className="flex items-start justify-between gap-2">
+                <CardTitle className="text-sm">Selected incident</CardTitle>
+                <button
+                  type="button"
+                  onClick={() => setSelectedIncidentId(null)}
+                  className="text-muted-foreground hover:text-foreground p-0.5 rounded"
+                  aria-label="Clear selection"
+                  data-testid="button-clear-selected-incident"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3 pt-0">
+              <div className="flex items-center gap-2">
+                <div
+                  className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
+                  style={{ backgroundColor: getCategoryColor(selectedIncident.categoryId) }}
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="white"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    dangerouslySetInnerHTML={{ __html: getIconSvg(getCategoryIcon(selectedIncident.categoryId)) }}
+                  />
+                </div>
+                <div className="min-w-0">
+                  <p className="font-semibold text-sm leading-tight">
+                    {getCategoryName(selectedIncident.categoryId)}
+                  </p>
+                  {selectedIncident.severity ? (
+                    <p className="text-xs text-muted-foreground">
+                      Severity: {severityLabels[selectedIncident.severity] ?? selectedIncident.severity}
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+              <div className="space-y-2 text-sm">
+                <div className="flex items-start gap-2">
+                  <Calendar className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Date & time</p>
+                    <p className="font-medium">{formatIncidentDateTime(selectedIncident)}</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <MapPin className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                  <div className="min-w-0">
+                    <p className="text-xs text-muted-foreground">Location</p>
+                    <p className="font-medium break-words">{selectedIncident.locationName?.trim() || "Not recorded"}</p>
+                  </div>
+                </div>
+                {selectedIncident.description?.trim() ? (
+                  <div className="flex items-start gap-2">
+                    <FileText className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                    <div className="min-w-0">
+                      <p className="text-xs text-muted-foreground">Description</p>
+                      <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{selectedIncident.description.trim()}</p>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+              <Button asChild variant="outline" size="sm" className="w-full" data-testid="button-view-occurrence-from-map">
+                <Link href={`/occurrence-book?incident=${selectedIncident.id}`}>View in Occurrence Book</Link>
+              </Button>
+            </CardContent>
+          </Card>
+        ) : (
+          !isCustomMap && mapMode === "markers" && showIncidents ? (
+            <Card className="border-dashed">
+              <CardContent className="py-4">
+                <p className="text-xs text-muted-foreground text-center">
+                  Tap an incident marker on the map to view its details here.
+                </p>
+              </CardContent>
+            </Card>
+          ) : null
+        )}
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm">Summary</CardTitle>

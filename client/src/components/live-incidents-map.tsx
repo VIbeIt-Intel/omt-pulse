@@ -450,6 +450,10 @@ function ensureDarkInfoWindowStyles(): void {
   document.head.appendChild(style);
 }
 
+function removeDarkInfoWindowStyles(): void {
+  document.getElementById("omt-map-iw-dark")?.remove();
+}
+
 type Props = {
   incidents: LiveIncidentMapItem[];
   onlineUsers?: OnlineUserMapMarker[];
@@ -607,6 +611,7 @@ export function LiveIncidentsMap({
       premiseMarkersRef.current.forEach((m) => m.setMap(null));
       premiseMarkersRef.current.clear();
       premiseInfoRef.current.clear();
+      if (darkTheme) removeDarkInfoWindowStyles();
       mapInstanceRef.current = null;
     };
   }, [mapsReady]);
