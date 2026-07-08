@@ -111,6 +111,7 @@ export function AttachmentPreview({
   const kind = resolveAttachmentKind(mimeType, filename ?? alt);
   const isServable =
     url.startsWith("data:") ||
+    url.startsWith("blob:") ||
     url.startsWith("/objects/") ||
     url.startsWith("https://") ||
     url.startsWith("http://");

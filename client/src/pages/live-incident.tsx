@@ -66,6 +66,20 @@ import {
 import { probePanicLocation } from "@/lib/panic-send";
 import { acquirePanicLocation, hasPanicCoordinates } from "@/lib/panic-location";
 import { requestLocationAccess } from "@/lib/request-location-access";
+import { normalizeAudioMimeType } from "@/lib/attachment-kind";
+import {
+  createAudioMediaRecorder,
+  openMicStream,
+  recorderMimeType,
+  recordingErrorMessage,
+} from "@/lib/voice-recorder";
+import {
+  cancelNativeRecording,
+  getNativeRecordingMode,
+  startNativeRecording,
+  stopNativeRecording,
+} from "@/lib/native-audio-recorder";
+import { nativeMicDeniedHint, nativeVoiceApkUpdateHint } from "@/lib/native-mic-hint";
 
 const LIVE_INCIDENT_KEY = "omt_live_incident_id";
 
@@ -624,7 +638,11 @@ export default function LiveIncidentPage() {
   const arrivalMediaStateRef = useRef<ArrivalMedia[]>([]);
   // Voice recording refs
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordingStreamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const liveIdRef = useRef<number | null>(null);
+  const joinedIdRef = useRef<number | null>(null);
+  const useNativeRecorder = getNativeRecordingMode() === "plugin";
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const destPositionRef = useRef<{ lat: number; lng: number } | null>(null);
   // Cooldown for the "Could not compute driving route" toast — off-route
@@ -762,6 +780,8 @@ export default function LiveIncidentPage() {
   const [liveId, setLiveId] = useState<number | null>(storedId);
   const storedJoinedId = typeof window !== "undefined" ? Number(localStorage.getItem(JOINED_INCIDENT_KEY)) || null : null;
   const [joinedId, setJoinedId] = useState<number | null>(storedJoinedId);
+  liveIdRef.current = liveId;
+  joinedIdRef.current = joinedId;
   // Tracks whether this page session should redirect home when both IDs drop to null.
   // Set to true if we mounted with a stored ID (stale-key reopen) OR once we've
   // actually had an active incident in this session (normal start → end).
@@ -1706,6 +1726,11 @@ export default function LiveIncidentPage() {
     });
     arrivalMediaBlobsRef.current.clear();
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") mediaRecorderRef.current.stop();
+    if (recordingStreamRef.current) {
+      recordingStreamRef.current.getTracks().forEach((t) => t.stop());
+      recordingStreamRef.current = null;
+    }
+    if (useNativeRecorder) void cancelNativeRecording();
     if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
     setIsRecording(false);
     setRecordingSeconds(0);
@@ -1759,6 +1784,11 @@ export default function LiveIncidentPage() {
     });
     arrivalMediaBlobsRef.current.clear();
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") mediaRecorderRef.current.stop();
+    if (recordingStreamRef.current) {
+      recordingStreamRef.current.getTracks().forEach((t) => t.stop());
+      recordingStreamRef.current = null;
+    }
+    if (useNativeRecorder) void cancelNativeRecording();
     if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
     setIsRecording(false);
     setRecordingSeconds(0);
@@ -1993,6 +2023,26 @@ export default function LiveIncidentPage() {
 
   async function submitArrival() {
     if (!liveId) return;
+    if (arrivalSubmitting) return;
+    if (arrivalUploading || isRecording) {
+      toast({
+        title: "Please wait",
+        description: "Finish uploading or recording before reporting the incident.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const pendingBlob = arrivalMedia.some(
+      (m) => m.url.startsWith("blob:") && !arrivalMediaBlobsRef.current.has(m.id),
+    );
+    if (pendingBlob) {
+      toast({
+        title: "Media still processing",
+        description: "Wait for your photo or voice note to finish saving, then try again.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     // Build final description here so it is used by both online and offline paths
     const finalDescription = (() => {
@@ -2021,7 +2071,7 @@ export default function LiveIncidentPage() {
       localStorage.setItem(ARRIVAL_QUEUE_KEY, JSON.stringify(queued));
       toast({
         title: "No data connection",
-        description: "Your arrival report is saved on this device. It will be submitted automatically when your data is restored.",
+        description: "Your arrival report is saved on this device. Tap Report Incident again when your data is restored.",
       });
       return;
     }
@@ -2177,85 +2227,163 @@ export default function LiveIncidentPage() {
     }
   }
 
+  function voiceErrorDescription(description: string): string {
+    if (description === "mic-denied") return nativeMicDeniedHint();
+    if (description === "needs-apk-update") return nativeVoiceApkUpdateHint();
+    return description;
+  }
+
+  async function uploadArrivalVoiceBlob(audioBlob: Blob, mimeType: string) {
+    if (arrivalMedia.length >= MAX_ARRIVAL_MEDIA) {
+      toast({ title: "Limit reached", description: `You can attach up to ${MAX_ARRIVAL_MEDIA} media items per arrival report.`, variant: "destructive" });
+      return;
+    }
+    const id = crypto.randomUUID();
+    const ext = mimeType.includes("mp4") ? "m4a" : mimeType.includes("ogg") ? "ogg" : "webm";
+    const filename = `voice-${Date.now()}.${ext}`;
+    const normalizedMime = normalizeAudioMimeType(mimeType || audioBlob.type, filename);
+    arrivalMediaBlobsRef.current.set(id, { blob: audioBlob, filename, mimeType: normalizedMime });
+    const previewUrl = URL.createObjectURL(audioBlob);
+    setArrivalMedia((prev) => [...prev, { id, url: previewUrl, filename, mimeType: normalizedMime }]);
+    setArrivalUploading(true);
+    setArrivalUploadSource("voice");
+    try {
+      const uploadResp = await fetch("/api/uploads", {
+        method: "POST",
+        headers: { "Content-Type": normalizedMime },
+        body: audioBlob,
+        credentials: "include",
+      });
+      if (!uploadResp.ok) throw new Error("Upload failed");
+      const { objectUrl } = await uploadResp.json();
+      URL.revokeObjectURL(previewUrl);
+      arrivalMediaBlobsRef.current.delete(id);
+      setArrivalMedia((prev) => prev.map((m) => m.id === id ? { ...m, url: objectUrl } : m));
+      persistArrivalFormDraftLight();
+    } catch {
+      URL.revokeObjectURL(previewUrl);
+      arrivalMediaBlobsRef.current.delete(id);
+      setArrivalMedia((prev) => prev.filter((m) => m.id !== id));
+      toast({ title: "Upload failed", description: "Voice recording could not be saved. Please try again.", variant: "destructive" });
+    } finally {
+      setArrivalUploading(false);
+      setArrivalUploadSource(null);
+    }
+  }
+
   async function startRecording() {
     if (!navigator.onLine) {
       toast({ title: "No connection", description: "Voice recording requires a data connection.", variant: "destructive" });
       return;
     }
+    if (isRecording || arrivalUploading || arrivalSubmitting) return;
     if (arrivalMedia.length >= MAX_ARRIVAL_MEDIA) {
       toast({ title: "Limit reached", description: `You can attach up to ${MAX_ARRIVAL_MEDIA} media items per arrival report.`, variant: "destructive" });
       return;
     }
-    setArrivalUploadSource("voice");
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      // Mirror incident-dialog.tsx: negotiate MIME type in priority order
-      const supportedMime = ["audio/webm", "audio/ogg", "audio/mp4"].find((t) => MediaRecorder.isTypeSupported(t));
-      if (!supportedMime) {
-        stream.getTracks().forEach((t) => t.stop());
-        toast({ title: "Unsupported device", description: "Your browser does not support audio recording.", variant: "destructive" });
-        return;
-      }
-      audioChunksRef.current = [];
-      const mr = new MediaRecorder(stream, { mimeType: supportedMime });
-      mediaRecorderRef.current = mr;
-      // Stable ID allocated now so onstop closure has the right reference regardless of
-      // any array mutations that happen between start and stop.
-      const id = crypto.randomUUID();
-      mr.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
-      mr.onstop = () => {
-        stream.getTracks().forEach((t) => t.stop());
-        const mimeType = supportedMime;
-        const ext = mimeType.split("/")[1] ?? "webm";
-        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
-        const filename = `voice-${Date.now()}.${ext}`;
-        // Store in blob map before upload so submit logic can find it if the user submits
-        // while the in-flight upload is still pending (race-safe)
-        arrivalMediaBlobsRef.current.set(id, { blob: audioBlob, filename, mimeType });
-        const previewUrl = URL.createObjectURL(audioBlob);
-        setArrivalMedia((prev) => [...prev, { id, url: previewUrl, filename, mimeType }]);
-        // Upload immediately (voice always requires being online); on failure discard the item
-        fetch("/api/uploads", {
-          method: "POST",
-          headers: { "Content-Type": mimeType },
-          body: audioBlob,
-          credentials: "include",
-        }).then((r) => r.ok ? r.json() : Promise.reject()).then(({ objectUrl }) => {
-          URL.revokeObjectURL(previewUrl);
-          arrivalMediaBlobsRef.current.delete(id);
-          setArrivalMedia((prev) => prev.map((m) => m.id === id ? { ...m, url: objectUrl } : m));
-        }).catch(() => {
-          // Upload failed — discard the item so the user knows to re-record
-          URL.revokeObjectURL(previewUrl);
-          arrivalMediaBlobsRef.current.delete(id);
-          setArrivalMedia((prev) => prev.filter((m) => m.id !== id));
-          toast({ title: "Upload failed", description: "Voice recording could not be saved. Please try again.", variant: "destructive" });
+
+    if (useNativeRecorder) {
+      try {
+        await startNativeRecording();
+        setRecordingSeconds(0);
+        setIsRecording(true);
+        recordingTimerRef.current = setInterval(() => {
+          setRecordingSeconds((s) => {
+            if (s >= 119) {
+              stopRecording();
+              return s;
+            }
+            return s + 1;
+          });
+        }, 1000);
+      } catch (err: unknown) {
+        setIsRecording(false);
+        setRecordingSeconds(0);
+        const { title, description } = recordingErrorMessage(err);
+        toast({
+          title,
+          description: voiceErrorDescription(description),
+          variant: "destructive",
         });
+      }
+      return;
+    }
+
+    let stream: MediaStream | null = null;
+    try {
+      stream = await openMicStream();
+      recordingStreamRef.current = stream;
+      audioChunksRef.current = [];
+      const recorder = createAudioMediaRecorder(stream);
+      const mimeType = recorderMimeType(recorder);
+      mediaRecorderRef.current = recorder;
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+      recorder.onstop = () => {
+        stream!.getTracks().forEach((t) => t.stop());
+        recordingStreamRef.current = null;
+        mediaRecorderRef.current = null;
+        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
         if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
         setIsRecording(false);
         setRecordingSeconds(0);
-        setArrivalUploadSource(null);
+        if (audioBlob.size > 0) {
+          void uploadArrivalVoiceBlob(audioBlob, mimeType);
+        }
       };
-      mr.start();
-      setIsRecording(true);
+      recorder.start();
       setRecordingSeconds(0);
+      setIsRecording(true);
       recordingTimerRef.current = setInterval(() => {
         setRecordingSeconds((s) => {
-          if (s >= 119) { mr.stop(); return s; }
+          if (s >= 119) {
+            stopRecording();
+            return s;
+          }
           return s + 1;
         });
       }, 1000);
-    } catch {
-      setArrivalUploadSource(null);
-      toast({ title: "Microphone error", description: "Could not access microphone. Check permissions and try again.", variant: "destructive" });
+    } catch (err: unknown) {
+      if (stream) stream.getTracks().forEach((t) => t.stop());
+      recordingStreamRef.current = null;
+      const { title, description } = recordingErrorMessage(err);
+      toast({
+        title,
+        description: voiceErrorDescription(description),
+        variant: "destructive",
+      });
     }
   }
 
   function stopRecording() {
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+
+    if (useNativeRecorder && isRecording) {
+      setIsRecording(false);
+      setRecordingSeconds(0);
+      void stopNativeRecording()
+        .then(({ blob, mimeType }) => {
+          if (blob.size === 0) throw new Error("Recording was empty");
+          return uploadArrivalVoiceBlob(blob, mimeType);
+        })
+        .catch((err: unknown) => {
+          const { title, description } = recordingErrorMessage(err);
+          toast({
+            title,
+            description: voiceErrorDescription(description),
+            variant: "destructive",
+          });
+        });
+      return;
+    }
+
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       mediaRecorderRef.current.stop();
     }
-    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
   }
 
   // Online / offline detection
@@ -2282,10 +2410,16 @@ export default function LiveIncidentPage() {
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
         mediaRecorderRef.current.stop();
       }
+      if (recordingStreamRef.current) {
+        recordingStreamRef.current.getTracks().forEach((t) => t.stop());
+        recordingStreamRef.current = null;
+      }
+      if (useNativeRecorder) void cancelNativeRecording();
     };
   }, []);
 
-  // When connectivity is restored, auto-submit any queued arrival
+  // When connectivity is restored, auto-submit any queued arrival — but never
+  // while the user is actively on the arrival form for the same incident.
   useEffect(() => {
     if (!isOnline) return;
     const raw = localStorage.getItem(ARRIVAL_QUEUE_KEY);
@@ -2294,6 +2428,11 @@ export default function LiveIncidentPage() {
     let queued: { incidentId: number; categoryId: number | null; otherCategoryNote?: string | null; description: string; locationName?: string | null; media?: ArrivalMedia[]; photo?: ArrivalMedia | null };
     try { queued = JSON.parse(raw); } catch { localStorage.removeItem(ARRIVAL_QUEUE_KEY); return; }
     if (!queued.incidentId) { localStorage.removeItem(ARRIVAL_QUEUE_KEY); return; }
+    const activeIncidentId = liveIdRef.current ?? joinedIdRef.current;
+    if (showArrivalFormRef.current && activeIncidentId === queued.incidentId) {
+      return;
+    }
+    if (arrivalSubmitting) return;
     localStorage.removeItem(ARRIVAL_QUEUE_KEY);
     (async () => {
       try {
@@ -3299,6 +3438,15 @@ export default function LiveIncidentPage() {
 
   async function submitJoinerArrival() {
     if (!joinedId) return;
+    if (arrivalSubmitting) return;
+    if (arrivalUploading || isRecording) {
+      toast({
+        title: "Please wait",
+        description: "Finish uploading or recording before reporting your arrival.",
+        variant: "destructive",
+      });
+      return;
+    }
     stopTracking();
     setArrivalSubmitting(true);
     // Tracks whether the server has already committed the arrival. Once true,
