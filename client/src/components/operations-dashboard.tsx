@@ -155,7 +155,7 @@ type Props = {
   unreadSenders: string[];
   onOpenChat: () => void;
   onOpenLiveMonitor: (incidentId?: number) => void;
-  onOpenOccurrenceBook: () => void;
+  onOpenOccurrence: (incidentId?: number) => void;
   onPanic: () => void;
   onStartLive: () => void;
   onReportIncident: () => void;
@@ -234,7 +234,7 @@ export function OperationsDashboard({
   totalUnread,
   onOpenChat,
   onOpenLiveMonitor,
-  onOpenOccurrenceBook,
+  onOpenOccurrence,
   onPanic,
   onStartLive,
   onReportIncident,
@@ -492,7 +492,7 @@ export function OperationsDashboard({
             value={kpiSource?.totalIncidents ?? todayIncidents.length}
             hint="occurrences today"
             accent="slate"
-            onClick={onOpenOccurrenceBook}
+            onClick={() => onOpenOccurrence()}
             testId="ops-kpi-occurrences"
             loading={kpiLoading || incidentsLoading}
           />
@@ -501,7 +501,7 @@ export function OperationsDashboard({
             value={todayClosed.length}
             hint="no longer live"
             accent="blue"
-            onClick={onOpenOccurrenceBook}
+            onClick={() => onOpenOccurrence()}
             testId="ops-kpi-closed"
             loading={incidentsLoading}
           />
@@ -633,7 +633,7 @@ export function OperationsDashboard({
             </p>
             <button
               type="button"
-              onClick={onOpenOccurrenceBook}
+              onClick={() => onOpenOccurrence()}
               className="text-[10px] text-blue-400 hover:underline"
             >
               Full book →
@@ -659,7 +659,7 @@ export function OperationsDashboard({
                     <li key={inc.id}>
                       <button
                         type="button"
-                        onClick={onOpenOccurrenceBook}
+                        onClick={() => onOpenOccurrence(inc.id)}
                         className={cn(
                           "w-full text-left px-3 py-3 hover:bg-slate-800/50 transition-colors",
                           isLive && "bg-orange-950/15",

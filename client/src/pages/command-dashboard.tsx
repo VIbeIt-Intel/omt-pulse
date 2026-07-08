@@ -591,8 +591,10 @@ export default function CommandDashboard() {
 
   const hasRedLive = visibleLiveIncidents.some((i) => i.severity === "red");
 
-  function openIncidentsList() {
-    navigate(`/occurrence-book?period=${period}`);
+  function openOccurrenceBook(incidentId?: number) {
+    const params = new URLSearchParams({ period });
+    if (incidentId != null) params.set("incident", String(incidentId));
+    navigate(`/occurrence-book?${params.toString()}`);
   }
 
   const liveCountDisplay = isReporter
@@ -831,7 +833,7 @@ export default function CommandDashboard() {
                   label={periodLabel}
                   value={data?.totalIncidents ?? 0}
                   sublabel={incidentSublabel}
-                  onClick={openIncidentsList}
+                  onClick={() => openOccurrenceBook()}
                   testId="stat-total-incidents"
                 />
                 <StatTile
@@ -869,7 +871,7 @@ export default function CommandDashboard() {
             unreadSenders={unreadSenders}
             onOpenChat={() => navigate("/chat")}
             onOpenLiveMonitor={openLiveMonitor}
-            onOpenOccurrenceBook={openIncidentsList}
+            onOpenOccurrence={openOccurrenceBook}
             onPanic={() => setPanicOpen(true)}
             onStartLive={() => navigate("/live-severity")}
             onReportIncident={() => setLogIncidentOpen(true)}

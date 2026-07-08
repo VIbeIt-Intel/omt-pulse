@@ -284,8 +284,13 @@ export default function OccurrenceBook() {
     deepLinkHandledRef.current = deepLinkIncidentId;
     const target = incidents.find((inc) => inc.id === deepLinkIncidentId);
     if (target) {
-      setEditingIncident(target);
-      setDialogOpen(true);
+      setViewingIncident(target);
+    } else {
+      toast({
+        title: "Incident not found",
+        description: "This incident is not in your occurrence book view.",
+        variant: "destructive",
+      });
     }
     const params = new URLSearchParams(search);
     params.delete("incident");
