@@ -178,6 +178,7 @@ export interface IStorage {
 
   // User Location Assignments
   getUserLocationAssignments(userId: string, orgId: string): Promise<number[]>;
+  getOrgLocationAssignments(orgId: string): Promise<Array<{ userId: string; locationId: number }>>;
   setUserLocationAssignments(userId: string, locationIds: number[], orgId: string): Promise<void>;
 
   // Form Fields (org-scoped, optionally command-scoped)
@@ -1184,6 +1185,17 @@ export class DatabaseStorage implements IStorage {
       .from(userLocationAssignments)
       .where(and(eq(userLocationAssignments.userId, userId), eq(userLocationAssignments.organizationId, orgId)));
     return rows.map(r => r.locationId);
+  }
+
+  async getOrgLocationAssignments(orgId: string): Promise<Array<{ userId: string; locationId: number }>> {
+    const rows = await db
+      .select({
+        userId: userLocationAssignments.userId,
+        locationId: userLocationAssignments.locationId,
+      })
+      .from(userLocationAssignments)
+      .where(eq(userLocationAssignments.organizationId, orgId));
+    return rows;
   }
 
   async setUserLocationAssignments(userId: string, locationIds: number[], orgId: string): Promise<void> {

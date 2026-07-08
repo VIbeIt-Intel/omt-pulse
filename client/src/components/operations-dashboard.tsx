@@ -3,11 +3,17 @@ import { useQuery } from "@tanstack/react-query";
 import type { Location } from "@shared/schema";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { PanicBanner, type PanicAlert } from "@/components/panic-banner";
 import { type LiveIncidentMapItem } from "@/components/live-incidents-map";
 import { cn } from "@/lib/utils";
 import {
-  ClipboardList,
   Radio,
   Siren,
   MessageSquare,
@@ -20,7 +26,17 @@ import {
   Shield,
   History,
   CalendarRange,
+  Building2,
+  Car,
 } from "lucide-react";
+import {
+  getVehicleMotionStatus,
+  formatFreshnessAgo,
+  freshnessClassDark,
+  getFreshnessTier,
+  MOTION_STATUS,
+  vehicleDisplayName,
+} from "@/lib/fleet-intelligence";
 
 type Period = "day" | "week";
 
@@ -148,6 +164,52 @@ function formatOccurrenceTime(inc: OccurrenceRow): string {
   return formatClockTime(inc.incidentTime);
 }
 
+const OPS_FACILITY_STORAGE_KEY = "ops-selected-facility";
+const TEAM_ONLINE_WINDOW_MS = 30 * 60 * 1000;
+
+function isTeamMemberOnline(lastSeenAt: string | Date | null | undefined): boolean {
+  if (!lastSeenAt) return false;
+  return Date.now() - new Date(lastSeenAt).getTime() < TEAM_ONLINE_WINDOW_MS;
+}
+
+function teamMemberStatus(user: DashboardUserSummary): "responding" | "available" | "off-duty" {
+  if (user.isLive) return "responding";
+  if (isTeamMemberOnline(user.lastSeenAt)) return "available";
+  return "off-duty";
+}
+
+function userIdsAtLocation(
+  assignments: Array<{ userId: string; locationId: number }>,
+  locationId: number,
+): Set<string> {
+  return new Set(assignments.filter((a) => a.locationId === locationId).map((a) => a.userId));
+}
+
+function filterTeamForFacility(
+  users: DashboardUserSummary[],
+  assignments: Array<{ userId: string; locationId: number }>,
+  locationId: number | null,
+): DashboardUserSummary[] {
+  if (locationId == null) return users;
+  const atSite = userIdsAtLocation(assignments, locationId);
+  return users.filter((u) => atSite.has(u.id));
+}
+
+function filterTrackersForFacility(
+  trackers: TrackerDeviceSummary[],
+  assignments: Array<{ userId: string; locationId: number }>,
+  location: Location | undefined,
+  locationId: number | null,
+): TrackerDeviceSummary[] {
+  if (locationId == null || !location) return trackers;
+  const atSite = userIdsAtLocation(assignments, locationId);
+  return trackers.filter(
+    (t) =>
+      (location.commandId != null && t.commandId === location.commandId)
+      || (t.assignedUserId != null && atSite.has(t.assignedUserId)),
+  );
+}
+
 function OccurrenceList({
   incidents,
   loading,
@@ -263,8 +325,6 @@ type Props = {
   onOpenLiveMonitor: (incidentId?: number) => void;
   onOpenOccurrence: (incidentId?: number, bookPeriod?: Period) => void;
   onPanic: () => void;
-  onStartLive: () => void;
-  onReportIncident: () => void;
 };
 
 function KpiCard({
@@ -342,12 +402,14 @@ export function OperationsDashboard({
   onOpenLiveMonitor,
   onOpenOccurrence,
   onPanic,
-  onStartLive,
-  onReportIncident,
 }: Props) {
   const [highlightId, setHighlightId] = useState<number | null>(null);
   const [clock, setClock] = useState(() => new Date());
   const [lastRefresh, setLastRefresh] = useState(() => new Date());
+  const [selectedFacility, setSelectedFacility] = useState<string>(() => {
+    if (typeof window === "undefined") return "all";
+    return localStorage.getItem(OPS_FACILITY_STORAGE_KEY) ?? "all";
+  });
 
   const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), [clock]);
   const weekStartStr = useMemo(() => {
@@ -375,6 +437,50 @@ export function OperationsDashboard({
     },
     refetchInterval: 30_000,
   });
+
+  const { data: trackers = [], isLoading: trackersLoading } = useQuery<TrackerDeviceSummary[]>({
+    queryKey: ["/api/trackers"],
+    queryFn: async () => {
+      const res = await fetch("/api/trackers", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load trackers");
+      return res.json();
+    },
+    refetchInterval: 20_000,
+  });
+
+  const { data: locationAssignmentsData, isLoading: assignmentsLoading } = useQuery<{
+    assignments: Array<{ userId: string; locationId: number }>;
+  }>({
+    queryKey: ["/api/location-assignments"],
+    queryFn: async () => {
+      const res = await fetch("/api/location-assignments", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load location assignments");
+      return res.json();
+    },
+    refetchInterval: 60_000,
+  });
+
+  const locationAssignments = locationAssignmentsData?.assignments ?? [];
+
+  const selectedLocationId = selectedFacility === "all" ? null : Number(selectedFacility);
+  const selectedLocation = useMemo(
+    () => (selectedLocationId != null ? locations.find((l) => l.id === selectedLocationId) : undefined),
+    [locations, selectedLocationId],
+  );
+
+  const handleFacilityChange = (value: string) => {
+    setSelectedFacility(value);
+    localStorage.setItem(OPS_FACILITY_STORAGE_KEY, value);
+  };
+
+  useEffect(() => {
+    if (selectedFacility === "all") return;
+    const id = Number(selectedFacility);
+    if (!Number.isFinite(id) || !locations.some((l) => l.id === id)) {
+      setSelectedFacility("all");
+      localStorage.setItem(OPS_FACILITY_STORAGE_KEY, "all");
+    }
+  }, [locations, selectedFacility]);
 
   useEffect(() => {
     const t = setInterval(() => setClock(new Date()), 1000);
@@ -453,6 +559,19 @@ export function OperationsDashboard({
   }, [liveIncidents]);
 
   const showQueue = queueItems.length > 0;
+
+  const teamUsers = kpiSource?.users ?? [];
+  const siteTeam = useMemo(
+    () => filterTeamForFacility(teamUsers, locationAssignments, selectedLocationId),
+    [teamUsers, locationAssignments, selectedLocationId],
+  );
+  const siteFleet = useMemo(
+    () => filterTrackersForFacility(trackers, locationAssignments, selectedLocation, selectedLocationId),
+    [trackers, locationAssignments, selectedLocation, selectedLocationId],
+  );
+  const siteMonitorLoading = kpiLoading || trackersLoading || assignmentsLoading;
+  const facilityLabel =
+    selectedLocationId == null ? "All facilities" : (selectedLocation?.name ?? "Selected facility");
 
   return (
     <div
@@ -545,7 +664,28 @@ export function OperationsDashboard({
             </p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 ml-auto">
+          {locations.length > 0 && (
+            <Select value={selectedFacility} onValueChange={handleFacilityChange}>
+              <SelectTrigger
+                className="w-[min(220px,40vw)] h-9 text-xs bg-slate-800 border-slate-600 text-slate-100"
+                data-testid="ops-facility-select"
+              >
+                <div className="flex items-center gap-1.5 truncate">
+                  <Building2 className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                  <SelectValue placeholder="All facilities" />
+                </div>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All facilities</SelectItem>
+                {locations.map((loc) => (
+                  <SelectItem key={loc.id} value={String(loc.id)}>
+                    {loc.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           <button
             type="button"
             onClick={onPanic}
@@ -554,24 +694,6 @@ export function OperationsDashboard({
           >
             <Siren className="h-4 w-4" />
             Panic / SOS
-          </button>
-          <button
-            type="button"
-            onClick={onStartLive}
-            data-testid="ops-button-live"
-            className="inline-flex items-center gap-2 rounded-lg bg-orange-600 hover:bg-orange-500 px-4 py-2 text-sm font-semibold text-white shadow-md transition-colors"
-          >
-            <Radio className="h-4 w-4" />
-            Start Live
-          </button>
-          <button
-            type="button"
-            onClick={onReportIncident}
-            data-testid="ops-button-report"
-            className="inline-flex items-center gap-2 rounded-lg bg-emerald-700 hover:bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-md transition-colors"
-          >
-            <ClipboardList className="h-4 w-4" />
-            Report
           </button>
         </div>
       </div>
@@ -626,6 +748,143 @@ export function OperationsDashboard({
             testId="ops-kpi-closed"
             loading={incidentsLoading}
           />
+        </div>
+      </div>
+
+      {/* ── Site monitor: team + fleet for selected facility ── */}
+      <div
+        className="shrink-0 border-b border-slate-800/80 bg-[#111820]"
+        data-testid="ops-site-monitor"
+      >
+        <div className="px-3 py-2 border-b border-slate-800/60 flex items-center justify-between gap-2">
+          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400 flex items-center gap-1.5">
+            <Building2 className="h-3.5 w-3.5 text-blue-400" />
+            Site Monitor
+          </p>
+          <p className="text-[10px] text-slate-500 truncate">{facilityLabel}</p>
+        </div>
+        <div className="grid grid-cols-2 gap-px bg-slate-800/40 max-h-[200px] min-h-[140px]">
+          <div className="flex flex-col min-h-0 bg-[#131a22]">
+            <div className="shrink-0 px-3 py-1.5 border-b border-emerald-900/20 flex items-center justify-between">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-500/90 flex items-center gap-1">
+                <Users className="h-3 w-3" />
+                Team
+              </p>
+              <span className="text-[10px] text-slate-500 tabular-nums">{siteTeam.length}</span>
+            </div>
+            <div className="flex-1 overflow-y-auto ops-scroll">
+              {siteMonitorLoading ? (
+                <div className="p-2 space-y-2">
+                  <Skeleton className="h-8 bg-slate-800" />
+                  <Skeleton className="h-8 bg-slate-800" />
+                </div>
+              ) : siteTeam.length === 0 ? (
+                <p className="text-[11px] text-slate-600 text-center py-6 px-3">
+                  {selectedLocationId == null
+                    ? "No team members in scope."
+                    : "No team assigned to this facility."}
+                </p>
+              ) : (
+                <ul className="divide-y divide-emerald-900/15">
+                  {siteTeam.map((user) => {
+                    const status = teamMemberStatus(user);
+                    const statusLabel =
+                      status === "responding" ? "Responding" : status === "available" ? "Available" : "Off duty";
+                    return (
+                      <li key={user.id} className="px-3 py-2 hover:bg-emerald-950/20">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-950/40 border border-emerald-800/30 text-[10px] font-bold text-emerald-200">
+                            {user.firstName.charAt(0)}
+                            {user.lastName.charAt(0)}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-medium text-slate-200 truncate">
+                              {user.firstName} {user.lastName}
+                            </p>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className="text-[9px] text-slate-500 capitalize">{user.role}</span>
+                              <span className="text-[9px] font-semibold uppercase text-slate-400">{statusLabel}</span>
+                            </div>
+                          </div>
+                          {user.isLive && user.liveIncidentId && (
+                            <button
+                              type="button"
+                              className="text-[10px] text-emerald-500 hover:underline shrink-0"
+                              onClick={() => onOpenLiveMonitor(user.liveIncidentId!)}
+                            >
+                              Live
+                            </button>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          </div>
+
+          <div className="flex flex-col min-h-0 bg-[#131a22]">
+            <div className="shrink-0 px-3 py-1.5 border-b border-blue-900/20 flex items-center justify-between">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-blue-400/90 flex items-center gap-1">
+                <Car className="h-3 w-3" />
+                Fleet
+              </p>
+              <span className="text-[10px] text-slate-500 tabular-nums">{siteFleet.length}</span>
+            </div>
+            <div className="flex-1 overflow-y-auto ops-scroll">
+              {siteMonitorLoading ? (
+                <div className="p-2 space-y-2">
+                  <Skeleton className="h-8 bg-slate-800" />
+                  <Skeleton className="h-8 bg-slate-800" />
+                </div>
+              ) : siteFleet.length === 0 ? (
+                <p className="text-[11px] text-slate-600 text-center py-6 px-3">
+                  {selectedLocationId == null
+                    ? "No GPS trackers linked."
+                    : "No vehicles linked to this facility."}
+                </p>
+              ) : (
+                <ul className="divide-y divide-blue-900/20">
+                  {siteFleet.map((device) => {
+                    const motion = getVehicleMotionStatus(device.lastSeenAt, device.lastSpeedKph);
+                    const motionCfg = MOTION_STATUS[motion];
+                    const speed =
+                      device.lastSpeedKph != null ? Math.round(device.lastSpeedKph) : null;
+                    const freshness = getFreshnessTier(device.lastSeenAt);
+                    return (
+                      <li key={device.id} className="px-3 py-2 hover:bg-blue-950/25">
+                        <p className="text-xs font-semibold text-slate-100 truncate">
+                          {vehicleDisplayName(device)}
+                        </p>
+                        <p className="text-[10px] text-slate-500 truncate">
+                          {device.vehicleRegistration?.trim() || `IMEI …${device.imei.slice(-6)}`}
+                        </p>
+                        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                          <span
+                            className={cn(
+                              "inline-flex rounded border px-1 py-0 text-[8px] font-bold uppercase",
+                              motionCfg.pill,
+                            )}
+                          >
+                            {motionCfg.label}
+                          </span>
+                          {speed != null && (
+                            <span className="text-[10px] tabular-nums text-slate-300">
+                              {speed} km/h
+                            </span>
+                          )}
+                          <span className={cn("text-[10px] tabular-nums", freshnessClassDark(freshness))}>
+                            {formatFreshnessAgo(device.lastSeenAt)}
+                          </span>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 

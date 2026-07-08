@@ -873,8 +873,6 @@ export default function CommandDashboard() {
             onOpenLiveMonitor={openLiveMonitor}
             onOpenOccurrence={openOccurrenceBook}
             onPanic={() => setPanicOpen(true)}
-            onStartLive={() => navigate("/live-severity")}
-            onReportIncident={() => setLogIncidentOpen(true)}
           />
         </div>
       )}
