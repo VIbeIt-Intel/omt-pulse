@@ -974,7 +974,7 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
                 </RoleGuard>
               </Route>
               <Route path="/access-control">
-                <RoleGuard role={user.role} allowed={["administrator", "supervisor", "reporter", "access_controller"]}>
+                <RoleGuard role={user.role} allowed={["administrator", "supervisor", "control_room", "reporter", "access_controller"]}>
                   <AccessControlPage userRole={user.role} />
                 </RoleGuard>
               </Route>

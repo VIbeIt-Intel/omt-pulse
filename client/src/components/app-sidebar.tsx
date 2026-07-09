@@ -7,7 +7,7 @@ import omtLogo from "@/assets/omt-logo-v2.png";
 import { OmtShield } from "@/components/omt-shield";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { hasAccessControlRole, isDispatchStaff, isFieldReporter, canAccessPatrolModule } from "@shared/user-roles";
+import { canViewAccessControlModule, isDispatchStaff, isFieldReporter, canAccessPatrolModule } from "@shared/user-roles";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Sidebar,
@@ -204,7 +204,7 @@ function getNavItems(role: string, isSuperadmin: boolean) {
     { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
     { title: "Occurrence Book", url: "/occurrence-book", icon: BookOpen },
   ];
-  if (hasAccessControlRole(role)) {
+  if (canViewAccessControlModule(role)) {
     items.push({ title: "Access Control", url: "/access-control", icon: ShieldCheck });
   }
   if (canAccessPatrolModule(role)) {

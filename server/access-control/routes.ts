@@ -7,6 +7,8 @@ import {
 import {
   createAccessVisit,
   createDestination,
+  getAccessActivity,
+  getAccessOverview,
   getCurrentlyInside,
   getDestinations,
   markAccessExit,
@@ -21,11 +23,19 @@ import { decodeSadlBytesFromImageBuffer } from "@shared/decode-sadl-from-image";
 import { decodeLicenceFrontFromImageBuffer } from "./decode-licence-front-image";
 import { decodeLicenceDiscFromImageBuffer } from "./decode-licence-disc-image";
 
-import { hasAccessControlRole } from "@shared/user-roles";
+import { hasAccessControlRole, canViewAccessControlModule } from "@shared/user-roles";
 
 function requireAccessRole(req: Request, res: Response, next: NextFunction) {
   const role = req.currentUser?.role;
   if (!role || !hasAccessControlRole(role)) {
+    return res.status(403).json({ message: "Access denied" });
+  }
+  next();
+}
+
+function requireAccessReadRole(req: Request, res: Response, next: NextFunction) {
+  const role = req.currentUser?.role;
+  if (!role || !canViewAccessControlModule(role)) {
     return res.status(403).json({ message: "Access denied" });
   }
   next();
@@ -83,7 +93,7 @@ const createEntrySchema = z
 
 export function registerAccessControlRoutes(app: Express) {
   // ── Destinations ────────────────────────────────────────────────────────────
-  app.get("/api/access-control/destinations", requireAccessRole, async (req, res) => {
+  app.get("/api/access-control/destinations", requireAccessReadRole, async (req, res) => {
     const orgId = req.currentUser!.organizationId;
     const includeInactive = req.query.all === "1" && req.currentUser!.role === "administrator";
     res.json(await getDestinations(orgId, !includeInactive));
@@ -109,7 +119,29 @@ export function registerAccessControlRoutes(app: Express) {
   });
 
   // ── Entries ─────────────────────────────────────────────────────────────────
-  app.get("/api/access-control/currently-inside", requireAccessRole, async (req, res) => {
+  app.get("/api/access-control/overview", requireAccessReadRole, async (req, res) => {
+    const orgId = req.currentUser!.organizationId;
+    res.json(await getAccessOverview(orgId));
+  });
+
+  app.get("/api/access-control/activity", requireAccessReadRole, async (req, res) => {
+    const orgId = req.currentUser!.organizationId;
+    const limit = parseInt(String(req.query.limit ?? "40"), 10);
+    const destinationId = req.query.destinationId
+      ? parseInt(String(req.query.destinationId), 10)
+      : undefined;
+    if (destinationId != null && !Number.isFinite(destinationId)) {
+      return res.status(400).json({ message: "Invalid destinationId" });
+    }
+    res.json(
+      await getAccessActivity(orgId, {
+        limit: Number.isFinite(limit) ? limit : 40,
+        destinationId,
+      }),
+    );
+  });
+
+  app.get("/api/access-control/currently-inside", requireAccessReadRole, async (req, res) => {
     const orgId = req.currentUser!.organizationId;
     res.json(await getCurrentlyInside(orgId));
   });

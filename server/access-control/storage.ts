@@ -10,7 +10,7 @@ import {
   type InsertAccessLogVehicle,
 } from "@shared/schema";
 import { db } from "../storage";
-import { eq, and, desc, asc } from "drizzle-orm";
+import { eq, and, desc, asc, gte, or } from "drizzle-orm";
 
 export async function getDestinations(orgId: string, activeOnly = true): Promise<Destination[]> {
   const conditions = [eq(destinations.organizationId, orgId)];
@@ -257,4 +257,153 @@ export async function markAccessExit(id: number, orgId: string): Promise<AccessL
 
   if (!updated) return undefined;
   return getAccessLog(updated.id, orgId);
+}
+
+export type AccessDestinationSummary = {
+  destinationId: number;
+  destinationName: string;
+  destinationType: string;
+  active: boolean;
+  currentlyInside: number;
+  checkInsToday: number;
+  checkOutsToday: number;
+  vehiclesInside: number;
+  insideByCategory: Record<string, number>;
+};
+
+export type AccessOverview = {
+  totals: {
+    currentlyInside: number;
+    checkInsToday: number;
+    checkOutsToday: number;
+    vehiclesInside: number;
+  };
+  destinations: AccessDestinationSummary[];
+};
+
+function startOfLocalDay(): Date {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function hasVehicleOnEntry(entry: AccessLogWithDetails): boolean {
+  return !!(
+    entry.vehicle?.registration
+    || entry.vehicle?.make
+    || entry.vehiclePhotoUrl
+    || entry.vehicle?.licenceDiscData
+  );
+}
+
+export async function getAccessOverview(orgId: string): Promise<AccessOverview> {
+  const dests = await db
+    .select()
+    .from(destinations)
+    .where(eq(destinations.organizationId, orgId))
+    .orderBy(asc(destinations.name));
+
+  const inside = await getCurrentlyInside(orgId);
+  const startOfToday = startOfLocalDay();
+
+  const todayRows = await db
+    .select({
+      destinationId: accessLogs.destinationId,
+      timeIn: accessLogs.timeIn,
+      timeOut: accessLogs.timeOut,
+    })
+    .from(accessLogs)
+    .where(
+      and(
+        eq(accessLogs.organizationId, orgId),
+        or(gte(accessLogs.timeIn, startOfToday), gte(accessLogs.timeOut, startOfToday)),
+      ),
+    );
+
+  const destMap = new Map<number, AccessDestinationSummary>();
+  for (const d of dests) {
+    destMap.set(d.id, {
+      destinationId: d.id,
+      destinationName: d.name,
+      destinationType: d.type,
+      active: d.active,
+      currentlyInside: 0,
+      checkInsToday: 0,
+      checkOutsToday: 0,
+      vehiclesInside: 0,
+      insideByCategory: {},
+    });
+  }
+
+  for (const row of todayRows) {
+    const summary = destMap.get(row.destinationId);
+    if (!summary) continue;
+    if (row.timeIn >= startOfToday) summary.checkInsToday++;
+    if (row.timeOut && row.timeOut >= startOfToday) summary.checkOutsToday++;
+  }
+
+  const vehicleGroupsSeen = new Set<string>();
+
+  for (const entry of inside) {
+    const summary = destMap.get(entry.destinationId);
+    if (!summary) continue;
+    summary.currentlyInside++;
+    summary.insideByCategory[entry.category] = (summary.insideByCategory[entry.category] ?? 0) + 1;
+    if (hasVehicleOnEntry(entry)) {
+      const groupKey = entry.visitGroupId ?? `solo-${entry.id}`;
+      if (!vehicleGroupsSeen.has(`${entry.destinationId}:${groupKey}`)) {
+        vehicleGroupsSeen.add(`${entry.destinationId}:${groupKey}`);
+        summary.vehiclesInside++;
+      }
+    }
+  }
+
+  const destinationSummaries = [...destMap.values()];
+  const totals = destinationSummaries.reduce(
+    (acc, d) => ({
+      currentlyInside: acc.currentlyInside + d.currentlyInside,
+      checkInsToday: acc.checkInsToday + d.checkInsToday,
+      checkOutsToday: acc.checkOutsToday + d.checkOutsToday,
+      vehiclesInside: acc.vehiclesInside + d.vehiclesInside,
+    }),
+    { currentlyInside: 0, checkInsToday: 0, checkOutsToday: 0, vehiclesInside: 0 },
+  );
+
+  return { totals, destinations: destinationSummaries };
+}
+
+export async function getAccessActivity(
+  orgId: string,
+  opts?: { limit?: number; destinationId?: number },
+): Promise<AccessLogWithDetails[]> {
+  const limit = Math.min(Math.max(opts?.limit ?? 40, 1), 100);
+  const conditions = [eq(accessLogs.organizationId, orgId)];
+  if (opts?.destinationId != null) {
+    conditions.push(eq(accessLogs.destinationId, opts.destinationId));
+  }
+
+  const rows = await db
+    .select({
+      log: accessLogs,
+      destinationName: destinations.name,
+      loggedByFirst: users.firstName,
+      loggedByLast: users.lastName,
+      vehicle: accessLogVehicles,
+    })
+    .from(accessLogs)
+    .innerJoin(destinations, eq(accessLogs.destinationId, destinations.id))
+    .leftJoin(users, eq(accessLogs.loggedByUserId, users.id))
+    .leftJoin(accessLogVehicles, eq(accessLogVehicles.accessLogId, accessLogs.id))
+    .where(and(...conditions))
+    .orderBy(desc(accessLogs.timeIn))
+    .limit(limit);
+
+  return rows.map((r) =>
+    hydrateAccessLog(
+      r.log,
+      r.vehicle ?? null,
+      r.destinationName,
+      r.loggedByFirst ? `${r.loggedByFirst} ${r.loggedByLast ?? ""}`.trim() : null,
+    ),
+  );
 }

@@ -9,6 +9,12 @@ export type UserRole = (typeof USER_ROLES)[number];
 /** Gate check-in / check-out module. */
 export const ACCESS_CONTROL_ROLES = ["administrator", "supervisor", "reporter", "access_controller"] as const;
 
+/** Operational gate desk UI (scan & log entries). */
+export const ACCESS_DESK_ROLES = ["access_controller", "reporter"] as const;
+
+/** Management / oversight view (activity synopsis, read-only for control room). */
+export const ACCESS_OVERVIEW_ROLES = ["administrator", "supervisor", "control_room"] as const;
+
 /** Field GPS / Live Incident workflow (not gate-only staff). */
 export const FIELD_REPORTER_ROLES = ["reporter"] as const;
 
@@ -21,6 +27,19 @@ export function isDispatchStaff(role: string): boolean {
 
 export function hasAccessControlRole(role: string): boolean {
   return (ACCESS_CONTROL_ROLES as readonly string[]).includes(role);
+}
+
+export function usesAccessDeskUi(role: string): boolean {
+  return (ACCESS_DESK_ROLES as readonly string[]).includes(role);
+}
+
+export function usesAccessOverviewUi(role: string): boolean {
+  return (ACCESS_OVERVIEW_ROLES as readonly string[]).includes(role);
+}
+
+/** Sidebar + read APIs for overview (includes control room). */
+export function canViewAccessControlModule(role: string): boolean {
+  return hasAccessControlRole(role) || usesAccessOverviewUi(role);
 }
 
 export function isControlRoom(role: string): boolean {
