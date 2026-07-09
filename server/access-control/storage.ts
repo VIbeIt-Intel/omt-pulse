@@ -10,7 +10,7 @@ import {
   type InsertAccessLogVehicle,
 } from "@shared/schema";
 import { db } from "../storage";
-import { eq, and, desc, asc, gte, or } from "drizzle-orm";
+import { eq, and, desc, asc, gte, lte, or, ilike } from "drizzle-orm";
 
 export async function getDestinations(orgId: string, activeOnly = true): Promise<Destination[]> {
   const conditions = [eq(destinations.organizationId, orgId)];
@@ -376,12 +376,41 @@ export async function getAccessOverview(orgId: string): Promise<AccessOverview> 
 
 export async function getAccessActivity(
   orgId: string,
-  opts?: { limit?: number; destinationId?: number },
+  opts?: {
+    limit?: number;
+    destinationId?: number;
+    search?: string;
+    status?: "inside" | "exited" | "all";
+    category?: string;
+    from?: Date;
+    to?: Date;
+  },
 ): Promise<AccessLogWithDetails[]> {
-  const limit = Math.min(Math.max(opts?.limit ?? 40, 1), 100);
+  const limit = Math.min(Math.max(opts?.limit ?? 40, 1), 500);
   const conditions = [eq(accessLogs.organizationId, orgId)];
+
   if (opts?.destinationId != null) {
     conditions.push(eq(accessLogs.destinationId, opts.destinationId));
+  }
+  if (opts?.status === "inside") {
+    conditions.push(eq(accessLogs.status, "inside"));
+  } else if (opts?.status === "exited") {
+    conditions.push(eq(accessLogs.status, "exited"));
+  }
+  if (opts?.category) {
+    conditions.push(eq(accessLogs.category, opts.category));
+  }
+  if (opts?.from) {
+    conditions.push(gte(accessLogs.timeIn, opts.from));
+  }
+  if (opts?.to) {
+    conditions.push(lte(accessLogs.timeIn, opts.to));
+  }
+  if (opts?.search?.trim()) {
+    const q = `%${opts.search.trim()}%`;
+    conditions.push(
+      or(ilike(accessLogs.personFullName, q), ilike(accessLogs.personIdNumber, q))!,
+    );
   }
 
   const rows = await db
@@ -408,4 +437,130 @@ export async function getAccessActivity(
       r.loggedByFirst ? `${r.loggedByFirst} ${r.loggedByLast ?? ""}`.trim() : null,
     ),
   );
+}
+
+export type AccessAnalytics = {
+  periodDays: number;
+  totalVisits: number;
+  uniquePeople: number;
+  avgVisitMinutes: number | null;
+  byCategory: Record<string, number>;
+  hourlyCheckInsToday: number[];
+  topDestinations: Array<{ destinationId: number; destinationName: string; count: number }>;
+};
+
+export async function getAccessAnalytics(orgId: string, days = 7): Promise<AccessAnalytics> {
+  const periodDays = Math.min(Math.max(days, 1), 90);
+  const since = new Date();
+  since.setDate(since.getDate() - periodDays);
+  since.setHours(0, 0, 0, 0);
+  const startOfToday = startOfLocalDay();
+
+  const rows = await db
+    .select({
+      category: accessLogs.category,
+      destinationId: accessLogs.destinationId,
+      destinationName: destinations.name,
+      timeIn: accessLogs.timeIn,
+      timeOut: accessLogs.timeOut,
+      personIdNumber: accessLogs.personIdNumber,
+      personFullName: accessLogs.personFullName,
+    })
+    .from(accessLogs)
+    .innerJoin(destinations, eq(accessLogs.destinationId, destinations.id))
+    .where(and(eq(accessLogs.organizationId, orgId), gte(accessLogs.timeIn, since)));
+
+  const byCategory: Record<string, number> = {};
+  const destCounts = new Map<number, { name: string; count: number }>();
+  const people = new Set<string>();
+  const hourlyCheckInsToday = Array.from({ length: 24 }, () => 0);
+  let durationTotalMinutes = 0;
+  let durationCount = 0;
+
+  for (const row of rows) {
+    byCategory[row.category] = (byCategory[row.category] ?? 0) + 1;
+    const dest = destCounts.get(row.destinationId) ?? { name: row.destinationName, count: 0 };
+    dest.count++;
+    destCounts.set(row.destinationId, dest);
+
+    const personKey = row.personIdNumber?.trim() || row.personFullName.trim().toLowerCase();
+    if (personKey) people.add(personKey);
+
+    if (row.timeIn >= startOfToday) {
+      hourlyCheckInsToday[row.timeIn.getHours()]++;
+    }
+
+    if (row.timeOut) {
+      const mins = (row.timeOut.getTime() - row.timeIn.getTime()) / 60_000;
+      if (mins > 0 && mins < 24 * 60) {
+        durationTotalMinutes += mins;
+        durationCount++;
+      }
+    }
+  }
+
+  const topDestinations = [...destCounts.entries()]
+    .map(([destinationId, v]) => ({
+      destinationId,
+      destinationName: v.name,
+      count: v.count,
+    }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 8);
+
+  return {
+    periodDays,
+    totalVisits: rows.length,
+    uniquePeople: people.size,
+    avgVisitMinutes: durationCount > 0 ? Math.round(durationTotalMinutes / durationCount) : null,
+    byCategory,
+    hourlyCheckInsToday,
+    topDestinations,
+  };
+}
+
+export async function getPersonAccessHistory(
+  orgId: string,
+  opts: { personIdNumber?: string | null; personFullName?: string; excludeId?: number; limit?: number },
+): Promise<AccessLogWithDetails[]> {
+  const limit = Math.min(Math.max(opts.limit ?? 20, 1), 100);
+  const conditions = [eq(accessLogs.organizationId, orgId)];
+
+  const id = opts.personIdNumber?.trim();
+  const name = opts.personFullName?.trim();
+  if (id) {
+    conditions.push(eq(accessLogs.personIdNumber, id));
+  } else if (name) {
+    conditions.push(eq(accessLogs.personFullName, name));
+  } else {
+    return [];
+  }
+
+  const rows = await db
+    .select({
+      log: accessLogs,
+      destinationName: destinations.name,
+      loggedByFirst: users.firstName,
+      loggedByLast: users.lastName,
+      vehicle: accessLogVehicles,
+    })
+    .from(accessLogs)
+    .innerJoin(destinations, eq(accessLogs.destinationId, destinations.id))
+    .leftJoin(users, eq(accessLogs.loggedByUserId, users.id))
+    .leftJoin(accessLogVehicles, eq(accessLogVehicles.accessLogId, accessLogs.id))
+    .where(and(...conditions))
+    .orderBy(desc(accessLogs.timeIn))
+    .limit(limit + 1);
+
+  return rows
+    .map((r) =>
+      hydrateAccessLog(
+        r.log,
+        r.vehicle ?? null,
+        r.destinationName,
+        r.loggedByFirst ? `${r.loggedByFirst} ${r.loggedByLast ?? ""}`.trim() : null,
+      ),
+    )
+    .filter((e) => e.id !== opts.excludeId)
+    .slice(0, limit);
 }

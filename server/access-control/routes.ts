@@ -9,9 +9,12 @@ import {
   createAccessVisit,
   createDestination,
   getAccessActivity,
+  getAccessAnalytics,
+  getAccessLog,
   getAccessOverview,
   getCurrentlyInside,
   getDestinations,
+  getPersonAccessHistory,
   markAccessExit,
   updateDestination,
 } from "./storage";
@@ -47,6 +50,11 @@ function requireAdmin(req: Request, res: Response, next: NextFunction) {
     return res.status(403).json({ message: "Administrator only" });
   }
   next();
+}
+
+function csvCell(value: string): string {
+  const v = value.replace(/"/g, '""');
+  return /[",\n]/.test(v) ? `"${v}"` : v;
 }
 
 const vehicleInputSchema = z.object({
@@ -172,15 +180,134 @@ export function registerAccessControlRoutes(app: Express) {
     const destinationId = req.query.destinationId
       ? parseInt(String(req.query.destinationId), 10)
       : undefined;
+    const status = req.query.status as "inside" | "exited" | "all" | undefined;
+    const category = req.query.category ? String(req.query.category) : undefined;
+    const search = req.query.search ? String(req.query.search) : undefined;
+    const from = req.query.from ? new Date(String(req.query.from)) : undefined;
+    const to = req.query.to ? new Date(String(req.query.to)) : undefined;
+
     if (destinationId != null && !Number.isFinite(destinationId)) {
       return res.status(400).json({ message: "Invalid destinationId" });
     }
+    if (from && Number.isNaN(from.getTime())) {
+      return res.status(400).json({ message: "Invalid from date" });
+    }
+    if (to && Number.isNaN(to.getTime())) {
+      return res.status(400).json({ message: "Invalid to date" });
+    }
+
     res.json(
       await getAccessActivity(orgId, {
         limit: Number.isFinite(limit) ? limit : 40,
         destinationId,
+        search,
+        status: status === "inside" || status === "exited" ? status : "all",
+        category,
+        from,
+        to,
       }),
     );
+  });
+
+  app.get("/api/access-control/analytics", requireAccessReadRole, async (req, res) => {
+    const orgId = req.currentUser!.organizationId;
+    const days = parseInt(String(req.query.days ?? "7"), 10);
+    res.json(await getAccessAnalytics(orgId, Number.isFinite(days) ? days : 7));
+  });
+
+  app.get("/api/access-control/entries/:id", requireAccessReadRole, async (req, res) => {
+    const id = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid id" });
+    const orgId = req.currentUser!.organizationId;
+    const entry = await getAccessLog(id, orgId);
+    if (!entry) return res.status(404).json({ message: "Entry not found" });
+    res.json(entry);
+  });
+
+  app.get("/api/access-control/person-history", requireAccessReadRole, async (req, res) => {
+    const orgId = req.currentUser!.organizationId;
+    const personIdNumber = req.query.personIdNumber ? String(req.query.personIdNumber) : undefined;
+    const personFullName = req.query.personFullName ? String(req.query.personFullName) : undefined;
+    const excludeId = req.query.excludeId ? parseInt(String(req.query.excludeId), 10) : undefined;
+    res.json(
+      await getPersonAccessHistory(orgId, {
+        personIdNumber,
+        personFullName,
+        excludeId: Number.isFinite(excludeId) ? excludeId : undefined,
+      }),
+    );
+  });
+
+  app.get("/api/access-control/report.csv", requireAccessReadRole, async (req, res) => {
+    const orgId = req.currentUser!.organizationId;
+    const destinationId = req.query.destinationId
+      ? parseInt(String(req.query.destinationId), 10)
+      : undefined;
+    const search = req.query.search ? String(req.query.search) : undefined;
+    const status = req.query.status as "inside" | "exited" | "all" | undefined;
+    const from = req.query.from ? new Date(String(req.query.from)) : undefined;
+    const to = req.query.to ? new Date(String(req.query.to)) : undefined;
+
+    const rows = await getAccessActivity(orgId, {
+      limit: 2000,
+      destinationId: Number.isFinite(destinationId) ? destinationId : undefined,
+      search,
+      status: status === "inside" || status === "exited" ? status : "all",
+      from: from && !Number.isNaN(from.getTime()) ? from : undefined,
+      to: to && !Number.isNaN(to.getTime()) ? to : undefined,
+    });
+
+    const header = [
+      "Date",
+      "Time in",
+      "Time out",
+      "Status",
+      "Full name",
+      "ID number",
+      "Category",
+      "Destination",
+      "Company",
+      "Contact",
+      "Purpose",
+      "Vehicle registration",
+      "Vehicle make",
+      "Vehicle model",
+      "Logged by",
+    ];
+
+    const fmt = (d: Date | string | null | undefined) => {
+      if (!d) return "";
+      const dt = typeof d === "string" ? new Date(d) : d;
+      return dt.toLocaleString("en-ZA");
+    };
+
+    const lines = [
+      header.join(","),
+      ...rows.map((r) =>
+        [
+          r.timeIn ? new Date(r.timeIn).toLocaleDateString("en-ZA") : "",
+          fmt(r.timeIn),
+          fmt(r.timeOut),
+          r.status,
+          csvCell(r.personFullName),
+          csvCell(r.personIdNumber ?? ""),
+          csvCell(r.category),
+          csvCell(r.destinationName),
+          csvCell(r.companyName ?? ""),
+          csvCell(r.contactNumber ?? ""),
+          csvCell(r.purpose ?? ""),
+          csvCell(r.vehicle?.registration ?? ""),
+          csvCell(r.vehicle?.make ?? ""),
+          csvCell(r.vehicle?.model ?? ""),
+          csvCell(r.loggedByName ?? ""),
+        ].join(","),
+      ),
+    ];
+
+    const filename = `access-report-${new Date().toISOString().slice(0, 10)}.csv`;
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.send(lines.join("\n"));
   });
 
   app.get("/api/access-control/currently-inside", requireAccessReadRole, async (req, res) => {

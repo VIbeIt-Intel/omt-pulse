@@ -65,7 +65,7 @@ export default function AccessControlPage({ userRole }: AccessControlPageProps) 
 
   const subtitle =
     pageView === "overview"
-      ? "Activity synopsis across your premises"
+      ? "Live occupancy, analytics, and visit audit log"
       : "Scan people & vehicles in, then check them out";
 
   return (
