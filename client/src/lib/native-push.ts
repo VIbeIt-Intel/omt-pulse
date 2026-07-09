@@ -44,6 +44,13 @@ export function resolvePushDeepLink(data: Record<string, unknown> | undefined): 
   if (type === "chat_message") {
     return direct ?? "/chat";
   }
+  if (type === "fleet_alert") {
+    const deviceId = data?.deviceId;
+    if (deviceId != null && String(deviceId)) {
+      return `/fleet?device=${deviceId}`;
+    }
+    return "/fleet";
+  }
   return null;
 }
 

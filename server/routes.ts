@@ -293,6 +293,103 @@ async function dispatchLiveIncidentPush(orgId: string, triggerUserId: string, in
   })();
 }
 
+async function dispatchFleetAlertPush(
+  orgId: string,
+  alert: FleetAlertSummary,
+  commandId: number | null,
+) {
+  const title = alert.title;
+  const body = alert.message;
+  const detailUrl = `/fleet?device=${alert.deviceId}`;
+  const payload = JSON.stringify({
+    type: "fleet_alert",
+    title,
+    body,
+    url: detailUrl,
+    deviceId: String(alert.deviceId),
+    alertType: alert.alertType,
+  });
+
+  const commandIds = commandId != null ? [commandId] : undefined;
+  const subs = await storage.getPushSubscriptionsByOrg(
+    orgId,
+    undefined,
+    [...FLEET_ALERT_NOTIFY_ROLES],
+    commandIds,
+  );
+  const pushedUserIds = new Set<string>();
+
+  if (subs.length > 0) {
+    await Promise.allSettled(
+      dedupeByEndpoint(subs).map(async (sub) => {
+        try {
+          await webpush.sendNotification(
+            { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+            payload,
+            URGENT_PUSH,
+          );
+          pushedUserIds.add(sub.userId);
+          storage.createNotificationLog({
+            organizationId: orgId,
+            userId: sub.userId,
+            title,
+            body,
+            url: detailUrl,
+          }).catch(() => {});
+        } catch (err: unknown) {
+          const statusCode = typeof err === "object" && err !== null && "statusCode" in err
+            ? (err as { statusCode: number }).statusCode
+            : 0;
+          if (statusCode === 410 || statusCode === 404) {
+            await storage.deletePushSubscription(sub.endpoint);
+          }
+        }
+      }),
+    );
+  }
+
+  const fcmSubs = await storage.getFcmTokensByOrg(
+    orgId,
+    undefined,
+    [...FLEET_ALERT_NOTIFY_ROLES],
+    commandIds,
+  );
+  if (fcmSubs.length > 0) {
+    await sendFcmBatch(fcmSubs.map((s) => s.token), {
+      title,
+      body,
+      data: {
+        type: "fleet_alert",
+        url: detailUrl,
+        deviceId: String(alert.deviceId),
+        alertType: alert.alertType,
+      },
+      notificationTag: `fleet-alert-${alert.deviceId}-${alert.alertType}`,
+    });
+    for (const s of fcmSubs) pushedUserIds.add(s.userId);
+  }
+
+  try {
+    const allActive = await storage.getActiveUsersByOrg(orgId);
+    const noPushUsers = allActive.filter(
+      (u) =>
+        FLEET_ALERT_NOTIFY_ROLES.includes(u.role as (typeof FLEET_ALERT_NOTIFY_ROLES)[number])
+        && !pushedUserIds.has(u.id),
+    );
+    await Promise.allSettled(
+      noPushUsers.map((u) =>
+        storage.createNotificationLog({
+          organizationId: orgId,
+          userId: u.id,
+          title,
+          body,
+          url: detailUrl,
+        }).catch(() => {}),
+      ),
+    );
+  } catch { /* best-effort */ }
+}
+
 /** userId:locationId → was inside premises radius on last known position */
 const premiseGeofenceInside = new Map<string, boolean>();
 
@@ -1005,6 +1102,10 @@ const BUILD_ID = String(Date.now());
 
 import { registerAccessControlRoutes } from "./access-control/routes";
 import { registerPatrolRoutes } from "./patrol/routes";
+import { registerFleetAlertRoutes } from "./fleet-alerts/routes";
+import { registerFleetAlertPushHandler } from "./fleet-alerts/push";
+import { FLEET_ALERT_NOTIFY_ROLES } from "@shared/fleet-alerts";
+import type { FleetAlertSummary } from "@shared/schema";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -5373,6 +5474,11 @@ export async function registerRoutes(
 
   registerAccessControlRoutes(app);
   registerPatrolRoutes(app);
+  registerFleetAlertRoutes(app);
+
+  registerFleetAlertPushHandler(async ({ alert, commandId }) => {
+    await dispatchFleetAlertPush(alert.organizationId, alert, commandId);
+  });
 
   return httpServer;
 }

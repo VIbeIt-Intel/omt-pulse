@@ -209,6 +209,12 @@ export async function saveTrackerPosition(
     .update(trackerDevices)
     .set(devicePatch)
     .where(eq(trackerDevices.id, deviceId));
+
+  void import("../fleet-alerts/detection")
+    .then(({ evaluateFleetAlertsOnPosition }) => evaluateFleetAlertsOnPosition(deviceId, position))
+    .catch((err) => {
+      console.error("[fleet-alerts] position evaluation failed:", err instanceof Error ? err.message : err);
+    });
 }
 
 export async function saveTrackerIgnition(

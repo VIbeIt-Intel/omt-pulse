@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
-import { Car, ChevronRight } from "lucide-react";
+import { Car, ChevronRight, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FleetOverview } from "@/components/fleet/fleet-overview";
+import { FleetAlertsPanel } from "@/components/fleet/fleet-alerts-panel";
+import { FleetAlertDefaultsSheet } from "@/components/fleet/fleet-alert-defaults-sheet";
 import { FleetVehicleCard } from "@/components/fleet/fleet-vehicle-card";
 import { FleetVehicleDetail } from "@/components/fleet/fleet-vehicle-detail";
 import type { TrackerDeviceSummary } from "@/components/operations-dashboard";
@@ -21,6 +23,10 @@ export default function FleetPage() {
   const deviceParam = params.get("device");
 
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [defaultsOpen, setDefaultsOpen] = useState(false);
+
+  const { data: me } = useQuery<{ role: string }>({ queryKey: ["/api/auth/me"] });
+  const isAdmin = me?.role === "administrator";
 
   const { data: devices = [], isLoading } = useQuery<TrackerDeviceSummary[]>({
     queryKey: ["/api/trackers"],
@@ -29,6 +35,20 @@ export default function FleetPage() {
 
   const { data: users = [] } = useQuery<OrgUser[]>({ queryKey: ["/api/trackers/assignees"] });
   const { data: commands = [] } = useQuery<Command[]>({ queryKey: ["/api/commands"] });
+
+  const { data: alertCounts = {} } = useQuery<Record<string, number>>({
+    queryKey: ["/api/fleet-alerts/counts?hours=24"],
+    refetchInterval: 20_000,
+  });
+
+  const alertsLast24h = useMemo(
+    () => Object.values(alertCounts).reduce((sum, n) => sum + n, 0),
+    [alertCounts],
+  );
+
+  function alertCountForDevice(deviceId: number): number {
+    return alertCounts[String(deviceId)] ?? alertCounts[deviceId] ?? 0;
+  }
 
   const selected = devices.find((d) => d.id === selectedId) ?? null;
 
@@ -76,11 +96,19 @@ export default function FleetPage() {
                 : "Fleet intelligence — live status across all vehicles."}
             </p>
           </div>
-          <Link href="/dashboard">
-            <Button variant="outline" size="sm">
-              Control Room <ChevronRight className="h-4 w-4 ml-1" />
-            </Button>
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            {!selected && isAdmin && (
+              <Button variant="outline" size="sm" onClick={() => setDefaultsOpen(true)}>
+                <Settings2 className="h-4 w-4 mr-1" />
+                Alert defaults
+              </Button>
+            )}
+            <Link href="/dashboard">
+              <Button variant="outline" size="sm">
+                Control Room <ChevronRight className="h-4 w-4 ml-1" />
+              </Button>
+            </Link>
+          </div>
         </div>
 
         {isLoading ? (
@@ -109,20 +137,27 @@ export default function FleetPage() {
           />
         ) : (
           <div className="space-y-5">
-            <FleetOverview devices={devices} />
+            <FleetOverview devices={devices} alertsLast24h={alertsLast24h} />
+            <FleetAlertsPanel hours={24} limit={20} onSelectDevice={openVehicle} title="Recent alerts" />
             <div>
               <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
                 Vehicles
               </h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {sortedDevices.map((d) => (
-                  <FleetVehicleCard key={d.id} device={d} onClick={() => openVehicle(d.id)} />
+                  <FleetVehicleCard
+                    key={d.id}
+                    device={d}
+                    alertCount={alertCountForDevice(d.id)}
+                    onClick={() => openVehicle(d.id)}
+                  />
                 ))}
               </div>
             </div>
           </div>
         )}
       </div>
+      <FleetAlertDefaultsSheet open={defaultsOpen} onOpenChange={setDefaultsOpen} />
     </div>
   );
 }

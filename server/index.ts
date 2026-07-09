@@ -13,6 +13,8 @@ import { migrateCommands } from "./migrate-commands";
 import { migrateAccessControl } from "./migrate-access-control";
 import { migrateBillingRates } from "./migrate-billing-rates";
 import { migratePatrol } from "./migrate-patrol";
+import { migrateFleetAlerts } from "./migrate-fleet-alerts";
+import { startFleetOfflineAlertMonitor } from "./fleet-alerts/detection";
 import { startVehicleTrackingFromEnv } from "./vehicle-tracking";
 
 console.log("[startup] Push subscription health check complete");
@@ -335,6 +337,7 @@ app.use((req, res, next) => {
   await migrateAccessControl().catch((err) => console.error("Access control migration error:", err));
   await migrateBillingRates().catch((err) => console.error("Billing rates migration error:", err));
   await migratePatrol().catch((err) => console.error("Patrol migration error:", err));
+  await migrateFleetAlerts().catch((err) => console.error("Fleet alerts migration error:", err));
 
   await registerRoutes(httpServer, app);
 
@@ -368,6 +371,7 @@ app.use((req, res, next) => {
     () => {
       log(`serving on port ${port}`);
       startVehicleTrackingFromEnv();
+      startFleetOfflineAlertMonitor();
     },
   );
 })();

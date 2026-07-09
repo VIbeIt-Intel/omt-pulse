@@ -13,6 +13,7 @@ import {
   Timer,
   Activity,
   X,
+  AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -31,6 +32,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { FleetHistoryMap } from "@/components/fleet-history-map";
 import { FleetVehiclePhoto } from "@/components/fleet/fleet-vehicle-photo";
+import { FleetAlertsPanel } from "@/components/fleet/fleet-alerts-panel";
+import { FleetAlertRulesForm } from "@/components/fleet/fleet-alert-rules-form";
 import { GeoLocationSheet, type GeoMapView } from "@/components/incident-location-sheet";
 import type { TrackerDeviceSummary } from "@/components/operations-dashboard";
 import { useToast } from "@/hooks/use-toast";
@@ -155,6 +158,7 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
 
   const { data: me } = useQuery<{ role: string }>({ queryKey: ["/api/auth/me"] });
   const canUploadPhoto = me?.role === "administrator";
+  const canEditAlertRules = me?.role === "administrator";
 
   const [selectedDayKey, setSelectedDayKey] = useState<string | null>(null);
   const [logOpen, setLogOpen] = useState(false);
@@ -412,6 +416,10 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
       <Tabs defaultValue="travel" className="space-y-4">
         <TabsList>
           <TabsTrigger value="travel">Daily travel</TabsTrigger>
+          <TabsTrigger value="alerts" className="gap-1.5">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            Alerts
+          </TabsTrigger>
           <TabsTrigger value="details">Vehicle details</TabsTrigger>
         </TabsList>
 
@@ -590,6 +598,16 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
                 </CollapsibleContent>
               </Card>
             </Collapsible>
+          )}
+        </TabsContent>
+
+        <TabsContent value="alerts" className="space-y-4 mt-0">
+          <FleetAlertsPanel deviceId={deviceId} hours={168} limit={50} title="Alert history" />
+          {canEditAlertRules && (
+            <FleetAlertRulesForm
+              deviceId={deviceId}
+              useDeviceLatLng={{ lat: device.lastLat ?? null, lng: device.lastLng ?? null }}
+            />
           )}
         </TabsContent>
 

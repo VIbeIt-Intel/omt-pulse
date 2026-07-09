@@ -491,6 +491,73 @@ export const insertTrackerPositionSchema = createInsertSchema(trackerPositions).
 export type InsertTrackerPosition = z.infer<typeof insertTrackerPositionSchema>;
 export type TrackerPosition = typeof trackerPositions.$inferSelect;
 
+// ── Fleet alerts ───────────────────────────────────────────────────────────────
+
+export const fleetAlertDefaults = pgTable("fleet_alert_defaults", {
+  organizationId: varchar("organization_id")
+    .primaryKey()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  speedLimitKph: doublePrecision("speed_limit_kph").notNull().default(120),
+  idleMinutes: integer("idle_minutes").notNull().default(30),
+  offlineMinutes: integer("offline_minutes").notNull().default(30),
+  geofenceEnabled: boolean("geofence_enabled").notNull().default(false),
+  geofenceLat: doublePrecision("geofence_lat"),
+  geofenceLng: doublePrecision("geofence_lng"),
+  geofenceRadiusM: doublePrecision("geofence_radius_m").default(2000),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const fleetDeviceAlertRules = pgTable("fleet_device_alert_rules", {
+  deviceId: integer("device_id")
+    .primaryKey()
+    .references(() => trackerDevices.id, { onDelete: "cascade" }),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  alertsEnabled: boolean("alerts_enabled").notNull().default(true),
+  speedLimitKph: doublePrecision("speed_limit_kph"),
+  idleMinutes: integer("idle_minutes"),
+  offlineMinutes: integer("offline_minutes"),
+  geofenceEnabled: boolean("geofence_enabled"),
+  geofenceLat: doublePrecision("geofence_lat"),
+  geofenceLng: doublePrecision("geofence_lng"),
+  geofenceRadiusM: doublePrecision("geofence_radius_m"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const fleetAlerts = pgTable("fleet_alerts", {
+  id: serial("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  deviceId: integer("device_id").notNull().references(() => trackerDevices.id, { onDelete: "cascade" }),
+  alertType: varchar("alert_type", { length: 32 }).notNull(),
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  details: text("details"),
+  latitude: doublePrecision("latitude"),
+  longitude: doublePrecision("longitude"),
+  speedKph: doublePrecision("speed_kph"),
+  triggeredAt: timestamp("triggered_at").defaultNow().notNull(),
+  pushSent: boolean("push_sent").notNull().default(false),
+});
+
+export type FleetAlertDefaults = typeof fleetAlertDefaults.$inferSelect;
+export type FleetDeviceAlertRules = typeof fleetDeviceAlertRules.$inferSelect;
+export type FleetAlert = typeof fleetAlerts.$inferSelect;
+
+export type ResolvedFleetAlertRules = {
+  alertsEnabled: boolean;
+  speedLimitKph: number;
+  idleMinutes: number;
+  offlineMinutes: number;
+  geofenceEnabled: boolean;
+  geofenceLat: number | null;
+  geofenceLng: number | null;
+  geofenceRadiusM: number;
+};
+
+export type FleetAlertSummary = FleetAlert & {
+  vehicleLabel: string | null;
+  vehicleRegistration: string | null;
+};
+
 // ── Access Control (Phase 1) ─────────────────────────────────────────────────
 
 export const ACCESS_ENTRY_CATEGORIES = [

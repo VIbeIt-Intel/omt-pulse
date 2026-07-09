@@ -1,4 +1,4 @@
-import { ChevronRight, Gauge, Route, User } from "lucide-react";
+import { ChevronRight, Gauge, Route, User, AlertTriangle } from "lucide-react";
 import { FleetVehiclePhoto } from "@/components/fleet/fleet-vehicle-photo";
 import type { TrackerDeviceSummary } from "@/components/operations-dashboard";
 import {
@@ -15,9 +15,10 @@ import { cn } from "@/lib/utils";
 type FleetVehicleCardProps = {
   device: TrackerDeviceSummary;
   onClick: () => void;
+  alertCount?: number;
 };
 
-export function FleetVehicleCard({ device, onClick }: FleetVehicleCardProps) {
+export function FleetVehicleCard({ device, onClick, alertCount = 0 }: FleetVehicleCardProps) {
   const motion = getVehicleMotionStatus(device.lastSeenAt, device.lastSpeedKph);
   const motionCfg = MOTION_STATUS[motion];
   const title = vehicleDisplayName(device);
@@ -50,6 +51,12 @@ export function FleetVehicleCard({ device, onClick }: FleetVehicleCardProps) {
                   <span className={cn("h-1.5 w-1.5 rounded-full", motionCfg.dot)} />
                   {motionCfg.label}
                 </span>
+                {alertCount > 0 && (
+                  <span className="inline-flex items-center gap-0.5 text-[9px] font-bold uppercase px-2 py-0.5 rounded-full border shrink-0 text-red-400 bg-red-950/40 border-red-800/50">
+                    <AlertTriangle className="h-3 w-3" />
+                    {alertCount}
+                  </span>
+                )}
               </div>
               <p className="text-xs text-muted-foreground mt-1 truncate">
                 {device.vehicleRegistration || `IMEI …${device.imei.slice(-6)}`}
