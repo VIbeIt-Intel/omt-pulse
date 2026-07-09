@@ -10,6 +10,7 @@ import { seedDatabase } from "./seed";
 import { db } from "./storage";
 import { sql } from "drizzle-orm";
 import { migrateCommands } from "./migrate-commands";
+import { migrateAccessControl } from "./migrate-access-control";
 import { migrateBillingRates } from "./migrate-billing-rates";
 import { startVehicleTrackingFromEnv } from "./vehicle-tracking";
 
