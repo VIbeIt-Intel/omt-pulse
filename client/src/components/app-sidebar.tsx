@@ -1,4 +1,4 @@
-import { BookOpen, Settings, BarChart3, LogOut, Users, Upload, Bell, Radio, LayoutDashboard, MessageSquare, Shield, Network, Car, ShieldCheck } from "lucide-react";
+import { BookOpen, Settings, BarChart3, LogOut, Users, Upload, Bell, Radio, LayoutDashboard, MessageSquare, Shield, Network, Car, ShieldCheck, Footprints } from "lucide-react";
 import { useState, useEffect } from "react";
 import africaLogo from "../assets/africa-logo.png";
 import { useLocation, Link } from "wouter";
@@ -7,7 +7,7 @@ import omtLogo from "@/assets/omt-logo-v2.png";
 import { OmtShield } from "@/components/omt-shield";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { hasAccessControlRole, isDispatchStaff, isFieldReporter } from "@shared/user-roles";
+import { hasAccessControlRole, isDispatchStaff, isFieldReporter, canAccessPatrolModule } from "@shared/user-roles";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Sidebar,
@@ -206,6 +206,9 @@ function getNavItems(role: string, isSuperadmin: boolean) {
   ];
   if (hasAccessControlRole(role)) {
     items.push({ title: "Access Control", url: "/access-control", icon: ShieldCheck });
+  }
+  if (canAccessPatrolModule(role)) {
+    items.push({ title: "Patrol", url: "/patrol", icon: Footprints });
   }
   if (isDispatchStaff(role)) {
     items.push({ title: "Analytics", url: "/analytics", icon: BarChart3 });

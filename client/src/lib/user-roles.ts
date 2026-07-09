@@ -12,6 +12,8 @@ export {
   isOwnIncidentScopedRole,
   canUseLiveIncidentWorkflow,
   usesLocationAssignmentScope,
+  canManagePatrolRoutes,
+  canAccessPatrolModule,
   hasPermission,
   getPermissionsForRole,
   type UserRole,

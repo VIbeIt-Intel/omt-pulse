@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy fix/licence-front-ocr-v121 (patrol schema tables, omt-v163).
+# Deploy fix/licence-front-ocr-v121 (patrol API + UI, omt-v164).
 set -eu
 cd /opt/omt-pulse
 BRANCH="fix/licence-front-ocr-v121"

@@ -1,4 +1,5 @@
 import { Switch, Route, useLocation, Link } from "wouter";
+import { canAccessPatrolModule } from "@shared/user-roles";
 import { useEffect, useState, useRef, useCallback } from "react";
 import {
   type NativePushStatus,
@@ -35,6 +36,7 @@ import CommandDashboard from "@/pages/command-dashboard";
 import CommandsPage from "@/pages/commands";
 import FleetPage from "@/pages/fleet";
 import AccessControlPage from "@/pages/access-control";
+import PatrolPage from "@/pages/patrol";
 import VisibilityPage from "@/pages/visibility";
 import ArchonDashboard from "@/pages/archon-dashboard";
 import ArchonLoginPage from "@/pages/archon-login";
@@ -975,6 +977,13 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
                 <RoleGuard role={user.role} allowed={["administrator", "supervisor", "reporter", "access_controller"]}>
                   <AccessControlPage userRole={user.role} />
                 </RoleGuard>
+              </Route>
+              <Route path="/patrol">
+                {canAccessPatrolModule(user.role) ? (
+                  <PatrolPage userRole={user.role} />
+                ) : (
+                  <RoleGuard role="none" allowed={[]}>{null}</RoleGuard>
+                )}
               </Route>
               <Route path="/commands">
                 {(user.isSuperadmin || user.role === "administrator")

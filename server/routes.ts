@@ -1004,6 +1004,7 @@ function canManageChatMessage(user: User, msg: { senderId: string }): boolean {
 const BUILD_ID = String(Date.now());
 
 import { registerAccessControlRoutes } from "./access-control/routes";
+import { registerPatrolRoutes } from "./patrol/routes";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -5358,6 +5359,7 @@ export async function registerRoutes(
   }, 2 * 60_000);
 
   registerAccessControlRoutes(app);
+  registerPatrolRoutes(app);
 
   return httpServer;
 }

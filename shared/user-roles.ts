@@ -1,9 +1,10 @@
+import { hasPermission } from "./permissions";
+
 /** Assignable organisation roles (stored on users.role). */
 export const USER_ROLES = ["administrator", "control_room", "supervisor", "reporter", "access_controller", "patrol_user"] as const;
 export type UserRole = (typeof USER_ROLES)[number];
 
-/** Live Monitor, Fleet, Analytics, dispatch dashboard — not gate access. */
-export const DISPATCH_STAFF_ROLES = ["administrator", "supervisor", "control_room"] as const;
+/** Live Monitor, Fleet, Analytics, dispatch dashboard — not gate access. */export const DISPATCH_STAFF_ROLES = ["administrator", "supervisor", "control_room"] as const;
 
 /** Gate check-in / check-out module. */
 export const ACCESS_CONTROL_ROLES = ["administrator", "supervisor", "reporter", "access_controller"] as const;
@@ -45,6 +46,14 @@ export function canUseLiveIncidentWorkflow(role: string): boolean {
 
 export function usesLocationAssignmentScope(role: string): boolean {
   return role === "supervisor" || role === "control_room" || role === "reporter" || role === "access_controller" || role === "patrol_user";
+}
+
+export function canManagePatrolRoutes(role: string): boolean {
+  return role === "administrator" || role === "supervisor";
+}
+
+export function canAccessPatrolModule(role: string): boolean {
+  return canManagePatrolRoutes(role) || hasPermission(role, "patrol.execute");
 }
 
 export { hasPermission, getPermissionsForRole, type Permission } from "./permissions";
