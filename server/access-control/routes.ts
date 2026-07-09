@@ -21,11 +21,11 @@ import { decodeSadlBytesFromImageBuffer } from "@shared/decode-sadl-from-image";
 import { decodeLicenceFrontFromImageBuffer } from "./decode-licence-front-image";
 import { decodeLicenceDiscFromImageBuffer } from "./decode-licence-disc-image";
 
-const ACCESS_ROLES = ["administrator", "supervisor", "reporter"] as const;
+import { hasAccessControlRole } from "@shared/user-roles";
 
 function requireAccessRole(req: Request, res: Response, next: NextFunction) {
   const role = req.currentUser?.role;
-  if (!role || !ACCESS_ROLES.includes(role as (typeof ACCESS_ROLES)[number])) {
+  if (!role || !hasAccessControlRole(role)) {
     return res.status(403).json({ message: "Access denied" });
   }
   next();

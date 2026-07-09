@@ -23,7 +23,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type UserCounts = { administrator: number; supervisor: number; reporter: number; total: number };
+type UserCounts = { administrator: number; supervisor: number; control_room: number; reporter: number; total: number };
 
 type ArchonOrg = {
   id: string;
@@ -48,7 +48,7 @@ type ArchonOrg = {
 };
 
 type OrgUsageData = {
-  userCounts: { administrator: number; supervisor: number; reporter: number; total: number };
+  userCounts: { administrator: number; supervisor: number; control_room: number; reporter: number; total: number };
   incidentsTotal: number;
   incidentsThisMonth: number;
   activeUsers30d: number;
@@ -100,6 +100,7 @@ function calcMonthly(org: ArchonOrg): number | null {
   if (rateAdmin == null && rateSupervisor == null && rateReporter == null) return null;
   return (userCounts.administrator * (rateAdmin ?? 0)) +
     (userCounts.supervisor * (rateSupervisor ?? 0)) +
+    (userCounts.control_room * (rateSupervisor ?? 0)) +
     (userCounts.reporter * (rateReporter ?? 0));
 }
 
@@ -135,10 +136,11 @@ function OrgStatusBadge({ org }: { org: ArchonOrg }) {
 function RoleBadge({ role }: { role: string }) {
   const map: Record<string, string> = {
     administrator: "bg-purple-600 text-white",
+    control_room: "bg-cyan-700 text-white",
     supervisor: "bg-blue-600 text-white",
     reporter: "bg-slate-600 text-white",
   };
-  return <Badge className={`text-xs capitalize ${map[role] ?? "bg-muted"}`}>{role}</Badge>;
+  return <Badge className={`text-xs capitalize ${map[role] ?? "bg-muted"}`}>{role.replace(/_/g, " ")}</Badge>;
 }
 
 function UserStatusBadge({ isActive }: { isActive: boolean }) {
@@ -229,8 +231,9 @@ function OrgUsagePanel({ org }: { org: ArchonOrg }) {
   const counts = usage?.userCounts ?? org.userCounts;
   const adminAmt = counts.administrator * rateAdmin;
   const supervisorAmt = counts.supervisor * rateSupervisor;
+  const controlRoomAmt = counts.control_room * rateSupervisor;
   const reporterAmt = counts.reporter * rateReporter;
-  const totalCents = adminAmt + supervisorAmt + reporterAmt;
+  const totalCents = adminAmt + supervisorAmt + controlRoomAmt + reporterAmt;
   const hasRates = rateAdmin > 0 || rateSupervisor > 0 || rateReporter > 0;
 
   function downloadInvoice() {
@@ -265,6 +268,10 @@ function OrgUsagePanel({ org }: { org: ArchonOrg }) {
             <div className="flex items-center justify-between text-xs">
               <span className="text-blue-400">{counts.supervisor} × Supervisor</span>
               <span className="text-white/60">{fmtRand(rateSupervisor)} = <span className="text-white font-medium">{fmtRand(supervisorAmt)}</span></span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-cyan-400">{counts.control_room} × Control room</span>
+              <span className="text-white/60">{fmtRand(rateSupervisor)} = <span className="text-white font-medium">{fmtRand(controlRoomAmt)}</span></span>
             </div>
             <div className="flex items-center justify-between text-xs">
               <span className="text-slate-400">{counts.reporter} × Reporter</span>
@@ -1193,7 +1200,8 @@ export default function ArchonDashboard() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="administrator">Administrator</SelectItem>
-                  <SelectItem value="supervisor">Supervisor</SelectItem>
+                  <SelectItem value="control_room">Control Room</SelectItem>
+                  <SelectItem value="supervisor">Supervisor (legacy)</SelectItem>
                   <SelectItem value="reporter">Reporter</SelectItem>
                 </SelectContent>
               </Select>

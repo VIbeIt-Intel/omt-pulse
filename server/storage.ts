@@ -98,10 +98,10 @@ export interface IStorage {
   getOrganization(id: string): Promise<Organization | undefined>;
   updateOrganizationComplimentary(orgId: string, isComplimentary: boolean): Promise<Organization>;
   updateOrganization(orgId: string, data: Partial<Organization>): Promise<Organization>;
-  getOrgsWithUsage(): Promise<Array<Organization & { userCounts: { administrator: number; supervisor: number; reporter: number; total: number }; incidentCount: number; lastActivityAt: Date | null }>>;
+  getOrgsWithUsage(): Promise<Array<Organization & { userCounts: { administrator: number; supervisor: number; control_room: number; reporter: number; total: number }; incidentCount: number; lastActivityAt: Date | null }>>;
   getOrgStorageBytes(orgId: string): Promise<number>;
   getOrgUsage(orgId: string): Promise<{
-    userCounts: { administrator: number; supervisor: number; reporter: number; total: number };
+    userCounts: { administrator: number; supervisor: number; control_room: number; reporter: number; total: number };
     incidentsTotal: number;
     incidentsThisMonth: number;
     activeUsers30d: number;
@@ -331,7 +331,7 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async getOrgsWithUsage(): Promise<Array<Organization & { userCounts: { administrator: number; supervisor: number; reporter: number; total: number }; incidentCount: number; lastActivityAt: Date | null }>> {
+  async getOrgsWithUsage(): Promise<Array<Organization & { userCounts: { administrator: number; supervisor: number; control_room: number; reporter: number; total: number }; incidentCount: number; lastActivityAt: Date | null }>> {
     const allOrgs = await db.select().from(organizations).orderBy(organizations.name);
     const results = await Promise.all(
       allOrgs.map(async (org) => {
@@ -340,11 +340,12 @@ export class DatabaseStorage implements IStorage {
           .from(users)
           .where(eq(users.organizationId, org.id));
 
-        const userCounts = { administrator: 0, supervisor: 0, reporter: 0, total: 0 };
+        const userCounts = { administrator: 0, supervisor: 0, control_room: 0, reporter: 0, total: 0 };
         let lastActivityAt: Date | null = null;
         for (const u of orgUsers) {
           if (u.role === "administrator") userCounts.administrator++;
           else if (u.role === "supervisor") userCounts.supervisor++;
+          else if (u.role === "control_room") userCounts.control_room++;
           else if (u.role === "reporter") userCounts.reporter++;
           userCounts.total++;
           if (u.lastSeenAt && (!lastActivityAt || u.lastSeenAt > lastActivityAt)) {
@@ -374,7 +375,7 @@ export class DatabaseStorage implements IStorage {
       .from(users)
       .where(eq(users.organizationId, orgId));
 
-    const userCounts = { administrator: 0, supervisor: 0, reporter: 0, total: 0 };
+    const userCounts = { administrator: 0, supervisor: 0, control_room: 0, reporter: 0, total: 0 };
     let lastActivityAt: Date | null = null;
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     let activeUsers30d = 0;
@@ -382,6 +383,7 @@ export class DatabaseStorage implements IStorage {
     for (const u of orgUsers) {
       if (u.role === "administrator") userCounts.administrator++;
       else if (u.role === "supervisor") userCounts.supervisor++;
+      else if (u.role === "control_room") userCounts.control_room++;
       else if (u.role === "reporter") userCounts.reporter++;
       userCounts.total++;
       if (u.lastSeenAt) {
@@ -446,6 +448,7 @@ export class DatabaseStorage implements IStorage {
       monthlyTotal =
         userCounts.administrator * (org.rateAdmin ?? 0) +
         userCounts.supervisor * (org.rateSupervisor ?? 0) +
+        userCounts.control_room * (org.rateSupervisor ?? 0) +
         userCounts.reporter * (org.rateReporter ?? 0);
     }
 
@@ -490,6 +493,7 @@ export class DatabaseStorage implements IStorage {
       estimatedMrrCents +=
         org.userCounts.administrator * (org.rateAdmin ?? 0) +
         org.userCounts.supervisor * (org.rateSupervisor ?? 0) +
+        org.userCounts.control_room * (org.rateSupervisor ?? 0) +
         org.userCounts.reporter * (org.rateReporter ?? 0);
     }
 

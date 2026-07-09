@@ -13,6 +13,7 @@ import bcrypt from "bcrypt";
 import { z } from "zod";
 import { DEFAULT_FORM_FIELDS } from "./seed";
 import { APP_CACHE_VERSION } from "@shared/cache-version";
+import { USER_ROLES, DISPATCH_STAFF_ROLES, isDispatchStaff, isControlRoom, usesLocationAssignmentScope } from "@shared/user-roles";
 import { isWithinPremiseRadius, PREMISE_COVERAGE_RADIUS_M } from "@shared/premises-geofence";
 import { ObjectStorageService, ObjectNotFoundError } from "./replit_integrations/object_storage/objectStorage";
 import { parseFile, suggestMapping, resolveRows, collectUnknownReferences, buildTemplateXLSX, buildErrorsCSV, type ImportMapping, type ParsedFile } from "./import-parser";
@@ -90,7 +91,7 @@ function liveIncidentFcmTag(incidentId: number): string {
 function liveIncidentNotifyRoles(severity: string | null | undefined): string[] {
   return severity === "yellow"
     ? ["administrator"]
-    : ["administrator", "supervisor", "reporter"];
+    : ["administrator", "supervisor", "control_room", "reporter"];
 }
 
 async function sendFcmBatch(
@@ -185,7 +186,7 @@ async function dispatchLiveIncidentPush(orgId: string, triggerUserId: string, in
   // Creator is excluded in all cases via triggerUserId.
   const TARGET_ROLES = incident.severity === "yellow"
     ? ["administrator"]
-    : ["administrator", "supervisor", "reporter"];
+    : ["administrator", "supervisor", "control_room", "reporter"];
   const subs = await storage.getPushSubscriptionsByOrg(orgId, triggerUserId, TARGET_ROLES, undefined);
   console.log(`[PUSH] Found ${subs.length} subscriptions for org ${orgId} (triggered by ${triggerUserId})`);
 
@@ -291,8 +292,6 @@ async function dispatchLiveIncidentPush(orgId: string, triggerUserId: string, in
     } catch { /* best-effort */ }
   })();
 }
-
-const DISPATCH_STAFF_ROLES = ["administrator", "supervisor"] as const;
 
 /** userId:locationId → was inside premises radius on last known position */
 const premiseGeofenceInside = new Map<string, boolean>();
@@ -525,7 +524,7 @@ async function dispatchReportIncidentPush(orgId: string, triggerUserId: string, 
     const noPushUsers = allActive.filter(
       (u) =>
         u.id !== triggerUserId &&
-        (u.role === "administrator" || u.role === "supervisor") &&
+        isDispatchStaff(u.role) &&
         !pushedUserIds.has(u.id) &&
         (!commandMemberIds || commandMemberIds.has(u.id)),
     );
@@ -1761,7 +1760,7 @@ export async function registerRoutes(
     contactNumber: z.string().optional().nullable(),
     homeAddress: z.string().optional().nullable(),
     posting: z.string().optional().nullable(),
-    role: z.enum(["administrator", "supervisor", "reporter"]),
+    role: z.enum(USER_ROLES),
     password: z.string().min(10, "Password must be at least 10 characters"),
     canEditIncidents: z.boolean().optional().default(true),
     canManageAttachments: z.boolean().optional().default(true),
@@ -1776,7 +1775,7 @@ export async function registerRoutes(
     contactNumber: z.string().optional().nullable(),
     homeAddress: z.string().optional().nullable(),
     posting: z.string().optional().nullable(),
-    role: z.enum(["administrator", "supervisor", "reporter"]).optional(),
+    role: z.enum(USER_ROLES).optional(),
     password: z.string().optional(),
     canEditIncidents: z.boolean().optional(),
     canManageAttachments: z.boolean().optional(),
@@ -1871,6 +1870,9 @@ export async function registerRoutes(
       rest.canManageAttachments = true;
       rest.canDeleteIncidents = true;
     }
+    if (rest.role === "control_room") {
+      rest.canDeleteIncidents = false;
+    }
 
     const user = await storage.createUser({
       ...rest,
@@ -1908,6 +1910,9 @@ export async function registerRoutes(
       rest.canEditIncidents = true;
       rest.canManageAttachments = true;
       rest.canDeleteIncidents = true;
+    }
+    if (rest.role === "control_room") {
+      rest.canDeleteIncidents = false;
     }
 
     const updateData: Record<string, unknown> = { ...rest };
@@ -2061,7 +2066,7 @@ export async function registerRoutes(
 
   app.get("/api/command-assignments", async (req, res) => {
     const { organizationId: orgId, role } = req.currentUser!;
-    if (role !== "administrator" && role !== "supervisor") {
+    if (role !== "administrator" && !isDispatchStaff(role)) {
       return res.status(403).json({ message: "Forbidden" });
     }
     const assignments = await storage.getOrgCommandUserAssignments(orgId);
@@ -2070,7 +2075,7 @@ export async function registerRoutes(
 
   app.get("/api/location-assignments", async (req, res) => {
     const { organizationId: orgId, role } = req.currentUser!;
-    if (role !== "administrator" && role !== "supervisor") {
+    if (role !== "administrator" && !isDispatchStaff(role)) {
       return res.status(403).json({ message: "Forbidden" });
     }
     const assignments = await storage.getOrgLocationAssignments(orgId);
@@ -2107,7 +2112,7 @@ export async function registerRoutes(
   // User Audit Trail
   app.get("/api/users/:userId/audit", async (req, res) => {
     const callerRole = req.currentUser!.role;
-    if (callerRole !== "administrator" && callerRole !== "supervisor") {
+    if (callerRole !== "administrator" && !isDispatchStaff(callerRole)) {
       return res.status(403).json({ message: "Access denied" });
     }
     const { userId } = req.params as { userId: string };
@@ -2135,7 +2140,7 @@ export async function registerRoutes(
   // User incidents (admin/supervisor only)
   app.get("/api/users/:userId/incidents", async (req, res) => {
     const callerRole = req.currentUser!.role;
-    if (callerRole !== "administrator" && callerRole !== "supervisor") {
+    if (callerRole !== "administrator" && !isDispatchStaff(callerRole)) {
       return res.status(403).json({ message: "Access denied" });
     }
     const { userId } = req.params as { userId: string };
@@ -2158,7 +2163,7 @@ export async function registerRoutes(
   app.get("/api/incidents/:id/responders", async (req, res) => {
     const { role: callerRole, id: callerId, organizationId: orgId } = req.currentUser!;
     const id = parseInt(req.params.id as string);
-    if (callerRole !== "administrator" && callerRole !== "supervisor") {
+    if (callerRole !== "administrator" && !isDispatchStaff(callerRole)) {
       // Reporters may only view responders for incidents they created (e.g. their own panic)
       const incident = await storage.getIncident(id, orgId);
       if (!incident || incident.userId !== callerId) {
@@ -2172,7 +2177,7 @@ export async function registerRoutes(
   // All live incidents a user participated in as a joiner (not creator)
   app.get("/api/users/:userId/joined-incidents", async (req, res) => {
     const callerRole = req.currentUser!.role;
-    if (callerRole !== "administrator" && callerRole !== "supervisor") {
+    if (callerRole !== "administrator" && !isDispatchStaff(callerRole)) {
       return res.status(403).json({ message: "Access denied" });
     }
     const { userId } = req.params as { userId: string };
@@ -2359,7 +2364,7 @@ export async function registerRoutes(
     const { organizationId: orgId, role, id: userId } = req.currentUser!;
     const { commandFilter } = await getCommandScope(req);
     let restrictToLocationIds: number[] | undefined;
-    if (role === "supervisor" || role === "reporter") {
+    if (role === "supervisor" || role === "control_room" || role === "reporter") {
       const assigned = await storage.getUserLocationAssignments(userId, orgId);
       if (assigned.length > 0) restrictToLocationIds = assigned;
     }
@@ -2405,7 +2410,7 @@ export async function registerRoutes(
     if (!(await assertReadCommandAccess(req, (incident as any).commandId))) {
       return res.status(404).json({ message: "Incident not found" });
     }
-    if (role === "supervisor" || role === "reporter") {
+    if (role === "supervisor" || role === "control_room" || role === "reporter") {
       const assigned = await storage.getUserLocationAssignments(userId, orgId);
       if (assigned.length > 0 && incident.locationId !== null && !assigned.includes(incident.locationId)) {
         return res.status(404).json({ message: "Incident not found" });
@@ -2445,7 +2450,7 @@ export async function registerRoutes(
       subs = await storage.getPushSubscriptionsByOrg(orgId, userId, undefined, undefined);
     } else {
       title = `🟠 Orange Alert — ${catName} · ${fullName}`;
-      subs = await storage.getPushSubscriptionsByOrg(orgId, userId, ["administrator", "supervisor"], undefined);
+      subs = await storage.getPushSubscriptionsByOrg(orgId, userId, ["administrator", "supervisor", "control_room"], undefined);
     }
 
     const body = `Responding now · ${catName} · Tap to monitor`;
@@ -2484,7 +2489,7 @@ export async function registerRoutes(
     );
     // FCM fan-out — native Android/iOS devices (severity alert)
     {
-      const severityRoles = severity === "red" ? undefined : ["administrator", "supervisor"];
+      const severityRoles = severity === "red" ? undefined : ["administrator", "supervisor", "control_room"];
       storage.getFcmTokensByOrg(orgId, userId, severityRoles).then((fcmSubs) => {
         if (fcmSubs.length > 0) {
           sendFcmBatch(fcmSubs.map((s) => s.token), {
@@ -2500,7 +2505,7 @@ export async function registerRoutes(
     (async () => {
       try {
         const allActive = await storage.getActiveUsersByOrg(orgId);
-        const targetRoles = severity === "red" ? ["administrator", "supervisor", "reporter"] : ["administrator", "supervisor"];
+        const targetRoles = severity === "red" ? ["administrator", "supervisor", "reporter"] : ["administrator", "supervisor", "control_room"];
         // Build the set of user IDs who are members of the reporting Command so we
         // don't write notification-log entries for users in other Commands.
         let commandMemberIds: Set<string> | null = null;
@@ -2871,7 +2876,7 @@ export async function registerRoutes(
     const { organizationId: orgId, role, id: userId } = req.currentUser!;
     const parsed = insertIncidentSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
-    if (role === "supervisor" || role === "reporter") {
+    if (role === "supervisor" || role === "control_room" || role === "reporter") {
       const assigned = await storage.getUserLocationAssignments(userId, orgId);
       if (assigned.length > 0 && parsed.data.locationId != null && !assigned.includes(parsed.data.locationId)) {
         return res.status(403).json({ message: "You are not assigned to this location" });
@@ -3081,7 +3086,7 @@ export async function registerRoutes(
       const line4 = [attPart, descSnippet].filter(Boolean).join(" · ");
       const closeBody = [line1, line2, line3, line4].filter(Boolean).join("\n");
       const incidentUrl = `/occurrence-book?incident=${id}`;
-      const subs = await storage.getPushSubscriptionsByOrg(orgId, userId, ["administrator", "supervisor"]);
+      const subs = await storage.getPushSubscriptionsByOrg(orgId, userId, ["administrator", "supervisor", "control_room"]);
       if (subs.length > 0) {
         const payload = JSON.stringify({ type: "incident_closed", title: closeTitle, body: closeBody, url: incidentUrl });
         await Promise.allSettled(dedupeByEndpoint(subs).map(async (sub) => {
@@ -3142,7 +3147,7 @@ export async function registerRoutes(
     const updated = await storage.escalateIncident(id, orgId);
     audit(userId, orgId, "incident.escalate", `Escalated live incident #${id}`, { entityType: "incident", entityId: String(id) });
     // Push to all admin/supervisor subscriptions
-    const subs = await storage.getPushSubscriptionsByOrg(orgId, userId, ["administrator", "supervisor"]);
+    const subs = await storage.getPushSubscriptionsByOrg(orgId, userId, ["administrator", "supervisor", "control_room"]);
     if (subs.length > 0) {
       const escTitle = "🚨 ESCALATED: Live Incident";
       const escBody = `Incident #${id}${incident.locationName ? ` at ${incident.locationName}` : ""} has been escalated — immediate attention required.`;
@@ -3224,7 +3229,7 @@ export async function registerRoutes(
       const adminTitle = `👥 Joined Live Incident #${id} — ${name}`;
       const adminBody = `${name} has joined the response for incident #${id}`;
       const adminPayload = JSON.stringify({ type: "incident_joined", title: adminTitle, body: adminBody, url: "/live-incident" });
-      const subs = await storage.getPushSubscriptionsByOrg(orgId, userId, ["administrator", "supervisor"]);
+      const subs = await storage.getPushSubscriptionsByOrg(orgId, userId, ["administrator", "supervisor", "control_room"]);
       await Promise.allSettled(dedupeByEndpoint(subs).map(async (sub) => {
         try {
           await webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, adminPayload, URGENT_PUSH);
@@ -3378,7 +3383,7 @@ export async function registerRoutes(
         );
         if (nearbyNew.length === 0) return;
         // Fetch subscriptions once, outside the per-location loop
-        const proximityAdminRoles = incident.severity === "yellow" ? ["administrator"] : ["administrator", "supervisor"];
+        const proximityAdminRoles = incident.severity === "yellow" ? ["administrator"] : ["administrator", "supervisor", "control_room"];
         const [reporterSubs, adminSubs, reporterName] = await Promise.all([
           storage.getPushSubscriptionsByUser(userId).catch(() => [] as Awaited<ReturnType<typeof storage.getPushSubscriptionsByUser>>),
           storage.getPushSubscriptionsByOrg(orgId, userId, proximityAdminRoles).catch(() => [] as Awaited<ReturnType<typeof storage.getPushSubscriptionsByOrg>>),
@@ -3477,7 +3482,7 @@ export async function registerRoutes(
         }).catch(() => {});
         // Push to admin/supervisor: "Responder arrived at scene"
         const responderName = await storage.getUserById(userId).then(u => u ? `${u.firstName} ${u.lastName}`.trim() : "Responder").catch(() => "Responder");
-        storage.getPushSubscriptionsByOrg(orgId, userId, ["administrator", "supervisor"]).then((adminSubs) => {
+        storage.getPushSubscriptionsByOrg(orgId, userId, ["administrator", "supervisor", "control_room"]).then((adminSubs) => {
           if (adminSubs.length === 0) return;
           const adminTitle = "📍 Responder At Scene";
           const adminBody = `${responderName} has arrived at${destName ? ` ${destName}` : " the destination"}.`;
@@ -3583,7 +3588,7 @@ export async function registerRoutes(
       const responderName = await storage.getUserById(userId)
         .then(u => u ? `${u.firstName} ${u.lastName}`.trim() : "Responder")
         .catch(() => "Responder");
-      storage.getPushSubscriptionsByOrg(orgId, userId, ["administrator", "supervisor"]).then((adminSubs) => {
+      storage.getPushSubscriptionsByOrg(orgId, userId, ["administrator", "supervisor", "control_room"]).then((adminSubs) => {
         if (adminSubs.length === 0) return;
         const marTitle = "📍 Responder At Scene";
         const marBody = `${responderName} has arrived at${destName ? ` ${destName}` : " the scene"}.`;
@@ -3637,7 +3642,7 @@ export async function registerRoutes(
     const id = parseInt(req.params.id as string);
     const parsed = insertIncidentSchema.partial().safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
-    if (role === "supervisor" || role === "reporter") {
+    if (role === "supervisor" || role === "control_room" || role === "reporter") {
       const assigned = await storage.getUserLocationAssignments(userId, orgId);
       if (assigned.length > 0 && parsed.data.locationId != null && !assigned.includes(parsed.data.locationId)) {
         return res.status(403).json({ message: "You are not assigned to this location" });
@@ -3692,6 +3697,7 @@ export async function registerRoutes(
   app.delete("/api/incidents/:id", async (req, res) => {
     const { organizationId: orgId, role, id: userId } = req.currentUser!;
     if (role === "reporter") return res.status(403).json({ message: "Reporters cannot delete incidents" });
+    if (role === "control_room") return res.status(403).json({ message: "Control room users cannot delete incidents" });
     if (role !== "administrator" && !req.currentUser!.canDeleteIncidents) {
       return res.status(403).json({ message: "You do not have permission to delete incidents" });
     }
@@ -3745,7 +3751,7 @@ export async function registerRoutes(
       res.status(404).json({ message: "Incident not found" });
       return null;
     }
-    if (role === "supervisor" || role === "reporter") {
+    if (role === "supervisor" || role === "control_room" || role === "reporter") {
       const assigned = await storage.getUserLocationAssignments(userId, orgId);
       if (assigned.length > 0 && inc.locationId !== null && !assigned.includes(inc.locationId)) {
         res.status(404).json({ message: "Incident not found" });
@@ -3767,7 +3773,7 @@ export async function registerRoutes(
   app.post("/api/incidents/:id/attachments", async (req, res) => {
     const orgId = req.currentUser!.organizationId;
     const { role, id: userId } = req.currentUser!;
-    if (!["administrator", "supervisor", "reporter"].includes(role)) {
+    if (!["administrator", "supervisor", "control_room", "reporter"].includes(role)) {
       return res.status(403).json({ message: "You do not have permission to add evidence" });
     }
     const incidentId = parseInt(req.params.id as string);
@@ -3823,7 +3829,7 @@ export async function registerRoutes(
   app.post("/api/incidents/:id/evidence-notes", async (req, res) => {
     const orgId = req.currentUser!.organizationId;
     const { role, id: userId } = req.currentUser!;
-    if (!["administrator", "supervisor", "reporter"].includes(role)) {
+    if (!["administrator", "supervisor", "control_room", "reporter"].includes(role)) {
       return res.status(403).json({ message: "You do not have permission to add evidence" });
     }
     const incidentId = parseInt(req.params.id as string);
@@ -3862,7 +3868,7 @@ export async function registerRoutes(
   // Dashboard summary
   app.get("/api/dashboard", async (req, res) => {
     const { organizationId: orgId, role, id: userId } = req.currentUser!;
-    if (role !== "administrator" && role !== "supervisor" && role !== "reporter") {
+    if (!USER_ROLES.includes(role as (typeof USER_ROLES)[number])) {
       return res.status(403).json({ message: "Forbidden" });
     }
     const period = req.query.period === "week" ? "week" : "day";
@@ -3872,7 +3878,7 @@ export async function registerRoutes(
       restrictToUserId = userId;
       const assigned = await storage.getUserLocationAssignments(userId, orgId);
       if (assigned.length > 0) restrictToLocationIds = assigned;
-    } else if (role === "supervisor") {
+    } else if (role === "supervisor" || role === "control_room") {
       const assigned = await storage.getUserLocationAssignments(userId, orgId);
       if (assigned.length > 0) restrictToLocationIds = assigned;
     }
@@ -3883,7 +3889,7 @@ export async function registerRoutes(
 
   app.get("/api/trackers", async (req, res) => {
     const { organizationId: orgId, role } = req.currentUser!;
-    if (role !== "administrator" && role !== "supervisor") {
+    if (role !== "administrator" && !isDispatchStaff(role)) {
       return res.status(403).json({ message: "Forbidden" });
     }
     const { commandFilter } = await getCommandScope(req);
@@ -3893,7 +3899,7 @@ export async function registerRoutes(
 
   app.get("/api/trackers/assignees", async (req, res) => {
     const { organizationId: orgId, role } = req.currentUser!;
-    if (role !== "administrator" && role !== "supervisor") {
+    if (role !== "administrator" && !isDispatchStaff(role)) {
       return res.status(403).json({ message: "Forbidden" });
     }
     const users = await storage.getUsersByOrg(orgId);
@@ -3906,7 +3912,7 @@ export async function registerRoutes(
 
   app.get("/api/trackers/:id", async (req, res) => {
     const { organizationId: orgId, role } = req.currentUser!;
-    if (role !== "administrator" && role !== "supervisor") {
+    if (role !== "administrator" && !isDispatchStaff(role)) {
       return res.status(403).json({ message: "Forbidden" });
     }
     const id = parseInt(req.params.id, 10);
@@ -3922,7 +3928,7 @@ export async function registerRoutes(
 
   app.patch("/api/trackers/:id", async (req, res) => {
     const { organizationId: orgId, role } = req.currentUser!;
-    if (role !== "administrator" && role !== "supervisor") {
+    if (role !== "administrator" && !isDispatchStaff(role)) {
       return res.status(403).json({ message: "Forbidden" });
     }
     const id = parseInt(req.params.id, 10);
@@ -3963,7 +3969,7 @@ export async function registerRoutes(
 
   app.get("/api/trackers/:id/positions", async (req, res) => {
     const { organizationId: orgId, role } = req.currentUser!;
-    if (role !== "administrator" && role !== "supervisor") {
+    if (role !== "administrator" && !isDispatchStaff(role)) {
       return res.status(403).json({ message: "Forbidden" });
     }
     const id = parseInt(req.params.id, 10);
@@ -4003,7 +4009,7 @@ export async function registerRoutes(
     const { startDate, endDate } = req.query as { startDate?: string; endDate?: string };
     const { commandFilter } = await getCommandScope(req);
     let restrictToLocationIds: number[] | undefined;
-    if (role === "supervisor" || role === "reporter") {
+    if (role === "supervisor" || role === "control_room" || role === "reporter") {
       const assigned = await storage.getUserLocationAssignments(userId, orgId);
       if (assigned.length > 0) restrictToLocationIds = assigned;
     }
@@ -4229,7 +4235,7 @@ export async function registerRoutes(
     if (!password || typeof password !== "string" || password.length < 6) {
       return res.status(400).json({ message: "Password must be at least 6 characters" });
     }
-    const validRoles = ["administrator", "supervisor", "reporter"];
+    const validRoles = [...USER_ROLES];
     const userRole = role ?? "administrator";
     if (!validRoles.includes(userRole)) return res.status(400).json({ message: "Invalid role" });
 
@@ -4345,8 +4351,9 @@ export async function registerRoutes(
 
     const adminAmt = usage.userCounts.administrator * rateAdmin;
     const supervisorAmt = usage.userCounts.supervisor * rateSupervisor;
+    const controlRoomAmt = usage.userCounts.control_room * rateSupervisor;
     const reporterAmt = usage.userCounts.reporter * rateReporter;
-    const total = adminAmt + supervisorAmt + reporterAmt;
+    const total = adminAmt + supervisorAmt + controlRoomAmt + reporterAmt;
 
     const rows: (string | number)[][] = [
       [org.name + (org.contractRef ? `  —  ${org.contractRef}` : ""), "", "", ""],
@@ -4356,6 +4363,7 @@ export async function registerRoutes(
       ["Line item", "Qty", "Unit rate (R)", "Amount (R)"],
       [`Administrator licences — ${monthLabel}`, usage.userCounts.administrator, Number(rateAdmin.toFixed(2)), Number(adminAmt.toFixed(2))],
       [`Supervisor licences — ${monthLabel}`, usage.userCounts.supervisor, Number(rateSupervisor.toFixed(2)), Number(supervisorAmt.toFixed(2))],
+      [`Control room licences — ${monthLabel}`, usage.userCounts.control_room, Number(rateSupervisor.toFixed(2)), Number(controlRoomAmt.toFixed(2))],
       [`Reporter licences — ${monthLabel}`, usage.userCounts.reporter, Number(rateReporter.toFixed(2)), Number(reporterAmt.toFixed(2))],
       ["", "", "", ""],
       ["Total", "", "", Number(total.toFixed(2))],
@@ -5205,7 +5213,7 @@ export async function registerRoutes(
 
         (async () => {
           try {
-            const subs = await storage.getPushSubscriptionsByOrg(inc.organizationId, inc.userId ?? undefined, ["administrator", "supervisor"]);
+            const subs = await storage.getPushSubscriptionsByOrg(inc.organizationId, inc.userId ?? undefined, ["administrator", "supervisor", "control_room"]);
             if (subs.length === 0) return;
 
             // Deduplicate by userId — one notification per person regardless of
@@ -5262,7 +5270,7 @@ export async function registerRoutes(
         byOrg.get(p.organizationId)!.push(p);
       }
       for (const [orgId, panics] of byOrg) {
-        const subs = await storage.getPushSubscriptionsByOrg(orgId, undefined, ["administrator", "supervisor"]);
+        const subs = await storage.getPushSubscriptionsByOrg(orgId, undefined, ["administrator", "supervisor", "control_room"]);
         const dedupedSubs = dedupeByEndpoint(subs);
         if (dedupedSubs.length === 0) continue;
         for (const panic of panics) {

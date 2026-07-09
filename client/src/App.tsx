@@ -62,6 +62,7 @@ import { PermissionDeniedBanner } from "@/components/permission-denied-banner";
 import { PushPermissionBanner } from "@/components/push-permission-banner";
 import { PanicAlertSiren } from "@/components/panic-alert-siren";
 import { SetupWizardController } from "@/components/setup-wizard";
+import { isDispatchStaff } from "@shared/user-roles";
 import { Capacitor } from "@capacitor/core";
 
 function isCapacitorNative(): boolean {
@@ -594,7 +595,7 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
   // desktop need /live-monitor to watch incidents — including their own — so we
   // never pull them away from the monitor or block explicit navigation there.
   const liveRedirectFiredRef = useRef(false);
-  const isDispatchRole = user.role === "administrator" || user.role === "supervisor";
+  const isDispatchRole = isDispatchStaff(user.role);
   const { data: myLiveIncidents = [], isSuccess: liveLoaded } = useQuery<
     Array<{ id: number; userId: string | null; isLive: boolean; responders?: Array<{ userId: string }> }>
   >({
@@ -922,7 +923,7 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
               <Route path="/occurrence-book" component={OccurrenceBook} />
               <Route path="/" component={CommandDashboard} />
               <Route path="/analytics">
-                <RoleGuard role={user.role} allowed={["administrator", "supervisor"]}>
+                <RoleGuard role={user.role} allowed={["administrator", "supervisor", "control_room"]}>
                   <AnalyticsPage />
                 </RoleGuard>
               </Route>
@@ -951,12 +952,12 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
               <Route path="/live-severity" component={LiveSeverityPage} />
               <Route path="/dashboard" component={CommandDashboard} />
               <Route path="/live-monitor">
-                <RoleGuard role={user.role} allowed={["administrator", "supervisor"]}>
+                <RoleGuard role={user.role} allowed={["administrator", "supervisor", "control_room"]}>
                   <LiveMonitorPage />
                 </RoleGuard>
               </Route>
               <Route path="/fleet">
-                <RoleGuard role={user.role} allowed={["administrator", "supervisor"]}>
+                <RoleGuard role={user.role} allowed={["administrator", "supervisor", "control_room"]}>
                   <FleetPage />
                 </RoleGuard>
               </Route>

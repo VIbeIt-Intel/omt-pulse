@@ -16,6 +16,7 @@ type BillingStatus = {
 
 const ROLE_LABELS: Record<string, string> = {
   administrator: "Administrator",
+  control_room: "Control Room",
   supervisor: "Supervisor",
   reporter: "Reporter",
 };

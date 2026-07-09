@@ -424,7 +424,8 @@ export function SetupWizard({ open, onClose }: { open: boolean; onClose: () => v
                     <SelectTrigger data-testid="select-wizard-role"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="administrator">Administrator</SelectItem>
-                      <SelectItem value="supervisor">Supervisor</SelectItem>
+                      <SelectItem value="control_room">Control Room</SelectItem>
+                      <SelectItem value="supervisor">Supervisor (legacy)</SelectItem>
                       <SelectItem value="reporter">Reporter</SelectItem>
                     </SelectContent>
                   </Select>

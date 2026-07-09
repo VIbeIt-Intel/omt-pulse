@@ -6,6 +6,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Category, Location, Incident, FormField, CustomMap, AttachmentWithUploader } from "@shared/schema";
+import { usesLocationAssignmentScope } from "@shared/user-roles";
 import { getEligibleManualTypes, getOtherManualTypes, getSeverityGroupKey, SEVERITY_GROUP_ORDER, SEVERITY_GROUP_LABELS } from "@/lib/incident-categories";
 import {
   Dialog,
@@ -175,7 +176,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
       const res = await fetch(`/api/users/${currentUser!.id}/location-assignments`, { credentials: "include" });
       return res.json();
     },
-    enabled: !!currentUser?.id && (currentUser?.role === "supervisor" || currentUser?.role === "reporter"),
+    enabled: !!currentUser?.id && !!currentUser?.role && usesLocationAssignmentScope(currentUser.role),
   });
 
   const allowedLocations = (() => {

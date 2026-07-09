@@ -4,6 +4,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Incident, Category, Location, FormField, CustomMap } from "@shared/schema";
+import { isDispatchStaff } from "@shared/user-roles";
 import { IncidentDialog, AttachmentsDialog } from "@/components/incident-dialog";
 import { OccurrenceBookDesktopTable } from "@/components/occurrence-book-desktop-table";
 import { IncidentEvidenceSection } from "@/components/incident-evidence-section";
@@ -129,7 +130,7 @@ export default function OccurrenceBook() {
   const { data: liveIncidents = [] } = useQuery<LiveIncidentBrief[]>({
     queryKey: ["/api/incidents/live"],
     refetchInterval: 5000,
-    enabled: !!(currentUser?.role === "administrator" || currentUser?.role === "supervisor"),
+    enabled: !!(currentUser?.role && isDispatchStaff(currentUser.role)),
   });
 
   const { data: recentPanicAlerts = [] } = useQuery<PanicAlert[]>({
@@ -184,7 +185,7 @@ export default function OccurrenceBook() {
       if (!res.ok) return [];
       return res.json();
     },
-    enabled: !!(viewingIncident?.id && (currentUser?.role === "administrator" || currentUser?.role === "supervisor")),
+    enabled: !!(viewingIncident?.id && currentUser?.role && isDispatchStaff(currentUser.role)),
   });
 
   type ChatConversation = { recipientId: string | null; recipientFirstName: string | null; recipientLastName: string | null; unreadCount: number };
@@ -251,7 +252,8 @@ export default function OccurrenceBook() {
   }, []);
 
   const isAdmin = currentUser?.role === "administrator";
-  const isSupervisor = currentUser?.role === "supervisor";
+  const isDispatch = currentUser?.role ? isDispatchStaff(currentUser.role) : false;
+  const isControlRoomUser = currentUser?.role === "control_room";
   const isReporter = currentUser?.role === "reporter";
 
   useEffect(() => {
@@ -298,7 +300,7 @@ export default function OccurrenceBook() {
     setLocation(remaining ? `/occurrence-book?${remaining}` : "/occurrence-book");
   }, [deepLinkIncidentId, isLoading, incidents, search, setLocation]);
   const canEdit = isAdmin || (currentUser?.canEditIncidents ?? true);
-  const canDelete = !isReporter && (isAdmin || (currentUser?.canDeleteIncidents ?? true));
+  const canDelete = !isReporter && !isControlRoomUser && (isAdmin || (currentUser?.canDeleteIncidents ?? true));
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
@@ -466,7 +468,7 @@ export default function OccurrenceBook() {
       </div>
       <div className="p-4 md:p-6 space-y-4 overflow-y-auto flex-1">
 
-        {(isAdmin || isSupervisor) && (
+        {isDispatch && (
           <PanicBanner
             alerts={recentPanicAlerts}
             currentUserId={currentUser?.id}
@@ -476,7 +478,7 @@ export default function OccurrenceBook() {
           />
         )}
 
-        {(isAdmin || isSupervisor) && liveIncidents.length > 0 && !dismissedLiveAlert && (
+        {isDispatch && liveIncidents.length > 0 && !dismissedLiveAlert && (
           <div className="flex items-center gap-3 rounded-lg border border-amber-500/50 bg-amber-500/8 px-4 py-3" data-testid="banner-live-incidents-log">
             <Radio className="h-5 w-5 text-amber-500 shrink-0 animate-pulse" />
             <Link href="/live-monitor" className="flex-1 min-w-0 no-underline">

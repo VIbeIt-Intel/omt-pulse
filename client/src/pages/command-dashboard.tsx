@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import type { Location } from "@shared/schema";
+import { isDispatchStaff } from "@shared/user-roles";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { IncidentDialog } from "@/components/incident-dialog";
@@ -496,7 +497,7 @@ export default function CommandDashboard() {
     queryKey: ["/api/auth/me"],
   });
   const isReporter = currentUser?.role === "reporter";
-  const isDispatch = currentUser?.role === "administrator" || currentUser?.role === "supervisor";
+  const isDispatch = currentUser?.role ? isDispatchStaff(currentUser.role) : false;
 
   const { data: panicAlerts = [] } = useQuery<PanicAlert[]>({
     queryKey: ["/api/panic/recent"],
