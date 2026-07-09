@@ -53,12 +53,13 @@ const ROLES = [
   { value: "control_room", label: "Control Room (Monitor & Dispatch)" },
   { value: "supervisor", label: "Supervisor (legacy — same as control room)" },
   { value: "access_controller", label: "Access Controller (Gate / OB)" },
-  { value: "reporter", label: "Reporter (Field patrol)" },
+  { value: "patrol_user", label: "Patrol User" },
+  { value: "reporter", label: "Reporter (Field)" },
 ];
 
 function roleBadgeVariant(role: string): "default" | "secondary" | "outline" {
   if (role === "administrator") return "default";
-  if (role === "control_room" || role === "access_controller" || role === "supervisor") return "secondary";
+  if (role === "control_room" || role === "access_controller" || role === "patrol_user" || role === "supervisor") return "secondary";
   return "outline";
 }
 
@@ -1683,7 +1684,7 @@ function UserActionButtons({
         <CopyInviteButton userId={user.id} firstName={user.firstName} inviteToken={user.inviteToken} />
       )}
       <RegenerateInviteButton userId={user.id} firstName={user.firstName} />
-      {(user.role === "supervisor" || user.role === "control_room" || user.role === "access_controller" || user.role === "reporter") && (
+      {(user.role === "supervisor" || user.role === "control_room" || user.role === "access_controller" || user.role === "patrol_user" || user.role === "reporter") && (
         <Button variant="ghost" size="icon" className={touchIcon} onClick={handlers.onAssign} title="Assign locations" data-testid={`button-assign-locations-${user.id}`}>
           <MapPin className="h-4 w-4 text-primary" />
         </Button>

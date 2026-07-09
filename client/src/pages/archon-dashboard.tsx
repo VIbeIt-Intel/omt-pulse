@@ -23,7 +23,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type UserCounts = { administrator: number; supervisor: number; control_room: number; reporter: number; access_controller: number; total: number };
+type UserCounts = { administrator: number; supervisor: number; control_room: number; reporter: number; access_controller: number; patrol_user: number; total: number };
 
 type ArchonOrg = {
   id: string;
@@ -49,7 +49,7 @@ type ArchonOrg = {
 };
 
 type OrgUsageData = {
-  userCounts: { administrator: number; supervisor: number; control_room: number; reporter: number; access_controller: number; total: number };
+  userCounts: { administrator: number; supervisor: number; control_room: number; reporter: number; access_controller: number; patrol_user: number; total: number };
   incidentsTotal: number;
   incidentsThisMonth: number;
   activeUsers30d: number;
@@ -103,6 +103,7 @@ function calcMonthly(org: ArchonOrg): number | null {
     (userCounts.supervisor * (rateSupervisor ?? 0)) +
     (userCounts.control_room * (rateSupervisor ?? 0)) +
     (userCounts.reporter * (rateReporter ?? 0)) +
+    (userCounts.patrol_user * (rateReporter ?? 0)) +
     (userCounts.access_controller * (rateAccessController ?? 0));
 }
 
@@ -140,6 +141,7 @@ function RoleBadge({ role }: { role: string }) {
     administrator: "bg-purple-600 text-white",
     control_room: "bg-cyan-700 text-white",
     supervisor: "bg-blue-600 text-white",
+    patrol_user: "bg-amber-700 text-white",
     access_controller: "bg-emerald-700 text-white",
     reporter: "bg-slate-600 text-white",
   };
@@ -238,8 +240,9 @@ function OrgUsagePanel({ org }: { org: ArchonOrg }) {
   const supervisorAmt = counts.supervisor * rateSupervisor;
   const controlRoomAmt = counts.control_room * rateSupervisor;
   const reporterAmt = counts.reporter * rateReporter;
+  const patrolUserAmt = counts.patrol_user * rateReporter;
   const accessControllerAmt = counts.access_controller * rateAccessController;
-  const totalCents = adminAmt + supervisorAmt + controlRoomAmt + reporterAmt + accessControllerAmt;
+  const totalCents = adminAmt + supervisorAmt + controlRoomAmt + reporterAmt + patrolUserAmt + accessControllerAmt;
   const hasRates = rateAdmin > 0 || rateSupervisor > 0 || rateReporter > 0 || rateAccessController > 0;
 
   function downloadInvoice() {
@@ -278,6 +281,10 @@ function OrgUsagePanel({ org }: { org: ArchonOrg }) {
             <div className="flex items-center justify-between text-xs">
               <span className="text-cyan-400">{counts.control_room} × Control room</span>
               <span className="text-white/60">{fmtRand(rateSupervisor)} = <span className="text-white font-medium">{fmtRand(controlRoomAmt)}</span></span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-amber-400">{counts.patrol_user} × Patrol user</span>
+              <span className="text-white/60">{fmtRand(rateReporter)} = <span className="text-white font-medium">{fmtRand(patrolUserAmt)}</span></span>
             </div>
             <div className="flex items-center justify-between text-xs">
               <span className="text-emerald-400">{counts.access_controller} × Access controller</span>
@@ -1222,6 +1229,7 @@ export default function ArchonDashboard() {
                   <SelectItem value="control_room">Control Room</SelectItem>
                   <SelectItem value="supervisor">Supervisor (legacy)</SelectItem>
                   <SelectItem value="access_controller">Access Controller</SelectItem>
+                  <SelectItem value="patrol_user">Patrol User</SelectItem>
                   <SelectItem value="reporter">Reporter</SelectItem>
                 </SelectContent>
               </Select>

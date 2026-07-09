@@ -19,6 +19,7 @@ const ROLE_LABELS: Record<string, string> = {
   control_room: "Control Room",
   supervisor: "Supervisor",
   access_controller: "Access Controller",
+  patrol_user: "Patrol User",
   reporter: "Reporter",
 };
 

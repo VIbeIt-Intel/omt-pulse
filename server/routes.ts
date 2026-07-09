@@ -13,7 +13,7 @@ import bcrypt from "bcrypt";
 import { z } from "zod";
 import { DEFAULT_FORM_FIELDS } from "./seed";
 import { APP_CACHE_VERSION } from "@shared/cache-version";
-import { USER_ROLES, DISPATCH_STAFF_ROLES, isDispatchStaff, isControlRoom, isAccessController, isOwnIncidentScopedRole, usesLocationAssignmentScope } from "@shared/user-roles";
+import { USER_ROLES, DISPATCH_STAFF_ROLES, isDispatchStaff, isControlRoom, isAccessController, isOwnIncidentScopedRole, usesLocationAssignmentScope, getPermissionsForRole } from "@shared/user-roles";
 import { isWithinPremiseRadius, PREMISE_COVERAGE_RADIUS_M } from "@shared/premises-geofence";
 import { ObjectStorageService, ObjectNotFoundError } from "./replit_integrations/object_storage/objectStorage";
 import { parseFile, suggestMapping, resolveRows, collectUnknownReferences, buildTemplateXLSX, buildErrorsCSV, type ImportMapping, type ParsedFile } from "./import-parser";
@@ -1175,6 +1175,7 @@ export async function registerRoutes(
       subscriptionCurrentPeriodEnd: org?.subscriptionCurrentPeriodEnd ?? null,
       orgName: org?.name ?? null,
       isSuperadmin: !!user.isSuperadmin,
+      permissions: getPermissionsForRole(user.role),
     });
   });
 
@@ -1884,6 +1885,9 @@ export async function registerRoutes(
     if (rest.role === "access_controller") {
       rest.canDeleteIncidents = false;
     }
+    if (rest.role === "patrol_user") {
+      rest.canDeleteIncidents = false;
+    }
 
     const user = await storage.createUser({
       ...rest,
@@ -1926,6 +1930,9 @@ export async function registerRoutes(
       rest.canDeleteIncidents = false;
     }
     if (rest.role === "access_controller") {
+      rest.canDeleteIncidents = false;
+    }
+    if (rest.role === "patrol_user") {
       rest.canDeleteIncidents = false;
     }
 
@@ -4399,8 +4406,9 @@ export async function registerRoutes(
     const supervisorAmt = usage.userCounts.supervisor * rateSupervisor;
     const controlRoomAmt = usage.userCounts.control_room * rateSupervisor;
     const reporterAmt = usage.userCounts.reporter * rateReporter;
+    const patrolUserAmt = usage.userCounts.patrol_user * rateReporter;
     const accessControllerAmt = usage.userCounts.access_controller * rateAccessController;
-    const total = adminAmt + supervisorAmt + controlRoomAmt + reporterAmt + accessControllerAmt;
+    const total = adminAmt + supervisorAmt + controlRoomAmt + reporterAmt + patrolUserAmt + accessControllerAmt;
 
     const rows: (string | number)[][] = [
       [org.name + (org.contractRef ? `  —  ${org.contractRef}` : ""), "", "", ""],
@@ -4412,6 +4420,7 @@ export async function registerRoutes(
       [`Supervisor licences — ${monthLabel}`, usage.userCounts.supervisor, Number(rateSupervisor.toFixed(2)), Number(supervisorAmt.toFixed(2))],
       [`Control room licences — ${monthLabel}`, usage.userCounts.control_room, Number(rateSupervisor.toFixed(2)), Number(controlRoomAmt.toFixed(2))],
       [`Reporter licences — ${monthLabel}`, usage.userCounts.reporter, Number(rateReporter.toFixed(2)), Number(reporterAmt.toFixed(2))],
+      [`Patrol user licences — ${monthLabel}`, usage.userCounts.patrol_user, Number(rateReporter.toFixed(2)), Number(patrolUserAmt.toFixed(2))],
       [`Access controller licences — ${monthLabel}`, usage.userCounts.access_controller, Number(rateAccessController.toFixed(2)), Number(accessControllerAmt.toFixed(2))],
       ["", "", "", ""],
       ["Total", "", "", Number(total.toFixed(2))],
