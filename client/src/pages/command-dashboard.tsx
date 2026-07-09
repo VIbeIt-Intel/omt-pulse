@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import type { Location } from "@shared/schema";
-import { isDispatchStaff } from "@shared/user-roles";
+import { isDispatchStaff, isFieldReporter, isAccessController } from "@shared/user-roles";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { IncidentDialog } from "@/components/incident-dialog";
@@ -496,7 +496,8 @@ export default function CommandDashboard() {
   const { data: currentUser } = useQuery<{ id: string; firstName: string; lastName: string; role: string }>({
     queryKey: ["/api/auth/me"],
   });
-  const isReporter = currentUser?.role === "reporter";
+  const isReporter = isFieldReporter(currentUser?.role ?? "");
+  const isGateOperator = isAccessController(currentUser?.role ?? "");
   const isDispatch = currentUser?.role ? isDispatchStaff(currentUser.role) : false;
 
   const { data: panicAlerts = [] } = useQuery<PanicAlert[]>({
@@ -598,7 +599,9 @@ export default function CommandDashboard() {
     navigate(`/occurrence-book?${params.toString()}`);
   }
 
-  const liveCountDisplay = isReporter
+  const liveCountDisplay = isGateOperator
+    ? 0
+    : isReporter
     ? visibleLiveIncidents.length + joinableLiveIncidents.length + pendingPanics.length
     : visibleLiveIncidents.length + pendingPanics.length;
 
@@ -627,6 +630,10 @@ export default function CommandDashboard() {
   })();
 
   function openLiveView() {
+    if (isGateOperator) {
+      toast({ title: "No live incidents", description: "Use Panic/SOS for emergencies or report a manual incident." });
+      return;
+    }
     if (liveCountDisplay === 0) {
       toast({ title: "No live incidents", description: "There are no active live incidents right now." });
       return;
@@ -674,7 +681,7 @@ export default function CommandDashboard() {
   }
 
   const periodLabel = period === "day" ? "Today" : "This Week";
-  const incidentSublabel = isReporter
+  const incidentSublabel = (isReporter || isGateOperator)
     ? `my incident${(data?.totalIncidents ?? 0) === 1 ? "" : "s"} · tap to view`
     : `incident${(data?.totalIncidents ?? 0) === 1 ? "" : "s"} · tap to view`;
 
@@ -692,7 +699,7 @@ export default function CommandDashboard() {
 
   const mobileDashboard = (
     <div className="h-full overflow-y-auto bg-background">
-      {(pendingPanics.length > 0 || joinableLiveIncidents.length > 0 || visibleLiveIncidents.length > 0) && (
+      {( !isGateOperator && (pendingPanics.length > 0 || joinableLiveIncidents.length > 0 || visibleLiveIncidents.length > 0)) && (
         <div
           className="sticky top-0 z-30 border-b border-border/80 bg-background/95 backdrop-blur-md shadow-sm"
           data-testid="banner-live-incident-priority"
@@ -783,6 +790,7 @@ export default function CommandDashboard() {
             onClick={() => setPanicOpen(true)}
             testId="button-panic"
           />
+          {!isGateOperator && (
           <ActionTile
             title="Start Live Incident"
             subtitle="Share GPS and navigate in real time"
@@ -791,6 +799,7 @@ export default function CommandDashboard() {
             onClick={() => navigate("/live-severity")}
             testId="button-start-live-incident"
           />
+          )}
           <ActionTile
             title="Report Incident"
             subtitle="Report what happened"

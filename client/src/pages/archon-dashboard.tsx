@@ -23,7 +23,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type UserCounts = { administrator: number; supervisor: number; control_room: number; reporter: number; total: number };
+type UserCounts = { administrator: number; supervisor: number; control_room: number; reporter: number; access_controller: number; total: number };
 
 type ArchonOrg = {
   id: string;
@@ -40,6 +40,7 @@ type ArchonOrg = {
   rateAdmin: number | null;
   rateSupervisor: number | null;
   rateReporter: number | null;
+  rateAccessController: number | null;
   storageLimitGb: number | null;
   billingNotes: string | null;
   userCounts: UserCounts;
@@ -48,7 +49,7 @@ type ArchonOrg = {
 };
 
 type OrgUsageData = {
-  userCounts: { administrator: number; supervisor: number; control_room: number; reporter: number; total: number };
+  userCounts: { administrator: number; supervisor: number; control_room: number; reporter: number; access_controller: number; total: number };
   incidentsTotal: number;
   incidentsThisMonth: number;
   activeUsers30d: number;
@@ -96,12 +97,13 @@ function fmtRand(cents: number | null | undefined): string {
 }
 
 function calcMonthly(org: ArchonOrg): number | null {
-  const { userCounts, rateAdmin, rateSupervisor, rateReporter } = org;
-  if (rateAdmin == null && rateSupervisor == null && rateReporter == null) return null;
+  const { userCounts, rateAdmin, rateSupervisor, rateReporter, rateAccessController } = org;
+  if (rateAdmin == null && rateSupervisor == null && rateReporter == null && rateAccessController == null) return null;
   return (userCounts.administrator * (rateAdmin ?? 0)) +
     (userCounts.supervisor * (rateSupervisor ?? 0)) +
     (userCounts.control_room * (rateSupervisor ?? 0)) +
-    (userCounts.reporter * (rateReporter ?? 0));
+    (userCounts.reporter * (rateReporter ?? 0)) +
+    (userCounts.access_controller * (rateAccessController ?? 0));
 }
 
 function fmtDate(d: string | null | undefined): string {
@@ -138,6 +140,7 @@ function RoleBadge({ role }: { role: string }) {
     administrator: "bg-purple-600 text-white",
     control_room: "bg-cyan-700 text-white",
     supervisor: "bg-blue-600 text-white",
+    access_controller: "bg-emerald-700 text-white",
     reporter: "bg-slate-600 text-white",
   };
   return <Badge className={`text-xs capitalize ${map[role] ?? "bg-muted"}`}>{role.replace(/_/g, " ")}</Badge>;
@@ -155,7 +158,7 @@ type NewClientForm = {
   orgName: string; orgAddress: string; orgPhone: string;
   adminFirstName: string; adminLastName: string; adminEmail: string; adminPassword: string;
   contractRef: string; contractStartDate: string; contractRenewalDate: string;
-  rateAdmin: string; rateSupervisor: string; rateReporter: string;
+  rateAdmin: string; rateSupervisor: string; rateReporter: string; rateAccessController: string;
   storageLimitGb: string; billingNotes: string;
   groups: string[];
 };
@@ -164,7 +167,7 @@ const emptyNewClient = (): NewClientForm => ({
   orgName: "", orgAddress: "", orgPhone: "",
   adminFirstName: "", adminLastName: "", adminEmail: "", adminPassword: "",
   contractRef: "", contractStartDate: "", contractRenewalDate: "",
-  rateAdmin: "", rateSupervisor: "", rateReporter: "",
+  rateAdmin: "", rateSupervisor: "", rateReporter: "", rateAccessController: "",
   storageLimitGb: "", billingNotes: "",
   groups: [],
 });
@@ -172,7 +175,7 @@ const emptyNewClient = (): NewClientForm => ({
 type EditContractForm = {
   name: string; address: string; phone: string;
   contractRef: string; contractStartDate: string; contractRenewalDate: string;
-  rateAdmin: string; rateSupervisor: string; rateReporter: string;
+  rateAdmin: string; rateSupervisor: string; rateReporter: string; rateAccessController: string;
   storageLimitGb: string; billingNotes: string;
 };
 
@@ -187,6 +190,7 @@ function orgToEditForm(org: ArchonOrg): EditContractForm {
     rateAdmin: org.rateAdmin != null ? String(org.rateAdmin / 100) : "",
     rateSupervisor: org.rateSupervisor != null ? String(org.rateSupervisor / 100) : "",
     rateReporter: org.rateReporter != null ? String(org.rateReporter / 100) : "",
+    rateAccessController: org.rateAccessController != null ? String(org.rateAccessController / 100) : "",
     storageLimitGb: org.storageLimitGb != null ? String(org.storageLimitGb) : "",
     billingNotes: org.billingNotes ?? "",
   };
@@ -227,14 +231,16 @@ function OrgUsagePanel({ org }: { org: ArchonOrg }) {
   const rateAdmin = org.rateAdmin ?? 0;
   const rateSupervisor = org.rateSupervisor ?? 0;
   const rateReporter = org.rateReporter ?? 0;
+  const rateAccessController = org.rateAccessController ?? 0;
 
   const counts = usage?.userCounts ?? org.userCounts;
   const adminAmt = counts.administrator * rateAdmin;
   const supervisorAmt = counts.supervisor * rateSupervisor;
   const controlRoomAmt = counts.control_room * rateSupervisor;
   const reporterAmt = counts.reporter * rateReporter;
-  const totalCents = adminAmt + supervisorAmt + controlRoomAmt + reporterAmt;
-  const hasRates = rateAdmin > 0 || rateSupervisor > 0 || rateReporter > 0;
+  const accessControllerAmt = counts.access_controller * rateAccessController;
+  const totalCents = adminAmt + supervisorAmt + controlRoomAmt + reporterAmt + accessControllerAmt;
+  const hasRates = rateAdmin > 0 || rateSupervisor > 0 || rateReporter > 0 || rateAccessController > 0;
 
   function downloadInvoice() {
     window.open(`/api/archon/orgs/${org.id}/invoice?month=${currentMonth}`, "_blank");
@@ -272,6 +278,10 @@ function OrgUsagePanel({ org }: { org: ArchonOrg }) {
             <div className="flex items-center justify-between text-xs">
               <span className="text-cyan-400">{counts.control_room} × Control room</span>
               <span className="text-white/60">{fmtRand(rateSupervisor)} = <span className="text-white font-medium">{fmtRand(controlRoomAmt)}</span></span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-emerald-400">{counts.access_controller} × Access controller</span>
+              <span className="text-white/60">{fmtRand(rateAccessController)} = <span className="text-white font-medium">{fmtRand(accessControllerAmt)}</span></span>
             </div>
             <div className="flex items-center justify-between text-xs">
               <span className="text-slate-400">{counts.reporter} × Reporter</span>
@@ -623,6 +633,7 @@ export default function ArchonDashboard() {
       rateAdmin: f.rateAdmin !== "" ? Number(f.rateAdmin) : undefined,
       rateSupervisor: f.rateSupervisor !== "" ? Number(f.rateSupervisor) : undefined,
       rateReporter: f.rateReporter !== "" ? Number(f.rateReporter) : undefined,
+      rateAccessController: f.rateAccessController !== "" ? Number(f.rateAccessController) : undefined,
       storageLimitGb: f.storageLimitGb !== "" ? Number(f.storageLimitGb) : undefined,
       billingNotes: f.billingNotes || undefined,
       groups: f.groups.filter(g => g.trim() !== ""),
@@ -645,6 +656,7 @@ export default function ArchonDashboard() {
         rateAdmin: f.rateAdmin !== "" ? Number(f.rateAdmin) : null,
         rateSupervisor: f.rateSupervisor !== "" ? Number(f.rateSupervisor) : null,
         rateReporter: f.rateReporter !== "" ? Number(f.rateReporter) : null,
+        rateAccessController: f.rateAccessController !== "" ? Number(f.rateAccessController) : null,
         storageLimitGb: f.storageLimitGb !== "" ? Number(f.storageLimitGb) : null,
         billingNotes: f.billingNotes || null,
       },
@@ -1055,6 +1067,13 @@ export default function ArchonDashboard() {
                   </div>
                 </div>
                 <div>
+                  <Label className="text-white/50 text-xs mb-1 block">Access controller</Label>
+                  <div className="flex items-center gap-1">
+                    <span className="text-white/40 text-sm">R</span>
+                    <Input className={inputCls("flex-1")} type="number" min="0" step="1" placeholder="75" value={newClientForm.rateAccessController} onChange={(e) => setNewClientForm(f => ({ ...f, rateAccessController: e.target.value }))} data-testid="input-newclient-rate-access-controller" />
+                  </div>
+                </div>
+                <div>
                   <Label className="text-white/50 text-xs mb-1 block">Reporter</Label>
                   <div className="flex items-center gap-1">
                     <span className="text-white/40 text-sm">R</span>
@@ -1125,9 +1144,9 @@ export default function ArchonDashboard() {
               <div className="space-y-2">
                 <p className="text-white/60 text-xs font-semibold uppercase tracking-widest border-b border-white/10 pb-1">Monthly rates (ZAR)</p>
                 <div className="grid grid-cols-3 gap-3">
-                  {(["rateAdmin", "rateSupervisor", "rateReporter"] as const).map((key) => (
+                  {(["rateAdmin", "rateSupervisor", "rateReporter", "rateAccessController"] as const).map((key) => (
                     <div key={key}>
-                      <Label className="text-white/50 text-xs mb-1 block capitalize">{key === "rateAdmin" ? "Administrator" : key === "rateSupervisor" ? "Supervisor" : "Reporter"}</Label>
+                      <Label className="text-white/50 text-xs mb-1 block capitalize">{key === "rateAdmin" ? "Administrator" : key === "rateSupervisor" ? "Supervisor" : key === "rateAccessController" ? "Access controller" : "Reporter"}</Label>
                       <div className="flex items-center gap-1">
                         <span className="text-white/40 text-sm">R</span>
                         <Input className="bg-white/5 border-white/20 text-white placeholder:text-white/30 h-8 text-sm flex-1" type="number" min="0" step="1" value={editContractForm[key]} onChange={(e) => setEditContractForm(f => f && ({ ...f, [key]: e.target.value }))} data-testid={`input-editcontract-${key}`} />
@@ -1202,6 +1221,7 @@ export default function ArchonDashboard() {
                   <SelectItem value="administrator">Administrator</SelectItem>
                   <SelectItem value="control_room">Control Room</SelectItem>
                   <SelectItem value="supervisor">Supervisor (legacy)</SelectItem>
+                  <SelectItem value="access_controller">Access Controller</SelectItem>
                   <SelectItem value="reporter">Reporter</SelectItem>
                 </SelectContent>
               </Select>

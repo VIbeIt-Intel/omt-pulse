@@ -13,7 +13,7 @@ import bcrypt from "bcrypt";
 import { z } from "zod";
 import { DEFAULT_FORM_FIELDS } from "./seed";
 import { APP_CACHE_VERSION } from "@shared/cache-version";
-import { USER_ROLES, DISPATCH_STAFF_ROLES, isDispatchStaff, isControlRoom, usesLocationAssignmentScope } from "@shared/user-roles";
+import { USER_ROLES, DISPATCH_STAFF_ROLES, isDispatchStaff, isControlRoom, isAccessController, isOwnIncidentScopedRole, usesLocationAssignmentScope } from "@shared/user-roles";
 import { isWithinPremiseRadius, PREMISE_COVERAGE_RADIUS_M } from "@shared/premises-geofence";
 import { ObjectStorageService, ObjectNotFoundError } from "./replit_integrations/object_storage/objectStorage";
 import { parseFile, suggestMapping, resolveRows, collectUnknownReferences, buildTemplateXLSX, buildErrorsCSV, type ImportMapping, type ParsedFile } from "./import-parser";
@@ -804,6 +804,14 @@ async function assertWriteCommandAccess(req: Request, rowCommandId: number | nul
 // Back-compat alias — defaults to WRITE-strict (the safer choice for any
 // remaining caller). New code should prefer the explicit helpers above.
 const assertCommandAccess = assertWriteCommandAccess;
+
+function rejectLiveWorkflowRole(role: string, res: Response): boolean {
+  if (isAccessController(role)) {
+    res.status(403).json({ message: "Access controllers cannot use the live incident workflow" });
+    return true;
+  }
+  return false;
+}
 
 const AUTH_WHITELIST = [
   "/auth/login",
@@ -1873,6 +1881,9 @@ export async function registerRoutes(
     if (rest.role === "control_room") {
       rest.canDeleteIncidents = false;
     }
+    if (rest.role === "access_controller") {
+      rest.canDeleteIncidents = false;
+    }
 
     const user = await storage.createUser({
       ...rest,
@@ -1912,6 +1923,9 @@ export async function registerRoutes(
       rest.canDeleteIncidents = true;
     }
     if (rest.role === "control_room") {
+      rest.canDeleteIncidents = false;
+    }
+    if (rest.role === "access_controller") {
       rest.canDeleteIncidents = false;
     }
 
@@ -2356,7 +2370,10 @@ export async function registerRoutes(
       ? (accessibleCommandIds.length > 0 ? accessibleCommandIds : undefined)
       : commandFilter;
     const live = await storage.getLiveIncidents(orgId, liveFilter);
-    res.json(live);
+    const scopedLive = req.currentUser!.role === "access_controller"
+      ? live.filter((inc) => inc.userId === req.currentUser!.id)
+      : live;
+    res.json(scopedLive);
   });
 
   // Incidents
@@ -2364,11 +2381,14 @@ export async function registerRoutes(
     const { organizationId: orgId, role, id: userId } = req.currentUser!;
     const { commandFilter } = await getCommandScope(req);
     let restrictToLocationIds: number[] | undefined;
-    if (role === "supervisor" || role === "control_room" || role === "reporter") {
+    if (usesLocationAssignmentScope(role)) {
       const assigned = await storage.getUserLocationAssignments(userId, orgId);
       if (assigned.length > 0) restrictToLocationIds = assigned;
     }
-    const incidentList = await storage.getIncidents(orgId, restrictToLocationIds, commandFilter);
+    let incidentList = await storage.getIncidents(orgId, restrictToLocationIds, commandFilter);
+    if (role === "access_controller") {
+      incidentList = incidentList.filter((inc) => inc.userId === userId);
+    }
     const categories = await storage.getCategories(orgId, commandFilter);
     const categoryNameById = new Map(categories.map((c) => [c.id, c.name]));
     const attachmentCounts = await storage.getAttachmentCountsByOrg(orgId);
@@ -2410,17 +2430,21 @@ export async function registerRoutes(
     if (!(await assertReadCommandAccess(req, (incident as any).commandId))) {
       return res.status(404).json({ message: "Incident not found" });
     }
-    if (role === "supervisor" || role === "control_room" || role === "reporter") {
+    if (usesLocationAssignmentScope(role)) {
       const assigned = await storage.getUserLocationAssignments(userId, orgId);
       if (assigned.length > 0 && incident.locationId !== null && !assigned.includes(incident.locationId)) {
         return res.status(404).json({ message: "Incident not found" });
       }
+    }
+    if (role === "access_controller" && incident.userId !== userId) {
+      return res.status(404).json({ message: "Incident not found" });
     }
     res.json(incident);
   });
 
   app.post("/api/live-incidents/notify-severity", async (req, res) => {
     if (!req.currentUser) return res.status(401).json({ message: "Unauthorized" });
+    if (rejectLiveWorkflowRole(req.currentUser.role, res)) return;
     // Severity info is now baked into dispatchLiveIncidentPush (fired when the
     // live incident record is created). Returning 0 here prevents a duplicate push.
     return res.json({ sent: 0 });
@@ -2876,11 +2900,14 @@ export async function registerRoutes(
     const { organizationId: orgId, role, id: userId } = req.currentUser!;
     const parsed = insertIncidentSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
-    if (role === "supervisor" || role === "control_room" || role === "reporter") {
+    if (usesLocationAssignmentScope(role)) {
       const assigned = await storage.getUserLocationAssignments(userId, orgId);
       if (assigned.length > 0 && parsed.data.locationId != null && !assigned.includes(parsed.data.locationId)) {
         return res.status(403).json({ message: "You are not assigned to this location" });
       }
+    }
+    if (isAccessController(role) && parsed.data.isLive) {
+      return res.status(403).json({ message: "Access controllers can only file manual occurrence book entries" });
     }
     if (parsed.data.customMapId != null) {
       const cmap = await storage.getCustomMap(parsed.data.customMapId, orgId);
@@ -2944,6 +2971,7 @@ export async function registerRoutes(
   // End a live incident — any authenticated org member can call this (reporters included)
   app.post("/api/incidents/:id/end-live", async (req, res) => {
     const { organizationId: orgId, id: userId, role } = req.currentUser!;
+    if (rejectLiveWorkflowRole(role, res)) return;
     const id = parseInt(req.params.id as string);
     const incident = await storage.getIncident(id, orgId);
     if (!incident) return res.status(404).json({ message: "Incident not found" });
@@ -3136,7 +3164,7 @@ export async function registerRoutes(
   // Escalate a live incident — admin/supervisor only
   app.post("/api/incidents/:id/escalate", async (req, res) => {
     const { organizationId: orgId, id: userId, role } = req.currentUser!;
-    if (role === "reporter") return res.status(403).json({ message: "Forbidden" });
+    if (role === "reporter" || isAccessController(role)) return res.status(403).json({ message: "Forbidden" });
     const id = parseInt(req.params.id as string);
     const incident = await storage.getIncident(id, orgId);
     if (!incident) return res.status(404).json({ message: "Incident not found" });
@@ -3167,7 +3195,8 @@ export async function registerRoutes(
 
   // Join a live incident as an additional responder
   app.post("/api/incidents/:id/join-live", async (req, res) => {
-    const { organizationId: orgId, id: userId } = req.currentUser!;
+    const { organizationId: orgId, id: userId, role } = req.currentUser!;
+    if (rejectLiveWorkflowRole(role, res)) return;
     const id = parseInt(req.params.id as string);
     const incident = await storage.getIncident(id, orgId);
     if (!incident) return res.status(404).json({ message: "Incident not found" });
@@ -3264,7 +3293,8 @@ export async function registerRoutes(
 
   // Leave a joined live incident
   app.post("/api/incidents/:id/leave-live", async (req, res) => {
-    const { organizationId: orgId, id: userId } = req.currentUser!;
+    const { organizationId: orgId, id: userId, role } = req.currentUser!;
+    if (rejectLiveWorkflowRole(role, res)) return;
     const id = parseInt(req.params.id as string);
     const incident = await storage.getIncident(id, orgId);
     if (!incident) return res.status(404).json({ message: "Incident not found" });
@@ -3278,7 +3308,8 @@ export async function registerRoutes(
 
   // Record joiner arrival — saves arrival time + note on the live_responders row
   app.post("/api/incidents/:id/joiner-arrival", async (req, res) => {
-    const { organizationId: orgId, id: userId } = req.currentUser!;
+    const { organizationId: orgId, id: userId, role } = req.currentUser!;
+    if (rejectLiveWorkflowRole(role, res)) return;
     const id = parseInt(req.params.id as string);
     const incident = await storage.getIncident(id, orgId);
     if (!incident || !incident.isLive) return res.status(404).json({ message: "Live incident not found" });
@@ -3569,7 +3600,8 @@ export async function registerRoutes(
 
   // Reporter taps "I've Arrived" — immediately set responderArrivedAt and push-notify admin/supervisor
   app.patch("/api/incidents/:id/mark-arrived", async (req, res) => {
-    const { organizationId: orgId, id: userId } = req.currentUser!;
+    const { organizationId: orgId, id: userId, role } = req.currentUser!;
+    if (rejectLiveWorkflowRole(role, res)) return;
     const id = parseInt(req.params.id as string);
     const incident = await storage.getIncident(id, orgId);
     if (!incident || !incident.isLive) return res.status(404).json({ message: "Live incident not found" });
@@ -3613,7 +3645,7 @@ export async function registerRoutes(
   // Add timestamped note to a live incident — admin/supervisor only
   app.post("/api/incidents/:id/add-note", async (req, res) => {
     const { organizationId: orgId, role, id: userId } = req.currentUser!;
-    if (role === "reporter") return res.status(403).json({ message: "Forbidden" });
+    if (role === "reporter" || isAccessController(role)) return res.status(403).json({ message: "Forbidden" });
     const id = parseInt(req.params.id as string);
     const { note } = req.body;
     if (!note || typeof note !== "string" || !note.trim()) {
@@ -3642,11 +3674,14 @@ export async function registerRoutes(
     const id = parseInt(req.params.id as string);
     const parsed = insertIncidentSchema.partial().safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
-    if (role === "supervisor" || role === "control_room" || role === "reporter") {
+    if (usesLocationAssignmentScope(role)) {
       const assigned = await storage.getUserLocationAssignments(userId, orgId);
       if (assigned.length > 0 && parsed.data.locationId != null && !assigned.includes(parsed.data.locationId)) {
         return res.status(403).json({ message: "You are not assigned to this location" });
       }
+    }
+    if (isAccessController(role) && parsed.data.isLive) {
+      return res.status(403).json({ message: "Access controllers can only file manual occurrence book entries" });
     }
     // Fetch existing incident first so we can validate against effective resulting state
     const oldIncident = await storage.getIncident(id, orgId);
@@ -3654,6 +3689,9 @@ export async function registerRoutes(
     // Block edits to incidents that fall outside the caller's active Command scope.
     if (!(await assertCommandAccess(req, (oldIncident as any).commandId))) {
       return res.status(404).json({ message: "Incident not found" });
+    }
+    if (isAccessController(role) && oldIncident.userId !== userId) {
+      return res.status(403).json({ message: "You can only edit your own incidents" });
     }
     if (parsed.data.customMapId != null) {
       const cmap = await storage.getCustomMap(parsed.data.customMapId, orgId);
@@ -3696,7 +3734,7 @@ export async function registerRoutes(
 
   app.delete("/api/incidents/:id", async (req, res) => {
     const { organizationId: orgId, role, id: userId } = req.currentUser!;
-    if (role === "reporter") return res.status(403).json({ message: "Reporters cannot delete incidents" });
+    if (role === "reporter" || isAccessController(role)) return res.status(403).json({ message: "You cannot delete incidents" });
     if (role === "control_room") return res.status(403).json({ message: "Control room users cannot delete incidents" });
     if (role !== "administrator" && !req.currentUser!.canDeleteIncidents) {
       return res.status(403).json({ message: "You do not have permission to delete incidents" });
@@ -3751,12 +3789,16 @@ export async function registerRoutes(
       res.status(404).json({ message: "Incident not found" });
       return null;
     }
-    if (role === "supervisor" || role === "control_room" || role === "reporter") {
+    if (usesLocationAssignmentScope(role)) {
       const assigned = await storage.getUserLocationAssignments(userId, orgId);
       if (assigned.length > 0 && inc.locationId !== null && !assigned.includes(inc.locationId)) {
         res.status(404).json({ message: "Incident not found" });
         return null;
       }
+    }
+    if (isAccessController(role) && inc.userId !== userId) {
+      res.status(404).json({ message: "Incident not found" });
+      return null;
     }
     return inc;
   }
@@ -3773,7 +3815,7 @@ export async function registerRoutes(
   app.post("/api/incidents/:id/attachments", async (req, res) => {
     const orgId = req.currentUser!.organizationId;
     const { role, id: userId } = req.currentUser!;
-    if (!["administrator", "supervisor", "control_room", "reporter"].includes(role)) {
+    if (!["administrator", "supervisor", "control_room", "reporter", "access_controller"].includes(role)) {
       return res.status(403).json({ message: "You do not have permission to add evidence" });
     }
     const incidentId = parseInt(req.params.id as string);
@@ -3829,7 +3871,7 @@ export async function registerRoutes(
   app.post("/api/incidents/:id/evidence-notes", async (req, res) => {
     const orgId = req.currentUser!.organizationId;
     const { role, id: userId } = req.currentUser!;
-    if (!["administrator", "supervisor", "control_room", "reporter"].includes(role)) {
+    if (!["administrator", "supervisor", "control_room", "reporter", "access_controller"].includes(role)) {
       return res.status(403).json({ message: "You do not have permission to add evidence" });
     }
     const incidentId = parseInt(req.params.id as string);
@@ -3874,7 +3916,7 @@ export async function registerRoutes(
     const period = req.query.period === "week" ? "week" : "day";
     let restrictToLocationIds: number[] | undefined;
     let restrictToUserId: string | undefined;
-    if (role === "reporter") {
+    if (isOwnIncidentScopedRole(role)) {
       restrictToUserId = userId;
       const assigned = await storage.getUserLocationAssignments(userId, orgId);
       if (assigned.length > 0) restrictToLocationIds = assigned;
@@ -4009,7 +4051,7 @@ export async function registerRoutes(
     const { startDate, endDate } = req.query as { startDate?: string; endDate?: string };
     const { commandFilter } = await getCommandScope(req);
     let restrictToLocationIds: number[] | undefined;
-    if (role === "supervisor" || role === "control_room" || role === "reporter") {
+    if (role === "supervisor" || role === "control_room" || role === "reporter" || role === "access_controller") {
       const assigned = await storage.getUserLocationAssignments(userId, orgId);
       if (assigned.length > 0) restrictToLocationIds = assigned;
     }
@@ -4169,7 +4211,7 @@ export async function registerRoutes(
       orgName, orgAddress, orgPhone,
       adminFirstName, adminLastName, adminEmail, adminPassword,
       contractRef, contractStartDate, contractRenewalDate,
-      rateAdmin, rateSupervisor, rateReporter,
+      rateAdmin, rateSupervisor, rateReporter, rateAccessController,
       storageLimitGb, billingNotes,
     } = req.body;
 
@@ -4197,6 +4239,7 @@ export async function registerRoutes(
       rateAdmin: rateAdmin != null ? Math.round(Number(rateAdmin) * 100) : null,
       rateSupervisor: rateSupervisor != null ? Math.round(Number(rateSupervisor) * 100) : null,
       rateReporter: rateReporter != null ? Math.round(Number(rateReporter) * 100) : null,
+      rateAccessController: rateAccessController != null ? Math.round(Number(rateAccessController) * 100) : null,
       storageLimitGb: storageLimitGb != null ? Number(storageLimitGb) : null,
       billingNotes: billingNotes?.trim() || null,
     } as any);
@@ -4265,7 +4308,7 @@ export async function registerRoutes(
     const {
       name, address, phone, subscriptionStatus,
       contractRef, contractStartDate, contractRenewalDate,
-      rateAdmin, rateSupervisor, rateReporter,
+      rateAdmin, rateSupervisor, rateReporter, rateAccessController,
       storageLimitGb, billingNotes,
     } = req.body;
 
@@ -4285,6 +4328,7 @@ export async function registerRoutes(
     if (rateAdmin !== undefined) patch.rateAdmin = rateAdmin != null ? Math.round(Number(rateAdmin) * 100) : null;
     if (rateSupervisor !== undefined) patch.rateSupervisor = rateSupervisor != null ? Math.round(Number(rateSupervisor) * 100) : null;
     if (rateReporter !== undefined) patch.rateReporter = rateReporter != null ? Math.round(Number(rateReporter) * 100) : null;
+    if (rateAccessController !== undefined) patch.rateAccessController = rateAccessController != null ? Math.round(Number(rateAccessController) * 100) : null;
     if (storageLimitGb !== undefined) patch.storageLimitGb = storageLimitGb != null ? Number(storageLimitGb) : null;
     if (billingNotes !== undefined) patch.billingNotes = billingNotes?.trim() || null;
 
@@ -4349,11 +4393,14 @@ export async function registerRoutes(
     const rateSupervisor = (org.rateSupervisor ?? 0) / 100;
     const rateReporter = (org.rateReporter ?? 0) / 100;
 
+    const rateAccessController = (org.rateAccessController ?? 0) / 100;
+
     const adminAmt = usage.userCounts.administrator * rateAdmin;
     const supervisorAmt = usage.userCounts.supervisor * rateSupervisor;
     const controlRoomAmt = usage.userCounts.control_room * rateSupervisor;
     const reporterAmt = usage.userCounts.reporter * rateReporter;
-    const total = adminAmt + supervisorAmt + controlRoomAmt + reporterAmt;
+    const accessControllerAmt = usage.userCounts.access_controller * rateAccessController;
+    const total = adminAmt + supervisorAmt + controlRoomAmt + reporterAmt + accessControllerAmt;
 
     const rows: (string | number)[][] = [
       [org.name + (org.contractRef ? `  —  ${org.contractRef}` : ""), "", "", ""],
@@ -4365,6 +4412,7 @@ export async function registerRoutes(
       [`Supervisor licences — ${monthLabel}`, usage.userCounts.supervisor, Number(rateSupervisor.toFixed(2)), Number(supervisorAmt.toFixed(2))],
       [`Control room licences — ${monthLabel}`, usage.userCounts.control_room, Number(rateSupervisor.toFixed(2)), Number(controlRoomAmt.toFixed(2))],
       [`Reporter licences — ${monthLabel}`, usage.userCounts.reporter, Number(rateReporter.toFixed(2)), Number(reporterAmt.toFixed(2))],
+      [`Access controller licences — ${monthLabel}`, usage.userCounts.access_controller, Number(rateAccessController.toFixed(2)), Number(accessControllerAmt.toFixed(2))],
       ["", "", "", ""],
       ["Total", "", "", Number(total.toFixed(2))],
       ["", "", "", ""],

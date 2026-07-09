@@ -7,7 +7,7 @@ import omtLogo from "@/assets/omt-logo-v2.png";
 import { OmtShield } from "@/components/omt-shield";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { hasAccessControlRole, isDispatchStaff } from "@shared/user-roles";
+import { hasAccessControlRole, isDispatchStaff, isFieldReporter } from "@shared/user-roles";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Sidebar,
@@ -212,7 +212,7 @@ function getNavItems(role: string, isSuperadmin: boolean) {
     items.push({ title: "Live Monitor", url: "/live-monitor", icon: Radio });
     items.push({ title: "Fleet", url: "/fleet", icon: Car });
   }
-  if (role === "reporter") {
+  if (isFieldReporter(role)) {
     items.push({ title: "Live Incident", url: "/live-incident", icon: Radio });
   }
   if (role === "administrator") {

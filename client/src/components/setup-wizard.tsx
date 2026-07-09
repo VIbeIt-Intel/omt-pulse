@@ -425,8 +425,9 @@ export function SetupWizard({ open, onClose }: { open: boolean; onClose: () => v
                     <SelectContent>
                       <SelectItem value="administrator">Administrator</SelectItem>
                       <SelectItem value="control_room">Control Room</SelectItem>
+                      <SelectItem value="access_controller">Access Controller</SelectItem>
                       <SelectItem value="supervisor">Supervisor (legacy)</SelectItem>
-                      <SelectItem value="reporter">Reporter</SelectItem>
+                      <SelectItem value="reporter">Reporter (Field)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

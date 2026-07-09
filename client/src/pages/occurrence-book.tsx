@@ -4,7 +4,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Incident, Category, Location, FormField, CustomMap } from "@shared/schema";
-import { isDispatchStaff } from "@shared/user-roles";
+import { isDispatchStaff, isOwnIncidentScopedRole, isFieldReporter } from "@shared/user-roles";
 import { IncidentDialog, AttachmentsDialog } from "@/components/incident-dialog";
 import { OccurrenceBookDesktopTable } from "@/components/occurrence-book-desktop-table";
 import { IncidentEvidenceSection } from "@/components/incident-evidence-section";
@@ -254,6 +254,7 @@ export default function OccurrenceBook() {
   const isAdmin = currentUser?.role === "administrator";
   const isDispatch = currentUser?.role ? isDispatchStaff(currentUser.role) : false;
   const isControlRoomUser = currentUser?.role === "control_room";
+  const isOwnIncidentUser = currentUser?.role ? isOwnIncidentScopedRole(currentUser.role) : false;
   const isReporter = currentUser?.role === "reporter";
 
   useEffect(() => {
@@ -300,7 +301,7 @@ export default function OccurrenceBook() {
     setLocation(remaining ? `/occurrence-book?${remaining}` : "/occurrence-book");
   }, [deepLinkIncidentId, isLoading, incidents, search, setLocation]);
   const canEdit = isAdmin || (currentUser?.canEditIncidents ?? true);
-  const canDelete = !isReporter && !isControlRoomUser && (isAdmin || (currentUser?.canDeleteIncidents ?? true));
+  const canDelete = !isOwnIncidentUser && !isControlRoomUser && (isAdmin || (currentUser?.canDeleteIncidents ?? true));
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
@@ -354,7 +355,7 @@ export default function OccurrenceBook() {
 
   const filteredIncidents = useMemo(() => {
     return incidents.filter((inc) => {
-      if (isReporter && currentUser?.id && inc.userId !== currentUser.id) return false;
+      if (isOwnIncidentUser && currentUser?.id && inc.userId !== currentUser.id) return false;
       if (selectedMapId !== null && inc.customMapId !== selectedMapId) return false;
       if (dateFrom && inc.incidentDate < dateFrom) return false;
       if (dateTo && inc.incidentDate > dateTo) return false;
@@ -365,7 +366,7 @@ export default function OccurrenceBook() {
       }
       return true;
     });
-  }, [incidents, selectedMapId, dateFrom, dateTo, importBatchIdFilter, severityFilter, isReporter, currentUser?.id, categories]);
+  }, [incidents, selectedMapId, dateFrom, dateTo, importBatchIdFilter, severityFilter, isOwnIncidentUser, currentUser?.id, categories]);
 
   /** Desktop: only show custom-field columns when at least one visible row has data. */
   const tableCustomFields = useMemo(() => {
@@ -451,7 +452,7 @@ export default function OccurrenceBook() {
         </Button>
         <div className="flex-1 min-w-0">
           <h1 className="text-base md:text-lg font-semibold truncate" data-testid="text-page-title">
-            {isReporter
+            {isOwnIncidentUser
               ? periodParam === "week" ? "My Incidents — This Week" : periodParam === "day" ? "My Incidents — Today" : "My Incidents"
               : periodParam === "week" ? "Occurrence Book — This Week" : periodParam === "day" ? "Occurrence Book — Today" : "Occurrence Book"}
           </h1>
@@ -459,12 +460,12 @@ export default function OccurrenceBook() {
             {filteredIncidents.length} incident{filteredIncidents.length !== 1 ? "s" : ""} in view
           </p>
         </div>
-        {!isReporter && (
+        {!isOwnIncidentUser && (
           <Button size="sm" className="shrink-0" onClick={() => { setEditingIncident(null); setDialogOpen(true); }} data-testid="button-new-incident">
             <Plus className="h-4 w-4 mr-1.5" /> Report incident
           </Button>
         )}
-        {isReporter && <ConnectivityBadge className="shrink-0" />}
+        {isFieldReporter(currentUser?.role ?? "") && <ConnectivityBadge className="shrink-0" />}
       </div>
       <div className="p-4 md:p-6 space-y-4 overflow-y-auto flex-1">
 

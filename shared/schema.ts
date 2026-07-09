@@ -21,6 +21,7 @@ export const organizations = pgTable("organizations", {
   rateAdmin: integer("rate_admin"),
   rateSupervisor: integer("rate_supervisor"),
   rateReporter: integer("rate_reporter"),
+  rateAccessController: integer("rate_access_controller"),
   storageLimitGb: integer("storage_limit_gb"),
   billingNotes: text("billing_notes"),
 });

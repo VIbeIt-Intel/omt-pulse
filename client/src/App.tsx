@@ -62,7 +62,7 @@ import { PermissionDeniedBanner } from "@/components/permission-denied-banner";
 import { PushPermissionBanner } from "@/components/push-permission-banner";
 import { PanicAlertSiren } from "@/components/panic-alert-siren";
 import { SetupWizardController } from "@/components/setup-wizard";
-import { isDispatchStaff } from "@shared/user-roles";
+import { isDispatchStaff, canUseLiveIncidentWorkflow } from "@shared/user-roles";
 import { Capacitor } from "@capacitor/core";
 
 function isCapacitorNative(): boolean {
@@ -604,6 +604,8 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
   });
   useEffect(() => {
     if (!liveLoaded || liveRedirectFiredRef.current) return;
+    if (user.role === "access_controller") return;
+    if (!canUseLiveIncidentWorkflow(user.role)) return;
     if (location === "/live-monitor") return;
     if (location === "/live-incident") return;
     // Notification deep link wins over resume-to-live — joiners must see the join prompt first.
@@ -948,8 +950,16 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
                   <BillingPage />
                 </RoleGuard>
               </Route>
-              <Route path="/live-incident" component={LiveIncidentPage} />
-              <Route path="/live-severity" component={LiveSeverityPage} />
+              <Route path="/live-incident">
+                <RoleGuard role={user.role} allowed={["administrator", "supervisor", "reporter"]}>
+                  <LiveIncidentPage />
+                </RoleGuard>
+              </Route>
+              <Route path="/live-severity">
+                <RoleGuard role={user.role} allowed={["administrator", "supervisor", "reporter"]}>
+                  <LiveSeverityPage />
+                </RoleGuard>
+              </Route>
               <Route path="/dashboard" component={CommandDashboard} />
               <Route path="/live-monitor">
                 <RoleGuard role={user.role} allowed={["administrator", "supervisor", "control_room"]}>
@@ -962,7 +972,7 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
                 </RoleGuard>
               </Route>
               <Route path="/access-control">
-                <RoleGuard role={user.role} allowed={["administrator", "supervisor", "reporter"]}>
+                <RoleGuard role={user.role} allowed={["administrator", "supervisor", "reporter", "access_controller"]}>
                   <AccessControlPage userRole={user.role} />
                 </RoleGuard>
               </Route>

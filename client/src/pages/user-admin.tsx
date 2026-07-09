@@ -52,12 +52,13 @@ const ROLES = [
   { value: "administrator", label: "Administrator (Full Access)" },
   { value: "control_room", label: "Control Room (Monitor & Dispatch)" },
   { value: "supervisor", label: "Supervisor (legacy — same as control room)" },
-  { value: "reporter", label: "Reporter (Field / Gate)" },
+  { value: "access_controller", label: "Access Controller (Gate / OB)" },
+  { value: "reporter", label: "Reporter (Field patrol)" },
 ];
 
 function roleBadgeVariant(role: string): "default" | "secondary" | "outline" {
   if (role === "administrator") return "default";
-  if (role === "control_room" || role === "supervisor") return "secondary";
+  if (role === "control_room" || role === "access_controller" || role === "supervisor") return "secondary";
   return "outline";
 }
 
@@ -94,6 +95,7 @@ function PermissionsSection({ form }: { form: ReturnType<typeof useForm<UserForm
   const role = form.watch("role");
   const isAdmin = role === "administrator";
   const isControlRoomRole = role === "control_room";
+  const isAccessControllerRole = role === "access_controller";
   return (
     <div className="border-t pt-4 space-y-3">
       <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Permissions</p>
@@ -123,15 +125,19 @@ function PermissionsSection({ form }: { form: ReturnType<typeof useForm<UserForm
             <span className="text-sm">Can add/delete attachments</span>
           </label>
         )} />
-        {isControlRoomRole && (
-          <p className="text-xs text-muted-foreground italic">Control room users cannot delete incidents from the occurrence book.</p>
+        {(isControlRoomRole || isAccessControllerRole) && (
+          <p className="text-xs text-muted-foreground italic">
+            {isControlRoomRole
+              ? "Control room users cannot delete incidents from the occurrence book."
+              : "Access controllers can file manual OB entries and evidence on their own incidents only."}
+          </p>
         )}
         <FormField control={form.control} name="canDeleteIncidents" render={({ field }) => (
-          <label className={`flex items-center gap-3 ${isAdmin || isControlRoomRole ? "opacity-50" : "cursor-pointer"}`} data-testid="label-perm-delete">
+          <label className={`flex items-center gap-3 ${isAdmin || isControlRoomRole || isAccessControllerRole ? "opacity-50" : "cursor-pointer"}`} data-testid="label-perm-delete">
             <Checkbox
-              checked={isAdmin ? true : isControlRoomRole ? false : field.value}
-              onCheckedChange={isAdmin || isControlRoomRole ? undefined : field.onChange}
-              disabled={isAdmin || isControlRoomRole}
+              checked={isAdmin ? true : (isControlRoomRole || isAccessControllerRole) ? false : field.value}
+              onCheckedChange={isAdmin || isControlRoomRole || isAccessControllerRole ? undefined : field.onChange}
+              disabled={isAdmin || isControlRoomRole || isAccessControllerRole}
               data-testid="checkbox-perm-delete"
             />
             <span className="text-sm">Can delete incidents</span>
@@ -1677,7 +1683,7 @@ function UserActionButtons({
         <CopyInviteButton userId={user.id} firstName={user.firstName} inviteToken={user.inviteToken} />
       )}
       <RegenerateInviteButton userId={user.id} firstName={user.firstName} />
-      {(user.role === "supervisor" || user.role === "control_room" || user.role === "reporter") && (
+      {(user.role === "supervisor" || user.role === "control_room" || user.role === "access_controller" || user.role === "reporter") && (
         <Button variant="ghost" size="icon" className={touchIcon} onClick={handlers.onAssign} title="Assign locations" data-testid={`button-assign-locations-${user.id}`}>
           <MapPin className="h-4 w-4 text-primary" />
         </Button>
