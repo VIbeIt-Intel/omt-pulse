@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
+  Camera,
   ChevronRight,
   Download,
   Gauge,
@@ -11,6 +12,7 @@ import {
   Save,
   Timer,
   Activity,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -28,10 +30,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { FleetHistoryMap } from "@/components/fleet-history-map";
+import { FleetVehiclePhoto } from "@/components/fleet/fleet-vehicle-photo";
 import { GeoLocationSheet, type GeoMapView } from "@/components/incident-location-sheet";
 import type { TrackerDeviceSummary } from "@/components/operations-dashboard";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { prepareAndUploadFile } from "@/lib/upload-media";
 import { downloadFleetTripCsv, downloadFleetTripExcel } from "@/lib/fleet-trip-export";
 import {
   computeTripDayStats,
@@ -146,15 +150,21 @@ function FleetStatCard({
 export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVehicleDetailProps) {
   const { toast } = useToast();
   const deviceId = device.id;
+  const photoInputRef = useRef<HTMLInputElement>(null);
+
+  const { data: me } = useQuery<{ role: string }>({ queryKey: ["/api/auth/me"] });
+  const canUploadPhoto = me?.role === "administrator";
 
   const [selectedDayKey, setSelectedDayKey] = useState<string | null>(null);
   const [logOpen, setLogOpen] = useState(false);
   const [mapPin, setMapPin] = useState<GeoMapView | null>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [form, setForm] = useState({
     label: "",
     vehicleMake: "",
     vehicleModel: "",
     vehicleRegistration: "",
+    vehiclePhotoUrl: null as string | null,
     assignedUserId: "",
     commandId: "",
     notes: "",
@@ -166,6 +176,7 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
       vehicleMake: device.vehicleMake ?? "",
       vehicleModel: device.vehicleModel ?? "",
       vehicleRegistration: device.vehicleRegistration ?? "",
+      vehiclePhotoUrl: device.vehiclePhotoUrl ?? null,
       assignedUserId: device.assignedUserId ?? "",
       commandId: device.commandId != null ? String(device.commandId) : "",
       notes: device.notes ?? "",
@@ -230,6 +241,7 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
         vehicleMake: form.vehicleMake || null,
         vehicleModel: form.vehicleModel || null,
         vehicleRegistration: form.vehicleRegistration || null,
+        vehiclePhotoUrl: form.vehiclePhotoUrl,
         assignedUserId: form.assignedUserId || null,
         commandId: form.commandId ? Number(form.commandId) : null,
         notes: form.notes || null,
@@ -242,6 +254,24 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
     onError: (err: Error) => toast({ title: "Save failed", description: err.message, variant: "destructive" }),
   });
 
+  async function uploadVehiclePhoto(file: File) {
+    setUploadingPhoto(true);
+    try {
+      const { objectUrl } = await prepareAndUploadFile(file, { preset: "compact" });
+      setForm((f) => ({ ...f, vehiclePhotoUrl: objectUrl }));
+    } catch (e) {
+      toast({
+        title: "Photo upload failed",
+        description: e instanceof Error ? e.message : "Try again",
+        variant: "destructive",
+      });
+    } finally {
+      setUploadingPhoto(false);
+    }
+  }
+
+  const displayPhotoUrl = form.vehiclePhotoUrl;
+
   return (
     <div className="space-y-4">
       <Button type="button" variant="ghost" size="sm" className="-ml-2" onClick={onBack}>
@@ -251,9 +281,11 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
 
       <Card className="p-4 sm:p-5 border-primary/10 bg-gradient-to-br from-card to-muted/20">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0 space-y-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-xl font-bold truncate">{vehicleTitle(device)}</h2>
+          <div className="flex items-start gap-4 min-w-0">
+            <FleetVehiclePhoto photoUrl={displayPhotoUrl} size="lg" />
+            <div className="min-w-0 space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-xl font-bold truncate">{vehicleTitle(device)}</h2>
               <span
                 className={cn(
                   "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide",
@@ -269,6 +301,7 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
               {device.assignedUserName ? ` · ${device.assignedUserName}` : ""}
             </p>
             <p className="text-[10px] text-muted-foreground font-mono">IMEI {device.imei}</p>
+            </div>
           </div>
           <div className="flex flex-wrap gap-2">
             <div className="rounded-lg border bg-background/80 px-3 py-2 text-center min-w-[72px]">
@@ -496,6 +529,52 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
 
         <TabsContent value="details" className="mt-0">
           <Card className="p-4 sm:p-5 space-y-4">
+            {canUploadPhoto && (
+              <div className="space-y-2">
+                <Label>Vehicle photo</Label>
+                <div className="flex flex-wrap items-center gap-3">
+                  <FleetVehiclePhoto photoUrl={form.vehiclePhotoUrl} size="md" />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      ref={photoInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) void uploadVehiclePhoto(f);
+                        e.target.value = "";
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={uploadingPhoto}
+                      onClick={() => photoInputRef.current?.click()}
+                    >
+                      <Camera className="h-4 w-4 mr-1" />
+                      {form.vehiclePhotoUrl ? "Change photo" : "Upload photo"}
+                    </Button>
+                    {form.vehiclePhotoUrl && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={uploadingPhoto}
+                        onClick={() => setForm((f) => ({ ...f, vehiclePhotoUrl: null }))}
+                      >
+                        <X className="h-4 w-4 mr-1" />
+                        Remove
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Optional. Save the vehicle to keep photo changes.
+                </p>
+              </div>
+            )}
             <div className="grid sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="fleet-label">Display name</Label>
@@ -585,7 +664,10 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
                 placeholder="Optional notes"
               />
             </div>
-            <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
+            <Button
+              onClick={() => saveMutation.mutate()}
+              disabled={saveMutation.isPending || uploadingPhoto}
+            >
               <Save className="h-4 w-4 mr-2" />
               Save vehicle
             </Button>

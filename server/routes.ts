@@ -3998,6 +3998,19 @@ export async function registerRoutes(
     if ("vehicleRegistration" in body) {
       patch.vehicleRegistration = typeof body.vehicleRegistration === "string" ? body.vehicleRegistration.trim() || null : null;
     }
+    if ("vehiclePhotoUrl" in body) {
+      if (body.vehiclePhotoUrl === null) {
+        patch.vehiclePhotoUrl = null;
+      } else if (typeof body.vehiclePhotoUrl === "string") {
+        const url = body.vehiclePhotoUrl.trim();
+        if (url.length > 2000) {
+          return res.status(400).json({ message: "Photo URL too long" });
+        }
+        patch.vehiclePhotoUrl = url || null;
+      } else {
+        patch.vehiclePhotoUrl = null;
+      }
+    }
     if ("assignedUserId" in body) {
       patch.assignedUserId = typeof body.assignedUserId === "string" ? body.assignedUserId || null : null;
     }

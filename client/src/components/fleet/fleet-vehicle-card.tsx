@@ -1,4 +1,5 @@
 import { ChevronRight, Gauge, User } from "lucide-react";
+import { FleetVehiclePhoto } from "@/components/fleet/fleet-vehicle-photo";
 import type { TrackerDeviceSummary } from "@/components/operations-dashboard";
 import {
   formatFreshnessAgo,
@@ -32,43 +33,48 @@ export function FleetVehicleCard({ device, onClick }: FleetVehicleCardProps) {
       )}
       data-testid={`fleet-card-${device.id}`}
     >
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex items-start gap-3">
+        <FleetVehiclePhoto photoUrl={device.vehiclePhotoUrl} size="sm" />
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-base font-semibold truncate">{title}</h3>
-            <span
-              className={cn(
-                "inline-flex items-center gap-1 text-[9px] font-bold uppercase px-2 py-0.5 rounded-full border shrink-0",
-                motionCfg.pill,
-              )}
-            >
-              <span className={cn("h-1.5 w-1.5 rounded-full", motionCfg.dot)} />
-              {motionCfg.label}
-            </span>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-base font-semibold truncate">{title}</h3>
+                <span
+                  className={cn(
+                    "inline-flex items-center gap-1 text-[9px] font-bold uppercase px-2 py-0.5 rounded-full border shrink-0",
+                    motionCfg.pill,
+                  )}
+                >
+                  <span className={cn("h-1.5 w-1.5 rounded-full", motionCfg.dot)} />
+                  {motionCfg.label}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1 truncate">
+                {device.vehicleRegistration || `IMEI …${device.imei.slice(-6)}`}
+              </p>
+            </div>
+            <ChevronRight className="h-5 w-5 text-muted-foreground/50 group-hover:text-primary shrink-0 mt-0.5 transition-colors" />
           </div>
-          <p className="text-xs text-muted-foreground mt-1 truncate">
-            {device.vehicleRegistration || `IMEI …${device.imei.slice(-6)}`}
-          </p>
-        </div>
-        <ChevronRight className="h-5 w-5 text-muted-foreground/50 group-hover:text-primary shrink-0 mt-0.5 transition-colors" />
-      </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-        <span className={cn("tabular-nums", freshnessClassLight(getFreshnessTier(device.lastSeenAt)))}>
-          {formatFreshnessAgo(device.lastSeenAt)}
-        </span>
-        {isMoving && device.lastSpeedKph != null && (
-          <span className="inline-flex items-center gap-1 text-emerald-400 font-medium tabular-nums">
-            <Gauge className="h-3.5 w-3.5" />
-            {Math.round(device.lastSpeedKph)} km/h
-          </span>
-        )}
-        {device.assignedUserName && (
-          <span className="inline-flex items-center gap-1 text-muted-foreground truncate max-w-full">
-            <User className="h-3.5 w-3.5 shrink-0" />
-            {device.assignedUserName}
-          </span>
-        )}
+          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+            <span className={cn("tabular-nums", freshnessClassLight(getFreshnessTier(device.lastSeenAt)))}>
+              {formatFreshnessAgo(device.lastSeenAt)}
+            </span>
+            {isMoving && device.lastSpeedKph != null && (
+              <span className="inline-flex items-center gap-1 text-emerald-400 font-medium tabular-nums">
+                <Gauge className="h-3.5 w-3.5" />
+                {Math.round(device.lastSpeedKph)} km/h
+              </span>
+            )}
+            {device.assignedUserName && (
+              <span className="inline-flex items-center gap-1 text-muted-foreground truncate max-w-full">
+                <User className="h-3.5 w-3.5 shrink-0" />
+                {device.assignedUserName}
+              </span>
+            )}
+          </div>
+        </div>
       </div>
     </button>
   );

@@ -29,6 +29,7 @@ export type TrackerDeviceSummary = {
   vehicleMake: string | null;
   vehicleModel: string | null;
   vehicleRegistration: string | null;
+  vehiclePhotoUrl: string | null;
   assignedUserId: string | null;
   assignedUserName: string | null;
   notes: string | null;
@@ -281,6 +282,7 @@ export interface IStorage {
       vehicleMake?: string | null;
       vehicleModel?: string | null;
       vehicleRegistration?: string | null;
+      vehiclePhotoUrl?: string | null;
       assignedUserId?: string | null;
       commandId?: number | null;
       notes?: string | null;
@@ -2157,6 +2159,7 @@ export class DatabaseStorage implements IStorage {
     vehicleMake: string | null;
     vehicleModel: string | null;
     vehicleRegistration: string | null;
+    vehiclePhotoUrl: string | null;
     assignedUserId: string | null;
     assignedFirstName: string | null;
     assignedLastName: string | null;
@@ -2184,6 +2187,7 @@ export class DatabaseStorage implements IStorage {
       vehicleMake: r.vehicleMake,
       vehicleModel: r.vehicleModel,
       vehicleRegistration: r.vehicleRegistration,
+      vehiclePhotoUrl: r.vehiclePhotoUrl,
       assignedUserId: r.assignedUserId,
       assignedUserName: assignedUserName || null,
       notes: r.notes,
@@ -2209,6 +2213,7 @@ export class DatabaseStorage implements IStorage {
       vehicleMake: trackerDevices.vehicleMake,
       vehicleModel: trackerDevices.vehicleModel,
       vehicleRegistration: trackerDevices.vehicleRegistration,
+      vehiclePhotoUrl: trackerDevices.vehiclePhotoUrl,
       assignedUserId: trackerDevices.assignedUserId,
       assignedFirstName: users.firstName,
       assignedLastName: users.lastName,
@@ -2264,6 +2269,7 @@ export class DatabaseStorage implements IStorage {
       vehicleMake?: string | null;
       vehicleModel?: string | null;
       vehicleRegistration?: string | null;
+      vehiclePhotoUrl?: string | null;
       assignedUserId?: string | null;
       commandId?: number | null;
       notes?: string | null;

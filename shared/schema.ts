@@ -449,6 +449,7 @@ export const trackerDevices = pgTable("tracker_devices", {
   vehicleMake: text("vehicle_make"),
   vehicleModel: text("vehicle_model"),
   vehicleRegistration: text("vehicle_registration"),
+  vehiclePhotoUrl: text("vehicle_photo_url"),
   assignedUserId: varchar("assigned_user_id").references(() => users.id, { onDelete: "set null" }),
   notes: text("notes"),
   lastLat: doublePrecision("last_lat"),

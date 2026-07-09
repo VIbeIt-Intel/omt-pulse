@@ -72,6 +72,7 @@ export type TrackerDeviceSummary = {
   vehicleMake: string | null;
   vehicleModel: string | null;
   vehicleRegistration: string | null;
+  vehiclePhotoUrl: string | null;
   assignedUserId: string | null;
   assignedUserName: string | null;
   notes: string | null;
