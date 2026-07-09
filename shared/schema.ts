@@ -579,3 +579,124 @@ export type AccessLogWithDetails = AccessLog & {
   loggedByName: string | null;
   vehicle: AccessLogVehicle | null;
 };
+
+// ── Patrolling (MVP) ───────────────────────────────────────────────────────────
+
+export const PATROL_STATUSES = ["in_progress", "completed", "cancelled"] as const;
+export type PatrolStatus = (typeof PATROL_STATUSES)[number];
+
+export const PATROL_CHECKPOINT_LOG_STATUSES = ["completed", "missed"] as const;
+export type PatrolCheckpointLogStatus = (typeof PATROL_CHECKPOINT_LOG_STATUSES)[number];
+
+/** Pre-planned patrol path defined by an administrator or supervisor. */
+export const patrolRoutes = pgTable("patrol_routes", {
+  id: serial("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  /** Optional Group scope — routes can be limited to a Command. */
+  commandId: integer("command_id").references(() => commands.id, { onDelete: "set null" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  createdByUserId: varchar("created_by_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  unique("patrol_routes_org_name_unique").on(table.organizationId, table.name),
+]);
+
+export const insertPatrolRouteSchema = createInsertSchema(patrolRoutes).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  organizationId: true,
+});
+export type InsertPatrolRoute = z.infer<typeof insertPatrolRouteSchema>;
+export type PatrolRoute = typeof patrolRoutes.$inferSelect;
+
+/** Ordered stop on a patrol route. */
+export const patrolCheckpoints = pgTable("patrol_checkpoints", {
+  id: serial("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  routeId: integer("route_id").notNull().references(() => patrolRoutes.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  orderIndex: integer("order_index").notNull(),
+  latitude: doublePrecision("latitude"),
+  longitude: doublePrecision("longitude"),
+  instructions: text("instructions"),
+  photoRequired: boolean("photo_required").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  unique("patrol_checkpoints_route_order_unique").on(table.routeId, table.orderIndex),
+]);
+
+export const insertPatrolCheckpointSchema = createInsertSchema(patrolCheckpoints).omit({
+  id: true,
+  createdAt: true,
+  organizationId: true,
+  routeId: true,
+});
+export type InsertPatrolCheckpoint = z.infer<typeof insertPatrolCheckpointSchema>;
+export type PatrolCheckpoint = typeof patrolCheckpoints.$inferSelect;
+
+/** A guard executing a route (Patrol User or Access Controller). */
+export const patrols = pgTable("patrols", {
+  id: serial("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  routeId: integer("route_id").notNull().references(() => patrolRoutes.id, { onDelete: "restrict" }),
+  startedByUserId: varchar("started_by_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  endedAt: timestamp("ended_at"),
+  status: text("status").notNull().default("in_progress"),
+  totalCheckpoints: integer("total_checkpoints").notNull(),
+  completedCheckpoints: integer("completed_checkpoints").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertPatrolSchema = createInsertSchema(patrols).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  organizationId: true,
+  endedAt: true,
+  completedCheckpoints: true,
+});
+export type InsertPatrol = z.infer<typeof insertPatrolSchema>;
+export type Patrol = typeof patrols.$inferSelect;
+
+/** Proof record when a checkpoint is clocked or marked missed. */
+export const patrolCheckpointLogs = pgTable("patrol_checkpoint_logs", {
+  id: serial("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  patrolId: integer("patrol_id").notNull().references(() => patrols.id, { onDelete: "cascade" }),
+  checkpointId: integer("checkpoint_id").notNull().references(() => patrolCheckpoints.id, { onDelete: "restrict" }),
+  clockedAt: timestamp("clocked_at").defaultNow().notNull(),
+  latitude: doublePrecision("latitude"),
+  longitude: doublePrecision("longitude"),
+  photoUrl: text("photo_url"),
+  notes: text("notes"),
+  status: text("status").notNull().default("completed"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  unique("patrol_checkpoint_logs_patrol_checkpoint_unique").on(table.patrolId, table.checkpointId),
+]);
+
+export const insertPatrolCheckpointLogSchema = createInsertSchema(patrolCheckpointLogs).omit({
+  id: true,
+  createdAt: true,
+  organizationId: true,
+  patrolId: true,
+  clockedAt: true,
+});
+export type InsertPatrolCheckpointLog = z.infer<typeof insertPatrolCheckpointLogSchema>;
+export type PatrolCheckpointLog = typeof patrolCheckpointLogs.$inferSelect;
+
+export type PatrolWithRoute = Patrol & {
+  routeName: string;
+  startedByName: string;
+};
+
+export type PatrolCheckpointLogWithCheckpoint = PatrolCheckpointLog & {
+  checkpointName: string;
+  orderIndex: number;
+};
