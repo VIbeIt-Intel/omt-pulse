@@ -51,6 +51,15 @@ export async function migrateAccessControl() {
   await safe("access_logs.time_in_idx", sql`
     CREATE INDEX IF NOT EXISTS access_logs_time_in_idx ON access_logs (time_in DESC)
   `);
+  await safe("access_logs.visit_group_id", sql`
+    ALTER TABLE access_logs ADD COLUMN IF NOT EXISTS visit_group_id VARCHAR
+  `);
+  await safe("access_logs.party_role", sql`
+    ALTER TABLE access_logs ADD COLUMN IF NOT EXISTS party_role TEXT
+  `);
+  await safe("access_logs.visit_group_idx", sql`
+    CREATE INDEX IF NOT EXISTS access_logs_visit_group_idx ON access_logs (organization_id, visit_group_id)
+  `);
 
   await safe("access_log_vehicles.create", sql`
     CREATE TABLE IF NOT EXISTS access_log_vehicles (

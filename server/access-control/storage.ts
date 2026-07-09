@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import {
   destinations,
   accessLogs,
@@ -114,6 +115,13 @@ export async function getAccessLog(id: number, orgId: string): Promise<AccessLog
   );
 }
 
+export type CreateAccessPersonInput = {
+  personFullName: string;
+  personIdNumber?: string | null;
+  personPhotoUrl?: string | null;
+  partyRole?: string | null;
+};
+
 export type CreateAccessEntryInput = {
   category: string;
   destinationId: number;
@@ -124,57 +132,119 @@ export type CreateAccessEntryInput = {
   purpose?: string | null;
   personPhotoUrl?: string | null;
   vehiclePhotoUrl?: string | null;
+  partyRole?: string | null;
+  visitGroupId?: string | null;
   vehicle?: Omit<InsertAccessLogVehicle, "organizationId" | "accessLogId"> | null;
 };
+
+export type CreateAccessVisitInput = {
+  category: string;
+  destinationId: number;
+  companyName?: string | null;
+  contactNumber?: string | null;
+  purpose?: string | null;
+  vehiclePhotoUrl?: string | null;
+  vehicle?: Omit<InsertAccessLogVehicle, "organizationId" | "accessLogId"> | null;
+  people: CreateAccessPersonInput[];
+};
+
+function hasVehiclePayload(
+  vehicle: Omit<InsertAccessLogVehicle, "organizationId" | "accessLogId"> | null | undefined,
+): boolean {
+  return !!vehicle && Object.values(vehicle).some((v) => v != null && String(v).trim() !== "");
+}
 
 export async function createAccessEntry(
   orgId: string,
   userId: string,
   input: CreateAccessEntryInput,
 ): Promise<AccessLogWithDetails> {
-  return db.transaction(async (tx) => {
-    const [log] = await tx
-      .insert(accessLogs)
-      .values({
-        organizationId: orgId,
-        category: input.category,
-        destinationId: input.destinationId,
-        status: "inside",
+  const [entry] = await createAccessVisit(orgId, userId, {
+    category: input.category,
+    destinationId: input.destinationId,
+    companyName: input.companyName,
+    contactNumber: input.contactNumber,
+    purpose: input.purpose,
+    vehiclePhotoUrl: input.vehiclePhotoUrl,
+    vehicle: input.vehicle,
+    people: [
+      {
         personFullName: input.personFullName,
-        personIdNumber: input.personIdNumber ?? null,
-        companyName: input.companyName ?? null,
-        contactNumber: input.contactNumber ?? null,
-        purpose: input.purpose ?? null,
-        personPhotoUrl: input.personPhotoUrl ?? null,
-        vehiclePhotoUrl: input.vehiclePhotoUrl ?? null,
-        loggedByUserId: userId,
-      })
-      .returning();
+        personIdNumber: input.personIdNumber,
+        personPhotoUrl: input.personPhotoUrl,
+        partyRole: input.partyRole ?? null,
+      },
+    ],
+  });
+  return entry;
+}
 
-    let vehicle: typeof accessLogVehicles.$inferSelect | null = null;
-    if (input.vehicle && Object.values(input.vehicle).some((v) => v != null && String(v).trim() !== "")) {
-      const [v] = await tx
-        .insert(accessLogVehicles)
-        .values({
-          accessLogId: log.id,
-          organizationId: orgId,
-          registration: input.vehicle.registration ?? null,
-          make: input.vehicle.make ?? null,
-          model: input.vehicle.model ?? null,
-          colour: input.vehicle.colour ?? null,
-          licenceDiscData: input.vehicle.licenceDiscData ?? null,
-        })
-        .returning();
-      vehicle = v;
-    }
+/** Check in one or more people as a single visit (shared vehicle / destination). */
+export async function createAccessVisit(
+  orgId: string,
+  userId: string,
+  input: CreateAccessVisitInput,
+): Promise<AccessLogWithDetails[]> {
+  if (!input.people.length) {
+    throw new Error("At least one person is required");
+  }
+
+  return db.transaction(async (tx) => {
+    const visitGroupId =
+      input.people.length > 1 || hasVehiclePayload(input.vehicle)
+        ? randomUUID()
+        : null;
 
     const [dest] = await tx
       .select({ name: destinations.name })
       .from(destinations)
-      .where(eq(destinations.id, log.destinationId))
+      .where(eq(destinations.id, input.destinationId))
       .limit(1);
 
-    return hydrateAccessLog(log, vehicle, dest?.name ?? "", null);
+    const results: AccessLogWithDetails[] = [];
+
+    for (const person of input.people) {
+      const [log] = await tx
+        .insert(accessLogs)
+        .values({
+          organizationId: orgId,
+          category: input.category,
+          destinationId: input.destinationId,
+          status: "inside",
+          visitGroupId,
+          partyRole: person.partyRole ?? null,
+          personFullName: person.personFullName,
+          personIdNumber: person.personIdNumber ?? null,
+          companyName: input.companyName ?? null,
+          contactNumber: input.contactNumber ?? null,
+          purpose: input.purpose ?? null,
+          personPhotoUrl: person.personPhotoUrl ?? null,
+          vehiclePhotoUrl: input.vehiclePhotoUrl ?? null,
+          loggedByUserId: userId,
+        })
+        .returning();
+
+      let vehicle: typeof accessLogVehicles.$inferSelect | null = null;
+      if (hasVehiclePayload(input.vehicle) && input.vehicle) {
+        const [v] = await tx
+          .insert(accessLogVehicles)
+          .values({
+            accessLogId: log.id,
+            organizationId: orgId,
+            registration: input.vehicle.registration ?? null,
+            make: input.vehicle.make ?? null,
+            model: input.vehicle.model ?? null,
+            colour: input.vehicle.colour ?? null,
+            licenceDiscData: input.vehicle.licenceDiscData ?? null,
+          })
+          .returning();
+        vehicle = v;
+      }
+
+      results.push(hydrateAccessLog(log, vehicle, dest?.name ?? "", null));
+    }
+
+    return results;
   });
 }
 
