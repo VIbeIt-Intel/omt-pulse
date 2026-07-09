@@ -14,6 +14,7 @@ import { migrateAccessControl } from "./migrate-access-control";
 import { migrateBillingRates } from "./migrate-billing-rates";
 import { migratePatrol } from "./migrate-patrol";
 import { migrateFleetAlerts } from "./migrate-fleet-alerts";
+import { migrateWorkstations } from "./migrate-workstations";
 import { startFleetOfflineAlertMonitor } from "./fleet-alerts/detection";
 import { startVehicleTrackingFromEnv } from "./vehicle-tracking";
 
@@ -28,6 +29,8 @@ declare module "express-session" {
     // - "all": superadmin override — see every command in the org
     // - undefined: defaults to the user's first accessible command (typically Central)
     activeCommandId?: number | "all";
+    /** Set when operator signs in on an enrolled dedicated device */
+    workstationId?: number;
   }
 }
 
@@ -338,6 +341,7 @@ app.use((req, res, next) => {
   await migrateBillingRates().catch((err) => console.error("Billing rates migration error:", err));
   await migratePatrol().catch((err) => console.error("Patrol migration error:", err));
   await migrateFleetAlerts().catch((err) => console.error("Fleet alerts migration error:", err));
+  await migrateWorkstations().catch((err) => console.error("Workstations migration error:", err));
 
   await registerRoutes(httpServer, app);
 

@@ -10,10 +10,17 @@ import {
   type InsertAccessLogVehicle,
 } from "@shared/schema";
 import { db } from "../storage";
-import { eq, and, desc, asc, gte, lte, or, ilike } from "drizzle-orm";
+import { eq, and, desc, asc, gte, lte, or, ilike, isNull } from "drizzle-orm";
 
-export async function getDestinations(orgId: string, activeOnly = true): Promise<Destination[]> {
+export async function getDestinations(
+  orgId: string,
+  activeOnly = true,
+  locationId?: number | null,
+): Promise<Destination[]> {
   const conditions = [eq(destinations.organizationId, orgId)];
+  if (locationId != null) {
+    conditions.push(or(eq(destinations.locationId, locationId), isNull(destinations.locationId))!);
+  }
   if (activeOnly) {
     return db
       .select()
@@ -146,6 +153,7 @@ export type CreateAccessVisitInput = {
   purpose?: string | null;
   vehiclePhotoUrl?: string | null;
   vehicle?: Omit<InsertAccessLogVehicle, "organizationId" | "accessLogId"> | null;
+  workstationId?: number | null;
   people: CreateAccessPersonInput[];
 };
 
@@ -223,6 +231,7 @@ export async function createAccessVisit(
           personPhotoUrl: person.personPhotoUrl ?? null,
           vehiclePhotoUrl: input.vehiclePhotoUrl ?? null,
           loggedByUserId: userId,
+          workstationId: input.workstationId ?? null,
         })
         .returning();
 

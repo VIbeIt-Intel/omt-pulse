@@ -37,6 +37,8 @@ import CommandsPage from "@/pages/commands";
 import FleetPage from "@/pages/fleet";
 import AccessControlPage from "@/pages/access-control";
 import PatrolPage from "@/pages/patrol";
+import WorkstationEnrolPage from "@/pages/workstation-enrol";
+import WorkstationsAdminPage from "@/pages/workstations-admin";
 import VisibilityPage from "@/pages/visibility";
 import ArchonDashboard from "@/pages/archon-dashboard";
 import ArchonLoginPage from "@/pages/archon-login";
@@ -66,6 +68,16 @@ import { PanicAlertSiren } from "@/components/panic-alert-siren";
 import { SetupWizardController } from "@/components/setup-wizard";
 import { isDispatchStaff, canUseLiveIncidentWorkflow } from "@shared/user-roles";
 import { Capacitor } from "@capacitor/core";
+import { ShiftPinScreen } from "@/components/workstation/shift-pin-screen";
+import {
+  fetchWorkstationContext,
+  getStoredWorkstationToken,
+  shiftLogin,
+  shiftLogout,
+  unenrolWorkstation,
+  workstationAuthHeaders,
+} from "@/lib/workstation-session";
+import { isKioskWorkstation } from "@shared/workstations";
 
 function isCapacitorNative(): boolean {
   return Capacitor.isNativePlatform();
@@ -95,6 +107,15 @@ type AuthUser = {
   avatarUrl?: string | null;
   orgName?: string | null;
   isSuperadmin?: boolean;
+  workstationId?: number | null;
+  workstation?: {
+    id: number;
+    name: string;
+    type: string;
+    locationId: number | null;
+    locationName: string | null;
+    kioskMode: boolean;
+  } | null;
 };
 
 function RoleGuard({ role, allowed, children }: { role: string; allowed: string[]; children: React.ReactNode }) {
@@ -564,6 +585,7 @@ function NotificationSheet({ open, onOpenChange, onMarkAllRead }: { open: boolea
 function AuthenticatedApp({ user }: { user: AuthUser }) {
   const [location, navigate] = useLocation();
   const nativeApp = isCapacitorNative();
+  const isKiosk = !!user.workstation && isKioskWorkstation(user.workstation.type, user.workstation.kioskMode);
   const { subState: pushSubState, subscribe: subscribePush } = usePushSubscription(user.id);
   const { fcmState, enablePush, enabling: enablingNativePush } = useCapacitorPush(user.id);
   const avatarInputRef = useRef<HTMLInputElement>(null);
@@ -670,9 +692,18 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
   };
 
   const logoutMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/auth/logout", {}),
+    mutationFn: async () => {
+      if (getStoredWorkstationToken()) {
+        await shiftLogout();
+      }
+      await apiRequest("POST", "/api/auth/logout", {});
+    },
     onSuccess: () => {
       queryClient.clear();
+      if (getStoredWorkstationToken()) {
+        window.location.href = "/";
+        return;
+      }
       navigate("/login");
     },
   });
@@ -735,6 +766,11 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
     return <OnboardingPage firstName={user.firstName} />;
   }
 
+  if (isKiosk && location !== "/access-control") {
+    navigate("/access-control");
+    return null;
+  }
+
   if (location === "/onboarding") {
     navigate("/");
     return null;
@@ -760,10 +796,25 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
   return (
     <SidebarProvider style={style as React.CSSProperties}>
       <div className="flex h-screen w-full">
+        {!isKiosk && (
         <AppSidebar user={user} onLogout={() => logoutMutation.mutate()} avatarPreview={avatarPreview} />
+        )}
         <div className="flex flex-col flex-1 min-w-0 relative">
+          {isKiosk && (
+            <header className="flex items-center justify-between gap-3 p-3 border-b border-border bg-background shrink-0">
+              <div>
+                <p className="text-sm font-semibold">{user.workstation?.name}</p>
+                <p className="text-xs text-muted-foreground">
+                  {user.workstation?.locationName} · {user.firstName} {user.lastName}
+                </p>
+              </div>
+              <Button type="button" variant="outline" size="sm" onClick={() => logoutMutation.mutate()}>
+                End shift
+              </Button>
+            </header>
+          )}
           {/* Full INTEL header — dashboard only */}
-          {location === "/dashboard" && (
+          {!isKiosk && location === "/dashboard" && (
           <header className="relative grid grid-cols-[1fr_auto_1fr] items-center p-2 border-b border-border bg-background text-foreground shrink-0 gap-2 z-40 min-h-[3rem]">
             {/* Left */}
             <div className="flex items-center text-foreground z-10">
@@ -892,7 +943,7 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
           )}
 
           {/* Slim back-button header — all secondary pages */}
-          {location !== "/dashboard" && location !== "/live-incident" && location !== "/live-severity" && location !== "/live-monitor" && !location.startsWith("/chat") && location !== "/" && location !== "/occurrence-book" && (
+          {location !== "/dashboard" && location !== "/live-incident" && location !== "/live-severity" && location !== "/live-monitor" && !location.startsWith("/chat") && location !== "/" && location !== "/occurrence-book" && !isKiosk && (
           <header className="flex items-center px-2 border-b shrink-0 h-14" data-testid="header-secondary">
             <button
               onClick={() => window.history.back()}
@@ -940,6 +991,11 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
               <Route path="/user-admin">
                 <RoleGuard role={user.role} allowed={["administrator"]}>
                   <UserAdminPage />
+                </RoleGuard>
+              </Route>
+              <Route path="/workstations">
+                <RoleGuard role={user.role} allowed={["administrator"]}>
+                  <WorkstationsAdminPage />
                 </RoleGuard>
               </Route>
               <Route path="/import">
@@ -1021,6 +1077,7 @@ function UnauthenticatedApp() {
   return (
     <Switch>
       <Route path="/login" component={LoginPage} />
+      <Route path="/workstation/enrol" component={WorkstationEnrolPage} />
       <Route path="/register" component={RedirectToLogin} />
       <Route path="/privacy" component={PrivacyPage} />
       <Route component={RedirectToLogin} />
@@ -1050,19 +1107,64 @@ function ArchonApp() {
 }
 
 function AppContent() {
-  const { data: user, isLoading, error } = useQuery<AuthUser>({
-    queryKey: ["/api/auth/me"],
+  const token = getStoredWorkstationToken();
+  const [pinError, setPinError] = useState<string | null>(null);
+
+  const { data: wsContext, isLoading: wsLoading } = useQuery({
+    queryKey: ["workstation-context", token],
+    queryFn: fetchWorkstationContext,
+    enabled: !!token,
     retry: false,
-    // Re-check auth whenever the user brings the app back into focus (e.g. a
-    // deleted user switching back to the PWA after being removed by an admin).
-    refetchOnWindowFocus: true,
   });
 
-  if (isLoading) {
+  const { data: user, isLoading, error } = useQuery<AuthUser | null>({
+    queryKey: ["/api/auth/me"],
+    retry: false,
+    refetchOnWindowFocus: true,
+    queryFn: async () => {
+      const res = await fetch("/api/auth/me", {
+        credentials: "include",
+        headers: workstationAuthHeaders(),
+        cache: "no-store",
+      });
+      if (res.status === 401) return null;
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`${res.status}: ${text || res.statusText}`);
+      }
+      return res.json();
+    },
+  });
+
+  if (isLoading || (!!token && wsLoading)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
+    );
+  }
+
+  if (token && wsContext && !user) {
+    return (
+      <ShiftPinScreen
+        workstationName={wsContext.workstation.name}
+        locationName={wsContext.workstation.locationName}
+        error={pinError}
+        onSubmit={async (pin) => {
+          setPinError(null);
+          try {
+            await shiftLogin(pin);
+            await queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+          } catch (err) {
+            setPinError(err instanceof Error ? err.message : "Incorrect PIN");
+          }
+        }}
+        onUnenrol={async () => {
+          await unenrolWorkstation();
+          queryClient.clear();
+          window.location.href = "/login";
+        }}
+      />
     );
   }
 
@@ -1088,6 +1190,9 @@ function AppRouter() {
   // with users who haven't yet turned on push notifications.
   if (location.startsWith("/enable-alerts")) {
     return <EnableAlertsPage />;
+  }
+  if (location.startsWith("/workstation/enrol")) {
+    return <WorkstationEnrolPage />;
   }
   if (location.startsWith("/privacy")) {
     return <PrivacyPage />;
@@ -1115,12 +1220,15 @@ function RootRouter() {
   if (location.startsWith("/enable-alerts")) {
     return <EnableAlertsPage />;
   }
+  if (location.startsWith("/workstation/enrol")) {
+    return <WorkstationEnrolPage />;
+  }
   if (location.startsWith("/privacy")) {
     return <PrivacyPage />;
   }
 
-  // Login and register are public — no install gate (invite-only distribution).
-  if (location === "/login" || location.startsWith("/register")) {
+  // Login, register, and workstation enrol are public — no install gate.
+  if (location === "/login" || location.startsWith("/register") || location.startsWith("/workstation/enrol")) {
     return <AppRouter />;
   }
 

@@ -919,6 +919,12 @@ const AUTH_WHITELIST = [
   "/invite/",
   "/contact",
   "/version",
+  "/workstations/enrol",
+  "/workstations/me",
+  "/workstations/shift-login",
+  "/workstations/shift-logout",
+  "/workstations/unenrol",
+  "/workstations/heartbeat",
 ];
 
 const SUBSCRIPTION_WHITELIST = [
@@ -1103,6 +1109,8 @@ const BUILD_ID = String(Date.now());
 import { registerAccessControlRoutes } from "./access-control/routes";
 import { registerPatrolRoutes } from "./patrol/routes";
 import { registerFleetAlertRoutes } from "./fleet-alerts/routes";
+import { registerWorkstationRoutes, attachWorkstation } from "./workstations/routes";
+import { hashShiftPin } from "./workstations/storage";
 import { registerFleetAlertPushHandler } from "./fleet-alerts/push";
 import { FLEET_ALERT_NOTIFY_ROLES } from "@shared/fleet-alerts";
 import type { FleetAlertSummary } from "@shared/schema";
@@ -1112,6 +1120,7 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
 
+  app.use("/api", attachWorkstation);
   app.use("/api", resolveUser);
 
   // Upload a file through the server and store it in object storage.
@@ -1269,7 +1278,7 @@ export async function registerRoutes(
     }
     const org = await storage.getOrganization(user.organizationId);
     const effectiveStatus = org ? getOrgEffectiveStatus(org) : "expired";
-    const { password: _pw, ...safeUser } = user;
+    const { password: _pw, shiftPinHash: _sp, ...safeUser } = user;
     res.json({
       ...safeUser,
       subscriptionStatus: effectiveStatus,
@@ -1278,6 +1287,17 @@ export async function registerRoutes(
       orgName: org?.name ?? null,
       isSuperadmin: !!user.isSuperadmin,
       permissions: getPermissionsForRole(user.role),
+      workstationId: req.session.workstationId ?? null,
+      workstation: req.currentWorkstation
+        ? {
+            id: req.currentWorkstation.id,
+            name: req.currentWorkstation.name,
+            type: req.currentWorkstation.type,
+            locationId: req.currentWorkstation.locationId,
+            locationName: req.currentWorkstation.locationName,
+            kioskMode: req.currentWorkstation.kioskMode,
+          }
+        : null,
     });
   });
 
@@ -1873,6 +1893,11 @@ export async function registerRoutes(
     posting: z.string().optional().nullable(),
     role: z.enum(USER_ROLES),
     password: z.string().min(10, "Password must be at least 10 characters"),
+    shiftPin: z.union([
+      z.string().regex(/^\d{4,6}$/, "Shift PIN must be 4–6 digits"),
+      z.literal(""),
+      z.null(),
+    ]).optional(),
     canEditIncidents: z.boolean().optional().default(true),
     canManageAttachments: z.boolean().optional().default(true),
     canDeleteIncidents: z.boolean().optional().default(true),
@@ -1888,6 +1913,11 @@ export async function registerRoutes(
     posting: z.string().optional().nullable(),
     role: z.enum(USER_ROLES).optional(),
     password: z.string().optional(),
+    shiftPin: z.union([
+      z.string().regex(/^\d{4,6}$/, "Shift PIN must be 4–6 digits"),
+      z.literal(""),
+      z.null(),
+    ]).optional(),
     canEditIncidents: z.boolean().optional(),
     canManageAttachments: z.boolean().optional(),
     canDeleteIncidents: z.boolean().optional(),
@@ -1925,7 +1955,7 @@ export async function registerRoutes(
         details: parsed.error.errors,
       });
     }
-    const { password: rawPassword, commandIds, ...rest } = parsed.data;
+    const { password: rawPassword, commandIds, shiftPin, ...rest } = parsed.data;
     // Validate every commandId belongs to the admin's org before we create anything.
     const orgCmds = await storage.getCommands(req.currentUser!.organizationId);
     const orgCmdIds = new Set(orgCmds.map(c => c.id));
@@ -1974,6 +2004,7 @@ export async function registerRoutes(
     }
 
     const hashedPassword = await bcrypt.hash(rawPassword, SALT_ROUNDS);
+    const shiftPinHash = shiftPin && shiftPin.length > 0 ? await hashShiftPin(shiftPin) : null;
     const orgId = req.currentUser!.organizationId;
 
     if (rest.role === "administrator") {
@@ -1996,6 +2027,7 @@ export async function registerRoutes(
       email,
       organizationId: orgId,
       password: hashedPassword,
+      shiftPinHash,
       isActive: true,
       mustChangePassword: false,
       inviteToken: null,
@@ -2021,7 +2053,7 @@ export async function registerRoutes(
       return res.status(400).json({ message: parsed.error.errors[0]?.message || "Validation failed" });
     }
 
-    const { password, commandIds, ...rest } = parsed.data;
+    const { password, commandIds, shiftPin, ...rest } = parsed.data;
 
     if (rest.role === "administrator") {
       rest.canEditIncidents = true;
@@ -2047,6 +2079,10 @@ export async function registerRoutes(
       }
       updateData.password = await bcrypt.hash(password, SALT_ROUNDS);
       updateData.mustChangePassword = false;
+    }
+
+    if (shiftPin !== undefined) {
+      updateData.shiftPinHash = shiftPin && shiftPin.length > 0 ? await hashShiftPin(shiftPin) : null;
     }
 
     // Verify user belongs to same org
@@ -5475,6 +5511,7 @@ export async function registerRoutes(
   registerAccessControlRoutes(app);
   registerPatrolRoutes(app);
   registerFleetAlertRoutes(app);
+  registerWorkstationRoutes(app);
 
   registerFleetAlertPushHandler(async ({ alert, commandId }) => {
     await dispatchFleetAlertPush(alert.organizationId, alert, commandId);

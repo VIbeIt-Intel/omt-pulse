@@ -169,6 +169,11 @@ export default function LoginPage() {
               <p className="mt-4 text-center text-sm text-muted-foreground">
                 Access is by invitation only. Contact your organisation administrator if you need an account.
               </p>
+              <p className="mt-3 text-center text-sm">
+                <Link href="/workstation/enrol" className="text-primary hover:underline font-medium">
+                  Enrol a dedicated gate or shift device
+                </Link>
+              </p>
               <p className="mt-3 text-center text-xs text-muted-foreground">
                 <Link href="/privacy" className="hover:text-foreground hover:underline" data-testid="link-privacy-login">
                   Privacy Policy

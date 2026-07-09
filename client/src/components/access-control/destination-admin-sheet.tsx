@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import type { Destination } from "@shared/schema";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { Destination, Location } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -33,10 +33,23 @@ export function DestinationAdminSheet({ open, onOpenChange, destinations }: Dest
   const qc = useQueryClient();
   const [name, setName] = useState("");
   const [type, setType] = useState("building");
+  const [locationId, setLocationId] = useState("");
+
+  const { data: locations = [] } = useQuery<Location[]>({
+    queryKey: ["/api/locations"],
+    enabled: open,
+  });
 
   const createMutation = useMutation({
-    mutationFn: () =>
-      apiRequest("POST", "/api/access-control/destinations", { name: name.trim(), type, active: true }),
+    mutationFn: () => {
+      const loc = locationId ? parseInt(locationId, 10) : null;
+      return apiRequest("POST", "/api/access-control/destinations", {
+        name: name.trim(),
+        type,
+        active: true,
+        locationId: loc && Number.isFinite(loc) ? loc : null,
+      });
+    },
     onSuccess: () => {
       toast({ title: "Destination added" });
       setName("");
@@ -81,6 +94,22 @@ export function DestinationAdminSheet({ open, onOpenChange, destinations }: Dest
                 ))}
               </SelectContent>
             </Select>
+            <div className="space-y-1.5">
+              <Label>Premises (optional)</Label>
+              <Select value={locationId || "all"} onValueChange={(v) => setLocationId(v === "all" ? "" : v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All premises" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All premises (org-wide)</SelectItem>
+                  {locations.map((loc) => (
+                    <SelectItem key={loc.id} value={String(loc.id)}>
+                      {loc.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <Button
               type="button"
               className="w-full"
@@ -109,7 +138,12 @@ export function DestinationAdminSheet({ open, onOpenChange, destinations }: Dest
                 >
                   <div>
                     <p className="font-medium">{d.name}</p>
-                    <p className="text-xs text-muted-foreground capitalize">{d.type}</p>
+                    <p className="text-xs text-muted-foreground capitalize">
+                      {d.type}
+                      {d.locationId != null
+                        ? ` · ${locations.find((l) => l.id === d.locationId)?.name ?? `Premises #${d.locationId}`}`
+                        : " · All premises"}
+                    </p>
                   </div>
                   <Button
                     type="button"

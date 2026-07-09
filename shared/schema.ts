@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { pgTable, text, varchar, integer, timestamp, doublePrecision, serial, boolean, jsonb, unique, date } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+import type { WorkstationType } from "./workstations";
 
 export const organizations = pgTable("organizations", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -54,6 +55,8 @@ export const users = pgTable("users", {
   lastLng: doublePrecision("last_lng"),
   lastPositionAt: timestamp("last_position_at"),
   isSuperadmin: boolean("is_superadmin").notNull().default(false),
+  /** bcrypt hash of 4–6 digit shift PIN for shared / dedicated device login */
+  shiftPinHash: text("shift_pin_hash"),
 });
 
 // ── Commands (sub-organisations within an org) ──────────────────────────────
@@ -136,6 +139,51 @@ export const locations = pgTable("locations", {
 export const insertLocationSchema = createInsertSchema(locations).omit({ id: true, organizationId: true });
 export type InsertLocation = z.infer<typeof insertLocationSchema>;
 export type Location = typeof locations.$inferSelect;
+
+/** Enrolled dedicated device bound to a premises / post (gate tablet, shared shift phone). */
+export const workstations = pgTable("workstations", {
+  id: serial("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  type: text("type").notNull().$type<WorkstationType>().default("gate_desk"),
+  locationId: integer("location_id").references(() => locations.id, { onDelete: "set null" }),
+  commandId: integer("command_id").references(() => commands.id, { onDelete: "set null" }),
+  deviceToken: text("device_token").unique(),
+  enrolmentCode: text("enrolment_code"),
+  enrolmentExpiresAt: timestamp("enrolment_expires_at"),
+  enrolledAt: timestamp("enrolled_at"),
+  lastSeenAt: timestamp("last_seen_at"),
+  lastLat: doublePrecision("last_lat"),
+  lastLng: doublePrecision("last_lng"),
+  kioskMode: boolean("kiosk_mode").notNull().default(true),
+  isActive: boolean("is_active").notNull().default(true),
+  currentOperatorUserId: varchar("current_operator_user_id").references(() => users.id, { onDelete: "set null" }),
+  operatorSessionStartedAt: timestamp("operator_session_started_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertWorkstationSchema = createInsertSchema(workstations).omit({
+  id: true,
+  createdAt: true,
+  organizationId: true,
+  deviceToken: true,
+  enrolmentCode: true,
+  enrolmentExpiresAt: true,
+  enrolledAt: true,
+  lastSeenAt: true,
+  lastLat: true,
+  lastLng: true,
+  currentOperatorUserId: true,
+  operatorSessionStartedAt: true,
+});
+export type InsertWorkstation = z.infer<typeof insertWorkstationSchema>;
+export type Workstation = typeof workstations.$inferSelect;
+
+export type WorkstationWithDetails = Workstation & {
+  locationName: string | null;
+  commandName: string | null;
+  currentOperatorName: string | null;
+};
 
 export const incidentCategories = pgTable("incident_categories", {
   id: serial("id").primaryKey(),
@@ -576,6 +624,8 @@ export type AccessLogStatus = (typeof ACCESS_LOG_STATUSES)[number];
 export const destinations = pgTable("destinations", {
   id: serial("id").primaryKey(),
   organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  /** Premises this destination belongs to (gate destinations scoped per site). */
+  locationId: integer("location_id").references(() => locations.id, { onDelete: "set null" }),
   name: text("name").notNull(),
   type: text("type").notNull().default("building"),
   active: boolean("active").notNull().default(true),
@@ -609,6 +659,7 @@ export const accessLogs = pgTable("access_logs", {
   timeIn: timestamp("time_in").defaultNow().notNull(),
   timeOut: timestamp("time_out"),
   loggedByUserId: varchar("logged_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  workstationId: integer("workstation_id").references(() => workstations.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

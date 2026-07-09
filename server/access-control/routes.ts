@@ -146,7 +146,16 @@ export function registerAccessControlRoutes(app: Express) {
   app.get("/api/access-control/destinations", requireAccessReadRole, async (req, res) => {
     const orgId = req.currentUser!.organizationId;
     const includeInactive = req.query.all === "1" && req.currentUser!.role === "administrator";
-    res.json(await getDestinations(orgId, !includeInactive));
+    let locationId: number | undefined;
+    if (req.query.locationId != null) {
+      locationId = parseInt(String(req.query.locationId), 10);
+      if (!Number.isFinite(locationId)) {
+        return res.status(400).json({ message: "Invalid locationId" });
+      }
+    } else if (req.currentWorkstation?.locationId != null) {
+      locationId = req.currentWorkstation.locationId;
+    }
+    res.json(await getDestinations(orgId, !includeInactive, locationId));
   });
 
   app.post("/api/access-control/destinations", requireAdmin, async (req, res) => {
@@ -504,10 +513,12 @@ export function registerAccessControlRoutes(app: Express) {
 
     const orgId = req.currentUser!.organizationId;
     const userId = req.currentUser!.id;
+    const workstationId = req.session.workstationId ?? req.currentWorkstation?.id ?? null;
 
-    const dests = await getDestinations(orgId, true);
-    if (!dests.some((d) => d.id === parsed.data.destinationId)) {
-      return res.status(400).json({ message: "Select a valid active destination" });
+    const dests = await getDestinations(orgId, true, req.currentWorkstation?.locationId ?? undefined);
+    const dest = dests.find((d) => d.id === parsed.data.destinationId);
+    if (!dest) {
+      return res.status(400).json({ message: "Select a valid active destination for this premises" });
     }
 
     const people =
@@ -530,6 +541,7 @@ export function registerAccessControlRoutes(app: Express) {
       purpose: parsed.data.purpose,
       vehiclePhotoUrl: parsed.data.vehiclePhotoUrl,
       vehicle: parsed.data.vehicle,
+      workstationId,
       people,
     });
 

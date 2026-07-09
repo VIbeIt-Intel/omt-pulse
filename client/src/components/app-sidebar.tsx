@@ -1,4 +1,4 @@
-import { BookOpen, Settings, BarChart3, LogOut, Users, Upload, Bell, Radio, LayoutDashboard, MessageSquare, Shield, Network, Car, ShieldCheck, Footprints } from "lucide-react";
+import { BookOpen, Settings, BarChart3, LogOut, Users, Upload, Bell, Radio, LayoutDashboard, MessageSquare, Shield, Network, Car, ShieldCheck, Footprints, MonitorSmartphone } from "lucide-react";
 import { useState, useEffect } from "react";
 import africaLogo from "../assets/africa-logo.png";
 import { useLocation, Link } from "wouter";
@@ -222,6 +222,7 @@ function getNavItems(role: string, isSuperadmin: boolean) {
     items.push({ title: "Import Data", url: "/import", icon: Upload });
     items.push({ title: "Field Admin", url: "/admin", icon: Settings });
     items.push({ title: "User Admin", url: "/user-admin", icon: Users });
+    items.push({ title: "Workstations", url: "/workstations", icon: MonitorSmartphone });
   }
   if (role === "administrator" || isSuperadmin) {
     items.push({ title: "Groups", url: "/commands", icon: Shield });
