@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { FleetGeofenceMapPicker } from "@/components/fleet/fleet-geofence-map-picker";
 import { Save } from "lucide-react";
 
 type FleetAlertRulesFormProps = {
@@ -116,73 +117,31 @@ export function FleetAlertRulesForm({ deviceId, useDeviceLatLng }: FleetAlertRul
           />
         </div>
         {form.geofenceEnabled && (
-          <div className="grid sm:grid-cols-3 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="geo-lat">Centre latitude</Label>
-              <Input
-                id="geo-lat"
-                type="number"
-                step="any"
-                value={form.geofenceLat ?? ""}
-                onChange={(e) =>
-                  setForm((f) => f && {
-                    ...f,
-                    geofenceLat: e.target.value ? Number(e.target.value) : null,
-                  })
-                }
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="geo-lng">Centre longitude</Label>
-              <Input
-                id="geo-lng"
-                type="number"
-                step="any"
-                value={form.geofenceLng ?? ""}
-                onChange={(e) =>
-                  setForm((f) => f && {
-                    ...f,
-                    geofenceLng: e.target.value ? Number(e.target.value) : null,
-                  })
-                }
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="geo-radius">Radius (m)</Label>
-              <Input
-                id="geo-radius"
-                type="number"
-                min={50}
-                value={form.geofenceRadiusM}
-                onChange={(e) =>
-                  setForm((f) => f && {
-                    ...f,
-                    geofenceRadiusM: Number(e.target.value) || 2000,
-                  })
-                }
-              />
-            </div>
-          </div>
-        )}
-        {form.geofenceEnabled && useDeviceLatLng?.lat != null && useDeviceLatLng?.lng != null && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() =>
+          <FleetGeofenceMapPicker
+            value={{
+              lat: form.geofenceLat,
+              lng: form.geofenceLng,
+              radiusM: form.geofenceRadiusM,
+            }}
+            onChange={(geo) =>
               setForm((f) =>
                 f
                   ? {
                       ...f,
-                      geofenceLat: useDeviceLatLng.lat,
-                      geofenceLng: useDeviceLatLng.lng,
+                      geofenceLat: geo.lat,
+                      geofenceLng: geo.lng,
+                      geofenceRadiusM: geo.radiusM,
                     }
                   : f,
               )
             }
-          >
-            Use current vehicle position as centre
-          </Button>
+            vehicleLatLng={
+              useDeviceLatLng?.lat != null && useDeviceLatLng?.lng != null
+                ? { lat: useDeviceLatLng.lat, lng: useDeviceLatLng.lng }
+                : null
+            }
+            height="280px"
+          />
         )}
       </div>
 

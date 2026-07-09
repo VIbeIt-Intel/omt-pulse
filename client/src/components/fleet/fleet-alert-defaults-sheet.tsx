@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { FleetGeofenceMapPicker } from "@/components/fleet/fleet-geofence-map-picker";
 import { Save } from "lucide-react";
 
 type FleetAlertDefaultsSheetProps = {
@@ -52,7 +53,7 @@ export function FleetAlertDefaultsSheet({ open, onOpenChange }: FleetAlertDefaul
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto">
+      <SheetContent side="right" className="w-full sm:max-w-lg overflow-y-auto">
         <SheetHeader>
           <SheetTitle>Fleet alert defaults</SheetTitle>
           <SheetDescription>
@@ -116,53 +117,26 @@ export function FleetAlertDefaultsSheet({ open, onOpenChange }: FleetAlertDefaul
                 />
               </div>
               {form.geofenceEnabled && (
-                <div className="grid gap-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="def-geo-lat">Centre latitude</Label>
-                    <Input
-                      id="def-geo-lat"
-                      type="number"
-                      step="any"
-                      value={form.geofenceLat ?? ""}
-                      onChange={(e) =>
-                        setForm((f) => f && {
-                          ...f,
-                          geofenceLat: e.target.value ? Number(e.target.value) : null,
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="def-geo-lng">Centre longitude</Label>
-                    <Input
-                      id="def-geo-lng"
-                      type="number"
-                      step="any"
-                      value={form.geofenceLng ?? ""}
-                      onChange={(e) =>
-                        setForm((f) => f && {
-                          ...f,
-                          geofenceLng: e.target.value ? Number(e.target.value) : null,
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="def-geo-radius">Radius (m)</Label>
-                    <Input
-                      id="def-geo-radius"
-                      type="number"
-                      min={50}
-                      value={form.geofenceRadiusM}
-                      onChange={(e) =>
-                        setForm((f) => f && {
-                          ...f,
-                          geofenceRadiusM: Number(e.target.value) || 2000,
-                        })
-                      }
-                    />
-                  </div>
-                </div>
+                <FleetGeofenceMapPicker
+                  value={{
+                    lat: form.geofenceLat,
+                    lng: form.geofenceLng,
+                    radiusM: form.geofenceRadiusM,
+                  }}
+                  onChange={(geo) =>
+                    setForm((f) =>
+                      f
+                        ? {
+                            ...f,
+                            geofenceLat: geo.lat,
+                            geofenceLng: geo.lng,
+                            geofenceRadiusM: geo.radiusM,
+                          }
+                        : f,
+                    )
+                  }
+                  height="300px"
+                />
               )}
             </div>
 
