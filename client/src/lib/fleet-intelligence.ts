@@ -195,6 +195,13 @@ export function formatDurationMinutes(mins: number): string {
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
+/** Format odometer / distance in km for fleet displays. */
+export function formatMileageKm(km: number | null | undefined, opts?: { decimals?: number }): string {
+  if (km == null || Number.isNaN(km)) return "—";
+  const decimals = opts?.decimals ?? (km >= 100 ? 0 : 1);
+  return `${km.toLocaleString(undefined, { maximumFractionDigits: decimals, minimumFractionDigits: decimals })} km`;
+}
+
 export function vehicleDisplayName(device: {
   vehicleMake?: string | null;
   vehicleModel?: string | null;

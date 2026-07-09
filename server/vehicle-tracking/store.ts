@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, asc, and, gte, isNotNull } from "drizzle-orm";
 import { db } from "../storage";
 import { commands, trackerDevices, trackerPositions } from "@shared/schema";
 import type { ParsedTrackerPosition } from "./types";
@@ -93,6 +93,50 @@ export async function ensureTrackerDevice(imei: string, protocol: string): Promi
   return deviceId;
 }
 
+function trackerDayKey(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+async function computeOdometerMetrics(
+  deviceId: number,
+  mileageKm: number,
+  recordedAt: Date,
+  previous: {
+    lastPositionAt: Date | null;
+    todayOdometerDistanceKm: number | null;
+  },
+): Promise<{ todayOdometerDistanceKm: number; lastTripDistanceKm?: number }> {
+  const startOfDay = new Date(recordedAt);
+  startOfDay.setUTCHours(0, 0, 0, 0);
+
+  const [firstToday] = await db
+    .select({ mileageKm: trackerPositions.mileageKm })
+    .from(trackerPositions)
+    .where(
+      and(
+        eq(trackerPositions.deviceId, deviceId),
+        gte(trackerPositions.recordedAt, startOfDay),
+        isNotNull(trackerPositions.mileageKm),
+      ),
+    )
+    .orderBy(asc(trackerPositions.recordedAt))
+    .limit(1);
+
+  const firstMileage = firstToday?.mileageKm ?? mileageKm;
+  const todayOdometerDistanceKm = Math.max(0, mileageKm - firstMileage);
+
+  let lastTripDistanceKm: number | undefined;
+  if (previous.lastPositionAt) {
+    const prevDay = trackerDayKey(previous.lastPositionAt);
+    const newDay = trackerDayKey(recordedAt);
+    if (prevDay !== newDay && previous.todayOdometerDistanceKm != null && previous.todayOdometerDistanceKm > 0) {
+      lastTripDistanceKm = previous.todayOdometerDistanceKm;
+    }
+  }
+
+  return { todayOdometerDistanceKm, lastTripDistanceKm };
+}
+
 export async function saveTrackerPosition(
   imei: string,
   protocol: string,
@@ -102,7 +146,11 @@ export async function saveTrackerPosition(
 
   const device = (
     await db
-      .select({ organizationId: trackerDevices.organizationId })
+      .select({
+        organizationId: trackerDevices.organizationId,
+        lastPositionAt: trackerDevices.lastPositionAt,
+        todayOdometerDistanceKm: trackerDevices.todayOdometerDistanceKm,
+      })
       .from(trackerDevices)
       .where(eq(trackerDevices.id, deviceId))
       .limit(1)
@@ -122,19 +170,44 @@ export async function saveTrackerPosition(
     recordedAt: position.recordedAt,
   });
 
+  const devicePatch: {
+    lastLat: number;
+    lastLng: number;
+    lastSpeedKph: number | null;
+    lastHeading: number | null;
+    lastIgnitionOn: boolean | null;
+    lastMileageKm: number | null;
+    lastGpsValid: boolean;
+    lastPositionAt: Date;
+    lastSeenAt: Date;
+    todayOdometerDistanceKm?: number;
+    lastTripDistanceKm?: number;
+  } = {
+    lastLat: position.latitude,
+    lastLng: position.longitude,
+    lastSpeedKph: position.speedKph,
+    lastHeading: position.heading,
+    lastIgnitionOn: position.ignitionOn,
+    lastMileageKm: position.mileageKm,
+    lastGpsValid: position.gpsValid,
+    lastPositionAt: position.recordedAt,
+    lastSeenAt: new Date(),
+  };
+
+  if (position.mileageKm != null) {
+    const odometerMetrics = await computeOdometerMetrics(deviceId, position.mileageKm, position.recordedAt, {
+      lastPositionAt: device.lastPositionAt,
+      todayOdometerDistanceKm: device.todayOdometerDistanceKm,
+    });
+    devicePatch.todayOdometerDistanceKm = odometerMetrics.todayOdometerDistanceKm;
+    if (odometerMetrics.lastTripDistanceKm != null) {
+      devicePatch.lastTripDistanceKm = odometerMetrics.lastTripDistanceKm;
+    }
+  }
+
   await db
     .update(trackerDevices)
-    .set({
-      lastLat: position.latitude,
-      lastLng: position.longitude,
-      lastSpeedKph: position.speedKph,
-      lastHeading: position.heading,
-      lastIgnitionOn: position.ignitionOn,
-      lastMileageKm: position.mileageKm,
-      lastGpsValid: position.gpsValid,
-      lastPositionAt: position.recordedAt,
-      lastSeenAt: new Date(),
-    })
+    .set(devicePatch)
     .where(eq(trackerDevices.id, deviceId));
 }
 

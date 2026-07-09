@@ -41,6 +41,7 @@ import {
   computeTripDayStats,
   formatDurationMinutes,
   formatFreshnessAgo,
+  formatMileageKm,
   freshnessClassLight,
   getFreshnessTier,
   getVehicleMotionStatus,
@@ -321,6 +322,15 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
               <p className="text-[10px] uppercase text-muted-foreground font-semibold">Ignition</p>
               <p className="text-sm font-semibold mt-1">{ignitionLabel(device.lastIgnitionOn)}</p>
             </div>
+            <div className="rounded-lg border bg-background/80 px-3 py-2 text-center min-w-[88px]">
+              <p className="text-[10px] uppercase text-muted-foreground font-semibold">Odometer</p>
+              <p className="text-sm font-semibold mt-1 tabular-nums">
+                {device.lastMileageKm != null
+                  ? formatMileageKm(device.lastMileageKm).replace(" km", "")
+                  : "—"}
+              </p>
+              <p className="text-[9px] text-muted-foreground">km total</p>
+            </div>
             {device.lastLat != null && device.lastLng != null && (
               <Button
                 type="button"
@@ -341,6 +351,62 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
             )}
           </div>
         </div>
+      </Card>
+
+      <Card className="p-4 sm:p-5">
+        <p className="text-sm font-semibold mb-3">Vehicle metrics</p>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <FleetStatCard
+            icon={Route}
+            label="Odometer"
+            value={
+              device.lastMileageKm != null
+                ? formatMileageKm(device.lastMileageKm).replace(" km", "")
+                : "—"
+            }
+            sub="km total"
+          />
+          <FleetStatCard
+            icon={Route}
+            label="Today"
+            value={
+              device.todayOdometerDistanceKm != null
+                ? formatMileageKm(device.todayOdometerDistanceKm).replace(" km", "")
+                : tripStats.distanceKm != null
+                  ? tripStats.distanceKm.toFixed(1)
+                  : "—"
+            }
+            sub={
+              device.todayOdometerDistanceKm != null
+                ? "km (odometer)"
+                : tripStats.distanceKm != null
+                  ? "km (GPS)"
+                  : undefined
+            }
+          />
+          <FleetStatCard
+            icon={Route}
+            label="Last day"
+            value={
+              device.lastTripDistanceKm != null
+                ? formatMileageKm(device.lastTripDistanceKm).replace(" km", "")
+                : "—"
+            }
+            sub="km (odometer)"
+          />
+          <FleetStatCard
+            icon={Gauge}
+            label="Heading"
+            value={headingLabel(device.lastHeading)}
+            sub={device.lastHeading != null ? `${Math.round(device.lastHeading)}°` : undefined}
+          />
+        </div>
+        {device.lastMileageKm == null && (
+          <p className="text-[11px] text-muted-foreground mt-3">
+            Odometer readings require extended GPS packets (0x22) from the tracker. Fuel level and
+            engine hours are not reported by the current GT06 integration.
+          </p>
+        )}
       </Card>
 
       <Tabs defaultValue="travel" className="space-y-4">

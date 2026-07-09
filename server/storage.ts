@@ -41,6 +41,8 @@ export type TrackerDeviceSummary = {
   lastHeading: number | null;
   lastIgnitionOn: boolean | null;
   lastMileageKm: number | null;
+  todayOdometerDistanceKm: number | null;
+  lastTripDistanceKm: number | null;
   lastGpsValid: boolean | null;
   lastPositionAt: string | null;
   lastSeenAt: string | null;
@@ -2172,6 +2174,8 @@ export class DatabaseStorage implements IStorage {
     lastHeading: number | null;
     lastIgnitionOn: boolean | null;
     lastMileageKm: number | null;
+    todayOdometerDistanceKm: number | null;
+    lastTripDistanceKm: number | null;
     lastGpsValid: boolean | null;
     lastPositionAt: Date | null;
     lastSeenAt: Date | null;
@@ -2199,6 +2203,8 @@ export class DatabaseStorage implements IStorage {
       lastHeading: r.lastHeading,
       lastIgnitionOn: r.lastIgnitionOn,
       lastMileageKm: r.lastMileageKm,
+      todayOdometerDistanceKm: r.todayOdometerDistanceKm,
+      lastTripDistanceKm: r.lastTripDistanceKm,
       lastGpsValid: r.lastGpsValid,
       lastPositionAt: r.lastPositionAt?.toISOString() ?? null,
       lastSeenAt: r.lastSeenAt?.toISOString() ?? null,
@@ -2226,6 +2232,8 @@ export class DatabaseStorage implements IStorage {
       lastHeading: trackerDevices.lastHeading,
       lastIgnitionOn: trackerDevices.lastIgnitionOn,
       lastMileageKm: trackerDevices.lastMileageKm,
+      todayOdometerDistanceKm: trackerDevices.todayOdometerDistanceKm,
+      lastTripDistanceKm: trackerDevices.lastTripDistanceKm,
       lastGpsValid: trackerDevices.lastGpsValid,
       lastPositionAt: trackerDevices.lastPositionAt,
       lastSeenAt: trackerDevices.lastSeenAt,

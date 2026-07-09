@@ -84,6 +84,8 @@ export type TrackerDeviceSummary = {
   lastHeading: number | null;
   lastIgnitionOn: boolean | null;
   lastMileageKm: number | null;
+  todayOdometerDistanceKm: number | null;
+  lastTripDistanceKm: number | null;
   lastGpsValid: boolean | null;
   lastPositionAt: string | null;
   lastSeenAt: string | null;

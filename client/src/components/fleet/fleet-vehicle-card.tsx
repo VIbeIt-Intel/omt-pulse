@@ -1,8 +1,9 @@
-import { ChevronRight, Gauge, User } from "lucide-react";
+import { ChevronRight, Gauge, Route, User } from "lucide-react";
 import { FleetVehiclePhoto } from "@/components/fleet/fleet-vehicle-photo";
 import type { TrackerDeviceSummary } from "@/components/operations-dashboard";
 import {
   formatFreshnessAgo,
+  formatMileageKm,
   freshnessClassLight,
   getFreshnessTier,
   getVehicleMotionStatus,
@@ -65,6 +66,12 @@ export function FleetVehicleCard({ device, onClick }: FleetVehicleCardProps) {
               <span className="inline-flex items-center gap-1 text-emerald-400 font-medium tabular-nums">
                 <Gauge className="h-3.5 w-3.5" />
                 {Math.round(device.lastSpeedKph)} km/h
+              </span>
+            )}
+            {device.lastMileageKm != null && (
+              <span className="inline-flex items-center gap-1 text-muted-foreground tabular-nums">
+                <Route className="h-3.5 w-3.5 shrink-0" />
+                {formatMileageKm(device.lastMileageKm)}
               </span>
             )}
             {device.assignedUserName && (
