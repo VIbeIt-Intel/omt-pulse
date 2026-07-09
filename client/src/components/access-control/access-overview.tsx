@@ -9,6 +9,7 @@ import {
   accessOverviewQueryKey,
   accessOverviewQueryOptions,
 } from "@/lib/access-control-queries";
+import { formatAccessScanDetailLines, formatAccessScanSummary } from "@shared/access-scan-data";
 import { Car, Clock, DoorOpen, LogOut, MapPin, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -69,6 +70,8 @@ function SummaryCard({
 
 function ActivityRow({ entry }: { entry: AccessLogWithDetails }) {
   const exited = entry.status === "exited" && entry.timeOut;
+  const scanSummary = formatAccessScanSummary(entry.scanData);
+  const scanLines = formatAccessScanDetailLines(entry.scanData);
   return (
     <div className="flex items-start gap-3 py-3 border-b border-border/60 last:border-0">
       <div
@@ -98,6 +101,19 @@ function ActivityRow({ entry }: { entry: AccessLogWithDetails }) {
             : `In since ${formatTime(entry.timeIn)}`}
           {entry.loggedByName ? ` · ${entry.loggedByName}` : ""}
         </p>
+        {scanSummary && (
+          <p className="text-[11px] text-muted-foreground mt-1">{scanSummary}</p>
+        )}
+        {scanLines.length > 0 && (
+          <details className="mt-1 text-[11px] text-muted-foreground">
+            <summary className="cursor-pointer select-none">Scan details</summary>
+            <div className="mt-1 space-y-0.5 pl-1 border-l border-border/60">
+              {scanLines.map((line) => (
+                <p key={line}>{line}</p>
+              ))}
+            </div>
+          </details>
+        )}
       </div>
       <span
         className={cn(

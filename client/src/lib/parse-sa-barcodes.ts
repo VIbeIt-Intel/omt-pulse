@@ -10,11 +10,24 @@
 import { isPlausibleSaVehicleRegistration } from "@shared/parse-sa-licence-disc";
 import { parseSaMvlDiscBarcode } from "@shared/parse-sa-mvl-disc";
 
-import { looksLikeSadlEncryptedString, type SaDriversLicence, driversLicenceToParsedFields } from "@shared/sa-drivers-licence";
+import {
+  looksLikeSadlEncryptedString,
+  type SaDriversLicence,
+  driversLicenceToParsedFields,
+} from "@shared/sa-drivers-licence";
+import type { AccessScanMethod } from "@shared/access-scan-data";
 
 export type ParsedSaId = {
   personFullName?: string;
   personIdNumber?: string;
+  personSurname?: string;
+  personGivenNames?: string;
+  personSex?: string;
+  personNationality?: string;
+  personDateOfBirth?: string;
+  personCountryOfBirth?: string;
+  personCitizenshipStatus?: string;
+  extraFields?: string[];
   /** True when barcode only had ID digits (green book / partial scan). */
   idOnly?: boolean;
   documentType?: "smart_id" | "drivers_licence" | "id_book";
@@ -38,12 +51,19 @@ export type ParsedSaVehicleDisc = {
 };
 
 export function parsedSaIdFromDriversLicence(dl: SaDriversLicence): ParsedSaId {
-  return driversLicenceToParsedFields(dl);
+  return {
+    ...driversLicenceToParsedFields(dl),
+    driversLicence: dl,
+    personSex: dl.gender === "male" ? "M" : dl.gender === "female" ? "F" : undefined,
+    personDateOfBirth: dl.birthdate || undefined,
+    personSurname: dl.surname || undefined,
+    personGivenNames: dl.initials || undefined,
+  };
 }
 
 export type AccessIdentityScanResult =
   | { kind: "raw"; value: string }
-  | { kind: "parsed"; parsed: ParsedSaId };
+  | { kind: "parsed"; parsed: ParsedSaId; scanMethod?: AccessScanMethod };
 
 /** Smart ID pipe text, driver's licence binary, or green-book ID-only. */
 export function parseSaIdentityScan(raw: string): ParsedSaId {
@@ -80,11 +100,25 @@ export function parseSaIdBarcode(raw: string): ParsedSaId {
     if (parts.length >= 5) {
       const surname = parts[0] ?? "";
       const names = parts[1] ?? "";
+      const sex = parts[2] ?? "";
+      const nationality = parts[3] ?? "";
       const idNumber = (parts[4] ?? "").replace(/\s/g, "");
+      const dateOfBirth = parts[5] ?? "";
+      const countryOfBirth = parts[6] ?? "";
+      const citizenshipStatus = parts[7] ?? "";
+      const extraFields = parts.length > 8 ? parts.slice(8).filter(Boolean) : undefined;
       const fullName = [names, surname].filter(Boolean).join(" ").trim();
       return {
         personFullName: fullName || undefined,
         personIdNumber: idNumber || undefined,
+        personSurname: surname || undefined,
+        personGivenNames: names || undefined,
+        personSex: sex || undefined,
+        personNationality: nationality || undefined,
+        personDateOfBirth: dateOfBirth || undefined,
+        personCountryOfBirth: countryOfBirth || undefined,
+        personCitizenshipStatus: citizenshipStatus || undefined,
+        extraFields,
       };
     }
   }

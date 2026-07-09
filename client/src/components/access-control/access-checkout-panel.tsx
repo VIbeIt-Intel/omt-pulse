@@ -21,6 +21,7 @@ import {
   matchInsideEntriesFromSearch,
   type CheckoutMatchQuery,
 } from "@/lib/match-inside-entries";
+import { formatAccessScanDetailLines, formatAccessScanSummary } from "@shared/access-scan-data";
 import { Car, Clock, Loader2, LogOut, MapPin, ScanLine, Search, User } from "lucide-react";
 
 function formatTime(iso: string | Date): string {
@@ -45,6 +46,8 @@ function EntryCard({
   onExit: (id: number) => void;
   exiting: boolean;
 }) {
+  const scanSummary = formatAccessScanSummary(entry.scanData);
+  const scanLines = formatAccessScanDetailLines(entry.scanData);
   return (
     <Card className={highlight ? "overflow-hidden border-primary ring-1 ring-primary/30" : "overflow-hidden"}>
       <CardContent className="p-4 space-y-2">
@@ -73,6 +76,19 @@ function EntryCard({
             <User className="h-3.5 w-3.5 shrink-0" />
             {entry.personIdNumber}
           </div>
+        )}
+        {scanSummary && (
+          <p className="text-xs text-muted-foreground">{scanSummary}</p>
+        )}
+        {scanLines.length > 0 && (
+          <details className="text-xs text-muted-foreground">
+            <summary className="cursor-pointer select-none">Scan details</summary>
+            <div className="mt-1 space-y-0.5">
+              {scanLines.map((line) => (
+                <p key={line}>{line}</p>
+              ))}
+            </div>
+          </details>
         )}
         {entry.vehicle?.registration && (
           <div className="flex items-center gap-1.5 text-sm text-muted-foreground">

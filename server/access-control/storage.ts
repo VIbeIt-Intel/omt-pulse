@@ -120,6 +120,7 @@ export type CreateAccessPersonInput = {
   personIdNumber?: string | null;
   personPhotoUrl?: string | null;
   partyRole?: string | null;
+  scanData?: import("@shared/access-scan-data").AccessScanData | null;
 };
 
 export type CreateAccessEntryInput = {
@@ -215,6 +216,7 @@ export async function createAccessVisit(
           partyRole: person.partyRole ?? null,
           personFullName: person.personFullName,
           personIdNumber: person.personIdNumber ?? null,
+          scanData: person.scanData ?? null,
           companyName: input.companyName ?? null,
           contactNumber: input.contactNumber ?? null,
           purpose: input.purpose ?? null,

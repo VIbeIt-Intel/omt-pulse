@@ -600,6 +600,7 @@ export const accessLogs = pgTable("access_logs", {
   partyRole: text("party_role"),
   personFullName: text("person_full_name").notNull(),
   personIdNumber: text("person_id_number"),
+  scanData: jsonb("scan_data").$type<import("./access-scan-data").AccessScanData | null>(),
   companyName: text("company_name"),
   contactNumber: text("contact_number"),
   purpose: text("purpose"),

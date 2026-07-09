@@ -1,5 +1,6 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { z } from "zod";
+import { ACCESS_SCAN_METHODS } from "@shared/access-scan-data";
 import {
   ACCESS_ENTRY_CATEGORIES,
   insertDestinationSchema,
@@ -56,11 +57,52 @@ const vehicleInputSchema = z.object({
   licenceDiscData: z.string().max(512).optional().nullable(),
 });
 
+const accessScanIdentitySchema = z.object({
+  fullName: z.string().max(200).optional(),
+  idNumber: z.string().max(32).optional(),
+  surname: z.string().max(120).optional(),
+  givenNames: z.string().max(120).optional(),
+  sex: z.string().max(16).optional(),
+  nationality: z.string().max(64).optional(),
+  dateOfBirth: z.string().max(32).optional(),
+  countryOfBirth: z.string().max(64).optional(),
+  citizenshipStatus: z.string().max(64).optional(),
+});
+
+const accessScanDriversLicenceSchema = z.object({
+  licenceNumber: z.string().max(32).optional(),
+  issueDate: z.string().max(32).optional(),
+  expiryDate: z.string().max(32).optional(),
+  issueNumber: z.string().max(16).optional(),
+  vehicleCodes: z.array(z.string().max(8)).max(12).optional(),
+  vehicleRestrictions: z.array(z.string().max(32)).max(12).optional(),
+  licenceCodeIssueDates: z.array(z.string().max(32)).max(12).optional(),
+  driverRestrictionCodes: z.string().max(16).optional(),
+  prdpCode: z.string().max(16).optional(),
+  prdpExpiryDate: z.string().max(32).optional(),
+  gender: z.string().max(16).optional(),
+  birthdate: z.string().max(32).optional(),
+  idNumberType: z.string().max(16).optional(),
+  idCountryOfIssue: z.string().max(64).optional(),
+  licenceCountryOfIssue: z.string().max(64).optional(),
+});
+
+const accessScanDataSchema = z.object({
+  capturedAt: z.string().max(40),
+  scanMethod: z.enum(ACCESS_SCAN_METHODS),
+  documentType: z.enum(["smart_id", "drivers_licence", "id_book"]).optional(),
+  identity: accessScanIdentitySchema,
+  driversLicence: accessScanDriversLicenceSchema.optional(),
+  extraFields: z.array(z.string().max(200)).max(20).optional(),
+  rawBarcodePreview: z.string().max(500).optional(),
+});
+
 const personInputSchema = z.object({
   personFullName: z.string().min(1).max(200),
   personIdNumber: z.string().max(32).optional().nullable(),
   personPhotoUrl: z.string().max(2000).optional().nullable(),
   partyRole: z.enum(["walk_in", "driver", "passenger"]).optional().nullable(),
+  scanData: accessScanDataSchema.optional().nullable(),
 });
 
 const createEntrySchema = z

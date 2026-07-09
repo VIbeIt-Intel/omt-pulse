@@ -24,7 +24,13 @@ import { ACCESS_CATEGORY_LABELS } from "@/lib/access-control-labels";
 import { currentlyInsideQueryKey } from "@/lib/access-control-queries";
 import { readLicenceDiscFromPhoto } from "@/lib/licence-disc-ocr";
 import type { ParsedSaId, ParsedSaVehicleDisc } from "@/lib/parse-sa-barcodes";
-import { AccessScanDialog } from "@/components/access-control/access-scan-dialog";
+import { AccessScanDialog, type AccessScanCaptureMeta } from "@/components/access-control/access-scan-dialog";
+import {
+  buildAccessScanData,
+  formatAccessScanDetailLines,
+  formatAccessScanSummary,
+  type AccessScanData,
+} from "@shared/access-scan-data";
 import {
   Camera,
   Car,
@@ -52,6 +58,7 @@ type PersonDraft = {
   idNumber: string;
   photoUrl: string | null;
   licenceNote: string | null;
+  scanData: AccessScanData | null;
   showManual: boolean;
 };
 
@@ -74,6 +81,7 @@ function emptyPerson(showManual = false): PersonDraft {
     idNumber: "",
     photoUrl: null,
     licenceNote: null,
+    scanData: null,
     showManual,
   };
 }
@@ -89,12 +97,18 @@ function buildLicenceNote(parsed: ParsedSaId): string | null {
   return parts.length ? parts.join(" · ") : null;
 }
 
-function applyIdentityToPerson(person: PersonDraft, parsed: ParsedSaId, isLicence: boolean): PersonDraft {
+function applyIdentityToPerson(
+  person: PersonDraft,
+  parsed: ParsedSaId,
+  opts: { isLicence: boolean; meta: AccessScanCaptureMeta },
+): PersonDraft {
+  const scanData = buildAccessScanData(parsed, opts.meta.scanMethod, opts.meta.rawBarcode);
   return {
     ...person,
     fullName: parsed.personFullName ?? person.fullName,
     idNumber: parsed.personIdNumber ?? person.idNumber,
-    licenceNote: isLicence ? buildLicenceNote(parsed) : null,
+    licenceNote: opts.isLicence ? buildLicenceNote(parsed) : person.licenceNote,
+    scanData: scanData ?? person.scanData,
     showManual: true,
   };
 }
@@ -199,6 +213,7 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
             personFullName: p.fullName.trim(),
             personIdNumber: p.idNumber.trim() || null,
             personPhotoUrl: p.photoUrl,
+            scanData: p.scanData,
             partyRole:
               mode === "walk_in" ? "walk_in" : index === 0 ? "driver" : "passenger",
           })),
@@ -560,19 +575,19 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
             setScanPersonKey(null);
           }
         }}
-        onIdScan={(parsed) => {
+        onIdScan={(parsed, meta) => {
           if (!scanPersonKey) return;
           setPeople((list) =>
             list.map((p) =>
-              p.key === scanPersonKey ? applyIdentityToPerson(p, parsed, false) : p,
+              p.key === scanPersonKey ? applyIdentityToPerson(p, parsed, { isLicence: false, meta }) : p,
             ),
           );
         }}
-        onLicenceScan={(parsed) => {
+        onLicenceScan={(parsed, meta) => {
           if (!scanPersonKey) return;
           setPeople((list) =>
             list.map((p) =>
-              p.key === scanPersonKey ? applyIdentityToPerson(p, parsed, true) : p,
+              p.key === scanPersonKey ? applyIdentityToPerson(p, parsed, { isLicence: true, meta }) : p,
             ),
           );
         }}
@@ -671,6 +686,16 @@ function PersonCard({
             <p className="text-xs text-muted-foreground rounded-md border bg-muted/40 px-3 py-2">
               {person.licenceNote}
             </p>
+          )}
+          {person.scanData && (
+            <div className="text-xs text-muted-foreground rounded-md border bg-muted/40 px-3 py-2 space-y-1">
+              {formatAccessScanSummary(person.scanData) && (
+                <p className="font-medium text-foreground/90">{formatAccessScanSummary(person.scanData)}</p>
+              )}
+              {formatAccessScanDetailLines(person.scanData).map((line) => (
+                <p key={line}>{line}</p>
+              ))}
+            </div>
           )}
           <div>
             <Label htmlFor={`${baseId}-name`}>Full name *</Label>

@@ -25,13 +25,19 @@ import { readLicenceDiscFromPhoto } from "@/lib/licence-disc-ocr";
 import { BarcodeScanner } from "@/components/access-control/barcode-scanner";
 import { LicenceFrontScanner } from "@/components/access-control/licence-front-scanner";
 import { APP_CACHE_VERSION } from "@shared/cache-version";
+import type { AccessScanMethod } from "@shared/access-scan-data";
+
+export type AccessScanCaptureMeta = {
+  scanMethod: AccessScanMethod;
+  rawBarcode?: string;
+};
 
 type AccessScanDialogProps = {
   open: boolean;
   kind: BinaryEyeScanKind | null;
   onOpenChange: (open: boolean) => void;
-  onIdScan: (parsed: ParsedSaId) => void;
-  onLicenceScan: (parsed: ParsedSaId) => void;
+  onIdScan: (parsed: ParsedSaId, meta: AccessScanCaptureMeta) => void;
+  onLicenceScan: (parsed: ParsedSaId, meta: AccessScanCaptureMeta) => void;
   onDiscScan: (parsed: ParsedSaVehicleDisc, raw: string) => void;
 };
 
@@ -127,14 +133,14 @@ export function AccessScanDialog({
 
       if (outcome.ok) {
         if (outcome.kind === "drivers_licence") {
-          onLicenceScan(outcome.parsed);
+          onLicenceScan(outcome.parsed, { scanMethod: "barcode" });
           toast({
             title: "Driver's licence captured",
             description:
               outcome.parsed.personFullName ?? outcome.parsed.personIdNumber ?? "Details filled in",
           });
         } else if (outcome.kind === "national_id") {
-          onIdScan(outcome.parsed);
+          onIdScan(outcome.parsed, { scanMethod: "barcode", rawBarcode: outcome.raw });
           toast({
             title: outcome.parsed.personFullName ? "ID captured" : "ID number captured",
             description:
@@ -200,7 +206,7 @@ export function AccessScanDialog({
       try {
         const result = await readLicenceFrontFromPhoto(file);
         if (result.ok) {
-          onLicenceScan(result.parsed);
+          onLicenceScan(result.parsed, { scanMethod: "ocr_front" });
           toast({
             title: "Driver's licence captured",
             description: result.parsed.personFullName ?? result.parsed.personIdNumber ?? "",
@@ -281,8 +287,12 @@ export function AccessScanDialog({
           onOpenChange={(o) => {
             if (!o) close();
           }}
-          onScan={({ parsed }) => {
-            onLicenceScan(parsed);
+          onScan={(result) => {
+            if (result.kind === "parsed") {
+              onLicenceScan(result.parsed, {
+                scanMethod: result.scanMethod ?? "ocr_front",
+              });
+            }
             close();
           }}
         />
@@ -303,11 +313,17 @@ export function AccessScanDialog({
             const value = typeof result === "string" ? result : result.kind === "raw" ? result.value : "";
             onDiscScan(parseSaVehicleDiscBarcode(value), value);
           } else {
+            const raw =
+              typeof result === "string"
+                ? result
+                : result.kind === "raw"
+                  ? result.value
+                  : undefined;
             const parsed =
               typeof result === "object" && result.kind === "parsed"
                 ? result.parsed
-                : parseSaIdentityScan(typeof result === "string" ? result : result.value);
-            onIdScan(parsed);
+                : parseSaIdentityScan(raw ?? "");
+            onIdScan(parsed, { scanMethod: "barcode", rawBarcode: raw });
           }
           close();
         }}

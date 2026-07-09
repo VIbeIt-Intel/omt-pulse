@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Camera, ImageIcon, ScanLine, X } from "lucide-react";
 import type { AccessIdentityScanResult, ParsedSaId } from "@/lib/parse-sa-barcodes";
+import type { AccessScanMethod } from "@shared/access-scan-data";
 import { readLicenceFrontFromPhoto } from "@/lib/licence-front-ocr";
 import { decodeLicenceBackFromPhoto } from "@/lib/decode-licence-back-photo";
 import {
@@ -62,8 +63,8 @@ export function LicenceFrontScanner({
   }, []);
 
   const settle = useCallback(
-    (parsed: ParsedSaId) => {
-      onScan({ kind: "parsed", parsed });
+    (parsed: ParsedSaId, scanMethod?: AccessScanMethod) => {
+      onScan({ kind: "parsed", parsed, scanMethod });
       onOpenChange(false);
       reset();
     },
@@ -100,7 +101,7 @@ export function LicenceFrontScanner({
     try {
       const binaryEye = await scanDriversLicenceViaBinaryEye();
       if (binaryEye.ok) {
-        settle(binaryEye.parsed);
+        settle(binaryEye.parsed, "barcode");
         return;
       }
 
@@ -148,7 +149,7 @@ export function LicenceFrontScanner({
         if (kind === "back") {
           const parsed = await decodeLicenceBackFromPhoto(file);
           if (parsed?.personIdNumber || parsed?.personFullName) {
-            settle(parsed);
+            settle(parsed, "ocr_back");
             return;
           }
           toast({
@@ -160,7 +161,7 @@ export function LicenceFrontScanner({
         } else {
           const result = await readLicenceFrontFromPhoto(file);
           if (result.ok) {
-            settle(result.parsed);
+            settle(result.parsed, "ocr_front");
             return;
           }
           toast({

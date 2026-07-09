@@ -1,11 +1,11 @@
 import { apiRequest } from "@/lib/queryClient";
 import {
-  driversLicenceToParsedFields,
   looksLikeSadlEncryptedString,
   sadlLatin1ToBase64,
   type SaDriversLicence,
 } from "@shared/sa-drivers-licence";
 import type { ParsedSaId } from "@/lib/parse-sa-barcodes";
+import { parsedSaIdFromDriversLicence } from "@/lib/parse-sa-barcodes";
 
 export function sadlBytesToBase64(bytes: Uint8Array | number[]): string {
   const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
@@ -25,7 +25,7 @@ export async function decodeDriversLicenceViaApiFromBase64(
       payloadBase64,
     });
     const dl = (await res.json()) as SaDriversLicence;
-    return driversLicenceToParsedFields(dl);
+    return parsedSaIdFromDriversLicence(dl);
   } catch {
     return null;
   }
@@ -66,7 +66,7 @@ export async function decodeDriversLicenceFromImageViaApi(
     });
     if (!res.ok) return null;
     const dl = (await res.json()) as SaDriversLicence;
-    return driversLicenceToParsedFields(dl);
+    return parsedSaIdFromDriversLicence(dl);
   } catch {
     return null;
   } finally {
