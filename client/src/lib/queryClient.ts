@@ -1,5 +1,4 @@
 import { QueryClient, QueryCache, MutationCache, QueryFunction } from "@tanstack/react-query";
-import { workstationAuthHeaders } from "@/lib/workstation-session";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -15,10 +14,7 @@ export async function apiRequest(
 ): Promise<Response> {
   const res = await fetch(url, {
     method,
-    headers: {
-      ...(data ? { "Content-Type": "application/json" } : {}),
-      ...workstationAuthHeaders(),
-    },
+    headers: data ? { "Content-Type": "application/json" } : {},
     body: data ? JSON.stringify(data) : undefined,
     credentials: "include",
     cache: "no-store",
@@ -36,7 +32,6 @@ export const getQueryFn: <T>(options: {
   async ({ queryKey }) => {
     const res = await fetch(queryKey.join("/") as string, {
       credentials: "include",
-      headers: workstationAuthHeaders(),
       cache: "no-store",
     });
 
@@ -59,8 +54,7 @@ function isPublicRoute(pathname: string): boolean {
     pathname.startsWith("/invite") ||
     pathname.startsWith("/archon") ||
     pathname.startsWith("/privacy") ||
-    pathname.startsWith("/enable-alerts") ||
-    pathname.startsWith("/workstation")
+    pathname.startsWith("/enable-alerts")
   );
 }
 

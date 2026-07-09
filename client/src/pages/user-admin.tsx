@@ -73,7 +73,6 @@ const userFormSchema = z.object({
   role: z.enum(USER_ROLES, { required_error: "Role is required" }),
   password: z.string().optional(),
   confirmPassword: z.string().optional(),
-  shiftPin: z.string().optional(),
   canEditIncidents: z.boolean().default(true),
   canManageAttachments: z.boolean().default(true),
   canDeleteIncidents: z.boolean().default(true),
@@ -89,13 +88,7 @@ const userFormSchema = z.object({
     return d.password === d.confirmPassword;
   }
   return true;
-}, { message: "Passwords do not match", path: ["confirmPassword"] })
-.refine((d) => {
-  if (d.shiftPin && d.shiftPin.length > 0) {
-    return /^\d{4,6}$/.test(d.shiftPin);
-  }
-  return true;
-}, { message: "Shift PIN must be 4–6 digits", path: ["shiftPin"] });
+}, { message: "Passwords do not match", path: ["confirmPassword"] });
 
 type UserFormValues = z.infer<typeof userFormSchema>;
 
@@ -317,7 +310,6 @@ function UserDialog({
       role: (editUser?.role ?? "reporter") as (typeof USER_ROLES)[number],
       password: "",
       confirmPassword: "",
-      shiftPin: "",
       canEditIncidents: editUser?.canEditIncidents ?? true,
       canManageAttachments: editUser?.canManageAttachments ?? true,
       canDeleteIncidents: editUser?.canDeleteIncidents ?? true,
@@ -339,7 +331,6 @@ function UserDialog({
       role: (editUser?.role ?? "reporter") as (typeof USER_ROLES)[number],
       password: "",
       confirmPassword: "",
-      shiftPin: "",
       canEditIncidents: editUser?.canEditIncidents ?? true,
       canManageAttachments: editUser?.canManageAttachments ?? true,
       canDeleteIncidents: editUser?.canDeleteIncidents ?? true,
@@ -370,7 +361,6 @@ function UserDialog({
       role: "reporter",
       password: "",
       confirmPassword: "",
-      shiftPin: "",
       canEditIncidents: true,
       canManageAttachments: true,
       canDeleteIncidents: true,
@@ -392,7 +382,6 @@ function UserDialog({
         canManageAttachments: data.canManageAttachments ?? true,
         canDeleteIncidents: data.canDeleteIncidents ?? true,
         password: isEdit ? (data.password && data.password.length > 0 ? data.password : undefined) : data.password,
-        shiftPin: data.shiftPin && data.shiftPin.length > 0 ? data.shiftPin : isEdit ? "" : undefined,
         commandIds: data.commandIds,
       };
 
@@ -691,28 +680,6 @@ function UserDialog({
                   )} />
                 </div>
               )}
-
-              <div className="border-t pt-2.5 space-y-2">
-                <p className="text-xs text-muted-foreground">
-                  Shift PIN for dedicated / shared devices (gate tablet, shift phone). Guards sign in with this PIN instead of email and password on enrolled devices.
-                </p>
-                <FormField control={form.control} name="shiftPin" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Shift PIN</FormLabel>
-                    <FormControl>
-                      <Input
-                        {...field}
-                        inputMode="numeric"
-                        pattern="[0-9]*"
-                        maxLength={6}
-                        placeholder={isEdit ? "Leave blank to keep current PIN" : "4–6 digits (optional)"}
-                        autoComplete="off"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-              </div>
 
               </div>
               <DialogFooter className="shrink-0 border-t pt-2 mt-1.5">

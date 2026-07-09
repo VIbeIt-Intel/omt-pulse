@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { clearStoredWorkstationToken } from "@/lib/workstation-session";
 
 const loginSchema = z.object({
   email: z.string().email("Enter a valid email address"),
@@ -32,6 +33,10 @@ export default function LoginPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [showPassword, setShowPassword] = useState(false);
+
+  useEffect(() => {
+    clearStoredWorkstationToken();
+  }, []);
 
   const form = useForm<LoginForm>({
     resolver: zodResolver(loginSchema),
@@ -168,11 +173,6 @@ export default function LoginPage() {
               </Form>
               <p className="mt-4 text-center text-sm text-muted-foreground">
                 Access is by invitation only. Contact your organisation administrator if you need an account.
-              </p>
-              <p className="mt-3 text-center text-sm">
-                <Link href="/workstation/enrol" className="text-primary hover:underline font-medium">
-                  Enrol a dedicated gate or shift device
-                </Link>
               </p>
               <p className="mt-3 text-center text-xs text-muted-foreground">
                 <Link href="/privacy" className="hover:text-foreground hover:underline" data-testid="link-privacy-login">
