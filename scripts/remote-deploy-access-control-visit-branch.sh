@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy fix/licence-front-ocr-v121 (patrol route map editor, omt-v165).
+# Deploy fix/licence-front-ocr-v121 (active patrol map view, omt-v166).
 set -eu
 cd /opt/omt-pulse
 BRANCH="fix/licence-front-ocr-v121"

@@ -16,6 +16,9 @@ export function emptyPatrolCheckpoint(): PatrolCheckpointDraft {
   };
 }
 
-export function hasCheckpointCoords(cp: PatrolCheckpointDraft): boolean {
+export function hasCheckpointCoords(cp: {
+  latitude: number | null;
+  longitude: number | null;
+}): boolean {
   return cp.latitude != null && cp.longitude != null;
 }

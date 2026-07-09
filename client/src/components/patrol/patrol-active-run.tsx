@@ -1,6 +1,7 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { PatrolDetail, PatrolRouteWithCheckpoints } from "@/lib/patrol-types";
+import type { PatrolDetail } from "@/lib/patrol-types";
+import { PatrolActiveMap } from "@/components/patrol/patrol-active-map";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
@@ -25,7 +26,10 @@ export function PatrolActiveRun({ patrol }: PatrolActiveRunProps) {
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
 
-  const loggedIds = new Set(patrol.logs.map((l) => l.checkpointId));
+  const loggedIds = useMemo(
+    () => new Set(patrol.logs.map((l) => l.checkpointId)),
+    [patrol.logs],
+  );
   const nextCheckpoint = patrol.checkpoints.find((cp) => !loggedIds.has(cp.id));
   const progressPct =
     patrol.totalCheckpoints > 0
@@ -120,6 +124,12 @@ export function PatrolActiveRun({ patrol }: PatrolActiveRunProps) {
         </div>
         <Progress value={progressPct} className="h-2" />
       </div>
+
+      <PatrolActiveMap
+        checkpoints={patrol.checkpoints}
+        loggedCheckpointIds={loggedIds}
+        nextCheckpointId={nextCheckpoint?.id ?? null}
+      />
 
       {nextCheckpoint ? (
         <div className="rounded-lg border p-4 space-y-3">

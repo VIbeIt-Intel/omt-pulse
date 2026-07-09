@@ -1,5 +1,5 @@
 @echo off
-REM Deploy fix/licence-front-ocr-v121 (patrol route map editor, omt-v165).
+REM Deploy fix/licence-front-ocr-v121 (active patrol map view, omt-v166).
 cd /d "%~dp0"
 call "%~dp0resolve-ssh-key.bat"
 set HOST=ubuntu@154.65.108.187
@@ -30,6 +30,6 @@ if errorlevel 1 (
 )
 
 echo.
-echo === Done. Check https://omtpulse.com/api/version shows omt-v165 ===
+echo === Done. Check https://omtpulse.com/api/version shows omt-v166 ===
 echo Tell testers: force-close OMT Pulse and reopen.
 pause
