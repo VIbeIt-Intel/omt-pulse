@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ACCESS_ENTRY_CATEGORIES, type AccessEntryCategory } from "@shared/schema";
 import { Button } from "@/components/ui/button";
@@ -12,21 +12,47 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { prepareAndUploadFile } from "@/lib/upload-media";
 import { ACCESS_CATEGORY_LABELS } from "@/lib/access-control-labels";
 import { currentlyInsideQueryKey } from "@/lib/access-control-queries";
 import { readLicenceDiscFromPhoto } from "@/lib/licence-disc-ocr";
-import type { ParsedSaVehicleDisc } from "@/lib/parse-sa-barcodes";
+import type { ParsedSaId, ParsedSaVehicleDisc } from "@/lib/parse-sa-barcodes";
 import { AccessScanDialog } from "@/components/access-control/access-scan-dialog";
-import { Camera, Car, Loader2, ScanLine, User } from "lucide-react";
+import {
+  Camera,
+  Car,
+  ChevronDown,
+  Loader2,
+  Plus,
+  ScanLine,
+  Trash2,
+  User,
+  UserPlus,
+} from "lucide-react";
 import type { Destination } from "@shared/schema";
+import { cn } from "@/lib/utils";
 
 type AccessEntryFormProps = {
   destinations: Destination[];
   onCreated: () => void;
+};
+
+type EntryMode = "walk_in" | "vehicle";
+
+type PersonDraft = {
+  key: string;
+  fullName: string;
+  idNumber: string;
+  photoUrl: string | null;
+  licenceNote: string | null;
+  showManual: boolean;
 };
 
 const emptyVehicle = {
@@ -37,29 +63,78 @@ const emptyVehicle = {
   licenceDiscData: "",
 };
 
+function newPersonKey(): string {
+  return crypto.randomUUID();
+}
+
+function emptyPerson(showManual = false): PersonDraft {
+  return {
+    key: newPersonKey(),
+    fullName: "",
+    idNumber: "",
+    photoUrl: null,
+    licenceNote: null,
+    showManual,
+  };
+}
+
+function buildLicenceNote(parsed: ParsedSaId): string | null {
+  if (parsed.documentType !== "drivers_licence") return null;
+  const parts: string[] = [];
+  if (parsed.driversLicenceNumber) parts.push(`DL ${parsed.driversLicenceNumber}`);
+  if (parsed.licenceExpiryDate) parts.push(`expires ${parsed.licenceExpiryDate}`);
+  if (parsed.vehicleCodes?.length) parts.push(`codes ${parsed.vehicleCodes.join(", ")}`);
+  if (parsed.prdpCode) parts.push(`PrDP ${parsed.prdpCode}`);
+  if (parsed.prdpExpiryDate) parts.push(`PrDP exp ${parsed.prdpExpiryDate}`);
+  return parts.length ? parts.join(" · ") : null;
+}
+
+function applyIdentityToPerson(person: PersonDraft, parsed: ParsedSaId, isLicence: boolean): PersonDraft {
+  return {
+    ...person,
+    fullName: parsed.personFullName ?? person.fullName,
+    idNumber: parsed.personIdNumber ?? person.idNumber,
+    licenceNote: isLicence ? buildLicenceNote(parsed) : null,
+    showManual: true,
+  };
+}
+
 export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProps) {
   const { toast } = useToast();
   const qc = useQueryClient();
-  const personPhotoRef = useRef<HTMLInputElement>(null);
   const vehiclePhotoRef = useRef<HTMLInputElement>(null);
   const discPhotoRef = useRef<HTMLInputElement>(null);
+  const personPhotoRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
+  const [mode, setMode] = useState<EntryMode>("walk_in");
   const [category, setCategory] = useState<AccessEntryCategory>("visitor");
   const [destinationId, setDestinationId] = useState("");
-  const [personFullName, setPersonFullName] = useState("");
-  const [personIdNumber, setPersonIdNumber] = useState("");
+  const [people, setPeople] = useState<PersonDraft[]>([emptyPerson()]);
   const [companyName, setCompanyName] = useState("");
   const [contactNumber, setContactNumber] = useState("");
   const [purpose, setPurpose] = useState("");
-  const [hasVehicle, setHasVehicle] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [vehicle, setVehicle] = useState(emptyVehicle);
-  const [personPhotoUrl, setPersonPhotoUrl] = useState<string | null>(null);
+  const [vehicleManual, setVehicleManual] = useState(false);
   const [vehiclePhotoUrl, setVehiclePhotoUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [scanTarget, setScanTarget] = useState<"national_id" | "drivers_licence" | "disc" | null>(null);
-  const [licenceScanNote, setLicenceScanNote] = useState<string | null>(null);
+  const [scanPersonKey, setScanPersonKey] = useState<string | null>(null);
   const [discScanNote, setDiscScanNote] = useState<string | null>(null);
   const [discPhotoBusy, setDiscPhotoBusy] = useState(false);
+
+  function updatePerson(key: string, patch: Partial<PersonDraft>) {
+    setPeople((list) => list.map((p) => (p.key === key ? { ...p, ...patch } : p)));
+  }
+
+  function setModeAndReset(next: EntryMode) {
+    setMode(next);
+    setPeople([emptyPerson()]);
+    setVehicle(emptyVehicle);
+    setVehicleManual(false);
+    setVehiclePhotoUrl(null);
+    setDiscScanNote(null);
+  }
 
   function applyDiscScan(parsed: ParsedSaVehicleDisc) {
     setVehicle((v) => ({
@@ -71,17 +146,7 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
       colour: parsed.colour ?? v.colour,
     }));
     setDiscScanNote(parsed.hint ?? null);
-  }
-
-  function buildLicenceNote(parsed: ReturnType<typeof parseSaIdentityScan>): string | null {
-    if (parsed.documentType !== "drivers_licence") return null;
-    const parts: string[] = [];
-    if (parsed.driversLicenceNumber) parts.push(`DL ${parsed.driversLicenceNumber}`);
-    if (parsed.licenceExpiryDate) parts.push(`expires ${parsed.licenceExpiryDate}`);
-    if (parsed.vehicleCodes?.length) parts.push(`codes ${parsed.vehicleCodes.join(", ")}`);
-    if (parsed.prdpCode) parts.push(`PrDP ${parsed.prdpCode}`);
-    if (parsed.prdpExpiryDate) parts.push(`PrDP exp ${parsed.prdpExpiryDate}`);
-    return parts.length ? parts.join(" · ") : null;
+    setVehicleManual(true);
   }
 
   async function uploadPhoto(file: File, setter: (url: string) => void) {
@@ -100,27 +165,46 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
     }
   }
 
+  const readyPeople = people.filter((p) => p.fullName.trim());
+  const vehicleReady =
+    mode === "walk_in" ||
+    !!vehicle.registration.trim() ||
+    !!vehicle.licenceDiscData.trim();
+  const canSubmit = !!destinationId && readyPeople.length > 0 && vehicleReady;
+
   const createMutation = useMutation({
     mutationFn: async () => {
       const destId = parseInt(destinationId, 10);
       if (!destinationId || isNaN(destId)) {
         throw new Error("Select a destination");
       }
-      if (!personFullName.trim()) {
-        throw new Error("Enter the person's name");
+      if (!readyPeople.length) {
+        throw new Error("Add at least one person");
       }
+      if (mode === "vehicle" && !vehicle.registration.trim() && !vehicle.licenceDiscData.trim()) {
+        throw new Error("Scan the disc or enter the vehicle registration");
+      }
+
       const body: Record<string, unknown> = {
         category,
         destinationId: destId,
-        personFullName: personFullName.trim(),
-        personIdNumber: personIdNumber.trim() || null,
         companyName: companyName.trim() || null,
         contactNumber: contactNumber.trim() || null,
         purpose: purpose.trim() || null,
-        personPhotoUrl,
-        vehiclePhotoUrl: hasVehicle ? vehiclePhotoUrl : null,
+        vehiclePhotoUrl: mode === "vehicle" ? vehiclePhotoUrl : null,
+        people: people
+          .map((p, index) => ({ p, index }))
+          .filter(({ p }) => p.fullName.trim())
+          .map(({ p, index }) => ({
+            personFullName: p.fullName.trim(),
+            personIdNumber: p.idNumber.trim() || null,
+            personPhotoUrl: p.photoUrl,
+            partyRole:
+              mode === "walk_in" ? "walk_in" : index === 0 ? "driver" : "passenger",
+          })),
       };
-      if (hasVehicle) {
+
+      if (mode === "vehicle") {
         body.vehicle = {
           registration: vehicle.registration.trim() || null,
           make: vehicle.make.trim() || null,
@@ -129,23 +213,27 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
           licenceDiscData: vehicle.licenceDiscData.trim() || null,
         };
       }
+
       return apiRequest("POST", "/api/access-control/entries", body);
     },
     onSuccess: () => {
+      const count = readyPeople.length;
       toast({
-        title: "Checked in",
-        description: "Person is inside. Use Check out tab to scan them on exit.",
+        title: count > 1 ? `Checked in ${count} people` : "Checked in",
+        description:
+          count > 1
+            ? "Party is inside. Use Check out to scan each person on exit."
+            : "Person is inside. Use Check out tab to scan them on exit.",
       });
-      setPersonFullName("");
-      setPersonIdNumber("");
+      setPeople([emptyPerson()]);
       setCompanyName("");
       setContactNumber("");
       setPurpose("");
-      setHasVehicle(false);
+      setDetailsOpen(false);
       setVehicle(emptyVehicle);
-      setPersonPhotoUrl(null);
+      setVehicleManual(false);
       setVehiclePhotoUrl(null);
-      setLicenceScanNote(null);
+      setDiscScanNote(null);
       void qc.invalidateQueries({ queryKey: currentlyInsideQueryKey });
       onCreated();
     },
@@ -154,8 +242,37 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
     },
   });
 
+  function openPersonScan(personKey: string, kind: "national_id" | "drivers_licence") {
+    setScanPersonKey(personKey);
+    setScanTarget(kind);
+  }
+
   return (
     <div className="space-y-5 pb-6">
+      <div>
+        <Label className="text-xs text-muted-foreground uppercase tracking-wide">Entry type</Label>
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <Button
+            type="button"
+            variant={mode === "walk_in" ? "default" : "outline"}
+            className="h-12 justify-start gap-2"
+            onClick={() => setModeAndReset("walk_in")}
+          >
+            <User className="h-4 w-4" />
+            Walk-in
+          </Button>
+          <Button
+            type="button"
+            variant={mode === "vehicle" ? "default" : "outline"}
+            className="h-12 justify-start gap-2"
+            onClick={() => setModeAndReset("vehicle")}
+          >
+            <Car className="h-4 w-4" />
+            Vehicle
+          </Button>
+        </div>
+      </div>
+
       <div>
         <Label className="text-xs text-muted-foreground uppercase tracking-wide">Category</Label>
         <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -189,145 +306,22 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
         </Select>
       </div>
 
-      <div className="space-y-3 rounded-lg border p-4">
-        <div className="flex items-center gap-2 font-medium text-sm">
-          <User className="h-4 w-4" />
-          Person
-        </div>
-        <div>
-          <Label htmlFor="ac-name">Full name *</Label>
-          <Input
-            id="ac-name"
-            className="mt-1 h-11"
-            value={personFullName}
-            onChange={(e) => setPersonFullName(e.target.value)}
-            placeholder="Full name"
-            autoComplete="name"
-          />
-        </div>
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <div className="flex-1">
-            <Label htmlFor="ac-id">ID number</Label>
-            <Input
-              id="ac-id"
-              className="mt-1 h-11"
-              value={personIdNumber}
-              onChange={(e) => setPersonIdNumber(e.target.value)}
-              placeholder="ID or passport"
-            />
-          </div>
-          <div className="flex gap-2 mt-6 shrink-0">
-            <Button
-              type="button"
-              variant="outline"
-              className="h-11 flex-1 sm:flex-none"
-              onClick={() => setScanTarget("national_id")}
-            >
-              <ScanLine className="h-4 w-4 mr-1" />
-              Scan ID
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="h-11 flex-1 sm:flex-none"
-              onClick={() => setScanTarget("drivers_licence")}
-            >
-              <ScanLine className="h-4 w-4 mr-1" />
-              Scan licence
-            </Button>
-          </div>
-        </div>
-        <p className="text-xs text-muted-foreground -mt-1">
-          <span className="font-medium">Scan ID</span> for Smart ID or ID book (Binary Eye).
-          <span className="font-medium">Scan licence</span> — Binary Eye barcode scan; photo of front if needed.
-        </p>
-        {licenceScanNote && (
-          <p className="text-xs text-muted-foreground rounded-md border bg-muted/40 px-3 py-2">
-            {licenceScanNote}
-          </p>
-        )}
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <Label htmlFor="ac-company">Company</Label>
-            <Input
-              id="ac-company"
-              className="mt-1"
-              value={companyName}
-              onChange={(e) => setCompanyName(e.target.value)}
-            />
-          </div>
-          <div>
-            <Label htmlFor="ac-phone">Contact</Label>
-            <Input
-              id="ac-phone"
-              className="mt-1"
-              type="tel"
-              value={contactNumber}
-              onChange={(e) => setContactNumber(e.target.value)}
-            />
-          </div>
-        </div>
-        <div>
-          <Label htmlFor="ac-purpose">Purpose</Label>
-          <Textarea
-            id="ac-purpose"
-            className="mt-1 min-h-[72px]"
-            value={purpose}
-            onChange={(e) => setPurpose(e.target.value)}
-            placeholder="Reason for visit"
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <input
-            ref={personPhotoRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="hidden"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) void uploadPhoto(f, setPersonPhotoUrl);
-              e.target.value = "";
-            }}
-          />
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={uploading}
-            onClick={() => personPhotoRef.current?.click()}
-          >
-            <Camera className="h-4 w-4 mr-1" />
-            {personPhotoUrl ? "Person photo added" : "Person photo"}
-          </Button>
-        </div>
-      </div>
-
-      <div className="flex items-center justify-between rounded-lg border px-4 py-3">
-        <div className="flex items-center gap-2 text-sm font-medium">
-          <Car className="h-4 w-4" />
-          Vehicle on entry
-        </div>
-        <Switch checked={hasVehicle} onCheckedChange={setHasVehicle} />
-      </div>
-
-      {hasVehicle && (
+      {mode === "vehicle" && (
         <div className="space-y-3 rounded-lg border p-4">
-          <div>
-            <Label htmlFor="ac-reg">Registration</Label>
-            <Input
-              id="ac-reg"
-              className="mt-1 h-11 uppercase"
-              value={vehicle.registration}
-              onChange={(e) => setVehicle((v) => ({ ...v, registration: e.target.value }))}
-            />
+          <div className="flex items-center gap-2 font-medium text-sm">
+            <Car className="h-4 w-4" />
+            Vehicle
           </div>
+
           <div className="flex flex-wrap gap-2">
             <Button
               type="button"
-              variant="outline"
-              className="h-11 shrink-0"
-              onClick={() => setScanTarget("disc")}
+              variant={vehicleManual || vehicle.registration ? "outline" : "default"}
+              className="h-11 flex-1 sm:flex-none"
+              onClick={() => {
+                setScanPersonKey(null);
+                setScanTarget("disc");
+              }}
             >
               <ScanLine className="h-4 w-4 mr-1" />
               Scan disc
@@ -368,7 +362,7 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
             <Button
               type="button"
               variant="outline"
-              className="h-11 shrink-0"
+              className="h-11 flex-1 sm:flex-none"
               disabled={discPhotoBusy}
               onClick={() => discPhotoRef.current?.click()}
             >
@@ -376,64 +370,173 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
               {discPhotoBusy ? "Reading…" : "Photo of disc"}
             </Button>
           </div>
-          {discScanNote && (
-            <p className="text-xs text-muted-foreground">{discScanNote}</p>
+
+          {!vehicleManual && !vehicle.registration ? (
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-9 px-0 text-muted-foreground"
+              onClick={() => setVehicleManual(true)}
+            >
+              No disc — enter manually
+            </Button>
+          ) : (
+            <div className="space-y-3">
+              {discScanNote && (
+                <p className="text-xs text-muted-foreground">{discScanNote}</p>
+              )}
+              <div>
+                <Label htmlFor="ac-reg">Registration *</Label>
+                <Input
+                  id="ac-reg"
+                  className="mt-1 h-11 uppercase"
+                  value={vehicle.registration}
+                  onChange={(e) => setVehicle((v) => ({ ...v, registration: e.target.value }))}
+                  placeholder="e.g. CA 123-456"
+                />
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <Label>Make</Label>
+                  <Input
+                    className="mt-1"
+                    value={vehicle.make}
+                    onChange={(e) => setVehicle((v) => ({ ...v, make: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <Label>Model</Label>
+                  <Input
+                    className="mt-1"
+                    value={vehicle.model}
+                    onChange={(e) => setVehicle((v) => ({ ...v, model: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <Label>Colour</Label>
+                  <Input
+                    className="mt-1"
+                    value={vehicle.colour}
+                    onChange={(e) => setVehicle((v) => ({ ...v, colour: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <input
+                ref={vehiclePhotoRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) void uploadPhoto(f, setVehiclePhotoUrl);
+                  e.target.value = "";
+                }}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={uploading}
+                onClick={() => vehiclePhotoRef.current?.click()}
+              >
+                <Camera className="h-4 w-4 mr-1" />
+                {vehiclePhotoUrl ? "Vehicle photo added" : "Vehicle photo"}
+              </Button>
+            </div>
           )}
-          <div className="grid grid-cols-3 gap-2">
+        </div>
+      )}
+
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 font-medium text-sm">
+            <User className="h-4 w-4" />
+            {mode === "vehicle" ? "People in vehicle" : "Person"}
+          </div>
+          {mode === "vehicle" && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setPeople((list) => [...list, emptyPerson()])}
+            >
+              <UserPlus className="h-4 w-4 mr-1" />
+              Add person
+            </Button>
+          )}
+        </div>
+
+        {people.map((person, index) => (
+          <PersonCard
+            key={person.key}
+            person={person}
+            index={index}
+            mode={mode}
+            canRemove={mode === "vehicle" && people.length > 1}
+            uploading={uploading}
+            photoRef={(el) => {
+              personPhotoRefs.current[person.key] = el;
+            }}
+            onScanId={() => openPersonScan(person.key, "national_id")}
+            onScanLicence={() => openPersonScan(person.key, "drivers_licence")}
+            onShowManual={() => updatePerson(person.key, { showManual: true })}
+            onChange={(patch) => updatePerson(person.key, patch)}
+            onRemove={() => setPeople((list) => list.filter((p) => p.key !== person.key))}
+            onPhoto={(file) =>
+              void uploadPhoto(file, (url) => updatePerson(person.key, { photoUrl: url }))
+            }
+            onPickPhoto={() => personPhotoRefs.current[person.key]?.click()}
+          />
+        ))}
+      </div>
+
+      <Collapsible open={detailsOpen} onOpenChange={setDetailsOpen}>
+        <CollapsibleTrigger asChild>
+          <Button type="button" variant="ghost" className="w-full justify-between h-10 px-0">
+            <span className="text-sm text-muted-foreground">Company, contact & purpose</span>
+            <ChevronDown className={cn("h-4 w-4 transition-transform", detailsOpen && "rotate-180")} />
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="space-y-3 pt-1">
+          <div className="grid grid-cols-2 gap-2">
             <div>
-              <Label>Make</Label>
+              <Label htmlFor="ac-company">Company</Label>
               <Input
+                id="ac-company"
                 className="mt-1"
-                value={vehicle.make}
-                onChange={(e) => setVehicle((v) => ({ ...v, make: e.target.value }))}
+                value={companyName}
+                onChange={(e) => setCompanyName(e.target.value)}
               />
             </div>
             <div>
-              <Label>Model</Label>
+              <Label htmlFor="ac-phone">Contact</Label>
               <Input
+                id="ac-phone"
                 className="mt-1"
-                value={vehicle.model}
-                onChange={(e) => setVehicle((v) => ({ ...v, model: e.target.value }))}
-              />
-            </div>
-            <div>
-              <Label>Colour</Label>
-              <Input
-                className="mt-1"
-                value={vehicle.colour}
-                onChange={(e) => setVehicle((v) => ({ ...v, colour: e.target.value }))}
+                type="tel"
+                value={contactNumber}
+                onChange={(e) => setContactNumber(e.target.value)}
               />
             </div>
           </div>
-          <input
-            ref={vehiclePhotoRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="hidden"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) void uploadPhoto(f, setVehiclePhotoUrl);
-              e.target.value = "";
-            }}
-          />
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={uploading}
-            onClick={() => vehiclePhotoRef.current?.click()}
-          >
-            <Camera className="h-4 w-4 mr-1" />
-            {vehiclePhotoUrl ? "Vehicle photo added" : "Vehicle photo"}
-          </Button>
-        </div>
-      )}
+          <div>
+            <Label htmlFor="ac-purpose">Purpose</Label>
+            <Textarea
+              id="ac-purpose"
+              className="mt-1 min-h-[72px]"
+              value={purpose}
+              onChange={(e) => setPurpose(e.target.value)}
+              placeholder="Reason for visit"
+            />
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
 
       <Button
         type="button"
         className="w-full h-12 text-base"
-        disabled={createMutation.isPending || uploading || !destinationId || !personFullName.trim()}
+        disabled={createMutation.isPending || uploading || !canSubmit}
         onClick={() => createMutation.mutate()}
       >
         {createMutation.isPending ? (
@@ -441,6 +544,8 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
             <Loader2 className="h-4 w-4 mr-2 animate-spin" />
             Logging check-in…
           </>
+        ) : readyPeople.length > 1 ? (
+          `Check in ${readyPeople.length} people`
         ) : (
           "Check in"
         )}
@@ -450,22 +555,164 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
         open={scanTarget !== null}
         kind={scanTarget}
         onOpenChange={(o) => {
-          if (!o) setScanTarget(null);
+          if (!o) {
+            setScanTarget(null);
+            setScanPersonKey(null);
+          }
         }}
         onIdScan={(parsed) => {
-          if (parsed.personFullName) setPersonFullName(parsed.personFullName);
-          if (parsed.personIdNumber) setPersonIdNumber(parsed.personIdNumber);
-          setLicenceScanNote(null);
+          if (!scanPersonKey) return;
+          setPeople((list) =>
+            list.map((p) =>
+              p.key === scanPersonKey ? applyIdentityToPerson(p, parsed, false) : p,
+            ),
+          );
         }}
         onLicenceScan={(parsed) => {
-          if (parsed.personFullName) setPersonFullName(parsed.personFullName);
-          if (parsed.personIdNumber) setPersonIdNumber(parsed.personIdNumber);
-          setLicenceScanNote(buildLicenceNote(parsed));
+          if (!scanPersonKey) return;
+          setPeople((list) =>
+            list.map((p) =>
+              p.key === scanPersonKey ? applyIdentityToPerson(p, parsed, true) : p,
+            ),
+          );
         }}
         onDiscScan={(parsed) => {
           applyDiscScan(parsed);
         }}
       />
+    </div>
+  );
+}
+
+function PersonCard({
+  person,
+  index,
+  mode,
+  canRemove,
+  uploading,
+  photoRef,
+  onScanId,
+  onScanLicence,
+  onShowManual,
+  onChange,
+  onRemove,
+  onPhoto,
+  onPickPhoto,
+}: {
+  person: PersonDraft;
+  index: number;
+  mode: EntryMode;
+  canRemove: boolean;
+  uploading: boolean;
+  photoRef: (el: HTMLInputElement | null) => void;
+  onScanId: () => void;
+  onScanLicence: () => void;
+  onShowManual: () => void;
+  onChange: (patch: Partial<PersonDraft>) => void;
+  onRemove: () => void;
+  onPhoto: (file: File) => void;
+  onPickPhoto: () => void;
+}) {
+  const baseId = useId();
+  const roleLabel =
+    mode === "walk_in" ? "Person" : index === 0 ? "Driver" : `Passenger ${index}`;
+  const hasIdentity = !!(person.fullName.trim() || person.idNumber.trim());
+
+  return (
+    <div className="space-y-3 rounded-lg border p-4">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm font-medium">{roleLabel}</p>
+        {canRemove && (
+          <Button type="button" variant="ghost" size="sm" className="h-8 text-muted-foreground" onClick={onRemove}>
+            <Trash2 className="h-4 w-4 mr-1" />
+            Remove
+          </Button>
+        )}
+      </div>
+
+      {!person.showManual && !hasIdentity ? (
+        <div className="space-y-2">
+          <div className="flex gap-2">
+            <Button type="button" className="h-11 flex-1" onClick={onScanId}>
+              <ScanLine className="h-4 w-4 mr-1" />
+              Scan ID
+            </Button>
+            <Button type="button" className="h-11 flex-1" onClick={onScanLicence}>
+              <ScanLine className="h-4 w-4 mr-1" />
+              Scan licence
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Scan ID for Smart ID or ID book. Scan licence for driver&apos;s licence barcode.
+          </p>
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-9 px-0 text-muted-foreground"
+            onClick={onShowManual}
+          >
+            <Plus className="h-4 w-4 mr-1" />
+            No ID — enter manually
+          </Button>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" className="h-11 flex-1" onClick={onScanId}>
+              <ScanLine className="h-4 w-4 mr-1" />
+              Scan ID
+            </Button>
+            <Button type="button" variant="outline" className="h-11 flex-1" onClick={onScanLicence}>
+              <ScanLine className="h-4 w-4 mr-1" />
+              Scan licence
+            </Button>
+          </div>
+          {person.licenceNote && (
+            <p className="text-xs text-muted-foreground rounded-md border bg-muted/40 px-3 py-2">
+              {person.licenceNote}
+            </p>
+          )}
+          <div>
+            <Label htmlFor={`${baseId}-name`}>Full name *</Label>
+            <Input
+              id={`${baseId}-name`}
+              className="mt-1 h-11"
+              value={person.fullName}
+              onChange={(e) => onChange({ fullName: e.target.value })}
+              placeholder="Full name"
+              autoComplete="name"
+            />
+          </div>
+          <div>
+            <Label htmlFor={`${baseId}-id`}>ID number</Label>
+            <Input
+              id={`${baseId}-id`}
+              className="mt-1 h-11"
+              value={person.idNumber}
+              onChange={(e) => onChange({ idNumber: e.target.value })}
+              placeholder="ID or passport"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              ref={photoRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) onPhoto(f);
+                e.target.value = "";
+              }}
+            />
+            <Button type="button" variant="outline" size="sm" disabled={uploading} onClick={onPickPhoto}>
+              <Camera className="h-4 w-4 mr-1" />
+              {person.photoUrl ? "Person photo added" : "Person photo"}
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

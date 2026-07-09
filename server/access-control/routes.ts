@@ -5,7 +5,7 @@ import {
   insertDestinationSchema,
 } from "@shared/schema";
 import {
-  createAccessEntry,
+  createAccessVisit,
   createDestination,
   getCurrentlyInside,
   getDestinations,
@@ -46,18 +46,40 @@ const vehicleInputSchema = z.object({
   licenceDiscData: z.string().max(512).optional().nullable(),
 });
 
-const createEntrySchema = z.object({
-  category: z.enum(ACCESS_ENTRY_CATEGORIES),
-  destinationId: z.number().int().positive(),
+const personInputSchema = z.object({
   personFullName: z.string().min(1).max(200),
   personIdNumber: z.string().max(32).optional().nullable(),
-  companyName: z.string().max(200).optional().nullable(),
-  contactNumber: z.string().max(32).optional().nullable(),
-  purpose: z.string().max(500).optional().nullable(),
   personPhotoUrl: z.string().max(2000).optional().nullable(),
-  vehiclePhotoUrl: z.string().max(2000).optional().nullable(),
-  vehicle: vehicleInputSchema.optional().nullable(),
+  partyRole: z.enum(["walk_in", "driver", "passenger"]).optional().nullable(),
 });
+
+const createEntrySchema = z
+  .object({
+    category: z.enum(ACCESS_ENTRY_CATEGORIES),
+    destinationId: z.number().int().positive(),
+    companyName: z.string().max(200).optional().nullable(),
+    contactNumber: z.string().max(32).optional().nullable(),
+    purpose: z.string().max(500).optional().nullable(),
+    vehiclePhotoUrl: z.string().max(2000).optional().nullable(),
+    vehicle: vehicleInputSchema.optional().nullable(),
+    /** Multi-person visit (preferred). */
+    people: z.array(personInputSchema).min(1).max(20).optional(),
+    /** Legacy single-person fields — still accepted. */
+    personFullName: z.string().min(1).max(200).optional(),
+    personIdNumber: z.string().max(32).optional().nullable(),
+    personPhotoUrl: z.string().max(2000).optional().nullable(),
+    partyRole: z.enum(["walk_in", "driver", "passenger"]).optional().nullable(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.people?.length) return;
+    if (!data.personFullName?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Provide people[] or personFullName",
+        path: ["personFullName"],
+      });
+    }
+  });
 
 export function registerAccessControlRoutes(app: Express) {
   // ── Destinations ────────────────────────────────────────────────────────────
@@ -287,8 +309,31 @@ export function registerAccessControlRoutes(app: Express) {
       return res.status(400).json({ message: "Select a valid active destination" });
     }
 
-    const entry = await createAccessEntry(orgId, userId, parsed.data);
-    res.status(201).json(entry);
+    const people =
+      parsed.data.people?.length
+        ? parsed.data.people
+        : [
+            {
+              personFullName: parsed.data.personFullName!,
+              personIdNumber: parsed.data.personIdNumber,
+              personPhotoUrl: parsed.data.personPhotoUrl,
+              partyRole: parsed.data.partyRole,
+            },
+          ];
+
+    const entries = await createAccessVisit(orgId, userId, {
+      category: parsed.data.category,
+      destinationId: parsed.data.destinationId,
+      companyName: parsed.data.companyName,
+      contactNumber: parsed.data.contactNumber,
+      purpose: parsed.data.purpose,
+      vehiclePhotoUrl: parsed.data.vehiclePhotoUrl,
+      vehicle: parsed.data.vehicle,
+      people,
+    });
+
+    // Keep single-person clients working; multi-person gets the full array.
+    res.status(201).json(entries.length === 1 ? entries[0] : entries);
   });
 
   app.post("/api/access-control/entries/:id/exit", requireAccessRole, async (req, res) => {

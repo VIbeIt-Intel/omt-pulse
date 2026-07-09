@@ -515,12 +515,18 @@ export const insertDestinationSchema = createInsertSchema(destinations).omit({ i
 export type InsertDestination = z.infer<typeof insertDestinationSchema>;
 export type Destination = typeof destinations.$inferSelect;
 
+export const ACCESS_PARTY_ROLES = ["walk_in", "driver", "passenger"] as const;
+export type AccessPartyRole = (typeof ACCESS_PARTY_ROLES)[number];
+
 export const accessLogs = pgTable("access_logs", {
   id: serial("id").primaryKey(),
   organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
   category: text("category").notNull(),
   destinationId: integer("destination_id").notNull().references(() => destinations.id, { onDelete: "restrict" }),
   status: text("status").notNull().default("inside"),
+  /** Shared id for everyone checked in together (e.g. one vehicle party). */
+  visitGroupId: varchar("visit_group_id"),
+  partyRole: text("party_role"),
   personFullName: text("person_full_name").notNull(),
   personIdNumber: text("person_id_number"),
   companyName: text("company_name"),

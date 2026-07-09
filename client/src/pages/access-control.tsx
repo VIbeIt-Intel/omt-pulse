@@ -5,20 +5,20 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AccessEntryForm } from "@/components/access-control/access-entry-form";
-import { CurrentlyInsidePanel } from "@/components/access-control/currently-inside-panel";
+import { AccessCheckoutPanel } from "@/components/access-control/access-checkout-panel";
 import { DestinationAdminSheet } from "@/components/access-control/destination-admin-sheet";
 import {
   currentlyInsideQueryKey,
   currentlyInsideQueryOptions,
 } from "@/lib/access-control-queries";
-import { DoorOpen, List, Plus, ShieldCheck } from "lucide-react";
+import { DoorOpen, LogOut, Plus, ShieldCheck } from "lucide-react";
 
 type AccessControlPageProps = {
   userRole: string;
 };
 
 export default function AccessControlPage({ userRole }: AccessControlPageProps) {
-  const [tab, setTab] = useState<"entry" | "inside">("entry");
+  const [tab, setTab] = useState<"checkin" | "checkout">("checkin");
   const [destSheetOpen, setDestSheetOpen] = useState(false);
   const isAdmin = userRole === "administrator";
   const qc = useQueryClient();
@@ -43,7 +43,7 @@ export default function AccessControlPage({ userRole }: AccessControlPageProps) 
   });
 
   useEffect(() => {
-    if (tab === "inside") {
+    if (tab === "checkout") {
       void qc.invalidateQueries({ queryKey: currentlyInsideQueryKey });
     }
   }, [tab, qc]);
@@ -58,7 +58,7 @@ export default function AccessControlPage({ userRole }: AccessControlPageProps) 
             </div>
             <div>
               <h1 className="text-lg font-semibold leading-tight">Access Control</h1>
-              <p className="text-xs text-muted-foreground">Log entries &amp; track who is inside</p>
+              <p className="text-xs text-muted-foreground">Scan people &amp; vehicles in, then check them out</p>
             </div>
           </div>
           {isAdmin && (
@@ -72,17 +72,17 @@ export default function AccessControlPage({ userRole }: AccessControlPageProps) 
 
       <Tabs
         value={tab}
-        onValueChange={(v) => setTab(v as "entry" | "inside")}
+        onValueChange={(v) => setTab(v as "checkin" | "checkout")}
         className="flex flex-col flex-1 min-h-0"
       >
         <TabsList className="mx-4 mt-3 grid w-auto grid-cols-2 shrink-0">
-          <TabsTrigger value="entry" className="gap-1.5">
+          <TabsTrigger value="checkin" className="gap-1.5">
             <DoorOpen className="h-4 w-4" />
-            New entry
+            Check in
           </TabsTrigger>
-          <TabsTrigger value="inside" className="gap-1.5">
-            <List className="h-4 w-4" />
-            Currently inside
+          <TabsTrigger value="checkout" className="gap-1.5">
+            <LogOut className="h-4 w-4" />
+            Check out
             {inside.length > 0 && (
               <span className="ml-1 rounded-full bg-primary text-primary-foreground text-[10px] px-1.5 py-0.5 min-w-[1.25rem]">
                 {inside.length}
@@ -112,14 +112,14 @@ export default function AccessControlPage({ userRole }: AccessControlPageProps) 
             </div>
           ) : (
             <>
-              <TabsContent value="entry" className="mt-0">
+              <TabsContent value="checkin" className="mt-0">
                 <AccessEntryForm
                   destinations={activeDestinations}
-                  onCreated={() => setTab("inside")}
+                  onCreated={() => setTab("checkout")}
                 />
               </TabsContent>
-              <TabsContent value="inside" className="mt-0">
-                <CurrentlyInsidePanel />
+              <TabsContent value="checkout" className="mt-0">
+                <AccessCheckoutPanel />
               </TabsContent>
             </>
           )}
