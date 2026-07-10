@@ -20,6 +20,8 @@ import { parseFile, suggestMapping, resolveRows, collectUnknownReferences, build
 import * as XLSX from "xlsx";
 import { CENTRAL_COMMAND_NAME } from "./archon-constants";
 import { sendArchonWelcomeEmail } from "./archon-welcome-email";
+import { createInviteToken, hashPlaceholderPassword } from "./user-invite";
+import { appInviteUrl } from "@shared/app-url";
 
 const objectStorageService = new ObjectStorageService();
 
@@ -1313,7 +1315,7 @@ export async function registerRoutes(
       return res.status(400).json({ message: "Password must be at least 10 characters" });
     }
 
-    const isSame = await bcrypt.compare(newPassword, user.password);
+    const isSame = !user.mustChangePassword && (await bcrypt.compare(newPassword, user.password));
     if (isSame) return res.status(400).json({ message: "New password must be different from your current password" });
 
     const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS);
@@ -2175,7 +2177,7 @@ export async function registerRoutes(
       return res.status(404).json({ message: "User not found" });
     }
     const inviteToken = crypto.randomUUID();
-    const inviteTokenExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const inviteTokenExpiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000);
     const updated = await storage.updateUser(id, { inviteToken, inviteTokenExpiresAt });
     if (!updated) return res.status(500).json({ message: "Failed to update user" });
     const { password: _pw, ...safeUser } = updated;
@@ -4346,6 +4348,33 @@ export async function registerRoutes(
     res.json({ success: true });
   });
 
+  app.post("/api/archon/users/:id/resend-invite", requireArchon, async (req, res) => {
+    const { id } = req.params as { id: string };
+    const user = await storage.getUserById(id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+    if (!user.isActive) return res.status(400).json({ message: "Cannot send invite to an inactive user" });
+    if (!user.mustChangePassword) {
+      return res.status(400).json({ message: "This user has already activated their account" });
+    }
+
+    const org = await storage.getOrganization(user.organizationId);
+    if (!org) return res.status(404).json({ message: "Organisation not found" });
+
+    const { token, expiresAt } = createInviteToken();
+    const updated = await storage.updateUser(id, { inviteToken: token, inviteTokenExpiresAt: expiresAt });
+    if (!updated) return res.status(500).json({ message: "Failed to update invite" });
+
+    const welcomeEmailSent = await sendArchonWelcomeEmail({
+      org,
+      adminFirstName: user.firstName,
+      adminEmail: user.email,
+      inviteToken: token,
+    });
+
+    const inviteUrl = appInviteUrl(token);
+    res.json({ inviteUrl, inviteToken: token, inviteTokenExpiresAt: expiresAt, welcomeEmailSent });
+  });
+
   app.patch("/api/archon/orgs/:orgId/complimentary", requireArchon, async (req, res) => {
     const { orgId } = req.params as { orgId: string };
     const { isComplimentary } = req.body;
@@ -4371,7 +4400,7 @@ export async function registerRoutes(
       orgName, orgAddress, orgPhone,
       companyRegistrationNumber, vatNumber,
       primaryContactFirstName, primaryContactLastName, primaryContactEmail, primaryContactPhone,
-      adminFirstName, adminLastName, adminEmail, adminPassword,
+      adminFirstName, adminLastName, adminEmail,
       contractRef, contractStartDate, contractRenewalDate,
       rateAdmin, rateSupervisor, rateReporter, rateAccessController, rateControlRoom, ratePatrolUser,
       storageLimitGb, billingNotes,
@@ -4381,14 +4410,12 @@ export async function registerRoutes(
     if (!orgName || typeof orgName !== "string") return res.status(400).json({ message: "Organisation name is required" });
     if (!adminFirstName || !adminLastName) return res.status(400).json({ message: "Technical administrator first and last name are required" });
     if (!adminEmail || typeof adminEmail !== "string") return res.status(400).json({ message: "Technical administrator email is required" });
-    if (!adminPassword || typeof adminPassword !== "string" || adminPassword.length < 6) {
-      return res.status(400).json({ message: "Technical administrator password must be at least 6 characters" });
-    }
 
     const existing = await storage.getUserByEmail(adminEmail.toLowerCase().trim());
     if (existing) return res.status(400).json({ message: "An account with this email already exists" });
 
-    const hashedPassword = await bcrypt.hash(adminPassword, SALT_ROUNDS);
+    const { token: inviteToken, expiresAt: inviteTokenExpiresAt } = createInviteToken();
+    const hashedPassword = await hashPlaceholderPassword();
 
     const org = await storage.createOrganization({
       name: orgName.trim(),
@@ -4422,6 +4449,9 @@ export async function registerRoutes(
       email: adminEmail.toLowerCase().trim(),
       password: hashedPassword,
       role: "administrator",
+      mustChangePassword: true,
+      inviteToken,
+      inviteTokenExpiresAt,
     });
 
     await seedFormFieldsForOrg(org.id);
@@ -4443,12 +4473,13 @@ export async function registerRoutes(
         org,
         adminFirstName: adminFirstName.trim(),
         adminEmail: adminEmail.toLowerCase().trim(),
-        adminPassword,
+        inviteToken,
       });
     }
 
+    const inviteUrl = appInviteUrl(inviteToken);
     const { password: _pw, ...safeUser } = user;
-    res.json({ org, user: safeUser, welcomeEmailSent });
+    res.json({ org, user: safeUser, welcomeEmailSent, inviteUrl, inviteToken });
   });
 
   // POST /api/archon/orgs/:orgId/users — add a user (any role) to an existing org

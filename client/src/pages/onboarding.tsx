@@ -107,7 +107,7 @@ function PasswordStep({ onSuccess }: { onSuccess: () => void }) {
       <div>
         <h2 className="font-semibold text-lg">Set your password</h2>
         <p className="text-sm text-muted-foreground mt-0.5">
-          Your account was created with a temporary password. Please set a new one now.
+          Choose a secure password for your OMT Pulse account.
         </p>
       </div>
 

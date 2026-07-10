@@ -1,7 +1,5 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Copy, CheckCheck, Share2, Link2 } from "lucide-react";
 import {
@@ -20,15 +18,11 @@ type ArchonOnboardingShareProps = {
 export function ArchonOnboardingShare({ open, onOpenChange, user, panelBg }: ArchonOnboardingShareProps) {
   const [copiedMsg, setCopiedMsg] = useState(false);
   const [copiedPlayLink, setCopiedPlayLink] = useState(false);
-  const [passwordOverride, setPasswordOverride] = useState("");
+  const [copiedInviteLink, setCopiedInviteLink] = useState(false);
 
   if (!user) return null;
 
-  const effectiveUser: OnboardingUserInfo = {
-    ...user,
-    password: passwordOverride || user.password,
-  };
-  const message = buildArchonOnboardingMessage(effectiveUser);
+  const message = buildArchonOnboardingMessage(user);
   const installUrl = archonInstallUrl();
 
   function handleCopyMsg() {
@@ -46,15 +40,23 @@ export function ArchonOnboardingShare({ open, onOpenChange, user, panelBg }: Arc
     });
   }
 
+  function handleCopyInviteLink() {
+    if (!user.inviteUrl) return;
+    navigator.clipboard.writeText(user.inviteUrl).then(() => {
+      setCopiedInviteLink(true);
+      setTimeout(() => setCopiedInviteLink(false), 2500);
+    });
+  }
+
   function handleWhatsApp() {
     window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, "_blank");
   }
 
   function handleClose(next: boolean) {
     if (!next) {
-      setPasswordOverride("");
       setCopiedMsg(false);
       setCopiedPlayLink(false);
+      setCopiedInviteLink(false);
     }
     onOpenChange(next);
   }
@@ -70,22 +72,8 @@ export function ArchonOnboardingShare({ open, onOpenChange, user, panelBg }: Arc
         </DialogHeader>
 
         <p className="text-sm text-white/60">
-          IntelAfri-only distribution. This message includes the Android install link and sign-in details.
+          IntelAfri-only distribution. Includes the invite link{installUrl ? " and Android install link" : ""}.
         </p>
-
-        {!user.password && (
-          <div className="space-y-1.5">
-            <Label className="text-white/50 text-xs">Password (optional — included in message)</Label>
-            <Input
-              type="text"
-              placeholder="Paste password if sharing credentials"
-              value={passwordOverride}
-              onChange={(e) => setPasswordOverride(e.target.value)}
-              className="bg-white/5 border-white/20 text-white placeholder:text-white/30 h-8 text-sm"
-              data-testid="input-archon-onboarding-password"
-            />
-          </div>
-        )}
 
         <div className="rounded-xl overflow-hidden border border-white/10">
           <div className="bg-[#075e54] px-4 py-2.5 flex items-center gap-2">
@@ -125,6 +113,21 @@ export function ArchonOnboardingShare({ open, onOpenChange, user, panelBg }: Arc
               : <><Copy className="h-4 w-4" /> Copy message</>}
           </Button>
         </div>
+
+        {user.inviteUrl && (
+          <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 flex items-center gap-2">
+            <Link2 className="h-3.5 w-3.5 text-primary shrink-0" />
+            <span className="flex-1 text-xs font-mono text-white/50 truncate">{user.inviteUrl}</span>
+            <button
+              type="button"
+              onClick={handleCopyInviteLink}
+              className="shrink-0 text-white/50 hover:text-white transition-colors"
+              data-testid="button-archon-copy-invite-link"
+            >
+              {copiedInviteLink ? <CheckCheck className="h-3.5 w-3.5 text-green-400" /> : <Copy className="h-3.5 w-3.5" />}
+            </button>
+          </div>
+        )}
 
         {installUrl ? (
           <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 flex items-center gap-2">

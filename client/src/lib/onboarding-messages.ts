@@ -1,38 +1,58 @@
 import { PLAY_STORE_URL, PLAY_TESTING_JOIN_URL } from "@/lib/site-links";
+import { OMT_APP_ORIGIN, appInviteUrl, appLoginUrl as sharedLoginUrl } from "@shared/app-url";
 
 export type OnboardingUserInfo = {
   firstName: string;
   email: string;
+  /** @deprecated Legacy password share — invite flow uses inviteUrl instead */
   password?: string;
+  inviteUrl?: string;
   orgName?: string | null;
 };
 
 export function appLoginUrl(): string {
-  const base = import.meta.env.VITE_APP_BASE_URL?.trim() || (typeof window !== "undefined" ? window.location.origin : "");
-  return `${base.replace(/\/$/, "")}/login`;
+  const base = import.meta.env.VITE_APP_BASE_URL?.trim();
+  return base ? `${base.replace(/\/$/, "")}/login` : sharedLoginUrl();
 }
 
-/** IntelAfri-only message — includes Android install link when configured. */
+/** IntelAfri-only message — invite link + Android install link when configured. */
 export function buildArchonOnboardingMessage(info: OnboardingUserInfo): string {
   const installLine = PLAY_TESTING_JOIN_URL
     ? `1) Install OMT Pulse (Android phone): ${PLAY_TESTING_JOIN_URL}`
     : PLAY_STORE_URL
       ? `1) Install OMT Pulse (Android phone): ${PLAY_STORE_URL}`
-      : "1) Install OMT Pulse — use the Android link IntelAfri sent you separately.";
-  const passwordLine = info.password ? `   Password: ${info.password}` : "";
+      : "1) Install OMT Pulse — contact support@intelafri.org for the Android install link.";
+
+  const activateLines = info.inviteUrl
+    ? [
+        "2) Activate your account (set your password):",
+        `   ${info.inviteUrl}`,
+        `   (For ${info.email} — expires in 72 hours, single use.)`,
+        "",
+        `3) Or sign in on the web after activation: ${appLoginUrl()}`,
+      ]
+    : info.password
+      ? [
+          "2) Open the app and sign in:",
+          `   Email: ${info.email}`,
+          `   Password: ${info.password}`,
+          "",
+          `Or sign in on the web: ${appLoginUrl()}`,
+        ]
+      : [
+          "2) Ask IntelAfri for your invite link to activate your account.",
+          `   Web login (after activation): ${appLoginUrl()}`,
+        ];
+
   return [
     `Hi ${info.firstName},`,
     "",
-    `You're set up on OMT Pulse (${info.orgName ?? "your organisation"}). On your Android phone:`,
+    `You're set up on OMT Pulse (${info.orgName ?? "your organisation"}).`,
     "",
     installLine,
-    "2) Open the app and sign in:",
-    `   Email: ${info.email}`,
-    passwordLine,
+    ...activateLines,
     "",
-    `Or sign in on the web: ${appLoginUrl()}`,
-    "",
-    "Use the same Gmail on your phone as that email. Allow notifications when asked.",
+    "Allow notifications when asked.",
     "Questions: support@intelafri.org",
   ]
     .filter(Boolean)
@@ -41,6 +61,20 @@ export function buildArchonOnboardingMessage(info: OnboardingUserInfo): string {
 
 /** Org-admin message — login only; no install links (IntelAfri controls distribution). */
 export function buildOrgAdminAccessMessage(info: OnboardingUserInfo): string {
+  if (info.inviteUrl) {
+    return [
+      `Hi ${info.firstName},`,
+      "",
+      `You're set up on OMT Pulse (${info.orgName ?? "your organisation"}).`,
+      "",
+      "1) Activate your account:",
+      `   ${info.inviteUrl}`,
+      "",
+      `2) After activation, sign in at ${appLoginUrl()}`,
+      "",
+      "Mobile app installation is arranged by IntelAfri — contact support@intelafri.org if you need the Android app.",
+    ].join("\n");
+  }
   const passwordLine = info.password ? `   Password: ${info.password}` : "";
   return [
     `Hi ${info.firstName},`,
@@ -64,3 +98,5 @@ export function buildOrgAdminAccessMessage(info: OnboardingUserInfo): string {
 export function archonInstallUrl(): string {
   return PLAY_TESTING_JOIN_URL || PLAY_STORE_URL || "";
 }
+
+export { OMT_APP_ORIGIN, appInviteUrl };

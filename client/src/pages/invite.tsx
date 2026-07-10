@@ -72,7 +72,7 @@ export default function InvitePage() {
           </div>
           <h1 className="text-2xl font-bold">You've been invited</h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            Setting up your account…
+            Activating your account…
           </p>
         </div>
 
@@ -88,7 +88,7 @@ export default function InvitePage() {
             <div className="flex flex-col items-center gap-3 py-6">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
               <p className="text-sm text-muted-foreground">
-                Welcome, {state.firstName}! Setting up your account in {state.orgName ?? "OMT"}…
+                Welcome, {state.firstName}! Next you&apos;ll set your password.
               </p>
             </div>
           )}

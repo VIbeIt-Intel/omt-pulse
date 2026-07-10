@@ -15,10 +15,11 @@ import {
   UserCheck, UserX, Trash2, ChevronDown, ChevronRight, Plus, Building2,
   Pencil, ToggleLeft, ToggleRight, FileText, TrendingUp, UserPlus,
   Download, Activity, Paperclip, CalendarDays, UserRound, Bell, MapPin,
-  Share2,
+  Share2, Mail,
 } from "lucide-react";
 import { ArchonOnboardingShare } from "@/components/archon-onboarding-share";
 import type { OnboardingUserInfo } from "@/lib/onboarding-messages";
+import { appInviteUrl } from "@shared/app-url";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 
@@ -92,11 +93,24 @@ type ArchonUser = {
   posting: string | null;
   role: string;
   isActive: boolean;
+  mustChangePassword?: boolean;
+  inviteToken?: string | null;
+  inviteTokenExpiresAt?: string | null;
   orgName: string;
   orgIsComplimentary: boolean;
   orgSubscriptionStatus: string;
   orgTrialEndsAt: string | null;
 };
+
+function userNeedsActivation(user: ArchonUser): boolean {
+  return !!user.mustChangePassword;
+}
+
+function userInviteUrl(user: ArchonUser): string | null {
+  if (!user.inviteToken) return null;
+  if (user.inviteTokenExpiresAt && new Date(user.inviteTokenExpiresAt) <= new Date()) return null;
+  return appInviteUrl(user.inviteToken);
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -172,7 +186,7 @@ type NewClientForm = {
   companyRegistrationNumber: string; vatNumber: string;
   primaryContactFirstName: string; primaryContactLastName: string;
   primaryContactEmail: string; primaryContactPhone: string;
-  adminFirstName: string; adminLastName: string; adminEmail: string; adminPassword: string;
+  adminFirstName: string; adminLastName: string; adminEmail: string;
   contractRef: string; contractStartDate: string; contractRenewalDate: string;
   rateAdmin: string; rateSupervisor: string; rateReporter: string; rateAccessController: string;
   rateControlRoom: string; ratePatrolUser: string;
@@ -186,7 +200,7 @@ const emptyNewClient = (): NewClientForm => ({
   companyRegistrationNumber: "", vatNumber: "",
   primaryContactFirstName: "", primaryContactLastName: "",
   primaryContactEmail: "", primaryContactPhone: "",
-  adminFirstName: "", adminLastName: "", adminEmail: "", adminPassword: "",
+  adminFirstName: "", adminLastName: "", adminEmail: "",
   contractRef: "", contractStartDate: "", contractRenewalDate: "",
   rateAdmin: "300", rateSupervisor: "200", rateReporter: "50", rateAccessController: "75",
   rateControlRoom: "100", ratePatrolUser: "100",
@@ -500,16 +514,49 @@ export default function ArchonDashboard() {
       const title = data.welcomeEmailSent
         ? `Client "${data.org.name}" created — welcome email sent`
         : `Client "${data.org.name}" created`;
-      toast({ title, description: data.welcomeEmailSent ? undefined : f.sendWelcomeEmail ? "Welcome email could not be sent (check SendGrid config)." : undefined });
+      const description = data.welcomeEmailSent
+        ? undefined
+        : f.sendWelcomeEmail
+          ? "Welcome email could not be sent (check SendGrid config). Use Resend invite or the share dialog below."
+          : "Welcome email skipped. Use Resend invite or the share dialog to send the invite link.";
+      toast({ title, description });
       setOnboardingShare({
         firstName: f.adminFirstName,
         email: f.adminEmail.trim().toLowerCase(),
-        password: f.adminPassword,
+        inviteUrl: data.inviteUrl ?? undefined,
         orgName: data.org.name,
       });
       setShowOnboardingShare(true);
       setShowNewClient(false);
       setNewClientForm(emptyNewClient());
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const resendInviteMutation = useMutation({
+    mutationFn: async (userId: string) =>
+      (await apiRequest("POST", `/api/archon/users/${userId}/resend-invite`, {})).json() as {
+        inviteUrl: string;
+        welcomeEmailSent: boolean;
+      },
+    onSuccess: (data, userId) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/archon/users"] });
+      const user = (allUsers ?? []).find((u) => u.id === userId);
+      toast({
+        title: data.welcomeEmailSent ? "Invite email sent" : "Invite link renewed",
+        description: data.welcomeEmailSent
+          ? undefined
+          : "Email could not be sent — copy the link from the share dialog.",
+      });
+      if (user) {
+        setOnboardingShare({
+          firstName: user.firstName,
+          email: user.email,
+          inviteUrl: data.inviteUrl,
+          orgName: user.orgName,
+        });
+        setShowOnboardingShare(true);
+      }
     },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -662,7 +709,6 @@ export default function ArchonDashboard() {
     if (!f.orgName.trim()) return toast({ title: "Organisation name required", variant: "destructive" });
     if (!f.adminFirstName.trim() || !f.adminLastName.trim()) return toast({ title: "Technical administrator name required", variant: "destructive" });
     if (!f.adminEmail.trim()) return toast({ title: "Technical administrator email required", variant: "destructive" });
-    if (f.adminPassword.length < 6) return toast({ title: "Password must be at least 6 characters", variant: "destructive" });
 
     newClientMutation.mutate({
       orgName: f.orgName,
@@ -677,7 +723,6 @@ export default function ArchonDashboard() {
       adminFirstName: f.adminFirstName,
       adminLastName: f.adminLastName,
       adminEmail: f.adminEmail,
-      adminPassword: f.adminPassword,
       contractRef: f.contractRef || undefined,
       contractStartDate: f.contractStartDate || undefined,
       contractRenewalDate: f.contractRenewalDate || undefined,
@@ -963,20 +1008,41 @@ export default function ArchonDashboard() {
                                   <td className="px-6 py-2 text-white text-sm" data-testid={`text-archon-name-${user.id}`}>{user.firstName} {user.lastName}</td>
                                   <td className="px-4 py-2 text-white/50 font-mono text-xs" data-testid={`text-archon-email-${user.id}`}>{user.email}</td>
                                   <td className="px-4 py-2" data-testid={`text-archon-role-${user.id}`}><RoleBadge role={user.role} /></td>
-                                  <td className="px-4 py-2" data-testid={`text-archon-status-${user.id}`}><UserStatusBadge isActive={user.isActive} /></td>
+                                  <td className="px-4 py-2" data-testid={`text-archon-status-${user.id}`}>
+                                    <div className="flex flex-col gap-0.5 items-start">
+                                      <UserStatusBadge isActive={user.isActive} />
+                                      {userNeedsActivation(user) && (
+                                        <span className="text-[10px] text-amber-400/90">Pending activation</span>
+                                      )}
+                                    </div>
+                                  </td>
                                   <td className="px-4 py-2 text-white/40 text-xs" data-testid={`text-archon-contact-${user.id}`}>{user.contactNumber ?? "—"}</td>
                                   <td className="px-4 py-2">
                                     <div className="flex items-center gap-1 justify-end">
+                                      {userNeedsActivation(user) && (
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          className="h-6 w-6 p-0 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-400/10"
+                                          onClick={() => resendInviteMutation.mutate(user.id)}
+                                          disabled={resendInviteMutation.isPending}
+                                          title="Resend invite email"
+                                          data-testid={`button-archon-resend-invite-${user.id}`}
+                                        >
+                                          <Mail className="h-3 w-3" />
+                                        </Button>
+                                      )}
                                       <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-primary hover:text-primary/80 hover:bg-primary/10"
                                         onClick={() => {
                                           setOnboardingShare({
                                             firstName: user.firstName,
                                             email: user.email,
+                                            inviteUrl: userInviteUrl(user) ?? undefined,
                                             orgName: user.orgName,
                                           });
                                           setShowOnboardingShare(true);
                                         }}
-                                        title="Send onboarding (install + login)" data-testid={`button-archon-onboard-${user.id}`}>
+                                        title="Share onboarding (invite + install link)" data-testid={`button-archon-onboard-${user.id}`}>
                                         <Share2 className="h-3 w-3" />
                                       </Button>
                                       <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-sky-400 hover:text-sky-300 hover:bg-sky-400/10"
@@ -1067,7 +1133,7 @@ export default function ArchonDashboard() {
             {/* Technical administrator */}
             <div className="space-y-2">
               <p className="text-white/60 text-xs font-semibold uppercase tracking-widest border-b border-white/10 pb-1">Technical Administrator</p>
-              <p className="text-white/40 text-xs">Login account for system setup. Only one administrator per organisation.</p>
+              <p className="text-white/40 text-xs">Login account for system setup. An invite link is emailed (or share manually). Only one administrator per organisation.</p>
               <div className="grid grid-cols-2 gap-2">
                 <FieldRow label="First name *">
                   <Input className={inputCls()} placeholder="Jane" value={newClientForm.adminFirstName} onChange={(e) => setNewClientForm(f => ({ ...f, adminFirstName: e.target.value }))} data-testid="input-newclient-firstname" />
@@ -1078,9 +1144,6 @@ export default function ArchonDashboard() {
               </div>
               <FieldRow label="Email *">
                 <Input className={inputCls()} type="email" placeholder="jane@acme.co.za" value={newClientForm.adminEmail} onChange={(e) => setNewClientForm(f => ({ ...f, adminEmail: e.target.value }))} data-testid="input-newclient-email" />
-              </FieldRow>
-              <FieldRow label="Password *">
-                <Input className={inputCls()} type="password" placeholder="Min. 6 characters" value={newClientForm.adminPassword} onChange={(e) => setNewClientForm(f => ({ ...f, adminPassword: e.target.value }))} data-testid="input-newclient-password" />
               </FieldRow>
               <label className="flex items-center gap-2 pt-1 cursor-pointer">
                 <Checkbox

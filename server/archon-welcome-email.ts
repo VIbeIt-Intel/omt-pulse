@@ -1,37 +1,51 @@
 import type { Organization } from "@shared/schema";
+import { appInviteUrl } from "@shared/app-url";
+import { resolveAndroidInstallUrl } from "./user-invite";
 
-type WelcomeEmailParams = {
+export type WelcomeEmailParams = {
   org: Pick<Organization, "name">;
   adminFirstName: string;
   adminEmail: string;
-  adminPassword: string;
+  inviteToken: string;
 };
 
-function appLoginUrl(): string {
-  const base = process.env.APP_BASE_URL?.trim() || process.env.VITE_APP_BASE_URL?.trim() || "https://pulse.intelafri.org";
-  return `${base.replace(/\/$/, "")}/login`;
-}
-
 function buildWelcomeText(params: WelcomeEmailParams): string {
-  const { org, adminFirstName, adminEmail, adminPassword } = params;
-  const loginUrl = appLoginUrl();
+  const { org, adminFirstName, adminEmail, inviteToken } = params;
+  const inviteUrl = appInviteUrl(inviteToken);
+  const installUrl = resolveAndroidInstallUrl();
+  const installBlock = installUrl
+    ? [
+        "2. Install OMT Pulse on your Android phone:",
+        `   ${installUrl}`,
+        "",
+        "3. Activate your account (set your password):",
+      ]
+    : [
+        "2. Install OMT Pulse on your Android phone:",
+        "   Contact support@intelafri.org for the Android install link.",
+        "",
+        "3. Activate your account (set your password):",
+      ];
+
   return [
     `Hi ${adminFirstName},`,
     "",
     `Welcome to OMT Pulse. Your organisation (${org.name}) is ready.`,
     "",
-    "QUICK START",
+    "GET STARTED",
     "───────────",
-    "1. Sign in",
-    `   Web: ${loginUrl}`,
-    `   Email: ${adminEmail}`,
-    `   Password: ${adminPassword}`,
+    "1. On your computer or phone browser, open your personal invite link:",
+    `   ${inviteUrl}`,
+    `   (This link is for ${adminEmail} only, expires in 72 hours, and works once.)`,
     "",
-    "2. Review User Admin — add supervisors, control room, patrol, and access controllers.",
-    "3. Configure incident categories and premises under Admin settings.",
-    "4. Enable push notifications when prompted on mobile.",
+    ...installBlock,
+    `   Open the invite link above, choose a password, then sign in.`,
     "",
-    "The Android app is available from IntelAfri — contact support@intelafri.org if you need the install link.",
+    "4. In User Admin, add your team (control room, patrol, access controllers, etc.).",
+    "5. Configure incident categories and premises under Admin settings.",
+    "6. Allow push notifications when prompted.",
+    "",
+    `Web login (after activation): https://omtpulse.com/login`,
     "",
     "Questions: support@intelafri.org",
     "",
@@ -44,24 +58,30 @@ function esc(s: string): string {
 }
 
 function buildWelcomeHtml(params: WelcomeEmailParams): string {
-  const { org, adminFirstName, adminEmail, adminPassword } = params;
-  const loginUrl = appLoginUrl();
+  const { org, adminFirstName, adminEmail, inviteToken } = params;
+  const inviteUrl = appInviteUrl(inviteToken);
+  const installUrl = resolveAndroidInstallUrl();
+  const installStep = installUrl
+    ? `<li><strong>Install OMT Pulse</strong> on your Android phone:<br/><a href="${esc(installUrl)}">${esc(installUrl)}</a></li>`
+    : `<li><strong>Install OMT Pulse</strong> on your Android phone — contact <a href="mailto:support@intelafri.org">support@intelafri.org</a> for the install link.</li>`;
+
   return `
-    <div style="font-family:system-ui,sans-serif;line-height:1.5;color:#111">
+    <div style="font-family:system-ui,sans-serif;line-height:1.5;color:#111;max-width:560px">
       <p>Hi ${esc(adminFirstName)},</p>
       <p>Welcome to <strong>OMT Pulse</strong>. Your organisation (<strong>${esc(org.name)}</strong>) is ready.</p>
-      <h3 style="margin-bottom:0.25em">Quick start</h3>
+      <h3 style="margin-bottom:0.25em">Get started</h3>
       <ol>
-        <li><strong>Sign in</strong><br/>
-          Web: <a href="${esc(loginUrl)}">${esc(loginUrl)}</a><br/>
-          Email: ${esc(adminEmail)}<br/>
-          Password: ${esc(adminPassword)}
+        <li><strong>Your personal invite link</strong> (for ${esc(adminEmail)} only — expires in 72 hours, single use):<br/>
+          <a href="${esc(inviteUrl)}">${esc(inviteUrl)}</a>
         </li>
-        <li>Review <strong>User Admin</strong> — add supervisors, control room, patrol, and access controllers.</li>
-        <li>Configure incident categories and premises under Admin settings.</li>
-        <li>Enable push notifications when prompted on mobile.</li>
+        ${installStep}
+        <li><strong>Activate your account</strong> — open the invite link, choose a password, then you&apos;re signed in.</li>
+        <li>In <strong>User Admin</strong>, add your team.</li>
+        <li>Configure incident categories and premises.</li>
+        <li>Allow push notifications when prompted.</li>
       </ol>
-      <p>The Android app is available from IntelAfri — contact <a href="mailto:support@intelafri.org">support@intelafri.org</a> if you need the install link.</p>
+      <p>After activation, sign in at <a href="https://omtpulse.com/login">https://omtpulse.com/login</a></p>
+      <p>Questions: <a href="mailto:support@intelafri.org">support@intelafri.org</a></p>
       <p style="color:#666;font-size:0.9em">— IntelAfri / OMT Pulse</p>
     </div>
   `;
@@ -90,3 +110,5 @@ export async function sendArchonWelcomeEmail(params: WelcomeEmailParams): Promis
     return false;
   }
 }
+
+export { buildWelcomeText };
