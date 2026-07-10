@@ -20,6 +20,7 @@ import {
 import { ArchonOnboardingShare } from "@/components/archon-onboarding-share";
 import type { OnboardingUserInfo } from "@/lib/onboarding-messages";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -41,8 +42,16 @@ type ArchonOrg = {
   rateSupervisor: number | null;
   rateReporter: number | null;
   rateAccessController: number | null;
+  rateControlRoom: number | null;
+  ratePatrolUser: number | null;
   storageLimitGb: number | null;
   billingNotes: string | null;
+  companyRegistrationNumber: string | null;
+  vatNumber: string | null;
+  primaryContactFirstName: string | null;
+  primaryContactLastName: string | null;
+  primaryContactEmail: string | null;
+  primaryContactPhone: string | null;
   userCounts: UserCounts;
   incidentCount: number;
   lastActivityAt: string | null;
@@ -97,13 +106,15 @@ function fmtRand(cents: number | null | undefined): string {
 }
 
 function calcMonthly(org: ArchonOrg): number | null {
-  const { userCounts, rateAdmin, rateSupervisor, rateReporter, rateAccessController } = org;
-  if (rateAdmin == null && rateSupervisor == null && rateReporter == null && rateAccessController == null) return null;
+  const { userCounts, rateAdmin, rateSupervisor, rateReporter, rateAccessController, rateControlRoom, ratePatrolUser } = org;
+  if (rateAdmin == null && rateSupervisor == null && rateReporter == null && rateAccessController == null && rateControlRoom == null && ratePatrolUser == null) return null;
+  const controlRoomRate = rateControlRoom ?? rateSupervisor ?? 0;
+  const patrolRate = ratePatrolUser ?? rateReporter ?? 0;
   return (userCounts.administrator * (rateAdmin ?? 0)) +
     (userCounts.supervisor * (rateSupervisor ?? 0)) +
-    (userCounts.control_room * (rateSupervisor ?? 0)) +
+    (userCounts.control_room * controlRoomRate) +
     (userCounts.reporter * (rateReporter ?? 0)) +
-    (userCounts.patrol_user * (rateReporter ?? 0)) +
+    (userCounts.patrol_user * patrolRate) +
     (userCounts.access_controller * (rateAccessController ?? 0));
 }
 
@@ -158,26 +169,40 @@ function UserStatusBadge({ isActive }: { isActive: boolean }) {
 
 type NewClientForm = {
   orgName: string; orgAddress: string; orgPhone: string;
+  companyRegistrationNumber: string; vatNumber: string;
+  primaryContactFirstName: string; primaryContactLastName: string;
+  primaryContactEmail: string; primaryContactPhone: string;
   adminFirstName: string; adminLastName: string; adminEmail: string; adminPassword: string;
   contractRef: string; contractStartDate: string; contractRenewalDate: string;
   rateAdmin: string; rateSupervisor: string; rateReporter: string; rateAccessController: string;
+  rateControlRoom: string; ratePatrolUser: string;
   storageLimitGb: string; billingNotes: string;
   groups: string[];
+  sendWelcomeEmail: boolean;
 };
 
 const emptyNewClient = (): NewClientForm => ({
   orgName: "", orgAddress: "", orgPhone: "",
+  companyRegistrationNumber: "", vatNumber: "",
+  primaryContactFirstName: "", primaryContactLastName: "",
+  primaryContactEmail: "", primaryContactPhone: "",
   adminFirstName: "", adminLastName: "", adminEmail: "", adminPassword: "",
   contractRef: "", contractStartDate: "", contractRenewalDate: "",
-  rateAdmin: "", rateSupervisor: "", rateReporter: "", rateAccessController: "",
-  storageLimitGb: "", billingNotes: "",
+  rateAdmin: "300", rateSupervisor: "200", rateReporter: "50", rateAccessController: "75",
+  rateControlRoom: "100", ratePatrolUser: "100",
+  storageLimitGb: "50", billingNotes: "",
   groups: [],
+  sendWelcomeEmail: true,
 });
 
 type EditContractForm = {
   name: string; address: string; phone: string;
+  companyRegistrationNumber: string; vatNumber: string;
+  primaryContactFirstName: string; primaryContactLastName: string;
+  primaryContactEmail: string; primaryContactPhone: string;
   contractRef: string; contractStartDate: string; contractRenewalDate: string;
   rateAdmin: string; rateSupervisor: string; rateReporter: string; rateAccessController: string;
+  rateControlRoom: string; ratePatrolUser: string;
   storageLimitGb: string; billingNotes: string;
 };
 
@@ -186,6 +211,12 @@ function orgToEditForm(org: ArchonOrg): EditContractForm {
     name: org.name,
     address: org.address,
     phone: org.phone,
+    companyRegistrationNumber: org.companyRegistrationNumber ?? "",
+    vatNumber: org.vatNumber ?? "",
+    primaryContactFirstName: org.primaryContactFirstName ?? "",
+    primaryContactLastName: org.primaryContactLastName ?? "",
+    primaryContactEmail: org.primaryContactEmail ?? "",
+    primaryContactPhone: org.primaryContactPhone ?? "",
     contractRef: org.contractRef ?? "",
     contractStartDate: org.contractStartDate ?? "",
     contractRenewalDate: org.contractRenewalDate ?? "",
@@ -193,6 +224,8 @@ function orgToEditForm(org: ArchonOrg): EditContractForm {
     rateSupervisor: org.rateSupervisor != null ? String(org.rateSupervisor / 100) : "",
     rateReporter: org.rateReporter != null ? String(org.rateReporter / 100) : "",
     rateAccessController: org.rateAccessController != null ? String(org.rateAccessController / 100) : "",
+    rateControlRoom: org.rateControlRoom != null ? String(org.rateControlRoom / 100) : "",
+    ratePatrolUser: org.ratePatrolUser != null ? String(org.ratePatrolUser / 100) : "",
     storageLimitGb: org.storageLimitGb != null ? String(org.storageLimitGb) : "",
     billingNotes: org.billingNotes ?? "",
   };
@@ -234,16 +267,18 @@ function OrgUsagePanel({ org }: { org: ArchonOrg }) {
   const rateSupervisor = org.rateSupervisor ?? 0;
   const rateReporter = org.rateReporter ?? 0;
   const rateAccessController = org.rateAccessController ?? 0;
+  const rateControlRoom = org.rateControlRoom ?? org.rateSupervisor ?? 0;
+  const ratePatrolUser = org.ratePatrolUser ?? org.rateReporter ?? 0;
 
   const counts = usage?.userCounts ?? org.userCounts;
   const adminAmt = counts.administrator * rateAdmin;
   const supervisorAmt = counts.supervisor * rateSupervisor;
-  const controlRoomAmt = counts.control_room * rateSupervisor;
+  const controlRoomAmt = counts.control_room * rateControlRoom;
   const reporterAmt = counts.reporter * rateReporter;
-  const patrolUserAmt = counts.patrol_user * rateReporter;
+  const patrolUserAmt = counts.patrol_user * ratePatrolUser;
   const accessControllerAmt = counts.access_controller * rateAccessController;
   const totalCents = adminAmt + supervisorAmt + controlRoomAmt + reporterAmt + patrolUserAmt + accessControllerAmt;
-  const hasRates = rateAdmin > 0 || rateSupervisor > 0 || rateReporter > 0 || rateAccessController > 0;
+  const hasRates = rateAdmin > 0 || rateSupervisor > 0 || rateReporter > 0 || rateAccessController > 0 || rateControlRoom > 0 || ratePatrolUser > 0;
 
   function downloadInvoice() {
     window.open(`/api/archon/orgs/${org.id}/invoice?month=${currentMonth}`, "_blank");
@@ -280,11 +315,11 @@ function OrgUsagePanel({ org }: { org: ArchonOrg }) {
             </div>
             <div className="flex items-center justify-between text-xs">
               <span className="text-cyan-400">{counts.control_room} × Control room</span>
-              <span className="text-white/60">{fmtRand(rateSupervisor)} = <span className="text-white font-medium">{fmtRand(controlRoomAmt)}</span></span>
+              <span className="text-white/60">{fmtRand(rateControlRoom)} = <span className="text-white font-medium">{fmtRand(controlRoomAmt)}</span></span>
             </div>
             <div className="flex items-center justify-between text-xs">
-              <span className="text-amber-400">{counts.patrol_user} × Patrol user</span>
-              <span className="text-white/60">{fmtRand(rateReporter)} = <span className="text-white font-medium">{fmtRand(patrolUserAmt)}</span></span>
+              <span className="text-amber-400">{counts.patrol_user} × Patroller</span>
+              <span className="text-white/60">{fmtRand(ratePatrolUser)} = <span className="text-white font-medium">{fmtRand(patrolUserAmt)}</span></span>
             </div>
             <div className="flex items-center justify-between text-xs">
               <span className="text-emerald-400">{counts.access_controller} × Access controller</span>
@@ -461,8 +496,11 @@ export default function ArchonDashboard() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/archon/orgs"] });
       queryClient.invalidateQueries({ queryKey: ["/api/archon/users"] });
-      toast({ title: `Client "${data.org.name}" created` });
       const f = newClientForm;
+      const title = data.welcomeEmailSent
+        ? `Client "${data.org.name}" created — welcome email sent`
+        : `Client "${data.org.name}" created`;
+      toast({ title, description: data.welcomeEmailSent ? undefined : f.sendWelcomeEmail ? "Welcome email could not be sent (check SendGrid config)." : undefined });
       setOnboardingShare({
         firstName: f.adminFirstName,
         email: f.adminEmail.trim().toLowerCase(),
@@ -622,14 +660,20 @@ export default function ArchonDashboard() {
     e.preventDefault();
     const f = newClientForm;
     if (!f.orgName.trim()) return toast({ title: "Organisation name required", variant: "destructive" });
-    if (!f.adminFirstName.trim() || !f.adminLastName.trim()) return toast({ title: "Admin name required", variant: "destructive" });
-    if (!f.adminEmail.trim()) return toast({ title: "Admin email required", variant: "destructive" });
+    if (!f.adminFirstName.trim() || !f.adminLastName.trim()) return toast({ title: "Technical administrator name required", variant: "destructive" });
+    if (!f.adminEmail.trim()) return toast({ title: "Technical administrator email required", variant: "destructive" });
     if (f.adminPassword.length < 6) return toast({ title: "Password must be at least 6 characters", variant: "destructive" });
 
     newClientMutation.mutate({
       orgName: f.orgName,
       orgAddress: f.orgAddress,
       orgPhone: f.orgPhone,
+      companyRegistrationNumber: f.companyRegistrationNumber || undefined,
+      vatNumber: f.vatNumber || undefined,
+      primaryContactFirstName: f.primaryContactFirstName || undefined,
+      primaryContactLastName: f.primaryContactLastName || undefined,
+      primaryContactEmail: f.primaryContactEmail || undefined,
+      primaryContactPhone: f.primaryContactPhone || undefined,
       adminFirstName: f.adminFirstName,
       adminLastName: f.adminLastName,
       adminEmail: f.adminEmail,
@@ -641,9 +685,12 @@ export default function ArchonDashboard() {
       rateSupervisor: f.rateSupervisor !== "" ? Number(f.rateSupervisor) : undefined,
       rateReporter: f.rateReporter !== "" ? Number(f.rateReporter) : undefined,
       rateAccessController: f.rateAccessController !== "" ? Number(f.rateAccessController) : undefined,
+      rateControlRoom: f.rateControlRoom !== "" ? Number(f.rateControlRoom) : undefined,
+      ratePatrolUser: f.ratePatrolUser !== "" ? Number(f.ratePatrolUser) : undefined,
       storageLimitGb: f.storageLimitGb !== "" ? Number(f.storageLimitGb) : undefined,
       billingNotes: f.billingNotes || undefined,
       groups: f.groups.filter(g => g.trim() !== ""),
+      sendWelcomeEmail: f.sendWelcomeEmail,
     });
   }
 
@@ -657,6 +704,12 @@ export default function ArchonDashboard() {
         name: f.name,
         address: f.address,
         phone: f.phone,
+        companyRegistrationNumber: f.companyRegistrationNumber || null,
+        vatNumber: f.vatNumber || null,
+        primaryContactFirstName: f.primaryContactFirstName || null,
+        primaryContactLastName: f.primaryContactLastName || null,
+        primaryContactEmail: f.primaryContactEmail || null,
+        primaryContactPhone: f.primaryContactPhone || null,
         contractRef: f.contractRef || null,
         contractStartDate: f.contractStartDate || null,
         contractRenewalDate: f.contractRenewalDate || null,
@@ -664,6 +717,8 @@ export default function ArchonDashboard() {
         rateSupervisor: f.rateSupervisor !== "" ? Number(f.rateSupervisor) : null,
         rateReporter: f.rateReporter !== "" ? Number(f.rateReporter) : null,
         rateAccessController: f.rateAccessController !== "" ? Number(f.rateAccessController) : null,
+        rateControlRoom: f.rateControlRoom !== "" ? Number(f.rateControlRoom) : null,
+        ratePatrolUser: f.ratePatrolUser !== "" ? Number(f.ratePatrolUser) : null,
         storageLimitGb: f.storageLimitGb !== "" ? Number(f.storageLimitGb) : null,
         billingNotes: f.billingNotes || null,
       },
@@ -856,7 +911,11 @@ export default function ArchonDashboard() {
                           variant="ghost"
                           size="sm"
                           className="h-7 w-7 p-0 text-violet-400 hover:text-violet-300 hover:bg-violet-400/10"
-                          onClick={() => { setNewAdminTarget(org); setNewAdminForm({ firstName: "", lastName: "", email: "", password: "", role: "administrator" }); }}
+                          onClick={() => {
+                            const defaultRole = org.userCounts.administrator > 0 ? "control_room" : "administrator";
+                            setNewAdminTarget(org);
+                            setNewAdminForm({ firstName: "", lastName: "", email: "", password: "", role: defaultRole });
+                          }}
                           title="Add user to org"
                           data-testid={`button-archon-adduser-${org.id}`}
                         >
@@ -977,11 +1036,38 @@ export default function ArchonDashboard() {
               <FieldRow label="Phone">
                 <Input className={inputCls()} placeholder="+27 21 000 0000" value={newClientForm.orgPhone} onChange={(e) => setNewClientForm(f => ({ ...f, orgPhone: e.target.value }))} data-testid="input-newclient-phone" />
               </FieldRow>
+              <FieldRow label="Company reg. no.">
+                <Input className={inputCls()} placeholder="2020/123456/07" value={newClientForm.companyRegistrationNumber} onChange={(e) => setNewClientForm(f => ({ ...f, companyRegistrationNumber: e.target.value }))} data-testid="input-newclient-company-reg" />
+              </FieldRow>
+              <FieldRow label="VAT number">
+                <Input className={inputCls()} placeholder="4123456789" value={newClientForm.vatNumber} onChange={(e) => setNewClientForm(f => ({ ...f, vatNumber: e.target.value }))} data-testid="input-newclient-vat" />
+              </FieldRow>
             </div>
 
-            {/* Administrator */}
+            {/* Primary contact (billing / commercial) */}
             <div className="space-y-2">
-              <p className="text-white/60 text-xs font-semibold uppercase tracking-widest border-b border-white/10 pb-1">First Administrator</p>
+              <p className="text-white/60 text-xs font-semibold uppercase tracking-widest border-b border-white/10 pb-1">Primary Contact</p>
+              <p className="text-white/40 text-xs">Billing and commercial contact — may differ from the technical administrator.</p>
+              <div className="grid grid-cols-2 gap-2">
+                <FieldRow label="First name">
+                  <Input className={inputCls()} placeholder="John" value={newClientForm.primaryContactFirstName} onChange={(e) => setNewClientForm(f => ({ ...f, primaryContactFirstName: e.target.value }))} data-testid="input-newclient-pc-firstname" />
+                </FieldRow>
+                <FieldRow label="Last name">
+                  <Input className={inputCls()} placeholder="Doe" value={newClientForm.primaryContactLastName} onChange={(e) => setNewClientForm(f => ({ ...f, primaryContactLastName: e.target.value }))} data-testid="input-newclient-pc-lastname" />
+                </FieldRow>
+              </div>
+              <FieldRow label="Email">
+                <Input className={inputCls()} type="email" placeholder="billing@acme.co.za" value={newClientForm.primaryContactEmail} onChange={(e) => setNewClientForm(f => ({ ...f, primaryContactEmail: e.target.value }))} data-testid="input-newclient-pc-email" />
+              </FieldRow>
+              <FieldRow label="Phone">
+                <Input className={inputCls()} placeholder="+27 21 000 0000" value={newClientForm.primaryContactPhone} onChange={(e) => setNewClientForm(f => ({ ...f, primaryContactPhone: e.target.value }))} data-testid="input-newclient-pc-phone" />
+              </FieldRow>
+            </div>
+
+            {/* Technical administrator */}
+            <div className="space-y-2">
+              <p className="text-white/60 text-xs font-semibold uppercase tracking-widest border-b border-white/10 pb-1">Technical Administrator</p>
+              <p className="text-white/40 text-xs">Login account for system setup. Only one administrator per organisation.</p>
               <div className="grid grid-cols-2 gap-2">
                 <FieldRow label="First name *">
                   <Input className={inputCls()} placeholder="Jane" value={newClientForm.adminFirstName} onChange={(e) => setNewClientForm(f => ({ ...f, adminFirstName: e.target.value }))} data-testid="input-newclient-firstname" />
@@ -996,6 +1082,14 @@ export default function ArchonDashboard() {
               <FieldRow label="Password *">
                 <Input className={inputCls()} type="password" placeholder="Min. 6 characters" value={newClientForm.adminPassword} onChange={(e) => setNewClientForm(f => ({ ...f, adminPassword: e.target.value }))} data-testid="input-newclient-password" />
               </FieldRow>
+              <label className="flex items-center gap-2 pt-1 cursor-pointer">
+                <Checkbox
+                  checked={newClientForm.sendWelcomeEmail}
+                  onCheckedChange={(v) => setNewClientForm(f => ({ ...f, sendWelcomeEmail: v === true }))}
+                  data-testid="checkbox-newclient-welcome-email"
+                />
+                <span className="text-white/70 text-sm">Send welcome email + quick start guide</span>
+              </label>
             </div>
 
             {/* Contract */}
@@ -1016,8 +1110,8 @@ export default function ArchonDashboard() {
 
             {/* Groups */}
             <div className="space-y-2">
-              <p className="text-white/60 text-xs font-semibold uppercase tracking-widest border-b border-white/10 pb-1">Groups (optional)</p>
-              <p className="text-white/40 text-xs">Pre-create named groups for this organisation. A Central Group is always created automatically.</p>
+              <p className="text-white/60 text-xs font-semibold uppercase tracking-widest border-b border-white/10 pb-1">Groups</p>
+              <p className="text-white/40 text-xs"><strong className="text-white/60">Central / Head Office</strong> is created automatically. Add additional groups below (optional).</p>
               {newClientForm.groups.map((g, i) => (
                 <div key={i} className="flex items-center gap-2">
                   <Input
@@ -1087,6 +1181,20 @@ export default function ArchonDashboard() {
                     <Input className={inputCls("flex-1")} type="number" min="0" step="1" placeholder="50" value={newClientForm.rateReporter} onChange={(e) => setNewClientForm(f => ({ ...f, rateReporter: e.target.value }))} data-testid="input-newclient-rate-reporter" />
                   </div>
                 </div>
+                <div>
+                  <Label className="text-white/50 text-xs mb-1 block">Control room</Label>
+                  <div className="flex items-center gap-1">
+                    <span className="text-white/40 text-sm">R</span>
+                    <Input className={inputCls("flex-1")} type="number" min="0" step="1" placeholder="100" value={newClientForm.rateControlRoom} onChange={(e) => setNewClientForm(f => ({ ...f, rateControlRoom: e.target.value }))} data-testid="input-newclient-rate-control-room" />
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-white/50 text-xs mb-1 block">Patroller</Label>
+                  <div className="flex items-center gap-1">
+                    <span className="text-white/40 text-sm">R</span>
+                    <Input className={inputCls("flex-1")} type="number" min="0" step="1" placeholder="100" value={newClientForm.ratePatrolUser} onChange={(e) => setNewClientForm(f => ({ ...f, ratePatrolUser: e.target.value }))} data-testid="input-newclient-rate-patroller" />
+                  </div>
+                </div>
               </div>
               <FieldRow label="Storage limit (GB)">
                 <Input className={inputCls()} type="number" min="0" step="1" placeholder="50" value={newClientForm.storageLimitGb} onChange={(e) => setNewClientForm(f => ({ ...f, storageLimitGb: e.target.value }))} data-testid="input-newclient-storage" />
@@ -1131,6 +1239,30 @@ export default function ArchonDashboard() {
                 <FieldRow label="Phone">
                   <Input className={inputStyle} value={editContractForm.phone} onChange={(e) => setEditContractForm(f => f && ({ ...f, phone: e.target.value }))} data-testid="input-editcontract-phone" />
                 </FieldRow>
+                <FieldRow label="Company reg. no.">
+                  <Input className={inputStyle} value={editContractForm.companyRegistrationNumber} onChange={(e) => setEditContractForm(f => f && ({ ...f, companyRegistrationNumber: e.target.value }))} data-testid="input-editcontract-company-reg" />
+                </FieldRow>
+                <FieldRow label="VAT number">
+                  <Input className={inputStyle} value={editContractForm.vatNumber} onChange={(e) => setEditContractForm(f => f && ({ ...f, vatNumber: e.target.value }))} data-testid="input-editcontract-vat" />
+                </FieldRow>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-white/60 text-xs font-semibold uppercase tracking-widest border-b border-white/10 pb-1">Primary Contact</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <FieldRow label="First name">
+                    <Input className={inputStyle} value={editContractForm.primaryContactFirstName} onChange={(e) => setEditContractForm(f => f && ({ ...f, primaryContactFirstName: e.target.value }))} data-testid="input-editcontract-pc-firstname" />
+                  </FieldRow>
+                  <FieldRow label="Last name">
+                    <Input className={inputStyle} value={editContractForm.primaryContactLastName} onChange={(e) => setEditContractForm(f => f && ({ ...f, primaryContactLastName: e.target.value }))} data-testid="input-editcontract-pc-lastname" />
+                  </FieldRow>
+                </div>
+                <FieldRow label="Email">
+                  <Input className={inputStyle} type="email" value={editContractForm.primaryContactEmail} onChange={(e) => setEditContractForm(f => f && ({ ...f, primaryContactEmail: e.target.value }))} data-testid="input-editcontract-pc-email" />
+                </FieldRow>
+                <FieldRow label="Phone">
+                  <Input className={inputStyle} value={editContractForm.primaryContactPhone} onChange={(e) => setEditContractForm(f => f && ({ ...f, primaryContactPhone: e.target.value }))} data-testid="input-editcontract-pc-phone" />
+                </FieldRow>
               </div>
 
               <div className="space-y-2">
@@ -1151,9 +1283,16 @@ export default function ArchonDashboard() {
               <div className="space-y-2">
                 <p className="text-white/60 text-xs font-semibold uppercase tracking-widest border-b border-white/10 pb-1">Monthly rates (ZAR)</p>
                 <div className="grid grid-cols-3 gap-3">
-                  {(["rateAdmin", "rateSupervisor", "rateReporter", "rateAccessController"] as const).map((key) => (
+                  {([
+                    ["rateAdmin", "Administrator"],
+                    ["rateSupervisor", "Supervisor"],
+                    ["rateAccessController", "Access controller"],
+                    ["rateReporter", "Reporter"],
+                    ["rateControlRoom", "Control room"],
+                    ["ratePatrolUser", "Patroller"],
+                  ] as const).map(([key, label]) => (
                     <div key={key}>
-                      <Label className="text-white/50 text-xs mb-1 block capitalize">{key === "rateAdmin" ? "Administrator" : key === "rateSupervisor" ? "Supervisor" : key === "rateAccessController" ? "Access controller" : "Reporter"}</Label>
+                      <Label className="text-white/50 text-xs mb-1 block">{label}</Label>
                       <div className="flex items-center gap-1">
                         <span className="text-white/40 text-sm">R</span>
                         <Input className="bg-white/5 border-white/20 text-white placeholder:text-white/30 h-8 text-sm flex-1" type="number" min="0" step="1" value={editContractForm[key]} onChange={(e) => setEditContractForm(f => f && ({ ...f, [key]: e.target.value }))} data-testid={`input-editcontract-${key}`} />
@@ -1225,7 +1364,9 @@ export default function ArchonDashboard() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="administrator">Administrator</SelectItem>
+                  {(!newAdminTarget || newAdminTarget.userCounts.administrator === 0) && (
+                    <SelectItem value="administrator">Administrator</SelectItem>
+                  )}
                   <SelectItem value="control_room">Control Room</SelectItem>
                   <SelectItem value="supervisor">Supervisor (legacy)</SelectItem>
                   <SelectItem value="access_controller">Access Controller</SelectItem>
@@ -1233,6 +1374,9 @@ export default function ArchonDashboard() {
                   <SelectItem value="reporter">Reporter</SelectItem>
                 </SelectContent>
               </Select>
+              {newAdminTarget && newAdminTarget.userCounts.administrator > 0 && (
+                <p className="text-white/40 text-xs mt-1">This organisation already has an administrator.</p>
+              )}
             </div>
             <DialogFooter>
               <Button type="button" variant="ghost" className="text-white/60 hover:text-white hover:bg-white/10" onClick={() => setNewAdminTarget(null)} data-testid="button-newuser-cancel">

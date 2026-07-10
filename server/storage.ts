@@ -452,13 +452,15 @@ export class DatabaseStorage implements IStorage {
 
     const [org] = await db.select().from(organizations).where(eq(organizations.id, orgId));
     let monthlyTotal: number | null = null;
-    if (org && (org.rateAdmin != null || org.rateSupervisor != null || org.rateReporter != null || org.rateAccessController != null)) {
+    if (org && (org.rateAdmin != null || org.rateSupervisor != null || org.rateReporter != null || org.rateAccessController != null || org.rateControlRoom != null || org.ratePatrolUser != null)) {
+      const rateControlRoom = org.rateControlRoom ?? org.rateSupervisor ?? 0;
+      const ratePatrolUser = org.ratePatrolUser ?? org.rateReporter ?? 0;
       monthlyTotal =
         userCounts.administrator * (org.rateAdmin ?? 0) +
         userCounts.supervisor * (org.rateSupervisor ?? 0) +
-        userCounts.control_room * (org.rateSupervisor ?? 0) +
+        userCounts.control_room * rateControlRoom +
         userCounts.reporter * (org.rateReporter ?? 0) +
-        userCounts.patrol_user * (org.rateReporter ?? 0) +
+        userCounts.patrol_user * ratePatrolUser +
         userCounts.access_controller * (org.rateAccessController ?? 0);
     }
 
@@ -499,13 +501,15 @@ export class DatabaseStorage implements IStorage {
     const orgsWithUsage = await this.getOrgsWithUsage();
     let estimatedMrrCents = 0;
     for (const org of orgsWithUsage) {
-      if (org.rateAdmin == null && org.rateSupervisor == null && org.rateReporter == null && org.rateAccessController == null) continue;
+      if (org.rateAdmin == null && org.rateSupervisor == null && org.rateReporter == null && org.rateAccessController == null && org.rateControlRoom == null && org.ratePatrolUser == null) continue;
+      const rateControlRoom = org.rateControlRoom ?? org.rateSupervisor ?? 0;
+      const ratePatrolUser = org.ratePatrolUser ?? org.rateReporter ?? 0;
       estimatedMrrCents +=
         org.userCounts.administrator * (org.rateAdmin ?? 0) +
         org.userCounts.supervisor * (org.rateSupervisor ?? 0) +
-        org.userCounts.control_room * (org.rateSupervisor ?? 0) +
+        org.userCounts.control_room * rateControlRoom +
         org.userCounts.reporter * (org.rateReporter ?? 0) +
-        org.userCounts.patrol_user * (org.rateReporter ?? 0) +
+        org.userCounts.patrol_user * ratePatrolUser +
         org.userCounts.access_controller * (org.rateAccessController ?? 0);
     }
 
@@ -2567,7 +2571,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createCommand(data: InsertCommand, orgId: string): Promise<Command> {
-    const [row] = await db.insert(commands).values({ ...data, organizationId: orgId, isCentral: false }).returning();
+    const [row] = await db.insert(commands).values({ ...data, organizationId: orgId, isCentral: data.isCentral ?? false }).returning();
     return row;
   }
 

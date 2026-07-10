@@ -18,6 +18,8 @@ import { isWithinPremiseRadius, PREMISE_COVERAGE_RADIUS_M } from "@shared/premis
 import { ObjectStorageService, ObjectNotFoundError } from "./replit_integrations/object_storage/objectStorage";
 import { parseFile, suggestMapping, resolveRows, collectUnknownReferences, buildTemplateXLSX, buildErrorsCSV, type ImportMapping, type ParsedFile } from "./import-parser";
 import * as XLSX from "xlsx";
+import { CENTRAL_COMMAND_NAME } from "./archon-constants";
+import { sendArchonWelcomeEmail } from "./archon-welcome-email";
 
 const objectStorageService = new ObjectStorageService();
 
@@ -4367,17 +4369,20 @@ export async function registerRoutes(
   app.post("/api/archon/orgs", requireArchon, async (req, res) => {
     const {
       orgName, orgAddress, orgPhone,
+      companyRegistrationNumber, vatNumber,
+      primaryContactFirstName, primaryContactLastName, primaryContactEmail, primaryContactPhone,
       adminFirstName, adminLastName, adminEmail, adminPassword,
       contractRef, contractStartDate, contractRenewalDate,
-      rateAdmin, rateSupervisor, rateReporter, rateAccessController,
+      rateAdmin, rateSupervisor, rateReporter, rateAccessController, rateControlRoom, ratePatrolUser,
       storageLimitGb, billingNotes,
+      sendWelcomeEmail,
     } = req.body;
 
     if (!orgName || typeof orgName !== "string") return res.status(400).json({ message: "Organisation name is required" });
-    if (!adminFirstName || !adminLastName) return res.status(400).json({ message: "Admin first and last name are required" });
-    if (!adminEmail || typeof adminEmail !== "string") return res.status(400).json({ message: "Admin email is required" });
+    if (!adminFirstName || !adminLastName) return res.status(400).json({ message: "Technical administrator first and last name are required" });
+    if (!adminEmail || typeof adminEmail !== "string") return res.status(400).json({ message: "Technical administrator email is required" });
     if (!adminPassword || typeof adminPassword !== "string" || adminPassword.length < 6) {
-      return res.status(400).json({ message: "Admin password must be at least 6 characters" });
+      return res.status(400).json({ message: "Technical administrator password must be at least 6 characters" });
     }
 
     const existing = await storage.getUserByEmail(adminEmail.toLowerCase().trim());
@@ -4391,6 +4396,12 @@ export async function registerRoutes(
       phone: orgPhone?.trim() || "",
       subscriptionStatus: "active",
       isComplimentary: false,
+      companyRegistrationNumber: companyRegistrationNumber?.trim() || null,
+      vatNumber: vatNumber?.trim() || null,
+      primaryContactFirstName: primaryContactFirstName?.trim() || null,
+      primaryContactLastName: primaryContactLastName?.trim() || null,
+      primaryContactEmail: primaryContactEmail?.trim().toLowerCase() || null,
+      primaryContactPhone: primaryContactPhone?.trim() || null,
       contractRef: contractRef?.trim() || null,
       contractStartDate: contractStartDate || null,
       contractRenewalDate: contractRenewalDate || null,
@@ -4398,6 +4409,8 @@ export async function registerRoutes(
       rateSupervisor: rateSupervisor != null ? Math.round(Number(rateSupervisor) * 100) : null,
       rateReporter: rateReporter != null ? Math.round(Number(rateReporter) * 100) : null,
       rateAccessController: rateAccessController != null ? Math.round(Number(rateAccessController) * 100) : null,
+      rateControlRoom: rateControlRoom != null ? Math.round(Number(rateControlRoom) * 100) : null,
+      ratePatrolUser: ratePatrolUser != null ? Math.round(Number(ratePatrolUser) * 100) : null,
       storageLimitGb: storageLimitGb != null ? Number(storageLimitGb) : null,
       billingNotes: billingNotes?.trim() || null,
     } as any);
@@ -4413,17 +4426,29 @@ export async function registerRoutes(
 
     await seedFormFieldsForOrg(org.id);
 
-    // Create any pre-defined groups (Central Group is created by migrate-commands on startup)
+    const central = await storage.createCommand({ name: CENTRAL_COMMAND_NAME, isCentral: true } as any, org.id);
+    await storage.assignUserToCommand(central.id, user.id, org.id);
+
     const groups = Array.isArray(req.body.groups) ? req.body.groups : [];
     for (const rawName of groups) {
       const name = typeof rawName === "string" ? rawName.trim() : "";
-      if (name) {
-        await storage.createCommand({ organizationId: org.id, name, isCentral: false } as any, org.id);
+      if (name && name !== CENTRAL_COMMAND_NAME) {
+        await storage.createCommand({ name, isCentral: false } as any, org.id);
       }
     }
 
+    let welcomeEmailSent = false;
+    if (sendWelcomeEmail === true) {
+      welcomeEmailSent = await sendArchonWelcomeEmail({
+        org,
+        adminFirstName: adminFirstName.trim(),
+        adminEmail: adminEmail.toLowerCase().trim(),
+        adminPassword,
+      });
+    }
+
     const { password: _pw, ...safeUser } = user;
-    res.json({ org, user: safeUser });
+    res.json({ org, user: safeUser, welcomeEmailSent });
   });
 
   // POST /api/archon/orgs/:orgId/users — add a user (any role) to an existing org
@@ -4442,6 +4467,13 @@ export async function registerRoutes(
 
     const org = await storage.getOrganization(orgId);
     if (!org) return res.status(404).json({ message: "Organisation not found" });
+
+    if (userRole === "administrator") {
+      const orgUsers = await storage.getUsersByOrg(orgId);
+      if (orgUsers.some((u) => u.role === "administrator" && u.isActive)) {
+        return res.status(400).json({ message: "This organisation already has an administrator. Only one admin is allowed." });
+      }
+    }
 
     const existing = await storage.getUserByEmail(email.toLowerCase().trim());
     if (existing) return res.status(400).json({ message: "An account with this email already exists" });
@@ -4465,8 +4497,10 @@ export async function registerRoutes(
     const { orgId } = req.params as { orgId: string };
     const {
       name, address, phone, subscriptionStatus,
+      companyRegistrationNumber, vatNumber,
+      primaryContactFirstName, primaryContactLastName, primaryContactEmail, primaryContactPhone,
       contractRef, contractStartDate, contractRenewalDate,
-      rateAdmin, rateSupervisor, rateReporter, rateAccessController,
+      rateAdmin, rateSupervisor, rateReporter, rateAccessController, rateControlRoom, ratePatrolUser,
       storageLimitGb, billingNotes,
     } = req.body;
 
@@ -4474,6 +4508,12 @@ export async function registerRoutes(
     if (name !== undefined) patch.name = name.trim();
     if (address !== undefined) patch.address = address.trim();
     if (phone !== undefined) patch.phone = phone.trim();
+    if (companyRegistrationNumber !== undefined) patch.companyRegistrationNumber = companyRegistrationNumber?.trim() || null;
+    if (vatNumber !== undefined) patch.vatNumber = vatNumber?.trim() || null;
+    if (primaryContactFirstName !== undefined) patch.primaryContactFirstName = primaryContactFirstName?.trim() || null;
+    if (primaryContactLastName !== undefined) patch.primaryContactLastName = primaryContactLastName?.trim() || null;
+    if (primaryContactEmail !== undefined) patch.primaryContactEmail = primaryContactEmail?.trim().toLowerCase() || null;
+    if (primaryContactPhone !== undefined) patch.primaryContactPhone = primaryContactPhone?.trim() || null;
     if (subscriptionStatus !== undefined) {
       if (!["active", "expired"].includes(subscriptionStatus)) {
         return res.status(400).json({ message: "subscriptionStatus must be 'active' or 'expired'" });
@@ -4487,6 +4527,8 @@ export async function registerRoutes(
     if (rateSupervisor !== undefined) patch.rateSupervisor = rateSupervisor != null ? Math.round(Number(rateSupervisor) * 100) : null;
     if (rateReporter !== undefined) patch.rateReporter = rateReporter != null ? Math.round(Number(rateReporter) * 100) : null;
     if (rateAccessController !== undefined) patch.rateAccessController = rateAccessController != null ? Math.round(Number(rateAccessController) * 100) : null;
+    if (rateControlRoom !== undefined) patch.rateControlRoom = rateControlRoom != null ? Math.round(Number(rateControlRoom) * 100) : null;
+    if (ratePatrolUser !== undefined) patch.ratePatrolUser = ratePatrolUser != null ? Math.round(Number(ratePatrolUser) * 100) : null;
     if (storageLimitGb !== undefined) patch.storageLimitGb = storageLimitGb != null ? Number(storageLimitGb) : null;
     if (billingNotes !== undefined) patch.billingNotes = billingNotes?.trim() || null;
 
@@ -4550,14 +4592,15 @@ export async function registerRoutes(
     const rateAdmin = (org.rateAdmin ?? 0) / 100;
     const rateSupervisor = (org.rateSupervisor ?? 0) / 100;
     const rateReporter = (org.rateReporter ?? 0) / 100;
-
+    const rateControlRoom = ((org.rateControlRoom ?? org.rateSupervisor) ?? 0) / 100;
+    const ratePatrolUser = ((org.ratePatrolUser ?? org.rateReporter) ?? 0) / 100;
     const rateAccessController = (org.rateAccessController ?? 0) / 100;
 
     const adminAmt = usage.userCounts.administrator * rateAdmin;
     const supervisorAmt = usage.userCounts.supervisor * rateSupervisor;
-    const controlRoomAmt = usage.userCounts.control_room * rateSupervisor;
+    const controlRoomAmt = usage.userCounts.control_room * rateControlRoom;
     const reporterAmt = usage.userCounts.reporter * rateReporter;
-    const patrolUserAmt = usage.userCounts.patrol_user * rateReporter;
+    const patrolUserAmt = usage.userCounts.patrol_user * ratePatrolUser;
     const accessControllerAmt = usage.userCounts.access_controller * rateAccessController;
     const total = adminAmt + supervisorAmt + controlRoomAmt + reporterAmt + patrolUserAmt + accessControllerAmt;
 
@@ -4569,9 +4612,9 @@ export async function registerRoutes(
       ["Line item", "Qty", "Unit rate (R)", "Amount (R)"],
       [`Administrator licences — ${monthLabel}`, usage.userCounts.administrator, Number(rateAdmin.toFixed(2)), Number(adminAmt.toFixed(2))],
       [`Supervisor licences — ${monthLabel}`, usage.userCounts.supervisor, Number(rateSupervisor.toFixed(2)), Number(supervisorAmt.toFixed(2))],
-      [`Control room licences — ${monthLabel}`, usage.userCounts.control_room, Number(rateSupervisor.toFixed(2)), Number(controlRoomAmt.toFixed(2))],
+      [`Control room licences — ${monthLabel}`, usage.userCounts.control_room, Number(rateControlRoom.toFixed(2)), Number(controlRoomAmt.toFixed(2))],
       [`Reporter licences — ${monthLabel}`, usage.userCounts.reporter, Number(rateReporter.toFixed(2)), Number(reporterAmt.toFixed(2))],
-      [`Patrol user licences — ${monthLabel}`, usage.userCounts.patrol_user, Number(rateReporter.toFixed(2)), Number(patrolUserAmt.toFixed(2))],
+      [`Patrol user licences — ${monthLabel}`, usage.userCounts.patrol_user, Number(ratePatrolUser.toFixed(2)), Number(patrolUserAmt.toFixed(2))],
       [`Access controller licences — ${monthLabel}`, usage.userCounts.access_controller, Number(rateAccessController.toFixed(2)), Number(accessControllerAmt.toFixed(2))],
       ["", "", "", ""],
       ["Total", "", "", Number(total.toFixed(2))],

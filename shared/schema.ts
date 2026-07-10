@@ -23,8 +23,16 @@ export const organizations = pgTable("organizations", {
   rateSupervisor: integer("rate_supervisor"),
   rateReporter: integer("rate_reporter"),
   rateAccessController: integer("rate_access_controller"),
+  rateControlRoom: integer("rate_control_room"),
+  ratePatrolUser: integer("rate_patrol_user"),
   storageLimitGb: integer("storage_limit_gb"),
   billingNotes: text("billing_notes"),
+  companyRegistrationNumber: text("company_registration_number"),
+  vatNumber: text("vat_number"),
+  primaryContactFirstName: text("primary_contact_first_name"),
+  primaryContactLastName: text("primary_contact_last_name"),
+  primaryContactEmail: text("primary_contact_email"),
+  primaryContactPhone: text("primary_contact_phone"),
 });
 
 export const insertOrganizationSchema = createInsertSchema(organizations).omit({ id: true, createdAt: true });
