@@ -1,14 +1,17 @@
-import { BookOpen, Settings, BarChart3, LogOut, Users, Upload, Bell, Radio, LayoutDashboard, MessageSquare, Shield, Network, Car, ShieldCheck, Footprints } from "lucide-react";
+import { BookOpen, Settings, BarChart3, LogOut, Users, Upload, Bell, Radio, LayoutDashboard, MessageSquare, Shield, Network, Car, ShieldCheck, Footprints, ChevronRight } from "lucide-react";
 import { useState, useEffect } from "react";
-import africaLogo from "../assets/africa-logo.png";
 import { useLocation, Link } from "wouter";
 import { HeartbeatLine } from "@/components/heartbeat-line";
-import omtLogo from "@/assets/omt-logo-v2.png";
 import { OmtShield } from "@/components/omt-shield";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { canViewAccessControlModule, isDispatchStaff, isFieldReporter, canAccessPatrolModule } from "@shared/user-roles";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   Sidebar,
   SidebarContent,
@@ -18,12 +21,17 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
   SidebarHeader,
   SidebarFooter,
   useSidebar,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+
+type NavItem = { title: string; url: string; icon: typeof BookOpen };
 
 type AuthUser = {
   id: string;
@@ -199,36 +207,45 @@ interface AppSidebarProps {
   avatarPreview?: string | null;
 }
 
-function getNavItems(role: string, isSuperadmin: boolean) {
-  const items: Array<{ title: string; url: string; icon: typeof BookOpen }> = [
+function getNavItems(role: string, isSuperadmin: boolean): {
+  primary: NavItem[];
+  admin: NavItem[];
+  secondary: NavItem[];
+} {
+  const primary: NavItem[] = [
     { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
     { title: "Occurrence Book", url: "/occurrence-book", icon: BookOpen },
   ];
   if (canViewAccessControlModule(role)) {
-    items.push({ title: "Access Control", url: "/access-control", icon: ShieldCheck });
+    primary.push({ title: "Access Control", url: "/access-control", icon: ShieldCheck });
   }
   if (canAccessPatrolModule(role)) {
-    items.push({ title: "Patrol", url: "/patrol", icon: Footprints });
+    primary.push({ title: "Patrol", url: "/patrol", icon: Footprints });
   }
   if (isDispatchStaff(role)) {
-    items.push({ title: "Analytics", url: "/analytics", icon: BarChart3 });
-    items.push({ title: "Live Monitor", url: "/live-monitor", icon: Radio });
-    items.push({ title: "Fleet", url: "/fleet", icon: Car });
+    primary.push({ title: "Analytics", url: "/analytics", icon: BarChart3 });
+    primary.push({ title: "Live Monitor", url: "/live-monitor", icon: Radio });
+    primary.push({ title: "Fleet", url: "/fleet", icon: Car });
   }
   if (isFieldReporter(role)) {
-    items.push({ title: "Live Incident", url: "/live-incident", icon: Radio });
+    primary.push({ title: "Live Incident", url: "/live-incident", icon: Radio });
   }
+
+  const admin: NavItem[] = [];
   if (role === "administrator") {
-    items.push({ title: "Import Data", url: "/import", icon: Upload });
-    items.push({ title: "Field Admin", url: "/admin", icon: Settings });
-    items.push({ title: "User Admin", url: "/user-admin", icon: Users });
+    admin.push({ title: "Users", url: "/user-admin", icon: Users });
+    admin.push({ title: "Field setup", url: "/admin", icon: Settings });
+    admin.push({ title: "Import Data", url: "/import", icon: Upload });
   }
   if (role === "administrator" || isSuperadmin) {
-    items.push({ title: "Groups", url: "/commands", icon: Shield });
+    admin.push({ title: "Groups", url: "/commands", icon: Shield });
   }
-  items.push({ title: "Chat", url: "/chat", icon: MessageSquare });
-  items.push({ title: "Notifications", url: "/notifications", icon: Bell });
-  return items;
+
+  const secondary: NavItem[] = [
+    { title: "Chat", url: "/chat", icon: MessageSquare },
+    { title: "Notifications", url: "/notifications", icon: Bell },
+  ];
+  return { primary, admin, secondary };
 }
 
 function VersionLabel() {
@@ -248,7 +265,13 @@ function VersionLabel() {
 export function AppSidebar({ user, onLogout, avatarPreview }: AppSidebarProps) {
   const [location] = useLocation();
   const { isMobile, setOpenMobile } = useSidebar();
-  const navItems = getNavItems(user.role, !!user.isSuperadmin);
+  const { primary: navItems, admin: adminItems, secondary: secondaryItems } = getNavItems(user.role, !!user.isSuperadmin);
+  const adminActive = adminItems.some((item) => location === item.url);
+  const [adminOpen, setAdminOpen] = useState(adminActive);
+
+  useEffect(() => {
+    if (adminActive) setAdminOpen(true);
+  }, [adminActive]);
 
   function closeOnMobile() {
     if (isMobile) setOpenMobile(false);
@@ -307,6 +330,56 @@ export function AppSidebar({ user, onLogout, avatarPreview }: AppSidebarProps) {
                           <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
                         </span>
                       )}
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+
+              {adminItems.length > 0 && (
+                <Collapsible open={adminOpen} onOpenChange={setAdminOpen} className="group/admin-nav">
+                  <SidebarMenuItem>
+                    <CollapsibleTrigger asChild>
+                      <SidebarMenuButton
+                        isActive={adminActive}
+                        data-testid="link-nav-admin"
+                      >
+                        <Settings />
+                        <span className="flex-1">Admin</span>
+                        <ChevronRight className={`h-4 w-4 transition-transform ${adminOpen ? "rotate-90" : ""}`} />
+                      </SidebarMenuButton>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <SidebarMenuSub>
+                        {adminItems.map((item) => (
+                          <SidebarMenuSubItem key={item.url}>
+                            <SidebarMenuSubButton
+                              asChild
+                              isActive={location === item.url}
+                              data-testid={`link-nav-${item.title.toLowerCase().replace(/\s/g, '-')}`}
+                            >
+                              <Link href={item.url} onClick={closeOnMobile}>
+                                <item.icon />
+                                <span>{item.title}</span>
+                              </Link>
+                            </SidebarMenuSubButton>
+                          </SidebarMenuSubItem>
+                        ))}
+                      </SidebarMenuSub>
+                    </CollapsibleContent>
+                  </SidebarMenuItem>
+                </Collapsible>
+              )}
+
+              {secondaryItems.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={location === item.url}
+                    data-testid={`link-nav-${item.title.toLowerCase().replace(/\s/g, '-')}`}
+                  >
+                    <Link href={item.url} onClick={closeOnMobile}>
+                      <item.icon />
+                      <span className="flex-1">{item.title}</span>
                       {item.url === "/chat" && chatUnread > 0 && (
                         <span className="inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-semibold leading-none" data-testid="badge-sidebar-chat-unread">
                           {chatUnread > 99 ? "99+" : chatUnread}

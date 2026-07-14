@@ -30,6 +30,6 @@ if errorlevel 1 (
 )
 
 echo.
-echo === Done. Check https://omtpulse.com/api/version shows omt-v181 ===
+echo === Done. Check https://omtpulse.com/api/version shows omt-v182 ===
 echo Tell testers: force-close OMT Pulse and reopen.
 pause
