@@ -26,7 +26,7 @@ export type RequestLocationAccessOptions = {
   permissionHint?: PermissionState;
   /**
    * allow-tap: short probe (live incident Allow Location).
-   * settle: quick off-detect, then longer wait only after returning from Settings.
+   * settle: quick denied/off check, then a real GPS wait (Report Incident).
    */
   probeMode?: "allow-tap" | "settle";
 };
@@ -92,7 +92,8 @@ async function openSettingsForIssue(issue?: PanicLocationIssue): Promise<{
 
 /**
  * User-tap handler for live incident / map / report screens.
- * Location-off should open Settings in ~2s; cold GPS after return gets a longer wait.
+ * Report Incident waits for a real fix; permission denied still opens app settings.
+ * Phone Location is never auto-opened on OEMs that land on the wrong Settings screen.
  */
 export async function requestLocationAccess(
   options: RequestLocationAccessOptions = {},
@@ -112,7 +113,7 @@ export async function requestLocationAccess(
   let loc: PanicLocationResult;
 
   if (probeMode === "settle") {
-    // 1) Fail-fast (~2s): Location off / denied → Settings immediately (no 30s spinner).
+    // 1) Fast check: only short-circuit on clear denied / unsupported / instant fix.
     loc = await probeLocationQuickDetect();
     if (hasPanicCoordinates(loc)) {
       window.dispatchEvent(new CustomEvent("omt:location-granted"));
@@ -129,16 +130,8 @@ export async function requestLocationAccess(
     if (loc.issue === "denied") {
       return openSettingsForIssue("denied");
     }
-    // Report Incident: do NOT auto-jump into system Settings on OEMs that open the
-    // root Settings tree instead of Location. Clear steps beat a wrong screen.
-    if (!recentlyOpenedLocationSettings()) {
-      return {
-        result: "unavailable",
-        message:
-          "Location looks off. On your phone open Settings, search “Location”, turn it on, return here and tap Use current location again — or use Pick on map.",
-      };
-    }
-    // User marked they already visited Settings — give cold GPS a real chance.
+    // 2) Timeout / unavailable after ~2s is normal for cold GPS — wait properly.
+    // Do NOT treat this as "Location off" (that regression broke working phones).
     loc = await acquirePanicLocation();
   } else {
     loc = await probeLocationForAllowTap(
@@ -160,10 +153,12 @@ export async function requestLocationAccess(
     return { result: "unsupported", message: issueMessage("unsupported") };
   }
 
-  if (
-    (loc.issue === "timeout" || loc.issue === "unavailable") &&
-    recentlyOpenedLocationSettings()
-  ) {
+  if (loc.issue === "denied") {
+    return openSettingsForIssue("denied");
+  }
+
+  // Soft recovery: never auto-jump into phone Location settings (Samsung opens root Settings).
+  if (loc.issue === "timeout" || recentlyOpenedLocationSettings()) {
     return {
       result: "unavailable",
       message:
@@ -171,5 +166,9 @@ export async function requestLocationAccess(
     };
   }
 
-  return openSettingsForIssue(loc.issue);
+  return {
+    result: "unavailable",
+    message:
+      "Could not get a GPS fix. Confirm Location is on for this phone, return here and tap Use current location again — or use Pick on map.",
+  };
 }

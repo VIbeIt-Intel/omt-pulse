@@ -34,7 +34,8 @@ export async function probeLocationQuickDetect(): Promise<PanicLocationResult> {
     const pos = await getCurrentPositionOnce({
       enableHighAccuracy: false,
       timeout: 2_000,
-      maximumAge: 0,
+      // Accept a recent fix — maximumAge:0 forced cold GPS and false “Location off”.
+      maximumAge: 30_000,
     });
     const lat = pos.coords.latitude;
     const lng = pos.coords.longitude;
