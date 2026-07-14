@@ -40,6 +40,30 @@ const httpServer = createServer(app);
 
 app.set("trust proxy", 1);
 
+/** Capacitor local-shell (https://localhost) talks to production API cross-origin. */
+const CAPACITOR_CORS_ORIGINS = new Set([
+  "https://localhost",
+  "http://localhost",
+  "capacitor://localhost",
+  "ionic://localhost",
+  "https://omtpulse.com",
+  "http://omtpulse.com",
+]);
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && CAPACITOR_CORS_ORIGINS.has(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+  }
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(204);
+  }
+  next();
+});
+
 declare module "http" {
   interface IncomingMessage {
     rawBody: unknown;
@@ -133,6 +157,8 @@ app.use((req, res, next) => {
       cookie: {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
+        // Capacitor local shell (https://localhost) calls omtpulse.com cross-site.
+        sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
         maxAge: 7 * 24 * 60 * 60 * 1000,
       },
     })

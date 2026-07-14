@@ -17,6 +17,10 @@ import {
   currentlyInsideQueryKey,
   currentlyInsideQueryOptions,
 } from "@/lib/access-control-queries";
+import {
+  cacheAccessDestinations,
+  readCachedAccessDestinations,
+} from "@/lib/access-destinations-cache";
 import { BarChart3, DoorOpen, LogOut, Plus, ShieldCheck } from "lucide-react";
 
 type AccessControlPageProps = {
@@ -43,9 +47,17 @@ export default function AccessControlPage({ userRole }: AccessControlPageProps) 
       const url = isAdmin
         ? "/api/access-control/destinations?all=1"
         : "/api/access-control/destinations";
-      const res = await fetch(url, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to load destinations");
-      return res.json();
+      try {
+        const res = await fetch(url, { credentials: "include" });
+        if (!res.ok) throw new Error("Failed to load destinations");
+        const data = (await res.json()) as Destination[];
+        cacheAccessDestinations(data);
+        return data;
+      } catch (err) {
+        const cached = readCachedAccessDestinations();
+        if (cached && cached.length > 0) return cached;
+        throw err;
+      }
     },
   });
 

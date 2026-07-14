@@ -1,15 +1,15 @@
-import { CapacitorConfig } from '@capacitor/cli';
+import { CapacitorConfig } from "@capacitor/cli";
 
 const config: CapacitorConfig = {
-  appId: 'com.intelafri.omtpulse',
-  appName: 'OMT Pulse',
-  webDir: 'dist/public',
+  appId: "com.intelafri.omtpulse",
+  appName: "OMT Pulse",
+  webDir: "dist/public",
+  // Bundled shell so the APK opens offline. API calls go to production via
+  // client/src/lib/api-base.ts (installNativeApiBaseFetch).
   server: {
-    // Live shell from production so web fixes ship without every APK rebuild.
-    // Cold-start with no network cannot load this URL — show bundled offline page.
-    url: 'https://omtpulse.com/login',
+    androidScheme: "https",
     cleartext: false,
-    errorPath: 'offline.html',
+    errorPath: "offline.html",
   },
   plugins: {
     SplashScreen: {

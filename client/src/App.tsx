@@ -67,6 +67,9 @@ import { PanicAlertSiren } from "@/components/panic-alert-siren";
 import { SetupWizardController } from "@/components/setup-wizard";
 import { isDispatchStaff, canUseLiveIncidentWorkflow } from "@shared/user-roles";
 import { Capacitor } from "@capacitor/core";
+import { clearCachedAuthUser } from "@/lib/auth-cache";
+import { fetchAuthMe } from "@/lib/auth-me";
+import type { AuthUser } from "@/lib/auth-user";
 
 function isCapacitorNative(): boolean {
   return Capacitor.isNativePlatform();
@@ -81,31 +84,6 @@ function resolveAvatarSrc(avatarUrl: string): string {
     return avatarUrl;
   }
 }
-
-type AuthUser = {
-  id: string;
-  organizationId: string;
-  firstName: string;
-  lastName: string;
-  email: string;
-  role: string;
-  subscriptionStatus: string;
-  trialEndsAt?: string | null;
-  subscriptionCurrentPeriodEnd?: string | null;
-  mustChangePassword?: boolean;
-  avatarUrl?: string | null;
-  orgName?: string | null;
-  isSuperadmin?: boolean;
-  workstationId?: number | null;
-  workstation?: {
-    id: number;
-    name: string;
-    type: string;
-    locationId: number | null;
-    locationName: string | null;
-    kioskMode: boolean;
-  } | null;
-};
 
 function RoleGuard({ role, allowed, children }: { role: string; allowed: string[]; children: React.ReactNode }) {
   const [, navigate] = useLocation();
@@ -683,6 +661,12 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
   const logoutMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/auth/logout", {}),
     onSuccess: () => {
+      clearCachedAuthUser();
+      queryClient.clear();
+      navigate("/login");
+    },
+    onError: () => {
+      clearCachedAuthUser();
       queryClient.clear();
       navigate("/login");
     },
@@ -1065,18 +1049,7 @@ function AppContent() {
     queryKey: ["/api/auth/me"],
     retry: false,
     refetchOnWindowFocus: true,
-    queryFn: async () => {
-      const res = await fetch("/api/auth/me", {
-        credentials: "include",
-        cache: "no-store",
-      });
-      if (res.status === 401) return null;
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`${res.status}: ${text || res.statusText}`);
-      }
-      return res.json();
-    },
+    queryFn: fetchAuthMe,
   });
 
   if (isLoading) {
@@ -1120,10 +1093,11 @@ function AppRouter() {
 // PWA install is not offered on the public site — distribution is admin-issued only.
 function RootRouter() {
   const [location] = useLocation();
-  const { data: user, isLoading } = useQuery<AuthUser>({
+  const { data: user, isLoading } = useQuery<AuthUser | null>({
     queryKey: ["/api/auth/me"],
     retry: false,
     refetchOnWindowFocus: true,
+    queryFn: fetchAuthMe,
   });
 
   // Archon and /invite are always public and bypass both the landing and the gate.

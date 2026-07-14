@@ -19,6 +19,11 @@ import {
 } from "@/components/ui/collapsible";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import {
+  enqueueOutboxJob,
+  fileToDataUrl,
+  isProbablyOffline,
+} from "@/lib/offline-outbox";
 import { prepareAndUploadFile } from "@/lib/upload-media";
 import { ACCESS_CATEGORY_LABELS } from "@/lib/access-control-labels";
 import { currentlyInsideQueryKey } from "@/lib/access-control-queries";
@@ -166,12 +171,29 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
   async function uploadPhoto(file: File, setter: (url: string) => void) {
     setUploading(true);
     try {
+      if (isProbablyOffline()) {
+        setter(await fileToDataUrl(file));
+        return;
+      }
       const { objectUrl } = await prepareAndUploadFile(file, { preset: "compact" });
       setter(objectUrl);
     } catch (e) {
+      const msg = e instanceof Error ? e.message : "Try again";
+      if (/fetch|network|failed|offline/i.test(msg) || isProbablyOffline()) {
+        try {
+          setter(await fileToDataUrl(file));
+          toast({
+            title: "Photo saved on device",
+            description: "Will upload when you’re back online.",
+          });
+          return;
+        } catch {
+          /* fall through */
+        }
+      }
       toast({
         title: "Photo upload failed",
-        description: e instanceof Error ? e.message : "Try again",
+        description: msg,
         variant: "destructive",
       });
     } finally {
@@ -229,17 +251,39 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
         };
       }
 
-      return apiRequest("POST", "/api/access-control/entries", body);
+      if (isProbablyOffline()) {
+        await enqueueOutboxJob({ type: "access_control", body });
+        return { queued: true as const };
+      }
+
+      try {
+        await apiRequest("POST", "/api/access-control/entries", body);
+        return { queued: false as const };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "";
+        if (/fetch|network|failed|offline|timeout/i.test(msg) || isProbablyOffline()) {
+          await enqueueOutboxJob({ type: "access_control", body });
+          return { queued: true as const };
+        }
+        throw e;
+      }
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       const count = readyPeople.length;
-      toast({
-        title: count > 1 ? `Checked in ${count} people` : "Checked in",
-        description:
-          count > 1
-            ? "Party is inside. Use Check out to scan each person on exit."
-            : "Person is inside. Use Check out tab to scan them on exit.",
-      });
+      if (result?.queued) {
+        toast({
+          title: "Check-in saved offline",
+          description: "Will sync when you’re back online.",
+        });
+      } else {
+        toast({
+          title: count > 1 ? `Checked in ${count} people` : "Checked in",
+          description:
+            count > 1
+              ? "Party is inside. Use Check out to scan each person on exit."
+              : "Person is inside. Use Check out tab to scan them on exit.",
+        });
+      }
       setPeople([emptyPerson()]);
       setCompanyName("");
       setContactNumber("");

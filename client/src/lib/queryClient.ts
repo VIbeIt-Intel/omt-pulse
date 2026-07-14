@@ -1,4 +1,5 @@
 import { QueryClient, QueryCache, MutationCache, QueryFunction } from "@tanstack/react-query";
+import { clearCachedAuthUser } from "@/lib/auth-cache";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -93,6 +94,7 @@ export const queryClient = new QueryClient({
       if (!isSessionInvalidError(error)) return;
       if (typeof window === "undefined") return;
       if (isPublicRoute(window.location.pathname)) return;
+      clearCachedAuthUser();
       queryClient.clear();
       window.location.replace("/login");
     },
@@ -102,6 +104,7 @@ export const queryClient = new QueryClient({
       if (!isSessionInvalidError(error)) return;
       if (typeof window === "undefined") return;
       if (isPublicRoute(window.location.pathname)) return;
+      clearCachedAuthUser();
       queryClient.clear();
       window.location.replace("/login");
     },

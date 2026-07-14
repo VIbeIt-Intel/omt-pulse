@@ -1,5 +1,5 @@
 /**
- * Offline outbox for SOS + Report Incident.
+ * Offline outbox for SOS, Report Incident, and Access Control check-in.
  * IndexedDB so queued media survives app kill (unlike sessionStorage drafts).
  */
 
@@ -53,7 +53,14 @@ export type OutboxIncidentJob = {
   attachments: OutboxAttachment[];
 };
 
-export type OutboxJob = OutboxSosJob | OutboxIncidentJob;
+export type OutboxAccessControlJob = {
+  id: string;
+  type: "access_control";
+  createdAt: number;
+  body: Record<string, unknown>;
+};
+
+export type OutboxJob = OutboxSosJob | OutboxIncidentJob | OutboxAccessControlJob;
 
 function newId(): string {
   return `ob_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
@@ -97,7 +104,10 @@ export async function countOutboxJobs(): Promise<number> {
 }
 
 export async function enqueueOutboxJob(
-  job: Omit<OutboxSosJob, "id" | "createdAt"> | Omit<OutboxIncidentJob, "id" | "createdAt">,
+  job:
+    | Omit<OutboxSosJob, "id" | "createdAt">
+    | Omit<OutboxIncidentJob, "id" | "createdAt">
+    | Omit<OutboxAccessControlJob, "id" | "createdAt">,
 ): Promise<OutboxJob> {
   const full = { ...job, id: newId(), createdAt: Date.now() } as OutboxJob;
   const db = await openDb();
@@ -325,6 +335,30 @@ async function drainIncident(job: OutboxIncidentJob): Promise<void> {
   }
 }
 
+async function rewriteAccessPhotoUrl(url: unknown): Promise<string | null> {
+  if (typeof url !== "string" || !url) return null;
+  if (!url.startsWith("data:")) return url;
+  const blob = dataUrlToBlob(url, "image/jpeg");
+  const { objectUrl } = await uploadBlob(blob, blob.type || "image/jpeg");
+  return objectUrl;
+}
+
+async function drainAccessControl(job: OutboxAccessControlJob): Promise<void> {
+  const body = { ...job.body };
+  body.vehiclePhotoUrl = await rewriteAccessPhotoUrl(body.vehiclePhotoUrl);
+
+  if (Array.isArray(body.people)) {
+    body.people = await Promise.all(
+      (body.people as Record<string, unknown>[]).map(async (person) => ({
+        ...person,
+        personPhotoUrl: await rewriteAccessPhotoUrl(person.personPhotoUrl),
+      })),
+    );
+  }
+
+  await apiRequest("POST", "/api/access-control/entries", body);
+}
+
 let draining = false;
 
 export async function drainOutbox(): Promise<{ drained: number; failed: number }> {
@@ -341,6 +375,8 @@ export async function drainOutbox(): Promise<{ drained: number; failed: number }
       try {
         if (job.type === "sos") {
           await drainSos(job);
+        } else if (job.type === "access_control") {
+          await drainAccessControl(job);
         } else {
           await drainIncident(job);
         }

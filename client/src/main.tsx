@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 import { Capacitor } from "@capacitor/core";
 import { initNativePushListeners } from "./lib/native-push";
 import { ensureAppCacheCurrent } from "./lib/ensure-app-cache-current";
+import { installNativeApiBaseFetch } from "./lib/api-base";
 import App from "./App";
 import "./index.css";
 
@@ -9,6 +10,7 @@ import "./index.css";
 // transparent hole through to the native Google Map view drawn behind the WebView.
 if (Capacitor.isNativePlatform()) {
   document.documentElement.classList.add("capacitor-native");
+  installNativeApiBaseFetch();
   initNativePushListeners();
 }
 
