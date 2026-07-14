@@ -462,8 +462,8 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
       }
       if (result === "settings-opened") {
         toast({
-          title: "Check phone Location",
-          description: `${message} Then return here and tap Use current location again.`,
+          title: "Turn on Location",
+          description: `${message} If you landed on the main Settings list, search “Location” at the top.`,
         });
         return;
       }

@@ -129,11 +129,16 @@ export async function requestLocationAccess(
     if (loc.issue === "denied") {
       return openSettingsForIssue("denied");
     }
-    // First attempt with Location likely off → open Settings quickly.
+    // Report Incident: do NOT auto-jump into system Settings on OEMs that open the
+    // root Settings tree instead of Location. Clear steps beat a wrong screen.
     if (!recentlyOpenedLocationSettings()) {
-      return openSettingsForIssue(loc.issue);
+      return {
+        result: "unavailable",
+        message:
+          "Location looks off. On your phone open Settings, search “Location”, turn it on, return here and tap Use current location again — or use Pick on map.",
+      };
     }
-    // 2) User just returned from Settings — give cold GPS a real chance.
+    // User marked they already visited Settings — give cold GPS a real chance.
     loc = await acquirePanicLocation();
   } else {
     loc = await probeLocationForAllowTap(
