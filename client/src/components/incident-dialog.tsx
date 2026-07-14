@@ -116,6 +116,7 @@ interface PendingAttachment {
   url: string;
   filename: string;
   mimeType: string;
+  byteSize?: number;
 }
 
 type LocationMode = "geographic" | "customMap";
@@ -756,8 +757,13 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
           const errData = await urlResp.json().catch(() => ({}));
           throw new Error(errData.message || "Failed to upload file");
         }
-        const { objectUrl } = await urlResp.json();
-        setPendingAttachments(prev => [...prev, { url: objectUrl, filename: uploadFile.name, mimeType: uploadMime }]);
+        const { objectUrl, byteSize } = await urlResp.json();
+        setPendingAttachments(prev => [...prev, {
+          url: objectUrl,
+          filename: uploadFile.name,
+          mimeType: uploadMime,
+          byteSize: typeof byteSize === "number" ? byteSize : uploadFile.size,
+        }]);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Could not upload the file. Please try again.";

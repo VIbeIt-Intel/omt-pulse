@@ -370,9 +370,15 @@ export class DatabaseStorage implements IStorage {
     return results;
   }
 
-  async getOrgStorageBytes(_orgId: string): Promise<number> {
-    // Attachment size column not yet added — returns 0 until Task #256 instruments it
-    return 0;
+  async getOrgStorageBytes(orgId: string): Promise<number> {
+    const [{ total }] = await db
+      .select({
+        total: sql<number>`coalesce(sum(${incidentAttachments.byteSize}), 0)::bigint`,
+      })
+      .from(incidentAttachments)
+      .where(eq(incidentAttachments.organizationId, orgId));
+    const n = typeof total === "string" ? Number(total) : Number(total ?? 0);
+    return Number.isFinite(n) ? n : 0;
   }
 
   async getOrgUsage(orgId: string) {
@@ -1387,6 +1393,7 @@ export class DatabaseStorage implements IStorage {
       url: incidentAttachments.url,
       filename: incidentAttachments.filename,
       mimeType: incidentAttachments.mimeType,
+      byteSize: incidentAttachments.byteSize,
       createdAt: incidentAttachments.createdAt,
       uploadedByFirstName: users.firstName,
       uploadedByLastName: users.lastName,

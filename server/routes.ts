@@ -23,6 +23,7 @@ import { sendArchonWelcomeEmail } from "./archon-welcome-email";
 import { createInviteToken, hashPlaceholderPassword } from "./user-invite";
 import { appInviteUrl } from "@shared/app-url";
 import { formatOrgAddress } from "@shared/org-address";
+import { resolveAttachmentByteSize } from "@shared/attachment-byte-size";
 
 const objectStorageService = new ObjectStorageService();
 
@@ -1174,7 +1175,7 @@ export async function registerRoutes(
         (objectPath) => `${proto}://${host}${objectPath}`,
       );
       gcsSucceeded = true;
-      return res.json({ objectUrl });
+      return res.json({ objectUrl, byteSize: buffer.length });
     } catch (gcsErr) {
       console.warn(
         "Object storage unavailable, falling back to base64:",
@@ -1185,7 +1186,7 @@ export async function registerRoutes(
     // ── Step 3: base64 fallback (always works, no external dependency) ───
     if (!gcsSucceeded) {
       const objectUrl = `data:${contentType};base64,${buffer.toString("base64")}`;
-      return res.json({ objectUrl });
+      return res.json({ objectUrl, byteSize: buffer.length });
     }
   });
 
@@ -3901,6 +3902,7 @@ export async function registerRoutes(
     filename: z.string().min(1),
     mimeType: z.string().min(1),
     evidencePhase: evidencePhaseBodySchema,
+    byteSize: z.number().int().nonnegative().optional(),
   });
 
   /** Client may request scene only while the incident is still live; otherwise supplementary. */
@@ -3912,6 +3914,34 @@ export async function registerRoutes(
     if (requested === "supplementary") return "supplementary";
     if (inc.isLive) return "scene";
     return "supplementary";
+  }
+
+  async function resolveStoredAttachmentByteSize(
+    url: string,
+    explicit?: number,
+  ): Promise<number | null> {
+    const fromClientOrData = resolveAttachmentByteSize(url, explicit);
+    if (fromClientOrData != null) return fromClientOrData;
+    try {
+      let objectPath: string | null = null;
+      if (url.startsWith("/objects/")) objectPath = url.split("?")[0] ?? null;
+      else {
+        try {
+          const u = new URL(url);
+          if (u.pathname.startsWith("/objects/")) objectPath = u.pathname;
+        } catch {
+          /* ignore */
+        }
+      }
+      if (!objectPath) return null;
+      const file = await objectStorageService.getObjectEntityFile(objectPath);
+      const [meta] = await file.getMetadata();
+      const raw = meta.size;
+      const n = typeof raw === "string" ? Number(raw) : Number(raw ?? NaN);
+      return Number.isFinite(n) && n >= 0 ? Math.floor(n) : null;
+    } catch {
+      return null;
+    }
   }
 
   function resolveNoteEvidencePhase(
@@ -3972,6 +4002,7 @@ export async function registerRoutes(
     const parsed = attachmentBodySchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: "url, filename, and mimeType are required" });
     const evidencePhase = resolveAttachmentEvidencePhase(parsed.data.evidencePhase, inc);
+    const byteSize = await resolveStoredAttachmentByteSize(parsed.data.url, parsed.data.byteSize);
     const attachment = await storage.createAttachment({
       incidentId,
       organizationId: orgId,
@@ -3980,6 +4011,7 @@ export async function registerRoutes(
       filename: parsed.data.filename,
       mimeType: parsed.data.mimeType,
       evidencePhase,
+      byteSize,
     });
     res.json(attachment);
   });

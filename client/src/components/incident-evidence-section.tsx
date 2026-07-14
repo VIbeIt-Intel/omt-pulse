@@ -86,12 +86,13 @@ export function IncidentEvidenceSection({
     setUploading(true);
     try {
       for (const file of Array.from(files)) {
-        const { objectUrl, file: processed } = await prepareAndUploadFile(file, { preset: "evidence" });
+        const { objectUrl, byteSize, file: processed } = await prepareAndUploadFile(file, { preset: "evidence" });
         await apiRequest("POST", `/api/incidents/${incidentId}/attachments`, {
           url: objectUrl,
           filename: processed.name,
           mimeType: processed.type || "application/octet-stream",
           evidencePhase: addPhase,
+          byteSize,
         });
       }
       await invalidateEvidence();

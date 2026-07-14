@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, timestamp, doublePrecision, serial, boolean, jsonb, unique, date } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, timestamp, doublePrecision, serial, boolean, jsonb, unique, date, bigint } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import type { WorkstationType } from "./workstations";
@@ -338,6 +338,8 @@ export const incidentAttachments = pgTable("incident_attachments", {
   url: text("url").notNull(),
   filename: text("filename").notNull(),
   mimeType: text("mime_type").notNull(),
+  /** Stored file size in bytes when known (for Archon storage metering). */
+  byteSize: bigint("byte_size", { mode: "number" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

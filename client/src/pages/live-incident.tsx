@@ -172,7 +172,7 @@ const NAV_STARTED_KEY = "omt_nav_started";
 /** Debounce before clearing joiner state when the live list momentarily omits the incident. */
 const JOINER_MISSING_RESET_MS = 3000;
 
-type ArrivalMedia = { id: string; url: string; filename: string; mimeType: string };
+type ArrivalMedia = { id: string; url: string; filename: string; mimeType: string; byteSize?: number };
 
 type ArrivalFormDraft = {
   incidentId: number;
@@ -2119,13 +2119,23 @@ export default function LiveIncidentPage() {
             credentials: "include",
           });
           if (!uploadResp.ok) throw new Error(`A media upload failed — please check your connection.`);
-          const { objectUrl } = await uploadResp.json();
+          const { objectUrl, byteSize } = await uploadResp.json();
           URL.revokeObjectURL(record.url);
           arrivalMediaBlobsRef.current.delete(record.id);
-          record = { ...record, url: objectUrl };
+          record = {
+            ...record,
+            url: objectUrl,
+            byteSize: typeof byteSize === "number" ? byteSize : blobEntry.blob.size,
+          };
         }
         if (!record.url.startsWith("blob:")) {
-          await apiRequest("POST", `/api/incidents/${liveId}/attachments`, { url: record.url, filename: record.filename, mimeType: record.mimeType, evidencePhase: "scene" });
+          await apiRequest("POST", `/api/incidents/${liveId}/attachments`, {
+            url: record.url,
+            filename: record.filename,
+            mimeType: record.mimeType,
+            evidencePhase: "scene",
+            ...(record.byteSize != null ? { byteSize: record.byteSize } : {}),
+          });
         }
       }
       // 3. Capture closure GPS coords (best-effort, 5 s timeout)
@@ -2193,10 +2203,14 @@ export default function LiveIncidentPage() {
           credentials: "include",
         });
         if (!uploadResp.ok) throw new Error("Upload failed");
-        const { objectUrl } = await uploadResp.json();
+        const { objectUrl, byteSize } = await uploadResp.json();
         URL.revokeObjectURL(tempUrl);
         arrivalMediaBlobsRef.current.delete(id);
-        setArrivalMedia((prev) => prev.map((m) => m.id === id ? { ...m, url: objectUrl } : m));
+        setArrivalMedia((prev) => prev.map((m) => m.id === id ? {
+          ...m,
+          url: objectUrl,
+          byteSize: typeof byteSize === "number" ? byteSize : blob.size,
+        } : m));
         persistArrivalFormDraftLight();
       } else {
         arrivalMediaBlobsRef.current.set(id, { blob, filename, mimeType });
@@ -2255,10 +2269,14 @@ export default function LiveIncidentPage() {
         credentials: "include",
       });
       if (!uploadResp.ok) throw new Error("Upload failed");
-      const { objectUrl } = await uploadResp.json();
+      const { objectUrl, byteSize } = await uploadResp.json();
       URL.revokeObjectURL(previewUrl);
       arrivalMediaBlobsRef.current.delete(id);
-      setArrivalMedia((prev) => prev.map((m) => m.id === id ? { ...m, url: objectUrl } : m));
+      setArrivalMedia((prev) => prev.map((m) => m.id === id ? {
+        ...m,
+        url: objectUrl,
+        byteSize: typeof byteSize === "number" ? byteSize : audioBlob.size,
+      } : m));
       persistArrivalFormDraftLight();
     } catch {
       URL.revokeObjectURL(previewUrl);
@@ -2447,7 +2465,13 @@ export default function LiveIncidentPage() {
         // Persist already-uploaded GCS attachments
         for (const item of persistedMedia) {
           if (!item.url.startsWith("blob:")) {
-            await apiRequest("POST", `/api/incidents/${queued.incidentId}/attachments`, { url: item.url, filename: item.filename, mimeType: item.mimeType, evidencePhase: "scene" });
+            await apiRequest("POST", `/api/incidents/${queued.incidentId}/attachments`, {
+              url: item.url,
+              filename: item.filename,
+              mimeType: item.mimeType,
+              evidencePhase: "scene",
+              ...(item.byteSize != null ? { byteSize: item.byteSize } : {}),
+            });
           }
         }
         // Upload in-memory blobs (captured offline, still in memory)
@@ -2464,8 +2488,14 @@ export default function LiveIncidentPage() {
             toast({ title: "Media upload failed", description: "Could not upload a media item. Your arrival will retry when you tap 'Record Incident' again.", variant: "destructive" });
             return;
           }
-          const { objectUrl } = await uploadResp.json();
-          await apiRequest("POST", `/api/incidents/${queued.incidentId}/attachments`, { url: objectUrl, filename: blobEntry.filename, mimeType: blobEntry.mimeType, evidencePhase: "scene" });
+          const { objectUrl, byteSize } = await uploadResp.json();
+          await apiRequest("POST", `/api/incidents/${queued.incidentId}/attachments`, {
+            url: objectUrl,
+            filename: blobEntry.filename,
+            mimeType: blobEntry.mimeType,
+            evidencePhase: "scene",
+            byteSize: typeof byteSize === "number" ? byteSize : blobEntry.blob.size,
+          });
         }
         arrivalMediaBlobsRef.current.clear();
         await apiRequest("POST", `/api/incidents/${queued.incidentId}/end-live`, {});
@@ -3475,13 +3505,23 @@ export default function LiveIncidentPage() {
             credentials: "include",
           });
           if (!uploadResp.ok) throw new Error(`A media upload failed — please check your connection.`);
-          const { objectUrl } = await uploadResp.json();
+          const { objectUrl, byteSize } = await uploadResp.json();
           URL.revokeObjectURL(record.url);
           arrivalMediaBlobsRef.current.delete(record.id);
-          record = { ...record, url: objectUrl };
+          record = {
+            ...record,
+            url: objectUrl,
+            byteSize: typeof byteSize === "number" ? byteSize : blobEntry.blob.size,
+          };
         }
         if (!record.url.startsWith("blob:")) {
-          await apiRequest("POST", `/api/incidents/${incId}/attachments`, { url: record.url, filename: record.filename, mimeType: record.mimeType, evidencePhase: "scene" });
+          await apiRequest("POST", `/api/incidents/${incId}/attachments`, {
+            url: record.url,
+            filename: record.filename,
+            mimeType: record.mimeType,
+            evidencePhase: "scene",
+            ...(record.byteSize != null ? { byteSize: record.byteSize } : {}),
+          });
         }
       }
       // 2. Record arrival on the live_responders row (sets arrivedAt + note)
@@ -3872,7 +3912,7 @@ export default function LiveIncidentPage() {
   const [closePanicCategoryId, setClosePanicCategoryId] = useState<number | null>(null);
   const [closePanicOtherNote, setClosePanicOtherNote] = useState("");
   const [closePanicDescription, setClosePanicDescription] = useState("");
-  const [closePanicPhotos, setClosePanicPhotos] = useState<Array<{ id: string; url: string; filename: string; mimeType: string }>>([]);
+  const [closePanicPhotos, setClosePanicPhotos] = useState<Array<{ id: string; url: string; filename: string; mimeType: string; byteSize?: number }>>([]);
   const [closePanicUploading, setClosePanicUploading] = useState(false);
   const [closePanicSubmitting, setClosePanicSubmitting] = useState(false);
   const closePanicPhotoInputRef = useRef<HTMLInputElement>(null);
@@ -3942,7 +3982,11 @@ export default function LiveIncidentPage() {
         });
         for (const photo of closePanicPhotos) {
           await apiRequest("POST", `/api/incidents/${incidentId}/attachments`, {
-            url: photo.url, filename: photo.filename, mimeType: photo.mimeType, evidencePhase: "scene",
+            url: photo.url,
+            filename: photo.filename,
+            mimeType: photo.mimeType,
+            evidencePhase: "scene",
+            ...(photo.byteSize != null ? { byteSize: photo.byteSize } : {}),
           });
         }
         finishClosePanicLocal();
@@ -3984,12 +4028,13 @@ export default function LiveIncidentPage() {
           credentials: "include",
         });
         if (!resp.ok) throw new Error("Upload failed");
-        const { objectUrl } = await resp.json();
+        const { objectUrl, byteSize } = await resp.json();
         setClosePanicPhotos((prev) => [...prev, {
           id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           url: objectUrl,
           filename: file.name || "photo",
           mimeType: file.type || "application/octet-stream",
+          byteSize: typeof byteSize === "number" ? byteSize : file.size,
         }]);
       }
     } catch {

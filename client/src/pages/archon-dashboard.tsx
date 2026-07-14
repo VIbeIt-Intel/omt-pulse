@@ -144,6 +144,14 @@ function fmtDate(d: string | null | undefined): string {
   catch { return d; }
 }
 
+function fmtStorageBytes(bytes: number): string {
+  const n = Number(bytes) || 0;
+  if (n < 1024) return `${n} B`;
+  if (n < 1_048_576) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1_073_741_824) return `${(n / 1_048_576).toFixed(1)} MB`;
+  return `${(n / 1_073_741_824).toFixed(2)} GB`;
+}
+
 function renewalDays(dateStr: string | null): number | null {
   if (!dateStr) return null;
   const diff = new Date(dateStr).getTime() - Date.now();
@@ -461,12 +469,11 @@ function OrgUsagePanel({ org }: { org: ArchonOrg }) {
               </div>
               <div className="space-y-0.5">
                 <p className="text-white/40 text-xs flex items-center gap-1"><Activity className="h-3 w-3" />Storage</p>
-                <p className="text-white/60 text-xs" data-testid={`text-archon-storage-${org.id}`}>
-                  {usage.storageBytes > 0
-                    ? usage.storageBytes >= 1_073_741_824
-                      ? `${(usage.storageBytes / 1_073_741_824).toFixed(2)} GB`
-                      : `${(usage.storageBytes / 1_048_576).toFixed(1)} MB`
-                    : "Not tracked"}
+                <p className="text-white font-semibold text-sm" data-testid={`text-archon-storage-${org.id}`}>
+                  {fmtStorageBytes(usage.storageBytes)}
+                  {org.storageLimitGb != null && (
+                    <span className="text-white/40 font-normal ml-1 text-xs">of {org.storageLimitGb} GB</span>
+                  )}
                 </p>
               </div>
               <div className="space-y-0.5">

@@ -146,7 +146,7 @@ export async function prepareUploadFile(
 export async function uploadFile(
   body: Blob | File,
   contentType?: string,
-): Promise<{ objectUrl: string }> {
+): Promise<{ objectUrl: string; byteSize: number }> {
   const type =
     contentType ??
     (body instanceof File ? body.type : undefined) ??
@@ -170,14 +170,18 @@ export async function uploadFile(
     );
   }
 
-  return resp.json();
+  const data = (await resp.json()) as { objectUrl: string; byteSize?: number };
+  return {
+    objectUrl: data.objectUrl,
+    byteSize: typeof data.byteSize === "number" ? data.byteSize : body.size,
+  };
 }
 
 export async function prepareAndUploadFile(
   file: File,
   options: PrepareUploadOptions = {},
-): Promise<{ objectUrl: string; file: File }> {
+): Promise<{ objectUrl: string; byteSize: number; file: File }> {
   const processed = await prepareUploadFile(file, options);
-  const { objectUrl } = await uploadFile(processed, processed.type);
-  return { objectUrl, file: processed };
+  const { objectUrl, byteSize } = await uploadFile(processed, processed.type);
+  return { objectUrl, byteSize, file: processed };
 }
