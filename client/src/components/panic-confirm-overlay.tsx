@@ -10,6 +10,7 @@ import {
   probePanicLocationForSend,
 } from "@/lib/panic-send";
 import { hasPanicCoordinates, type PanicLocationResult } from "@/lib/panic-location";
+import { enqueueOutboxJob } from "@/lib/offline-outbox";
 import { LocationPermissionGuide } from "@/components/location-permission-guide";
 import { preloadLocationSettingsModule } from "@/lib/open-location-settings";
 
@@ -68,11 +69,45 @@ export function PanicConfirmOverlay({ open, onOpenChange, confirmTestId, notifyH
   async function finishSend(loc: PanicLocationResult) {
     setSending(true);
     try {
+      if (!navigator.onLine) {
+        await enqueueOutboxJob({
+          type: "sos",
+          lat: hasPanicCoordinates(loc) ? loc.lat : undefined,
+          lng: hasPanicCoordinates(loc) ? loc.lng : undefined,
+        });
+        onOpenChange(false);
+        toast({
+          title: "🆘 Panic queued offline",
+          description:
+            "No signal — alert is saved on this phone and will send automatically when you’re back online.",
+        });
+        return;
+      }
       const outcome = await postPanicAlert(loc);
       onOpenChange(false);
       const t = buildPanicSentToast(outcome);
       toast({ title: t.title, description: t.description, variant: t.variant });
     } catch (e: unknown) {
+      // Network blip after navigator.onLine true — still queue rather than lose SOS.
+      const msg = e instanceof Error ? e.message : "";
+      if (/fetch|network|failed|offline|timeout/i.test(msg) || !navigator.onLine) {
+        try {
+          await enqueueOutboxJob({
+            type: "sos",
+            lat: hasPanicCoordinates(loc) ? loc.lat : undefined,
+            lng: hasPanicCoordinates(loc) ? loc.lng : undefined,
+          });
+          onOpenChange(false);
+          toast({
+            title: "🆘 Panic queued offline",
+            description:
+              "Could not reach the server — alert is saved on this phone and will send when you’re online.",
+          });
+          return;
+        } catch {
+          /* fall through */
+        }
+      }
       toast({
         title: "Failed to send panic alert",
         description: e instanceof Error ? e.message : "Please try again.",

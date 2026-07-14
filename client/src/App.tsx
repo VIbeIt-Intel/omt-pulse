@@ -19,6 +19,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ConnectivityBadge } from "@/components/connectivity-badge";
+import { useOutboxDrain } from "@/hooks/use-outbox-drain";
 import { SubscriptionWall } from "@/components/subscription-wall";
 import NotFound from "@/pages/not-found";
 import OccurrenceBook from "@/pages/occurrence-book";
@@ -590,6 +591,7 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
       window.removeEventListener(PUSH_DEEPLINK_EVENT, onDeepLink);
     };
   }, [navigate]);
+  useOutboxDrain(true);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [notifSheetOpen, setNotifSheetOpen] = useState(false);

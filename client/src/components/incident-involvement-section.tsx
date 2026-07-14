@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Camera, Car, ChevronDown, ChevronUp, Loader2, Plus, Upload, User, X } from "lucide-react";
 import { prepareAndUploadFile, UploadValidationError } from "@/lib/upload-media";
+import { fileToDataUrl } from "@/lib/offline-outbox";
 import { useToast } from "@/hooks/use-toast";
 import { AttachmentPreview } from "@/components/attachment-preview";
 import { cn } from "@/lib/utils";
@@ -561,6 +562,15 @@ function InvolvementPhotoPicker({
       for (const file of Array.from(files).slice(0, remaining)) {
         if (!file.type.startsWith("image/")) {
           toast({ title: "Images only", description: "Please choose a photo file.", variant: "destructive" });
+          continue;
+        }
+        if (!navigator.onLine) {
+          const dataUrl = await fileToDataUrl(file);
+          // Use data URL so the report outbox / form keeps bytes until sync.
+          // Person photos are stored in customFields as URL strings — offline we
+          // persist the data URL (will upload on next online report only if still
+          // in the form; large but OK for 1–2 ID photos).
+          next.push(dataUrl);
           continue;
         }
         const { objectUrl } = await prepareAndUploadFile(file, { preset: "evidence" });

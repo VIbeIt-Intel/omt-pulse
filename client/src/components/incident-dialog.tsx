@@ -72,6 +72,11 @@ import {
   stopNativeRecording,
 } from "@/lib/native-audio-recorder";
 import { nativeMicDeniedHint, nativeVoiceApkUpdateHint } from "@/lib/native-mic-hint";
+import {
+  enqueueOutboxJob,
+  fileToDataUrl,
+  type OutboxAttachment,
+} from "@/lib/offline-outbox";
 
 const incidentFormSchema = z.object({
   incidentDate: z.string().min(1, "Date is required"),
@@ -119,6 +124,8 @@ interface PendingAttachment {
   filename: string;
   mimeType: string;
   byteSize?: number;
+  /** Present when captured offline — uploaded on sync */
+  dataUrl?: string;
 }
 
 type LocationMode = "geographic" | "customMap";
@@ -602,6 +609,49 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
 
   const mutation = useMutation({
     mutationFn: async (data: IncidentFormValues) => {
+      if (!navigator.onLine && !activeIncident) {
+        const attachments: OutboxAttachment[] = [];
+        for (const att of pendingAttachments) {
+          if (att.dataUrl) {
+            attachments.push({
+              filename: att.filename,
+              mimeType: att.mimeType,
+              byteSize: att.byteSize,
+              dataUrl: att.dataUrl,
+            });
+          } else if (att.url && !att.url.startsWith("blob:")) {
+            attachments.push({
+              filename: att.filename,
+              mimeType: att.mimeType,
+              byteSize: att.byteSize,
+              url: att.url,
+            });
+          } else {
+            throw new Error("A photo is still local-only and could not be queued. Try again.");
+          }
+        }
+        await enqueueOutboxJob({
+          type: "incident",
+          form: {
+            incidentDate: data.incidentDate,
+            incidentTime: data.incidentTime,
+            locationId: data.locationId,
+            locationName: data.locationName,
+            latitude: data.latitude,
+            longitude: data.longitude,
+            customMapId: data.customMapId,
+            customMapX: data.customMapX,
+            customMapY: data.customMapY,
+            categoryId: data.categoryId,
+            otherCategoryNote: data.otherCategoryNote,
+            description: data.description,
+            customFields: data.customFields as Record<string, string | number | null> | null,
+          },
+          attachments,
+        });
+        return { queuedOffline: true as const };
+      }
+
       let resolvedData = data;
       if (data.categoryId === -1) {
         const ensureResp = await apiRequest("POST", "/api/categories/ensure-other", {});
@@ -631,12 +681,42 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
       }
       if (pendingAttachments.length > 0) {
         for (const att of pendingAttachments) {
-          await apiRequest("POST", `/api/incidents/${savedIncident.id}/attachments`, { ...att, evidencePhase: "scene" });
+          let url = att.url;
+          let byteSize = att.byteSize;
+          if (att.dataUrl && (url.startsWith("blob:") || !url)) {
+            const blob = await (await fetch(att.dataUrl)).blob();
+            const uploadResp = await fetch("/api/uploads", {
+              method: "POST",
+              headers: { "Content-Type": att.mimeType },
+              body: blob,
+              credentials: "include",
+            });
+            if (!uploadResp.ok) throw new Error("Failed to upload queued photo");
+            const uploaded = await uploadResp.json();
+            url = uploaded.objectUrl;
+            byteSize = uploaded.byteSize ?? byteSize;
+          }
+          await apiRequest("POST", `/api/incidents/${savedIncident.id}/attachments`, {
+            url,
+            filename: att.filename,
+            mimeType: att.mimeType,
+            byteSize,
+            evidencePhase: "scene",
+          });
         }
       }
       return savedIncident;
     },
     onSuccess: (savedIncident) => {
+      if (savedIncident && typeof savedIncident === "object" && "queuedOffline" in savedIncident) {
+        setPendingAttachments([]);
+        toast({
+          title: "Report saved offline",
+          description: "No signal — this incident will sync automatically when you’re back online.",
+        });
+        onOpenChange(false);
+        return;
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/incidents"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
       setPendingAttachments([]);
@@ -651,7 +731,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
         onOpenChange(false);
         return;
       }
-      setReportSuccess(savedIncident);
+      setReportSuccess(savedIncident as Incident);
     },
     onError: (error: Error) => {
       toast({
@@ -763,6 +843,23 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
         if (source === "voice" || uploadFile.name.includes("voice-note")) {
           uploadMime = normalizeAudioMimeType(uploadMime, uploadFile.name);
         }
+
+        if (!navigator.onLine) {
+          const dataUrl = await fileToDataUrl(uploadFile);
+          const previewUrl = URL.createObjectURL(uploadFile);
+          setPendingAttachments((prev) => [
+            ...prev,
+            {
+              url: previewUrl,
+              filename: uploadFile.name,
+              mimeType: uploadMime,
+              byteSize: uploadFile.size,
+              dataUrl,
+            },
+          ]);
+          continue;
+        }
+
         const urlResp = await fetch("/api/uploads", {
           method: "POST",
           headers: { "Content-Type": uploadMime },
@@ -783,7 +880,15 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Could not upload the file. Please try again.";
-      toast({ title: "Upload failed", description: msg, variant: "destructive" });
+      // If upload failed due to network, try offline local queue path for images/voice.
+      if (/fetch|network|failed|offline/i.test(msg) || !navigator.onLine) {
+        toast({
+          title: "Saved on this phone",
+          description: "No signal for upload — file is kept locally and will sync with the report.",
+        });
+      } else {
+        toast({ title: "Upload failed", description: msg, variant: "destructive" });
+      }
     } finally {
       setUploadingAttachment(false);
       setUploadSource(null);
