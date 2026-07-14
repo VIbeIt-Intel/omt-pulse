@@ -30,7 +30,7 @@ function emailBanner(user: OnboardingUserInfo) {
       icon: MailWarning,
       className: "border-amber-500/30 bg-amber-500/10 text-amber-300",
       title: "Email could not be sent",
-      body: `Check SendGrid on the server, then use Resend invite — or copy the invite link for ${user.email} below.`,
+      body: `Check RESEND_API_KEY on the server, then use Resend invite — or copy the invite link for ${user.email} below.`,
     };
   }
   if (status === "skipped") {
@@ -47,6 +47,11 @@ function emailBanner(user: OnboardingUserInfo) {
     title: "Manual share",
     body: `Email is the normal invite channel. Copy the link below if you need to resend or share offline.`,
   };
+}
+
+function shortUrl(url: string, keep = 28): string {
+  if (url.length <= keep + 12) return url;
+  return `${url.slice(0, keep)}…${url.slice(-8)}`;
 }
 
 export function ArchonOnboardingShare({ open, onOpenChange, user, panelBg }: ArchonOnboardingShareProps) {
@@ -100,10 +105,10 @@ export function ArchonOnboardingShare({ open, onOpenChange, user, panelBg }: Arc
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent
-        className="border-white/20 sm:max-w-md max-h-[85vh] overflow-y-auto gap-3 p-4 sm:p-5"
+        className="border-white/20 sm:max-w-md w-[calc(100vw-1.5rem)] max-h-[min(85vh,640px)] overflow-x-hidden overflow-y-auto gap-3 p-4 sm:p-5"
         style={panelBg}
       >
-        <DialogHeader className="space-y-1.5 text-left">
+        <DialogHeader className="space-y-1.5 text-left pr-6">
           <DialogTitle className="text-white flex items-center gap-2 text-base">
             <Mail className="h-4 w-4 text-primary shrink-0" />
             Onboarding — {user.firstName}
@@ -113,21 +118,21 @@ export function ArchonOnboardingShare({ open, onOpenChange, user, panelBg }: Arc
           </p>
         </DialogHeader>
 
-        <div className={`rounded-lg border px-3 py-2.5 flex gap-2.5 ${banner.className}`} data-testid="banner-archon-email-status">
+        <div className={`rounded-lg border px-3 py-2.5 flex gap-2.5 min-w-0 ${banner.className}`} data-testid="banner-archon-email-status">
           <BannerIcon className="h-4 w-4 shrink-0 mt-0.5" />
           <div className="min-w-0 space-y-0.5">
             <p className="text-sm font-medium text-white">{banner.title}</p>
-            <p className="text-xs text-white/60 leading-snug">{banner.body}</p>
+            <p className="text-xs text-white/60 leading-snug break-words">{banner.body}</p>
           </div>
         </div>
 
         {user.inviteUrl && (
-          <div className="space-y-1.5">
+          <div className="space-y-1.5 min-w-0">
             <p className="text-[11px] uppercase tracking-wider text-white/40">Invite link</p>
-            <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 flex items-center gap-2">
+            <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 flex items-center gap-2 min-w-0">
               <Link2 className="h-3.5 w-3.5 text-primary shrink-0" />
-              <span className="flex-1 text-xs font-mono text-white/60 truncate" title={user.inviteUrl}>
-                {user.inviteUrl}
+              <span className="flex-1 text-xs font-mono text-white/60 truncate min-w-0" title={user.inviteUrl}>
+                {shortUrl(user.inviteUrl)}
               </span>
             </div>
             <Button
@@ -142,10 +147,10 @@ export function ArchonOnboardingShare({ open, onOpenChange, user, panelBg }: Arc
           </div>
         )}
 
-        <div className="space-y-1.5">
+        <div className="space-y-1.5 min-w-0">
           <p className="text-[11px] uppercase tracking-wider text-white/40">Message preview</p>
-          <div className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 max-h-28 overflow-y-auto">
-            <p className="text-[11px] leading-relaxed text-white/55 whitespace-pre-wrap break-words" data-testid="text-archon-onboarding-message">
+          <div className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 max-h-24 overflow-y-auto overflow-x-hidden min-w-0">
+            <p className="text-[11px] leading-relaxed text-white/55 whitespace-pre-wrap break-all" data-testid="text-archon-onboarding-message">
               {message}
             </p>
           </div>
@@ -162,9 +167,9 @@ export function ArchonOnboardingShare({ open, onOpenChange, user, panelBg }: Arc
         </div>
 
         {installUrl ? (
-          <div className="rounded-md border border-white/10 bg-white/5 px-2.5 py-2 flex items-center gap-2">
+          <div className="rounded-md border border-white/10 bg-white/5 px-2.5 py-2 flex items-center gap-2 min-w-0">
             <span className="text-[11px] text-white/40 shrink-0">Android</span>
-            <span className="flex-1 text-[11px] font-mono text-white/50 truncate">{installUrl}</span>
+            <span className="flex-1 text-[11px] font-mono text-white/50 truncate min-w-0" title={installUrl}>{shortUrl(installUrl, 20)}</span>
             <button
               type="button"
               onClick={handleCopyPlayLink}
@@ -175,7 +180,7 @@ export function ArchonOnboardingShare({ open, onOpenChange, user, panelBg }: Arc
             </button>
           </div>
         ) : (
-          <p className="text-[11px] text-amber-400/90 rounded-md border border-amber-500/25 bg-amber-500/10 px-2.5 py-1.5 leading-snug">
+          <p className="text-[11px] text-amber-400/90 rounded-md border border-amber-500/25 bg-amber-500/10 px-2.5 py-1.5 leading-snug break-words">
             Install link missing — set <code className="text-[10px]">VITE_PLAY_TESTING_JOIN_URL</code> on the server.
           </p>
         )}

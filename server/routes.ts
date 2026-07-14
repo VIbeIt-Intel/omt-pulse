@@ -22,6 +22,7 @@ import { CENTRAL_COMMAND_NAME } from "./archon-constants";
 import { sendArchonWelcomeEmail } from "./archon-welcome-email";
 import { createInviteToken, hashPlaceholderPassword } from "./user-invite";
 import { appInviteUrl } from "@shared/app-url";
+import { formatOrgAddress } from "@shared/org-address";
 
 const objectStorageService = new ObjectStorageService();
 
@@ -1417,48 +1418,42 @@ export async function registerRoutes(
 
       // Best-effort: email the sales inbox. NEVER fail the request if this errors —
       // the DB row is the source of truth and Archon can read it back.
-      if (process.env.SENDGRID_API_KEY) {
-        try {
-          const sgMail = (await import("@sendgrid/mail")).default;
-          sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-          const safe = (s: string) => String(s).replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c] || c));
-          const text = [
-            `New OMT Pulse contact-form submission #${row.id}`,
-            ``,
-            `Name:         ${data.name}`,
-            `Organisation: ${data.organisation || "—"}`,
-            `Email:        ${data.email}`,
-            `Phone:        ${data.phone || "—"}`,
-            ``,
-            `Message:`,
-            data.message,
-          ].join("\n");
-          const html = `
-            <h2>New OMT Pulse contact-form submission #${row.id}</h2>
-            <p><strong>Name:</strong> ${safe(data.name)}<br/>
-            <strong>Organisation:</strong> ${safe(data.organisation || "—")}<br/>
-            <strong>Email:</strong> <a href="mailto:${safe(data.email)}">${safe(data.email)}</a><br/>
-            <strong>Phone:</strong> ${safe(data.phone || "—")}</p>
-            <h3>Message</h3>
-            <p style="white-space:pre-wrap">${safe(data.message)}</p>
-          `;
-          await sgMail.send({
-            to: "sales@intelafri.org",
-            from: process.env.SENDGRID_FROM_EMAIL || "sales@intelafri.org",
-            replyTo: data.email,
-            subject: `[OMT Pulse] New lead — ${data.name}${data.organisation ? ` (${data.organisation})` : ""}`,
-            text,
-            html,
-          });
-          await db.update(contactSubmissions)
-            .set({ emailSentAt: new Date() })
-            .where(eq(contactSubmissions.id, row.id));
-          console.log(`[contact] email delivered for submission #${row.id}`);
-        } catch (mailErr: any) {
-          console.error(`[contact] email send failed for #${row.id}:`, mailErr?.message || mailErr);
-        }
+      const { sendAppEmail } = await import("./mail");
+      const safe = (s: string) => String(s).replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c] || c));
+      const text = [
+        `New OMT Pulse contact-form submission #${row.id}`,
+        ``,
+        `Name:         ${data.name}`,
+        `Organisation: ${data.organisation || "—"}`,
+        `Email:        ${data.email}`,
+        `Phone:        ${data.phone || "—"}`,
+        ``,
+        `Message:`,
+        data.message,
+      ].join("\n");
+      const html = `
+        <h2>New OMT Pulse contact-form submission #${row.id}</h2>
+        <p><strong>Name:</strong> ${safe(data.name)}<br/>
+        <strong>Organisation:</strong> ${safe(data.organisation || "—")}<br/>
+        <strong>Email:</strong> <a href="mailto:${safe(data.email)}">${safe(data.email)}</a><br/>
+        <strong>Phone:</strong> ${safe(data.phone || "—")}</p>
+        <h3>Message</h3>
+        <p style="white-space:pre-wrap">${safe(data.message)}</p>
+      `;
+      const mailResult = await sendAppEmail({
+        to: "sales@intelafri.org",
+        replyTo: data.email,
+        subject: `[OMT Pulse] New lead — ${data.name}${data.organisation ? ` (${data.organisation})` : ""}`,
+        text,
+        html,
+      });
+      if (mailResult.sent) {
+        await db.update(contactSubmissions)
+          .set({ emailSentAt: new Date() })
+          .where(eq(contactSubmissions.id, row.id));
+        console.log(`[contact] email delivered for submission #${row.id}`);
       } else {
-        console.log(`[contact] SENDGRID_API_KEY not set — skipping email send for #${row.id}`);
+        console.log(`[contact] email not sent for #${row.id}: ${mailResult.reason ?? "unknown"}`);
       }
 
       return res.json({ success: true });
@@ -4372,7 +4367,13 @@ export async function registerRoutes(
     });
 
     const inviteUrl = appInviteUrl(token);
-    res.json({ inviteUrl, inviteToken: token, inviteTokenExpiresAt: expiresAt, welcomeEmailSent });
+    res.json({
+      inviteUrl,
+      inviteToken: token,
+      inviteTokenExpiresAt: expiresAt,
+      welcomeEmailSent: welcomeEmailSent.sent,
+      welcomeEmailReason: welcomeEmailSent.reason ?? null,
+    });
   });
 
   app.patch("/api/archon/orgs/:orgId/complimentary", requireArchon, async (req, res) => {
@@ -4398,9 +4399,9 @@ export async function registerRoutes(
   app.post("/api/archon/orgs", requireArchon, async (req, res) => {
     const {
       orgName, orgAddress, orgPhone,
+      addressStreet, addressSuburb, addressCity, addressProvince, addressPostalCode,
       companyRegistrationNumber, vatNumber,
-      primaryContactFirstName, primaryContactLastName, primaryContactEmail, primaryContactPhone,
-      adminFirstName, adminLastName, adminEmail,
+      adminFirstName, adminLastName, adminEmail, adminPhone,
       contractRef, contractStartDate, contractRenewalDate,
       rateAdmin, rateSupervisor, rateReporter, rateAccessController, rateControlRoom, ratePatrolUser,
       storageLimitGb, billingNotes,
@@ -4408,8 +4409,8 @@ export async function registerRoutes(
     } = req.body;
 
     if (!orgName || typeof orgName !== "string") return res.status(400).json({ message: "Organisation name is required" });
-    if (!adminFirstName || !adminLastName) return res.status(400).json({ message: "Technical administrator first and last name are required" });
-    if (!adminEmail || typeof adminEmail !== "string") return res.status(400).json({ message: "Technical administrator email is required" });
+    if (!adminFirstName || !adminLastName) return res.status(400).json({ message: "Administrator first and last name are required" });
+    if (!adminEmail || typeof adminEmail !== "string") return res.status(400).json({ message: "Administrator email is required" });
 
     const existing = await storage.getUserByEmail(adminEmail.toLowerCase().trim());
     if (existing) return res.status(400).json({ message: "An account with this email already exists" });
@@ -4417,18 +4418,39 @@ export async function registerRoutes(
     const { token: inviteToken, expiresAt: inviteTokenExpiresAt } = createInviteToken();
     const hashedPassword = await hashPlaceholderPassword();
 
+    const street = typeof addressStreet === "string" ? addressStreet.trim() : "";
+    const suburb = typeof addressSuburb === "string" ? addressSuburb.trim() : "";
+    const city = typeof addressCity === "string" ? addressCity.trim() : "";
+    const province = typeof addressProvince === "string" ? addressProvince.trim() : "";
+    const postalCode = typeof addressPostalCode === "string" ? addressPostalCode.trim() : "";
+    const combinedAddress =
+      formatOrgAddress({ street, suburb, city, province, postalCode }) ||
+      (typeof orgAddress === "string" ? orgAddress.trim() : "") ||
+      "";
+
+    const contactFirst = adminFirstName.trim();
+    const contactLast = adminLastName.trim();
+    const contactEmail = adminEmail.toLowerCase().trim();
+    const contactPhone = typeof adminPhone === "string" ? adminPhone.trim() : "";
+
     const org = await storage.createOrganization({
       name: orgName.trim(),
-      address: orgAddress?.trim() || "",
-      phone: orgPhone?.trim() || "",
+      address: combinedAddress,
+      addressStreet: street || null,
+      addressSuburb: suburb || null,
+      addressCity: city || null,
+      addressProvince: province || null,
+      addressPostalCode: postalCode || null,
+      phone: orgPhone?.trim() || contactPhone || "",
       subscriptionStatus: "active",
       isComplimentary: false,
       companyRegistrationNumber: companyRegistrationNumber?.trim() || null,
       vatNumber: vatNumber?.trim() || null,
-      primaryContactFirstName: primaryContactFirstName?.trim() || null,
-      primaryContactLastName: primaryContactLastName?.trim() || null,
-      primaryContactEmail: primaryContactEmail?.trim().toLowerCase() || null,
-      primaryContactPhone: primaryContactPhone?.trim() || null,
+      // Same person is billing contact and technical admin
+      primaryContactFirstName: contactFirst,
+      primaryContactLastName: contactLast,
+      primaryContactEmail: contactEmail,
+      primaryContactPhone: contactPhone || null,
       contractRef: contractRef?.trim() || null,
       contractStartDate: contractStartDate || null,
       contractRenewalDate: contractRenewalDate || null,
@@ -4444,9 +4466,10 @@ export async function registerRoutes(
 
     const user = await storage.createUser({
       organizationId: org.id,
-      firstName: adminFirstName.trim(),
-      lastName: adminLastName.trim(),
-      email: adminEmail.toLowerCase().trim(),
+      firstName: contactFirst,
+      lastName: contactLast,
+      email: contactEmail,
+      contactNumber: contactPhone || null,
       password: hashedPassword,
       role: "administrator",
       mustChangePassword: true,
@@ -4468,18 +4491,21 @@ export async function registerRoutes(
     }
 
     let welcomeEmailSent = false;
+    let welcomeEmailReason: string | null = null;
     if (sendWelcomeEmail === true) {
-      welcomeEmailSent = await sendArchonWelcomeEmail({
+      const emailResult = await sendArchonWelcomeEmail({
         org,
-        adminFirstName: adminFirstName.trim(),
-        adminEmail: adminEmail.toLowerCase().trim(),
+        adminFirstName: contactFirst,
+        adminEmail: contactEmail,
         inviteToken,
       });
+      welcomeEmailSent = emailResult.sent;
+      welcomeEmailReason = emailResult.reason ?? null;
     }
 
     const inviteUrl = appInviteUrl(inviteToken);
     const { password: _pw, ...safeUser } = user;
-    res.json({ org, user: safeUser, welcomeEmailSent, inviteUrl, inviteToken });
+    res.json({ org, user: safeUser, welcomeEmailSent, welcomeEmailReason, inviteUrl, inviteToken });
   });
 
   // POST /api/archon/orgs/:orgId/users — add a user (any role) to an existing org
@@ -4528,6 +4554,7 @@ export async function registerRoutes(
     const { orgId } = req.params as { orgId: string };
     const {
       name, address, phone, subscriptionStatus,
+      addressStreet, addressSuburb, addressCity, addressProvince, addressPostalCode,
       companyRegistrationNumber, vatNumber,
       primaryContactFirstName, primaryContactLastName, primaryContactEmail, primaryContactPhone,
       contractRef, contractStartDate, contractRenewalDate,
@@ -4537,8 +4564,31 @@ export async function registerRoutes(
 
     const patch: Record<string, unknown> = {};
     if (name !== undefined) patch.name = name.trim();
-    if (address !== undefined) patch.address = address.trim();
     if (phone !== undefined) patch.phone = phone.trim();
+    if (addressStreet !== undefined || addressSuburb !== undefined || addressCity !== undefined || addressProvince !== undefined || addressPostalCode !== undefined) {
+      const street = addressStreet !== undefined ? (addressStreet?.trim() || "") : undefined;
+      const suburb = addressSuburb !== undefined ? (addressSuburb?.trim() || "") : undefined;
+      const city = addressCity !== undefined ? (addressCity?.trim() || "") : undefined;
+      const province = addressProvince !== undefined ? (addressProvince?.trim() || "") : undefined;
+      const postalCode = addressPostalCode !== undefined ? (addressPostalCode?.trim() || "") : undefined;
+      if (street !== undefined) patch.addressStreet = street || null;
+      if (suburb !== undefined) patch.addressSuburb = suburb || null;
+      if (city !== undefined) patch.addressCity = city || null;
+      if (province !== undefined) patch.addressProvince = province || null;
+      if (postalCode !== undefined) patch.addressPostalCode = postalCode || null;
+      // Rebuild combined address when any part is provided (fetch existing for missing parts)
+      const existing = await storage.getOrganization(orgId);
+      const combined = formatOrgAddress({
+        street: street ?? existing?.addressStreet,
+        suburb: suburb ?? existing?.addressSuburb,
+        city: city ?? existing?.addressCity,
+        province: province ?? existing?.addressProvince,
+        postalCode: postalCode ?? existing?.addressPostalCode,
+      });
+      if (combined) patch.address = combined;
+    } else if (address !== undefined) {
+      patch.address = address.trim();
+    }
     if (companyRegistrationNumber !== undefined) patch.companyRegistrationNumber = companyRegistrationNumber?.trim() || null;
     if (vatNumber !== undefined) patch.vatNumber = vatNumber?.trim() || null;
     if (primaryContactFirstName !== undefined) patch.primaryContactFirstName = primaryContactFirstName?.trim() || null;

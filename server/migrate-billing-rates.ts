@@ -38,4 +38,19 @@ export async function migrateBillingRates() {
   await safe("organizations.primary_contact_phone", sql`
     ALTER TABLE organizations ADD COLUMN IF NOT EXISTS primary_contact_phone TEXT
   `);
+  await safe("organizations.address_street", sql`
+    ALTER TABLE organizations ADD COLUMN IF NOT EXISTS address_street TEXT
+  `);
+  await safe("organizations.address_suburb", sql`
+    ALTER TABLE organizations ADD COLUMN IF NOT EXISTS address_suburb TEXT
+  `);
+  await safe("organizations.address_city", sql`
+    ALTER TABLE organizations ADD COLUMN IF NOT EXISTS address_city TEXT
+  `);
+  await safe("organizations.address_province", sql`
+    ALTER TABLE organizations ADD COLUMN IF NOT EXISTS address_province TEXT
+  `);
+  await safe("organizations.address_postal_code", sql`
+    ALTER TABLE organizations ADD COLUMN IF NOT EXISTS address_postal_code TEXT
+  `);
 }

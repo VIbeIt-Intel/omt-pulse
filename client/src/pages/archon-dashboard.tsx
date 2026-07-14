@@ -20,6 +20,7 @@ import {
 import { ArchonOnboardingShare } from "@/components/archon-onboarding-share";
 import type { OnboardingUserInfo } from "@/lib/onboarding-messages";
 import { appInviteUrl } from "@shared/app-url";
+import { formatOrgAddress } from "@shared/org-address";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 
@@ -31,6 +32,11 @@ type ArchonOrg = {
   id: string;
   name: string;
   address: string;
+  addressStreet?: string | null;
+  addressSuburb?: string | null;
+  addressCity?: string | null;
+  addressProvince?: string | null;
+  addressPostalCode?: string | null;
   phone: string;
   createdAt: string;
   trialEndsAt: string | null;
@@ -182,48 +188,99 @@ function UserStatusBadge({ isActive }: { isActive: boolean }) {
 // ─── New Client form state ────────────────────────────────────────────────────
 
 type NewClientForm = {
-  orgName: string; orgAddress: string; orgPhone: string;
-  companyRegistrationNumber: string; vatNumber: string;
-  primaryContactFirstName: string; primaryContactLastName: string;
-  primaryContactEmail: string; primaryContactPhone: string;
-  adminFirstName: string; adminLastName: string; adminEmail: string;
-  contractRef: string; contractStartDate: string; contractRenewalDate: string;
-  rateAdmin: string; rateSupervisor: string; rateReporter: string; rateAccessController: string;
-  rateControlRoom: string; ratePatrolUser: string;
-  storageLimitGb: string; billingNotes: string;
+  orgName: string;
+  addressStreet: string;
+  addressSuburb: string;
+  addressCity: string;
+  addressProvince: string;
+  addressPostalCode: string;
+  orgPhone: string;
+  companyRegistrationNumber: string;
+  vatNumber: string;
+  adminFirstName: string;
+  adminLastName: string;
+  adminEmail: string;
+  adminPhone: string;
+  contractRef: string;
+  contractStartDate: string;
+  contractRenewalDate: string;
+  rateAdmin: string;
+  rateSupervisor: string;
+  rateReporter: string;
+  rateAccessController: string;
+  rateControlRoom: string;
+  ratePatrolUser: string;
+  storageLimitGb: string;
+  billingNotes: string;
   groups: string[];
   sendWelcomeEmail: boolean;
 };
 
 const emptyNewClient = (): NewClientForm => ({
-  orgName: "", orgAddress: "", orgPhone: "",
-  companyRegistrationNumber: "", vatNumber: "",
-  primaryContactFirstName: "", primaryContactLastName: "",
-  primaryContactEmail: "", primaryContactPhone: "",
-  adminFirstName: "", adminLastName: "", adminEmail: "",
-  contractRef: "", contractStartDate: "", contractRenewalDate: "",
-  rateAdmin: "300", rateSupervisor: "200", rateReporter: "50", rateAccessController: "75",
-  rateControlRoom: "100", ratePatrolUser: "100",
-  storageLimitGb: "50", billingNotes: "",
+  orgName: "",
+  addressStreet: "",
+  addressSuburb: "",
+  addressCity: "",
+  addressProvince: "",
+  addressPostalCode: "",
+  orgPhone: "",
+  companyRegistrationNumber: "",
+  vatNumber: "",
+  adminFirstName: "",
+  adminLastName: "",
+  adminEmail: "",
+  adminPhone: "",
+  contractRef: "",
+  contractStartDate: "",
+  contractRenewalDate: "",
+  rateAdmin: "300",
+  rateSupervisor: "200",
+  rateReporter: "50",
+  rateAccessController: "75",
+  rateControlRoom: "100",
+  ratePatrolUser: "100",
+  storageLimitGb: "50",
+  billingNotes: "",
   groups: [],
   sendWelcomeEmail: true,
 });
 
 type EditContractForm = {
-  name: string; address: string; phone: string;
-  companyRegistrationNumber: string; vatNumber: string;
-  primaryContactFirstName: string; primaryContactLastName: string;
-  primaryContactEmail: string; primaryContactPhone: string;
-  contractRef: string; contractStartDate: string; contractRenewalDate: string;
-  rateAdmin: string; rateSupervisor: string; rateReporter: string; rateAccessController: string;
-  rateControlRoom: string; ratePatrolUser: string;
-  storageLimitGb: string; billingNotes: string;
+  name: string;
+  addressStreet: string;
+  addressSuburb: string;
+  addressCity: string;
+  addressProvince: string;
+  addressPostalCode: string;
+  phone: string;
+  companyRegistrationNumber: string;
+  vatNumber: string;
+  primaryContactFirstName: string;
+  primaryContactLastName: string;
+  primaryContactEmail: string;
+  primaryContactPhone: string;
+  contractRef: string;
+  contractStartDate: string;
+  contractRenewalDate: string;
+  rateAdmin: string;
+  rateSupervisor: string;
+  rateReporter: string;
+  rateAccessController: string;
+  rateControlRoom: string;
+  ratePatrolUser: string;
+  storageLimitGb: string;
+  billingNotes: string;
 };
 
 function orgToEditForm(org: ArchonOrg): EditContractForm {
+  const hasParts = !!(org.addressStreet || org.addressSuburb || org.addressCity || org.addressPostalCode);
   return {
     name: org.name,
-    address: org.address,
+    addressStreet: org.addressStreet || (!hasParts ? (org.address ?? "") : "") || "",
+    addressSuburb: org.addressSuburb ?? "",
+    addressCity: org.addressCity ?? "",
+    addressProvince: org.addressProvince ?? "",
+    addressPostalCode: org.addressPostalCode ?? "",
     phone: org.phone,
     companyRegistrationNumber: org.companyRegistrationNumber ?? "",
     vatNumber: org.vatNumber ?? "",
@@ -517,7 +574,9 @@ export default function ArchonDashboard() {
       const description = data.welcomeEmailSent
         ? undefined
         : f.sendWelcomeEmail
-          ? "Welcome email could not be sent (check SendGrid config). Use Resend invite or the share dialog below."
+          ? (data.welcomeEmailReason
+            ? `Welcome email failed: ${data.welcomeEmailReason}`
+            : "Welcome email could not be sent. Use Resend invite or copy the invite link.")
           : "Welcome email skipped. Use Resend invite or the share dialog to send the invite link.";
       toast({ title, description });
       setOnboardingShare({
@@ -711,22 +770,30 @@ export default function ArchonDashboard() {
     e.preventDefault();
     const f = newClientForm;
     if (!f.orgName.trim()) return toast({ title: "Organisation name required", variant: "destructive" });
-    if (!f.adminFirstName.trim() || !f.adminLastName.trim()) return toast({ title: "Technical administrator name required", variant: "destructive" });
-    if (!f.adminEmail.trim()) return toast({ title: "Technical administrator email required", variant: "destructive" });
+    if (!f.adminFirstName.trim() || !f.adminLastName.trim()) return toast({ title: "Administrator name required", variant: "destructive" });
+    if (!f.adminEmail.trim()) return toast({ title: "Administrator email required", variant: "destructive" });
 
     newClientMutation.mutate({
       orgName: f.orgName,
-      orgAddress: f.orgAddress,
-      orgPhone: f.orgPhone,
+      addressStreet: f.addressStreet || undefined,
+      addressSuburb: f.addressSuburb || undefined,
+      addressCity: f.addressCity || undefined,
+      addressProvince: f.addressProvince || undefined,
+      addressPostalCode: f.addressPostalCode || undefined,
+      orgAddress: formatOrgAddress({
+        street: f.addressStreet,
+        suburb: f.addressSuburb,
+        city: f.addressCity,
+        province: f.addressProvince,
+        postalCode: f.addressPostalCode,
+      }) || undefined,
+      orgPhone: f.orgPhone || f.adminPhone || undefined,
       companyRegistrationNumber: f.companyRegistrationNumber || undefined,
       vatNumber: f.vatNumber || undefined,
-      primaryContactFirstName: f.primaryContactFirstName || undefined,
-      primaryContactLastName: f.primaryContactLastName || undefined,
-      primaryContactEmail: f.primaryContactEmail || undefined,
-      primaryContactPhone: f.primaryContactPhone || undefined,
       adminFirstName: f.adminFirstName,
       adminLastName: f.adminLastName,
       adminEmail: f.adminEmail,
+      adminPhone: f.adminPhone || undefined,
       contractRef: f.contractRef || undefined,
       contractStartDate: f.contractStartDate || undefined,
       contractRenewalDate: f.contractRenewalDate || undefined,
@@ -751,7 +818,18 @@ export default function ArchonDashboard() {
       orgId: editOrgTarget.id,
       body: {
         name: f.name,
-        address: f.address,
+        addressStreet: f.addressStreet || null,
+        addressSuburb: f.addressSuburb || null,
+        addressCity: f.addressCity || null,
+        addressProvince: f.addressProvince || null,
+        addressPostalCode: f.addressPostalCode || null,
+        address: formatOrgAddress({
+          street: f.addressStreet,
+          suburb: f.addressSuburb,
+          city: f.addressCity,
+          province: f.addressProvince,
+          postalCode: f.addressPostalCode,
+        }) || null,
         phone: f.phone,
         companyRegistrationNumber: f.companyRegistrationNumber || null,
         vatNumber: f.vatNumber || null,
@@ -1086,7 +1164,7 @@ export default function ArchonDashboard() {
 
       {/* ── New Client Dialog ── */}
       <Dialog open={showNewClient} onOpenChange={(open) => { if (!open) { setShowNewClient(false); setNewClientForm(emptyNewClient()); } }}>
-        <DialogContent className="border-white/20 sm:max-w-2xl max-h-[90vh] overflow-y-auto" style={panelBg}>
+        <DialogContent className="border-white/20 sm:max-w-2xl w-[calc(100vw-1.5rem)] max-h-[min(90vh,760px)] overflow-x-hidden overflow-y-auto" style={panelBg}>
           <DialogHeader>
             <DialogTitle className="text-white flex items-center gap-2">
               <Building2 className="h-4 w-4 text-primary" />
@@ -1101,9 +1179,25 @@ export default function ArchonDashboard() {
               <FieldRow label="Name *">
                 <Input className={inputCls()} placeholder="Acme Security" value={newClientForm.orgName} onChange={(e) => setNewClientForm(f => ({ ...f, orgName: e.target.value }))} data-testid="input-newclient-name" />
               </FieldRow>
-              <FieldRow label="Address">
-                <Input className={inputCls()} placeholder="123 Main St, Cape Town" value={newClientForm.orgAddress} onChange={(e) => setNewClientForm(f => ({ ...f, orgAddress: e.target.value }))} data-testid="input-newclient-address" />
+              <FieldRow label="Street">
+                <Input className={inputCls()} placeholder="123 Main St" value={newClientForm.addressStreet} onChange={(e) => setNewClientForm(f => ({ ...f, addressStreet: e.target.value }))} data-testid="input-newclient-street" />
               </FieldRow>
+              <div className="grid grid-cols-2 gap-2">
+                <FieldRow label="Suburb">
+                  <Input className={inputCls()} placeholder="Sea Point" value={newClientForm.addressSuburb} onChange={(e) => setNewClientForm(f => ({ ...f, addressSuburb: e.target.value }))} data-testid="input-newclient-suburb" />
+                </FieldRow>
+                <FieldRow label="Town / city">
+                  <Input className={inputCls()} placeholder="Cape Town" value={newClientForm.addressCity} onChange={(e) => setNewClientForm(f => ({ ...f, addressCity: e.target.value }))} data-testid="input-newclient-city" />
+                </FieldRow>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <FieldRow label="Province">
+                  <Input className={inputCls()} placeholder="Western Cape" value={newClientForm.addressProvince} onChange={(e) => setNewClientForm(f => ({ ...f, addressProvince: e.target.value }))} data-testid="input-newclient-province" />
+                </FieldRow>
+                <FieldRow label="Postal code">
+                  <Input className={inputCls()} placeholder="8001" value={newClientForm.addressPostalCode} onChange={(e) => setNewClientForm(f => ({ ...f, addressPostalCode: e.target.value }))} data-testid="input-newclient-postal" />
+                </FieldRow>
+              </div>
               <FieldRow label="Phone">
                 <Input className={inputCls()} placeholder="+27 21 000 0000" value={newClientForm.orgPhone} onChange={(e) => setNewClientForm(f => ({ ...f, orgPhone: e.target.value }))} data-testid="input-newclient-phone" />
               </FieldRow>
@@ -1115,30 +1209,10 @@ export default function ArchonDashboard() {
               </FieldRow>
             </div>
 
-            {/* Primary contact (billing / commercial) */}
+            {/* Administrator = primary contact + login */}
             <div className="space-y-2">
-              <p className="text-white/60 text-xs font-semibold uppercase tracking-widest border-b border-white/10 pb-1">Primary Contact</p>
-              <p className="text-white/40 text-xs">Billing and commercial contact — may differ from the technical administrator.</p>
-              <div className="grid grid-cols-2 gap-2">
-                <FieldRow label="First name">
-                  <Input className={inputCls()} placeholder="John" value={newClientForm.primaryContactFirstName} onChange={(e) => setNewClientForm(f => ({ ...f, primaryContactFirstName: e.target.value }))} data-testid="input-newclient-pc-firstname" />
-                </FieldRow>
-                <FieldRow label="Last name">
-                  <Input className={inputCls()} placeholder="Doe" value={newClientForm.primaryContactLastName} onChange={(e) => setNewClientForm(f => ({ ...f, primaryContactLastName: e.target.value }))} data-testid="input-newclient-pc-lastname" />
-                </FieldRow>
-              </div>
-              <FieldRow label="Email">
-                <Input className={inputCls()} type="email" placeholder="billing@acme.co.za" value={newClientForm.primaryContactEmail} onChange={(e) => setNewClientForm(f => ({ ...f, primaryContactEmail: e.target.value }))} data-testid="input-newclient-pc-email" />
-              </FieldRow>
-              <FieldRow label="Phone">
-                <Input className={inputCls()} placeholder="+27 21 000 0000" value={newClientForm.primaryContactPhone} onChange={(e) => setNewClientForm(f => ({ ...f, primaryContactPhone: e.target.value }))} data-testid="input-newclient-pc-phone" />
-              </FieldRow>
-            </div>
-
-            {/* Technical administrator */}
-            <div className="space-y-2">
-              <p className="text-white/60 text-xs font-semibold uppercase tracking-widest border-b border-white/10 pb-1">Technical Administrator</p>
-              <p className="text-white/40 text-xs">Login account for system setup. An invite link is emailed (or share manually). Only one administrator per organisation.</p>
+              <p className="text-white/60 text-xs font-semibold uppercase tracking-widest border-b border-white/10 pb-1">Administrator</p>
+              <p className="text-white/40 text-xs">Billing contact and login account (same person). Only one administrator per organisation. An invite link is emailed or shared manually.</p>
               <div className="grid grid-cols-2 gap-2">
                 <FieldRow label="First name *">
                   <Input className={inputCls()} placeholder="Jane" value={newClientForm.adminFirstName} onChange={(e) => setNewClientForm(f => ({ ...f, adminFirstName: e.target.value }))} data-testid="input-newclient-firstname" />
@@ -1149,6 +1223,9 @@ export default function ArchonDashboard() {
               </div>
               <FieldRow label="Email *">
                 <Input className={inputCls()} type="email" placeholder="jane@acme.co.za" value={newClientForm.adminEmail} onChange={(e) => setNewClientForm(f => ({ ...f, adminEmail: e.target.value }))} data-testid="input-newclient-email" />
+              </FieldRow>
+              <FieldRow label="Phone">
+                <Input className={inputCls()} placeholder="+27 82 000 0000" value={newClientForm.adminPhone} onChange={(e) => setNewClientForm(f => ({ ...f, adminPhone: e.target.value }))} data-testid="input-newclient-admin-phone" />
               </FieldRow>
               <label className="flex items-center gap-2 pt-1 cursor-pointer">
                 <Checkbox
@@ -1301,9 +1378,25 @@ export default function ArchonDashboard() {
                 <FieldRow label="Name">
                   <Input className={inputStyle} value={editContractForm.name} onChange={(e) => setEditContractForm(f => f && ({ ...f, name: e.target.value }))} data-testid="input-editcontract-name" />
                 </FieldRow>
-                <FieldRow label="Address">
-                  <Input className={inputStyle} value={editContractForm.address} onChange={(e) => setEditContractForm(f => f && ({ ...f, address: e.target.value }))} data-testid="input-editcontract-address" />
+                <FieldRow label="Street">
+                  <Input className={inputStyle} value={editContractForm.addressStreet} onChange={(e) => setEditContractForm(f => f && ({ ...f, addressStreet: e.target.value }))} data-testid="input-editcontract-street" />
                 </FieldRow>
+                <div className="grid grid-cols-2 gap-2">
+                  <FieldRow label="Suburb">
+                    <Input className={inputStyle} value={editContractForm.addressSuburb} onChange={(e) => setEditContractForm(f => f && ({ ...f, addressSuburb: e.target.value }))} data-testid="input-editcontract-suburb" />
+                  </FieldRow>
+                  <FieldRow label="Town / city">
+                    <Input className={inputStyle} value={editContractForm.addressCity} onChange={(e) => setEditContractForm(f => f && ({ ...f, addressCity: e.target.value }))} data-testid="input-editcontract-city" />
+                  </FieldRow>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <FieldRow label="Province">
+                    <Input className={inputStyle} value={editContractForm.addressProvince} onChange={(e) => setEditContractForm(f => f && ({ ...f, addressProvince: e.target.value }))} data-testid="input-editcontract-province" />
+                  </FieldRow>
+                  <FieldRow label="Postal code">
+                    <Input className={inputStyle} value={editContractForm.addressPostalCode} onChange={(e) => setEditContractForm(f => f && ({ ...f, addressPostalCode: e.target.value }))} data-testid="input-editcontract-postal" />
+                  </FieldRow>
+                </div>
                 <FieldRow label="Phone">
                   <Input className={inputStyle} value={editContractForm.phone} onChange={(e) => setEditContractForm(f => f && ({ ...f, phone: e.target.value }))} data-testid="input-editcontract-phone" />
                 </FieldRow>
@@ -1316,7 +1409,8 @@ export default function ArchonDashboard() {
               </div>
 
               <div className="space-y-2">
-                <p className="text-white/60 text-xs font-semibold uppercase tracking-widest border-b border-white/10 pb-1">Primary Contact</p>
+                <p className="text-white/60 text-xs font-semibold uppercase tracking-widest border-b border-white/10 pb-1">Administrator / contact</p>
+                <p className="text-white/40 text-xs">Billing contact details stored on the organisation (login user is managed in the user list).</p>
                 <div className="grid grid-cols-2 gap-2">
                   <FieldRow label="First name">
                     <Input className={inputStyle} value={editContractForm.primaryContactFirstName} onChange={(e) => setEditContractForm(f => f && ({ ...f, primaryContactFirstName: e.target.value }))} data-testid="input-editcontract-pc-firstname" />

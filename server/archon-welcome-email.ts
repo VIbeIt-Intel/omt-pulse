@@ -1,6 +1,7 @@
 import type { Organization } from "@shared/schema";
 import { appInviteUrl } from "@shared/app-url";
 import { resolveAndroidInstallUrl } from "./user-invite";
+import { sendAppEmail, type SendMailResult } from "./mail";
 
 export type WelcomeEmailParams = {
   org: Pick<Organization, "name">;
@@ -87,28 +88,16 @@ function buildWelcomeHtml(params: WelcomeEmailParams): string {
   `;
 }
 
-/** Best-effort welcome email. Returns true when SendGrid accepted the message. */
-export async function sendArchonWelcomeEmail(params: WelcomeEmailParams): Promise<boolean> {
-  if (!process.env.SENDGRID_API_KEY) {
-    console.log("[archon] SENDGRID_API_KEY not set — skipping welcome email");
-    return false;
-  }
-  try {
-    const sgMail = (await import("@sendgrid/mail")).default;
-    sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-    await sgMail.send({
-      to: params.adminEmail,
-      from: process.env.SENDGRID_FROM_EMAIL || "sales@intelafri.org",
-      subject: `Welcome to OMT Pulse — ${params.org.name}`,
-      text: buildWelcomeText(params),
-      html: buildWelcomeHtml(params),
-    });
-    console.log(`[archon] welcome email sent to ${params.adminEmail}`);
-    return true;
-  } catch (err: unknown) {
-    console.error("[archon] welcome email failed:", err instanceof Error ? err.message : err);
-    return false;
-  }
+export type WelcomeEmailResult = SendMailResult;
+
+/** Best-effort welcome email via Resend. */
+export async function sendArchonWelcomeEmail(params: WelcomeEmailParams): Promise<WelcomeEmailResult> {
+  return sendAppEmail({
+    to: params.adminEmail,
+    subject: `Welcome to OMT Pulse — ${params.org.name}`,
+    text: buildWelcomeText(params),
+    html: buildWelcomeHtml(params),
+  });
 }
 
 export { buildWelcomeText };
