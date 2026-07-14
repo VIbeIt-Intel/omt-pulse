@@ -1697,7 +1697,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
             <IncidentReportMoreDetailsSection enrichMode={Boolean(enrichIncident)}>
               <IncidentInvolvementSection
                 customFields={watchedCustomFields}
-                onChange={(next) => form.setValue("customFields", next)}
+                onChange={(next) => form.setValue("customFields", next, { shouldDirty: true })}
                 personInvolved={personInvolved}
                 vehicleInvolved={vehicleInvolved}
                 onPersonInvolvedChange={setPersonInvolved}
@@ -1726,7 +1726,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                 <IncidentSapsSection
                   fields={sapsCustomFields}
                   customFields={watchedCustomFields}
-                  onChange={(next) => form.setValue("customFields", next)}
+                  onChange={(next) => form.setValue("customFields", next, { shouldDirty: true })}
                   hideTile
                   open={sapsSectionOpen}
                   onOpenChange={setSapsSectionOpen}

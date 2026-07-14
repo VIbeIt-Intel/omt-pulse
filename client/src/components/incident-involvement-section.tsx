@@ -713,7 +713,7 @@ function PersonEntryForm({
   onToggle: () => void;
   onRemove: () => void;
   canRemove: boolean;
-  onChange: (next: PersonEntry) => void;
+  onChange: (patch: Partial<PersonEntry>) => void;
 }) {
   const title = multi ? `Person ${index + 1}` : "Person details";
   const prefix = `person-${index}`;
@@ -736,7 +736,7 @@ function PersonEntryForm({
         <div className={cn("space-y-3", multi && "pt-1")}>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <InvolvementFieldCard label="Role">
-              <Select value={person.role || ""} onValueChange={(v) => onChange({ ...person, role: v })}>
+              <Select value={person.role || ""} onValueChange={(v) => onChange({ role: v })}>
                 <SelectTrigger data-testid={`${prefix}-role`} className="h-9 border-border/60 bg-background">
                   <SelectValue placeholder="Select role" />
                 </SelectTrigger>
@@ -749,7 +749,7 @@ function PersonEntryForm({
               </Select>
             </InvolvementFieldCard>
             <InvolvementFieldCard label="Gender">
-              <Select value={person.gender || ""} onValueChange={(v) => onChange({ ...person, gender: v })}>
+              <Select value={person.gender || ""} onValueChange={(v) => onChange({ gender: v })}>
                 <SelectTrigger data-testid={`${prefix}-gender`} className="h-9 border-border/60 bg-background">
                   <SelectValue placeholder="Select gender" />
                 </SelectTrigger>
@@ -762,7 +762,7 @@ function PersonEntryForm({
             <InvolvementFieldCard label="Name (if known)">
               <Input
                 value={person.name}
-                onChange={(e) => onChange({ ...person, name: e.target.value })}
+                onChange={(e) => onChange({ name: e.target.value })}
                 placeholder="First name or alias"
                 className="h-9 border-border/60 bg-background"
                 data-testid={`${prefix}-name`}
@@ -771,7 +771,7 @@ function PersonEntryForm({
             <InvolvementFieldCard label="Approx. age">
               <Input
                 value={person.approxAge}
-                onChange={(e) => onChange({ ...person, approxAge: e.target.value })}
+                onChange={(e) => onChange({ approxAge: e.target.value })}
                 placeholder="e.g. 30s, teenager"
                 className="h-9 border-border/60 bg-background"
                 data-testid={`${prefix}-age`}
@@ -781,7 +781,7 @@ function PersonEntryForm({
           <InvolvementFieldCard label="Clothing / appearance" className="sm:col-span-2">
             <Textarea
               value={person.description}
-              onChange={(e) => onChange({ ...person, description: e.target.value })}
+              onChange={(e) => onChange({ description: e.target.value })}
               placeholder="Brief description — clothing, height, distinguishing marks…"
               className="min-h-[80px] resize-none text-sm border-border/60 bg-background"
               data-testid={`${prefix}-description`}
@@ -792,7 +792,7 @@ function PersonEntryForm({
               label=""
               testIdPrefix={prefix}
               urls={person.photoUrls}
-              onChange={(urls) => onChange({ ...person, photoUrls: urls })}
+              onChange={(urls) => onChange({ photoUrls: urls })}
             />
           </InvolvementFieldCard>
         </div>
@@ -818,7 +818,7 @@ function VehicleEntryForm({
   onToggle: () => void;
   onRemove: () => void;
   canRemove: boolean;
-  onChange: (next: VehicleEntry) => void;
+  onChange: (patch: Partial<VehicleEntry>) => void;
 }) {
   const title = multi ? `Vehicle ${index + 1}` : "Vehicle details";
   const prefix = `vehicle-${index}`;
@@ -841,7 +841,7 @@ function VehicleEntryForm({
         <div className={cn("space-y-3", multi && "pt-1")}>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <InvolvementFieldCard label="Type">
-              <Select value={vehicle.type || ""} onValueChange={(v) => onChange({ ...vehicle, type: v })}>
+              <Select value={vehicle.type || ""} onValueChange={(v) => onChange({ type: v })}>
                 <SelectTrigger data-testid={`${prefix}-type`} className="h-9 border-border/60 bg-background">
                   <SelectValue placeholder="Select type" />
                 </SelectTrigger>
@@ -857,7 +857,7 @@ function VehicleEntryForm({
             <InvolvementFieldCard label="Colour">
               <Input
                 value={vehicle.colour}
-                onChange={(e) => onChange({ ...vehicle, colour: e.target.value })}
+                onChange={(e) => onChange({ colour: e.target.value })}
                 placeholder="e.g. White"
                 className="h-9 border-border/60 bg-background"
                 data-testid={`${prefix}-colour`}
@@ -866,7 +866,7 @@ function VehicleEntryForm({
             <InvolvementFieldCard label="Registration (if known)">
               <Input
                 value={vehicle.registration}
-                onChange={(e) => onChange({ ...vehicle, registration: e.target.value })}
+                onChange={(e) => onChange({ registration: e.target.value })}
                 placeholder="Number plate"
                 className="h-9 border-border/60 bg-background"
                 data-testid={`${prefix}-registration`}
@@ -875,7 +875,7 @@ function VehicleEntryForm({
             <InvolvementFieldCard label="Make / model">
               <Input
                 value={vehicle.description}
-                onChange={(e) => onChange({ ...vehicle, description: e.target.value })}
+                onChange={(e) => onChange({ description: e.target.value })}
                 placeholder="e.g. White Toyota Hilux"
                 className="h-9 border-border/60 bg-background"
                 data-testid={`${prefix}-description`}
@@ -887,7 +887,7 @@ function VehicleEntryForm({
               label=""
               testIdPrefix={prefix}
               urls={vehicle.photoUrls}
-              onChange={(urls) => onChange({ ...vehicle, photoUrls: urls })}
+              onChange={(urls) => onChange({ photoUrls: urls })}
             />
           </InvolvementFieldCard>
         </div>
@@ -923,6 +923,11 @@ export function IncidentInvolvementSection({
   const multiPerson = persons.length > 1;
   const multiVehicle = vehicles.length > 1;
 
+  // Always merge against latest form fields — photo uploads are async and can race
+  // with name/role keystrokes that still close over a pre-upload person snapshot.
+  const customFieldsRef = useRef(customFields);
+  customFieldsRef.current = customFields;
+
   const [expandedPerson, setExpandedPerson] = useState(0);
   const [expandedVehicle, setExpandedVehicle] = useState(0);
 
@@ -936,7 +941,7 @@ export function IncidentInvolvementSection({
 
   const writePersons = (next: PersonEntry[]) => {
     onChange(
-      patchCustomFields(customFields, {
+      patchCustomFields(customFieldsRef.current, {
         personInvolved: next.length > 0 ? "yes" : null,
         personsJson: serializePersons(next),
         ...legacyPersonPatch(next),
@@ -946,12 +951,36 @@ export function IncidentInvolvementSection({
 
   const writeVehicles = (next: VehicleEntry[]) => {
     onChange(
-      patchCustomFields(customFields, {
+      patchCustomFields(customFieldsRef.current, {
         vehicleInvolved: next.length > 0 ? "yes" : null,
         vehiclesJson: serializeVehicles(next),
         ...legacyVehiclePatch(next),
       }),
     );
+  };
+
+  const patchPerson = (index: number, patch: Partial<PersonEntry>) => {
+    const current = parsePersons(customFieldsRef.current);
+    const prev = current[index] ?? emptyPerson();
+    const next = [...current];
+    next[index] = {
+      ...prev,
+      ...patch,
+      photoUrls: patch.photoUrls !== undefined ? patch.photoUrls : prev.photoUrls,
+    };
+    writePersons(next);
+  };
+
+  const patchVehicle = (index: number, patch: Partial<VehicleEntry>) => {
+    const current = parseVehicles(customFieldsRef.current);
+    const prev = current[index] ?? emptyVehicle();
+    const next = [...current];
+    next[index] = {
+      ...prev,
+      ...patch,
+      photoUrls: patch.photoUrls !== undefined ? patch.photoUrls : prev.photoUrls,
+    };
+    writeVehicles(next);
   };
 
   return (
@@ -966,7 +995,7 @@ export function IncidentInvolvementSection({
               writePersons([emptyPerson()]);
               setExpandedPerson(0);
             } else {
-              onChange(clearPersonFields(customFields));
+              onChange(clearPersonFields(customFieldsRef.current));
             }
           }}
           className={incidentOptionTileClass(personInvolved)}
@@ -986,7 +1015,7 @@ export function IncidentInvolvementSection({
               writeVehicles([emptyVehicle()]);
               setExpandedVehicle(0);
             } else {
-              onChange(clearVehicleFields(customFields));
+              onChange(clearVehicleFields(customFieldsRef.current));
             }
           }}
           className={incidentOptionTileClass(vehicleInvolved)}
@@ -1039,20 +1068,17 @@ export function IncidentInvolvementSection({
               onToggle={() => setExpandedPerson(expandedPerson === index ? -1 : index)}
               canRemove={persons.length > 1}
               onRemove={() => {
-                const next = persons.filter((_, i) => i !== index);
+                const current = parsePersons(customFieldsRef.current);
+                const next = current.filter((_, i) => i !== index);
                 if (next.length === 0) {
                   onPersonInvolvedChange(false);
-                  onChange(clearPersonFields(customFields));
+                  onChange(clearPersonFields(customFieldsRef.current));
                 } else {
                   writePersons(next);
                   setExpandedPerson(Math.min(expandedPerson, next.length - 1));
                 }
               }}
-              onChange={(entry) => {
-                const next = [...persons];
-                next[index] = entry;
-                writePersons(next);
-              }}
+              onChange={(patch) => patchPerson(index, patch)}
             />
           ))}
         </section>
@@ -1097,20 +1123,17 @@ export function IncidentInvolvementSection({
               onToggle={() => setExpandedVehicle(expandedVehicle === index ? -1 : index)}
               canRemove={vehicles.length > 1}
               onRemove={() => {
-                const next = vehicles.filter((_, i) => i !== index);
+                const current = parseVehicles(customFieldsRef.current);
+                const next = current.filter((_, i) => i !== index);
                 if (next.length === 0) {
                   onVehicleInvolvedChange(false);
-                  onChange(clearVehicleFields(customFields));
+                  onChange(clearVehicleFields(customFieldsRef.current));
                 } else {
                   writeVehicles(next);
                   setExpandedVehicle(Math.min(expandedVehicle, next.length - 1));
                 }
               }}
-              onChange={(entry) => {
-                const next = [...vehicles];
-                next[index] = entry;
-                writeVehicles(next);
-              }}
+              onChange={(patch) => patchVehicle(index, patch)}
             />
           ))}
         </section>
