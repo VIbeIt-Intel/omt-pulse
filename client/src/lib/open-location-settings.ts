@@ -102,11 +102,12 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   ]);
 }
 
+/** Prefer an explicit Settings package so OEMs don't dump into root Settings. */
 function androidIntentForTarget(target: LocationSettingsTarget): string {
   if (target === "app-permissions") {
     return `intent:#Intent;action=android.settings.APPLICATION_DETAILS_SETTINGS;data=package:${ANDROID_PACKAGE};end`;
   }
-  return "intent:#Intent;action=android.settings.LOCATION_SOURCE_SETTINGS;end";
+  return "intent:#Intent;action=android.settings.LOCATION_SOURCE_SETTINGS;package=com.android.settings;end";
 }
 
 function openAndroidIntentFallback(target: LocationSettingsTarget): boolean {
@@ -210,12 +211,24 @@ export async function openLocationSettings(
   const platform = nativePlatform();
 
   if (platform === "android" || platform === "ios") {
-    if (platform === "android" && (await openViaOmtAppSettings(target))) {
-      return {
-        result: "opened",
-        message: locationSettingsUserMessage(target),
-      };
+    // Prefer our plugin. On Samsung, capacitor-native-settings often falls back to
+    // root ACTION_SETTINGS when Location fails — skip that for phone-location.
+    if (platform === "android" && hasOmtAppSettingsPlugin()) {
+      if (await openViaOmtAppSettings(target)) {
+        return {
+          result: "opened",
+          message: locationSettingsUserMessage(target),
+        };
+      }
+      if (openAndroidIntentFallback(target)) {
+        return {
+          result: "opened",
+          message: locationSettingsUserMessage(target),
+        };
+      }
+      return { result: "manual", message: manualMsg };
     }
+
     if (await openViaNativeSettingsPlugin(platform, target)) {
       return {
         result: "opened",
