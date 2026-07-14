@@ -18,7 +18,47 @@ import {
   type CommandVisibilityRequest, type InsertCommandVisibilityRequest,
   users, organizations, locations, incidentCategories, incidents, formFields, userLocationAssignments, incidentAttachments, incidentEvidenceNotes, auditLogs, customMaps, importBatches, pushSubscriptions, notificationLogs, liveResponders, chatMessages, chatReads, panicAcknowledgers, fcmTokens,
   commands, commandUsers, commandVisibilityGrants, commandVisibilityRequests,
+  trackerDevices,
+  trackerPositions,
 } from "@shared/schema";
+
+export type TrackerDeviceSummary = {
+  id: number;
+  imei: string;
+  label: string | null;
+  vehicleMake: string | null;
+  vehicleModel: string | null;
+  vehicleRegistration: string | null;
+  vehiclePhotoUrl: string | null;
+  assignedUserId: string | null;
+  assignedUserName: string | null;
+  notes: string | null;
+  commandId: number | null;
+  commandName: string | null;
+  lastLat: number | null;
+  lastLng: number | null;
+  lastSpeedKph: number | null;
+  lastHeading: number | null;
+  lastIgnitionOn: boolean | null;
+  lastMileageKm: number | null;
+  todayOdometerDistanceKm: number | null;
+  lastTripDistanceKm: number | null;
+  lastGpsValid: boolean | null;
+  lastPositionAt: string | null;
+  lastSeenAt: string | null;
+};
+
+export type TrackerPositionSummary = {
+  id: number;
+  latitude: number;
+  longitude: number;
+  speedKph: number | null;
+  heading: number | null;
+  ignitionOn: boolean | null;
+  mileageKm: number | null;
+  gpsValid: boolean;
+  recordedAt: string;
+};
 
 export type LiveResponderSummary = {
   id: number;
@@ -61,10 +101,10 @@ export interface IStorage {
   getOrganization(id: string): Promise<Organization | undefined>;
   updateOrganizationComplimentary(orgId: string, isComplimentary: boolean): Promise<Organization>;
   updateOrganization(orgId: string, data: Partial<Organization>): Promise<Organization>;
-  getOrgsWithUsage(): Promise<Array<Organization & { userCounts: { administrator: number; supervisor: number; reporter: number; total: number }; incidentCount: number; lastActivityAt: Date | null }>>;
+  getOrgsWithUsage(): Promise<Array<Organization & { userCounts: { administrator: number; supervisor: number; control_room: number; reporter: number; access_controller: number; patrol_user: number; total: number }; incidentCount: number; lastActivityAt: Date | null }>>;
   getOrgStorageBytes(orgId: string): Promise<number>;
   getOrgUsage(orgId: string): Promise<{
-    userCounts: { administrator: number; supervisor: number; reporter: number; total: number };
+    userCounts: { administrator: number; supervisor: number; control_room: number; reporter: number; access_controller: number; patrol_user: number; total: number };
     incidentsTotal: number;
     incidentsThisMonth: number;
     activeUsers30d: number;
@@ -97,7 +137,7 @@ export interface IStorage {
   atomicConsumeInviteToken(token: string): Promise<User | undefined>;
   createUser(user: InsertUser & { role?: string }): Promise<User>;
   updateUser(id: string, data: Partial<User>): Promise<User | undefined>;
-  updateUserLastSeen(id: string): Promise<void>;
+  updateUserLastSeen(id: string, position?: { lat: number; lng: number }): Promise<void>;
   deleteUser(id: string, orgId: string): Promise<boolean>;
   getUserCount(): Promise<number>;
 
@@ -141,7 +181,16 @@ export interface IStorage {
 
   // User Location Assignments
   getUserLocationAssignments(userId: string, orgId: string): Promise<number[]>;
+  getOrgLocationAssignments(orgId: string): Promise<Array<{ userId: string; locationId: number }>>;
+  getOrgCommandUserAssignments(orgId: string): Promise<Array<{ userId: string; commandId: number }>>;
   setUserLocationAssignments(userId: string, locationIds: number[], orgId: string): Promise<void>;
+  getAllocatedPremisesForUser(userId: string, orgId: string): Promise<Array<{
+    locationId: number;
+    name: string;
+    lat: number;
+    lng: number;
+    commandId: number | null;
+  }>>;
 
   // Form Fields (org-scoped, optionally command-scoped)
   getFormFields(orgId: string, commandFilter?: number[]): Promise<FormField[]>;
@@ -200,7 +249,8 @@ export interface IStorage {
   // FCM Tokens (native push)
   upsertFcmToken(orgId: string, userId: string, token: string): Promise<void>;
   deleteFcmToken(token: string): Promise<void>;
-  getFcmTokensByOrg(orgId: string, excludeUserId?: string, roles?: string[]): Promise<Array<{ token: string; userId: string }>>;
+  getFcmTokensByOrg(orgId: string, excludeUserId?: string, roles?: string[], commandIds?: number[]): Promise<Array<{ token: string; userId: string }>>;
+  getUserIdsInCommands(orgId: string, commandIds: number[]): Promise<Set<string>>;
   getFcmTokensByUser(userId: string): Promise<Array<{ token: string }>>;
 
   countLiveIncidents(orgId: string): Promise<number>;
@@ -224,12 +274,34 @@ export interface IStorage {
   getChatConversations(orgId: string, userId: string): Promise<Array<{ recipientId: string | null; recipientFirstName: string | null; recipientLastName: string | null; recipientAvatarUrl: string | null; lastMessage: string | null; lastMessageAt: string | null; unreadCount: number }>>;
   markThreadRead(orgId: string, userId: string, recipientId: string | null): Promise<void>;
 
+  getTrackerDevices(orgId: string, commandFilter?: number[]): Promise<TrackerDeviceSummary[]>;
+  getTrackerDeviceById(id: number, orgId: string): Promise<TrackerDeviceSummary | undefined>;
+  updateTrackerDevice(
+    id: number,
+    orgId: string,
+    patch: {
+      label?: string | null;
+      vehicleMake?: string | null;
+      vehicleModel?: string | null;
+      vehicleRegistration?: string | null;
+      vehiclePhotoUrl?: string | null;
+      assignedUserId?: string | null;
+      commandId?: number | null;
+      notes?: string | null;
+    },
+  ): Promise<TrackerDeviceSummary | undefined>;
+  getTrackerPositionHistory(
+    deviceId: number,
+    orgId: string,
+    opts?: { limit?: number; since?: Date },
+  ): Promise<TrackerPositionSummary[]>;
+
   // Dashboard
   getDashboardSummary(orgId: string, period: 'day' | 'week', restrictToLocationIds?: number[], commandFilter?: number[], restrictToUserId?: string): Promise<{
     totalIncidents: number;
     liveCount: number;
     chartData: Array<{ label: string; count: number }>;
-    users: Array<{ id: string; firstName: string; lastName: string; role: string; avatarUrl: string | null; incidentCount: number; isLive: boolean; liveIncidentId: number | null; lastSeenAt: Date | null }>;
+    users: Array<{ id: string; firstName: string; lastName: string; role: string; avatarUrl: string | null; incidentCount: number; isLive: boolean; liveIncidentId: number | null; lastSeenAt: Date | null; lastLat: number | null; lastLng: number | null; lastPositionAt: Date | null }>;
   }>;
 }
 
@@ -263,7 +335,7 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async getOrgsWithUsage(): Promise<Array<Organization & { userCounts: { administrator: number; supervisor: number; reporter: number; total: number }; incidentCount: number; lastActivityAt: Date | null }>> {
+  async getOrgsWithUsage(): Promise<Array<Organization & { userCounts: { administrator: number; supervisor: number; control_room: number; reporter: number; access_controller: number; patrol_user: number; total: number }; incidentCount: number; lastActivityAt: Date | null }>> {
     const allOrgs = await db.select().from(organizations).orderBy(organizations.name);
     const results = await Promise.all(
       allOrgs.map(async (org) => {
@@ -272,12 +344,15 @@ export class DatabaseStorage implements IStorage {
           .from(users)
           .where(eq(users.organizationId, org.id));
 
-        const userCounts = { administrator: 0, supervisor: 0, reporter: 0, total: 0 };
+        const userCounts = { administrator: 0, supervisor: 0, control_room: 0, reporter: 0, access_controller: 0, patrol_user: 0, total: 0 };
         let lastActivityAt: Date | null = null;
         for (const u of orgUsers) {
           if (u.role === "administrator") userCounts.administrator++;
           else if (u.role === "supervisor") userCounts.supervisor++;
+          else if (u.role === "control_room") userCounts.control_room++;
           else if (u.role === "reporter") userCounts.reporter++;
+          else if (u.role === "access_controller") userCounts.access_controller++;
+          else if (u.role === "patrol_user") userCounts.patrol_user++;
           userCounts.total++;
           if (u.lastSeenAt && (!lastActivityAt || u.lastSeenAt > lastActivityAt)) {
             lastActivityAt = u.lastSeenAt;
@@ -306,7 +381,7 @@ export class DatabaseStorage implements IStorage {
       .from(users)
       .where(eq(users.organizationId, orgId));
 
-    const userCounts = { administrator: 0, supervisor: 0, reporter: 0, total: 0 };
+    const userCounts = { administrator: 0, supervisor: 0, control_room: 0, reporter: 0, access_controller: 0, patrol_user: 0, total: 0 };
     let lastActivityAt: Date | null = null;
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     let activeUsers30d = 0;
@@ -314,7 +389,10 @@ export class DatabaseStorage implements IStorage {
     for (const u of orgUsers) {
       if (u.role === "administrator") userCounts.administrator++;
       else if (u.role === "supervisor") userCounts.supervisor++;
+      else if (u.role === "control_room") userCounts.control_room++;
       else if (u.role === "reporter") userCounts.reporter++;
+      else if (u.role === "access_controller") userCounts.access_controller++;
+      else if (u.role === "patrol_user") userCounts.patrol_user++;
       userCounts.total++;
       if (u.lastSeenAt) {
         if (!lastActivityAt || u.lastSeenAt > lastActivityAt) lastActivityAt = u.lastSeenAt;
@@ -374,11 +452,16 @@ export class DatabaseStorage implements IStorage {
 
     const [org] = await db.select().from(organizations).where(eq(organizations.id, orgId));
     let monthlyTotal: number | null = null;
-    if (org && (org.rateAdmin != null || org.rateSupervisor != null || org.rateReporter != null)) {
+    if (org && (org.rateAdmin != null || org.rateSupervisor != null || org.rateReporter != null || org.rateAccessController != null || org.rateControlRoom != null || org.ratePatrolUser != null)) {
+      const rateControlRoom = org.rateControlRoom ?? org.rateSupervisor ?? 0;
+      const ratePatrolUser = org.ratePatrolUser ?? org.rateReporter ?? 0;
       monthlyTotal =
         userCounts.administrator * (org.rateAdmin ?? 0) +
         userCounts.supervisor * (org.rateSupervisor ?? 0) +
-        userCounts.reporter * (org.rateReporter ?? 0);
+        userCounts.control_room * rateControlRoom +
+        userCounts.reporter * (org.rateReporter ?? 0) +
+        userCounts.patrol_user * ratePatrolUser +
+        userCounts.access_controller * (org.rateAccessController ?? 0);
     }
 
     return {
@@ -418,11 +501,16 @@ export class DatabaseStorage implements IStorage {
     const orgsWithUsage = await this.getOrgsWithUsage();
     let estimatedMrrCents = 0;
     for (const org of orgsWithUsage) {
-      if (org.rateAdmin == null && org.rateSupervisor == null && org.rateReporter == null) continue;
+      if (org.rateAdmin == null && org.rateSupervisor == null && org.rateReporter == null && org.rateAccessController == null && org.rateControlRoom == null && org.ratePatrolUser == null) continue;
+      const rateControlRoom = org.rateControlRoom ?? org.rateSupervisor ?? 0;
+      const ratePatrolUser = org.ratePatrolUser ?? org.rateReporter ?? 0;
       estimatedMrrCents +=
         org.userCounts.administrator * (org.rateAdmin ?? 0) +
         org.userCounts.supervisor * (org.rateSupervisor ?? 0) +
-        org.userCounts.reporter * (org.rateReporter ?? 0);
+        org.userCounts.control_room * rateControlRoom +
+        org.userCounts.reporter * (org.rateReporter ?? 0) +
+        org.userCounts.patrol_user * ratePatrolUser +
+        org.userCounts.access_controller * (org.rateAccessController ?? 0);
     }
 
     return {
@@ -527,8 +615,18 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async updateUserLastSeen(id: string): Promise<void> {
-    await db.update(users).set({ lastSeenAt: new Date() }).where(eq(users.id, id));
+  async updateUserLastSeen(id: string, position?: { lat: number; lng: number }): Promise<void> {
+    const patch: Partial<User> = { lastSeenAt: new Date() };
+    if (
+      position &&
+      Number.isFinite(position.lat) &&
+      Number.isFinite(position.lng)
+    ) {
+      patch.lastLat = position.lat;
+      patch.lastLng = position.lng;
+      patch.lastPositionAt = new Date();
+    }
+    await db.update(users).set(patch).where(eq(users.id, id));
   }
 
   async deleteUser(id: string, orgId: string): Promise<boolean> {
@@ -560,6 +658,49 @@ export class DatabaseStorage implements IStorage {
   async createLocation(location: InsertLocation, orgId: string): Promise<Location> {
     const [created] = await db.insert(locations).values({ ...location, organizationId: orgId }).returning();
     return created;
+  }
+
+  async getPrimaryLocationForCommand(commandId: number, orgId: string): Promise<Location | undefined> {
+    const [row] = await db
+      .select()
+      .from(locations)
+      .where(and(eq(locations.organizationId, orgId), eq(locations.commandId, commandId)))
+      .orderBy(asc(locations.id))
+      .limit(1);
+    return row;
+  }
+
+  async upsertCommandPrimaryLocation(
+    commandId: number,
+    orgId: string,
+    groupName: string,
+    site: {
+      siteName?: string | null;
+      address?: string | null;
+      latitude?: number | null;
+      longitude?: number | null;
+    },
+  ): Promise<Location | undefined> {
+    const address = site.address?.trim() || null;
+    const latitude = site.latitude ?? null;
+    const longitude = site.longitude ?? null;
+    if (!address && latitude == null && longitude == null) return undefined;
+
+    const name = (site.siteName?.trim() || groupName).trim();
+    const payload = {
+      name: name || groupName,
+      address,
+      latitude,
+      longitude,
+    };
+    const existing = await this.getPrimaryLocationForCommand(commandId, orgId);
+    if (existing) {
+      return this.updateLocation(existing.id, payload, orgId);
+    }
+    return this.createLocation(
+      { ...payload, commandId, color: "#6B7280", icon: "map-pin" },
+      orgId,
+    );
   }
 
   async updateLocation(id: number, location: Partial<InsertLocation>, orgId: string): Promise<Location | undefined> {
@@ -1117,6 +1258,28 @@ export class DatabaseStorage implements IStorage {
     return rows.map(r => r.locationId);
   }
 
+  async getOrgLocationAssignments(orgId: string): Promise<Array<{ userId: string; locationId: number }>> {
+    const rows = await db
+      .select({
+        userId: userLocationAssignments.userId,
+        locationId: userLocationAssignments.locationId,
+      })
+      .from(userLocationAssignments)
+      .where(eq(userLocationAssignments.organizationId, orgId));
+    return rows;
+  }
+
+  async getOrgCommandUserAssignments(orgId: string): Promise<Array<{ userId: string; commandId: number }>> {
+    const rows = await db
+      .select({
+        userId: commandUsers.userId,
+        commandId: commandUsers.commandId,
+      })
+      .from(commandUsers)
+      .where(eq(commandUsers.organizationId, orgId));
+    return rows;
+  }
+
   async setUserLocationAssignments(userId: string, locationIds: number[], orgId: string): Promise<void> {
     await db.delete(userLocationAssignments)
       .where(and(eq(userLocationAssignments.userId, userId), eq(userLocationAssignments.organizationId, orgId)));
@@ -1125,6 +1288,56 @@ export class DatabaseStorage implements IStorage {
         locationIds.map(locationId => ({ userId, locationId, organizationId: orgId }))
       );
     }
+  }
+
+  async getAllocatedPremisesForUser(userId: string, orgId: string): Promise<Array<{
+    locationId: number;
+    name: string;
+    lat: number;
+    lng: number;
+    commandId: number | null;
+  }>> {
+    const byLocationId = new Map<number, {
+      locationId: number;
+      name: string;
+      lat: number;
+      lng: number;
+      commandId: number | null;
+    }>();
+
+    const assignedLocationIds = await this.getUserLocationAssignments(userId, orgId);
+    for (const locationId of assignedLocationIds) {
+      const loc = await this.getLocation(locationId, orgId);
+      if (loc?.latitude != null && loc.longitude != null) {
+        byLocationId.set(loc.id, {
+          locationId: loc.id,
+          name: loc.name,
+          lat: loc.latitude,
+          lng: loc.longitude,
+          commandId: loc.commandId ?? null,
+        });
+      }
+    }
+
+    const commandRows = await db
+      .select({ commandId: commandUsers.commandId })
+      .from(commandUsers)
+      .where(and(eq(commandUsers.userId, userId), eq(commandUsers.organizationId, orgId)));
+    for (const row of commandRows) {
+      const primary = await this.getPrimaryLocationForCommand(row.commandId, orgId);
+      if (primary?.latitude == null || primary.longitude == null) continue;
+      if (!byLocationId.has(primary.id)) {
+        byLocationId.set(primary.id, {
+          locationId: primary.id,
+          name: primary.name,
+          lat: primary.latitude,
+          lng: primary.longitude,
+          commandId: primary.commandId ?? row.commandId,
+        });
+      }
+    }
+
+    return Array.from(byLocationId.values());
   }
 
   // --- Form Fields ---
@@ -1732,17 +1945,33 @@ export class DatabaseStorage implements IStorage {
     await db.delete(fcmTokens).where(eq(fcmTokens.token, token));
   }
 
-  async getFcmTokensByOrg(orgId: string, excludeUserId?: string, roles?: string[]): Promise<Array<{ token: string; userId: string }>> {
+  async getFcmTokensByOrg(orgId: string, excludeUserId?: string, roles?: string[], commandIds?: number[]): Promise<Array<{ token: string; userId: string }>> {
     const conditions: ReturnType<typeof and>[] = [
       eq(fcmTokens.organizationId, orgId),
       eq(users.isActive, true),
     ];
     if (excludeUserId) conditions.push(ne(fcmTokens.userId, excludeUserId));
     if (roles && roles.length > 0) conditions.push(inArray(users.role, roles));
+    if (commandIds && commandIds.length > 0) {
+      const memberSubquery = db
+        .selectDistinct({ userId: commandUsers.userId })
+        .from(commandUsers)
+        .where(inArray(commandUsers.commandId, commandIds));
+      conditions.push(inArray(fcmTokens.userId, memberSubquery));
+    }
     return db.select({ token: fcmTokens.token, userId: fcmTokens.userId })
       .from(fcmTokens)
       .innerJoin(users, eq(fcmTokens.userId, users.id))
       .where(and(...conditions));
+  }
+
+  async getUserIdsInCommands(orgId: string, commandIds: number[]): Promise<Set<string>> {
+    if (commandIds.length === 0) return new Set();
+    const rows = await db
+      .selectDistinct({ userId: commandUsers.userId })
+      .from(commandUsers)
+      .where(and(eq(commandUsers.organizationId, orgId), inArray(commandUsers.commandId, commandIds)));
+    return new Set(rows.map((r) => r.userId));
   }
 
   async getFcmTokensByUser(userId: string): Promise<Array<{ token: string }>> {
@@ -1928,12 +2157,197 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
+  // --- Vehicle trackers (GT06 / fleet) ---
+  private mapTrackerDeviceRow(r: {
+    id: number;
+    imei: string;
+    label: string | null;
+    vehicleMake: string | null;
+    vehicleModel: string | null;
+    vehicleRegistration: string | null;
+    vehiclePhotoUrl: string | null;
+    assignedUserId: string | null;
+    assignedFirstName: string | null;
+    assignedLastName: string | null;
+    notes: string | null;
+    commandId: number | null;
+    commandName: string | null;
+    lastLat: number | null;
+    lastLng: number | null;
+    lastSpeedKph: number | null;
+    lastHeading: number | null;
+    lastIgnitionOn: boolean | null;
+    lastMileageKm: number | null;
+    todayOdometerDistanceKm: number | null;
+    lastTripDistanceKm: number | null;
+    lastGpsValid: boolean | null;
+    lastPositionAt: Date | null;
+    lastSeenAt: Date | null;
+  }): TrackerDeviceSummary {
+    const assignedUserName =
+      r.assignedFirstName || r.assignedLastName
+        ? `${r.assignedFirstName ?? ""} ${r.assignedLastName ?? ""}`.trim()
+        : null;
+    return {
+      id: r.id,
+      imei: r.imei,
+      label: r.label,
+      vehicleMake: r.vehicleMake,
+      vehicleModel: r.vehicleModel,
+      vehicleRegistration: r.vehicleRegistration,
+      vehiclePhotoUrl: r.vehiclePhotoUrl,
+      assignedUserId: r.assignedUserId,
+      assignedUserName: assignedUserName || null,
+      notes: r.notes,
+      commandId: r.commandId,
+      commandName: r.commandName,
+      lastLat: r.lastLat,
+      lastLng: r.lastLng,
+      lastSpeedKph: r.lastSpeedKph,
+      lastHeading: r.lastHeading,
+      lastIgnitionOn: r.lastIgnitionOn,
+      lastMileageKm: r.lastMileageKm,
+      todayOdometerDistanceKm: r.todayOdometerDistanceKm,
+      lastTripDistanceKm: r.lastTripDistanceKm,
+      lastGpsValid: r.lastGpsValid,
+      lastPositionAt: r.lastPositionAt?.toISOString() ?? null,
+      lastSeenAt: r.lastSeenAt?.toISOString() ?? null,
+    };
+  }
+
+  private trackerDeviceSelectFields() {
+    return {
+      id: trackerDevices.id,
+      imei: trackerDevices.imei,
+      label: trackerDevices.label,
+      vehicleMake: trackerDevices.vehicleMake,
+      vehicleModel: trackerDevices.vehicleModel,
+      vehicleRegistration: trackerDevices.vehicleRegistration,
+      vehiclePhotoUrl: trackerDevices.vehiclePhotoUrl,
+      assignedUserId: trackerDevices.assignedUserId,
+      assignedFirstName: users.firstName,
+      assignedLastName: users.lastName,
+      notes: trackerDevices.notes,
+      commandId: trackerDevices.commandId,
+      commandName: commands.name,
+      lastLat: trackerDevices.lastLat,
+      lastLng: trackerDevices.lastLng,
+      lastSpeedKph: trackerDevices.lastSpeedKph,
+      lastHeading: trackerDevices.lastHeading,
+      lastIgnitionOn: trackerDevices.lastIgnitionOn,
+      lastMileageKm: trackerDevices.lastMileageKm,
+      todayOdometerDistanceKm: trackerDevices.todayOdometerDistanceKm,
+      lastTripDistanceKm: trackerDevices.lastTripDistanceKm,
+      lastGpsValid: trackerDevices.lastGpsValid,
+      lastPositionAt: trackerDevices.lastPositionAt,
+      lastSeenAt: trackerDevices.lastSeenAt,
+    };
+  }
+
+  async getTrackerDevices(orgId: string, commandFilter?: number[]): Promise<TrackerDeviceSummary[]> {
+    const conditions = [eq(trackerDevices.organizationId, orgId)];
+    if (commandFilter && commandFilter.length > 0) {
+      conditions.push(inArray(trackerDevices.commandId, commandFilter));
+    }
+
+    const rows = await db
+      .select(this.trackerDeviceSelectFields())
+      .from(trackerDevices)
+      .leftJoin(commands, eq(trackerDevices.commandId, commands.id))
+      .leftJoin(users, eq(trackerDevices.assignedUserId, users.id))
+      .where(and(...conditions))
+      .orderBy(desc(trackerDevices.lastSeenAt));
+
+    return rows.map((r) => this.mapTrackerDeviceRow(r));
+  }
+
+  async getTrackerDeviceById(id: number, orgId: string): Promise<TrackerDeviceSummary | undefined> {
+    const rows = await db
+      .select(this.trackerDeviceSelectFields())
+      .from(trackerDevices)
+      .leftJoin(commands, eq(trackerDevices.commandId, commands.id))
+      .leftJoin(users, eq(trackerDevices.assignedUserId, users.id))
+      .where(and(eq(trackerDevices.id, id), eq(trackerDevices.organizationId, orgId)))
+      .limit(1);
+    const row = rows[0];
+    return row ? this.mapTrackerDeviceRow(row) : undefined;
+  }
+
+  async updateTrackerDevice(
+    id: number,
+    orgId: string,
+    patch: {
+      label?: string | null;
+      vehicleMake?: string | null;
+      vehicleModel?: string | null;
+      vehicleRegistration?: string | null;
+      vehiclePhotoUrl?: string | null;
+      assignedUserId?: string | null;
+      commandId?: number | null;
+      notes?: string | null;
+    },
+  ): Promise<TrackerDeviceSummary | undefined> {
+    const existing = await this.getTrackerDeviceById(id, orgId);
+    if (!existing) return undefined;
+
+    await db
+      .update(trackerDevices)
+      .set(patch)
+      .where(and(eq(trackerDevices.id, id), eq(trackerDevices.organizationId, orgId)));
+
+    return this.getTrackerDeviceById(id, orgId);
+  }
+
+  async getTrackerPositionHistory(
+    deviceId: number,
+    orgId: string,
+    opts?: { limit?: number; since?: Date },
+  ): Promise<TrackerPositionSummary[]> {
+    const limit = Math.min(Math.max(opts?.limit ?? 200, 1), 2000);
+    const conditions = [
+      eq(trackerPositions.deviceId, deviceId),
+      eq(trackerPositions.organizationId, orgId),
+    ];
+    if (opts?.since) {
+      conditions.push(gte(trackerPositions.recordedAt, opts.since));
+    }
+
+    const rows = await db
+      .select({
+        id: trackerPositions.id,
+        latitude: trackerPositions.latitude,
+        longitude: trackerPositions.longitude,
+        speedKph: trackerPositions.speedKph,
+        heading: trackerPositions.heading,
+        ignitionOn: trackerPositions.ignitionOn,
+        mileageKm: trackerPositions.mileageKm,
+        gpsValid: trackerPositions.gpsValid,
+        recordedAt: trackerPositions.recordedAt,
+      })
+      .from(trackerPositions)
+      .where(and(...conditions))
+      .orderBy(desc(trackerPositions.recordedAt))
+      .limit(limit);
+
+    return rows.map((r) => ({
+      id: r.id,
+      latitude: r.latitude,
+      longitude: r.longitude,
+      speedKph: r.speedKph,
+      heading: r.heading,
+      ignitionOn: r.ignitionOn,
+      mileageKm: r.mileageKm,
+      gpsValid: r.gpsValid,
+      recordedAt: r.recordedAt.toISOString(),
+    }));
+  }
+
   // --- Dashboard ---
   async getDashboardSummary(orgId: string, period: 'day' | 'week', restrictToLocationIds?: number[], commandFilter?: number[], restrictToUserId?: string): Promise<{
     totalIncidents: number;
     liveCount: number;
     chartData: Array<{ label: string; count: number }>;
-    users: Array<{ id: string; firstName: string; lastName: string; role: string; avatarUrl: string | null; incidentCount: number; isLive: boolean; liveIncidentId: number | null; lastSeenAt: Date | null }>;
+    users: Array<{ id: string; firstName: string; lastName: string; role: string; avatarUrl: string | null; incidentCount: number; isLive: boolean; liveIncidentId: number | null; lastSeenAt: Date | null; lastLat: number | null; lastLng: number | null; lastPositionAt: Date | null }>;
   }> {
     const now = new Date();
     const todayStr = now.toISOString().slice(0, 10);
@@ -2083,6 +2497,9 @@ export class DatabaseStorage implements IStorage {
       isLive: liveByUser.has(u.id),
       liveIncidentId: liveByUser.get(u.id) ?? null,
       lastSeenAt: u.lastSeenAt ?? null,
+      lastLat: u.lastLat ?? null,
+      lastLng: u.lastLng ?? null,
+      lastPositionAt: u.lastPositionAt ?? null,
     }));
     userSummaries.sort((a, b) => {
       if (a.isLive !== b.isLive) return a.isLive ? -1 : 1;
@@ -2093,20 +2510,59 @@ export class DatabaseStorage implements IStorage {
   }
 
   // --- Commands ---
-  async getCommands(orgId: string): Promise<Array<Command & { memberCount: number }>> {
+  async getCommands(orgId: string): Promise<Array<Command & {
+    memberCount: number;
+    primarySite: {
+      id: number;
+      name: string;
+      address: string | null;
+      latitude: number | null;
+      longitude: number | null;
+    } | null;
+  }>> {
     const rows = await db.execute<{ id: number; organization_id: string; name: string; is_central: boolean; created_at: Date; member_count: number }>(sql`
       SELECT c.id, c.organization_id, c.name, c.is_central, c.created_at,
              COALESCE((SELECT COUNT(*)::int FROM command_users cu WHERE cu.command_id = c.id), 0) AS member_count
       FROM commands c WHERE c.organization_id = ${orgId} ORDER BY c.is_central DESC, c.name ASC
     `);
-    return rows.rows.map(r => ({
-      id: r.id,
-      organizationId: r.organization_id,
-      name: r.name,
-      isCentral: r.is_central,
-      createdAt: r.created_at,
-      memberCount: Number(r.member_count ?? 0),
-    }));
+    const siteRows = await db
+      .select({
+        id: locations.id,
+        commandId: locations.commandId,
+        name: locations.name,
+        address: locations.address,
+        latitude: locations.latitude,
+        longitude: locations.longitude,
+      })
+      .from(locations)
+      .where(eq(locations.organizationId, orgId))
+      .orderBy(asc(locations.id));
+    const siteByCommand = new Map<number, typeof siteRows[number]>();
+    for (const site of siteRows) {
+      if (site.commandId != null && !siteByCommand.has(site.commandId)) {
+        siteByCommand.set(site.commandId, site);
+      }
+    }
+    return rows.rows.map(r => {
+      const site = siteByCommand.get(r.id);
+      return {
+        id: r.id,
+        organizationId: r.organization_id,
+        name: r.name,
+        isCentral: r.is_central,
+        createdAt: r.created_at,
+        memberCount: Number(r.member_count ?? 0),
+        primarySite: site
+          ? {
+              id: site.id,
+              name: site.name,
+              address: site.address ?? null,
+              latitude: site.latitude ?? null,
+              longitude: site.longitude ?? null,
+            }
+          : null,
+      };
+    });
   }
 
   async getCommand(id: number, orgId: string): Promise<Command | undefined> {
@@ -2115,7 +2571,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createCommand(data: InsertCommand, orgId: string): Promise<Command> {
-    const [row] = await db.insert(commands).values({ ...data, organizationId: orgId, isCentral: false }).returning();
+    const [row] = await db.insert(commands).values({ ...data, organizationId: orgId, isCentral: data.isCentral ?? false }).returning();
     return row;
   }
 

@@ -1,6 +1,7 @@
 package com.intelafri.omtpulse;
 
 import android.Manifest;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.os.Build;
@@ -24,6 +25,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         registerPlugin(OmtAppSettingsPlugin.class);
+        registerPlugin(OmtBinaryEyeScannerPlugin.class);
         super.onCreate(savedInstanceState);
 
         // Transparent WebView background so @capacitor/google-maps native
@@ -49,6 +51,28 @@ public class MainActivity extends BridgeActivity {
         // Bridge WebView getUserMedia (voice notes, camera) to Android runtime permissions.
         // Must run in onStart — Capacitor may replace the WebChromeClient during bridge init.
         installMediaPermissionWebChromeClient();
+        handleBinaryEyeReturnIntent(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleBinaryEyeReturnIntent(intent);
+    }
+
+    private void handleBinaryEyeReturnIntent(Intent intent) {
+        if (intent == null || intent.getData() == null || this.bridge == null) {
+            return;
+        }
+        var pluginHandle = this.bridge.getPlugin("OmtBinaryEyeScanner");
+        if (pluginHandle == null) {
+            return;
+        }
+        OmtBinaryEyeScannerPlugin plugin = (OmtBinaryEyeScannerPlugin) pluginHandle.getInstance();
+        if (plugin != null) {
+            plugin.handleReturnUri(intent.getData());
+        }
     }
 
     @Override

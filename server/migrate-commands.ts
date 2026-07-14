@@ -82,10 +82,10 @@ export async function migrateCommands() {
       centralId = existing.rows[0].id;
     } else {
       const inserted = await db.execute<{ id: number }>(
-        sql`INSERT INTO commands (organization_id, name, is_central) VALUES (${orgId}, 'Central Command', TRUE) RETURNING id`
+        sql`INSERT INTO commands (organization_id, name, is_central) VALUES (${orgId}, 'Central / Head Office', TRUE) RETURNING id`
       );
       centralId = inserted.rows[0].id;
-      console.log(`[commands-migration] Created Central Command for org ${orgId} (id=${centralId})`);
+      console.log(`[commands-migration] Created Central / Head Office for org ${orgId} (id=${centralId})`);
     }
 
     // 2. Backfill command_id on existing rows that have none

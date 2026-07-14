@@ -1,14 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { Button } from "@/components/ui/button";
-import { ArrowLeft, ChevronDown, ChevronRight, Loader2, MapPin } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import type { Category } from "@shared/schema";
-import { quickPanicLocationCheck, hasPanicCoordinates, type PanicLocationResult } from "@/lib/panic-location";
-import { preloadLocationSettingsModule } from "@/lib/open-location-settings";
-import { LocationPermissionGuide } from "@/components/location-permission-guide";
 
 const LIVE_SEV_KEY = "omt_live_severity_sel";
 const LIVE_CAT_KEY = "omt_live_category_sel";
@@ -65,32 +61,10 @@ export default function LiveSeverityPage() {
   const { toast } = useToast();
   const [expanded, setExpanded] = useState<Severity | null>(null);
   const [notifying, setNotifying] = useState(false);
-  const [locationProbe, setLocationProbe] = useState<PanicLocationResult | null>(null);
 
   const { data: categories = [], isLoading } = useQuery<Category[]>({
     queryKey: ["/api/categories"],
   });
-
-  useEffect(() => {
-    preloadLocationSettingsModule();
-    let cancelled = false;
-    void quickPanicLocationCheck().then((loc) => {
-      if (!cancelled) setLocationProbe(loc);
-    });
-    const onVisible = () => {
-      if (document.visibilityState !== "visible") return;
-      void quickPanicLocationCheck().then((loc) => {
-        if (!cancelled) setLocationProbe(loc);
-      });
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      cancelled = true;
-      document.removeEventListener("visibilitychange", onVisible);
-    };
-  }, []);
-
-  const locationReady = locationProbe != null && hasPanicCoordinates(locationProbe);
 
   const severityCategories = (sev: Severity) =>
     categories.filter((c) => c.severity === sev);
@@ -149,26 +123,6 @@ export default function LiveSeverityPage() {
           </div>
         </div>
       </div>
-
-      {/* Location status banner */}
-      {locationProbe != null && !locationReady && (
-        <div className="px-4 pt-3 space-y-2 shrink-0" data-testid="banner-severity-location-off">
-          <LocationPermissionGuide
-            variant="light"
-            testIdPrefix="severity-location"
-            onLocationUpdated={(loc) => setLocationProbe(loc)}
-          />
-        </div>
-      )}
-      {locationProbe != null && locationReady && (
-        <div
-          className="mx-4 mt-3 shrink-0 flex items-start gap-2 rounded-lg border border-green-500/40 bg-green-500/10 px-4 py-3 text-sm text-green-800 dark:text-green-200"
-          data-testid="banner-severity-location-ready"
-        >
-          <MapPin className="h-4 w-4 shrink-0 mt-0.5" />
-          <span>GPS ready — your location will be tracked during this incident.</span>
-        </div>
-      )}
 
       {/* Severity tiles */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3">

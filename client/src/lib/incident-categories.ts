@@ -33,11 +33,11 @@ export const SEVERITY_GROUP_LABELS: Record<SeverityGroupKey, string> = {
 };
 
 export const SEVERITY_GROUP_HINTS: Record<SeverityGroupKey, string> = {
-  high: "All users notified on live incidents",
-  medium: "Admins & supervisors notified",
-  low: "No push notification",
-  general: "No alert severity assigned",
-  other: "Free-text type specification",
+  high: "Administrators & supervisors notified",
+  medium: "Administrators & supervisors notified",
+  low: "Administrators & supervisors notified",
+  general: "Administrators & supervisors notified",
+  other: "Administrators & supervisors notified",
 };
 
 export function getSeverityGroupKey(cat: Pick<Category, "severity" | "isOther">): SeverityGroupKey {

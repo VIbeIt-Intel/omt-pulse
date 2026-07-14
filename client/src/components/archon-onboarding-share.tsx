@@ -1,9 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Copy, CheckCheck, Share2, Link2 } from "lucide-react";
+import { Copy, CheckCheck, Mail, MailWarning, Link2, MessageCircle } from "lucide-react";
 import {
   archonInstallUrl,
   buildArchonOnboardingMessage,
@@ -17,24 +15,69 @@ type ArchonOnboardingShareProps = {
   panelBg?: React.CSSProperties;
 };
 
+function emailBanner(user: OnboardingUserInfo) {
+  const status = user.emailStatus ?? "manual";
+  if (status === "sent") {
+    return {
+      icon: Mail,
+      className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
+      title: "Invite email sent",
+      body: `Primary delivery is email to ${user.email}. Use the options below only if they need a backup copy.`,
+    };
+  }
+  if (status === "failed") {
+    return {
+      icon: MailWarning,
+      className: "border-amber-500/30 bg-amber-500/10 text-amber-300",
+      title: "Email could not be sent",
+      body: `Check RESEND_API_KEY on the server, then use Resend invite — or copy the invite link for ${user.email} below.`,
+    };
+  }
+  if (status === "skipped") {
+    return {
+      icon: MailWarning,
+      className: "border-white/15 bg-white/5 text-white/70",
+      title: "Welcome email was skipped",
+      body: `No email was sent. Copy the invite link for ${user.email}, or use Resend invite from the user list.`,
+    };
+  }
+  return {
+    icon: Mail,
+    className: "border-white/15 bg-white/5 text-white/70",
+    title: "Manual share",
+    body: `Email is the normal invite channel. Copy the link below if you need to resend or share offline.`,
+  };
+}
+
+function shortUrl(url: string, keep = 28): string {
+  if (url.length <= keep + 12) return url;
+  return `${url.slice(0, keep)}…${url.slice(-8)}`;
+}
+
 export function ArchonOnboardingShare({ open, onOpenChange, user, panelBg }: ArchonOnboardingShareProps) {
   const [copiedMsg, setCopiedMsg] = useState(false);
+  const [copiedInviteLink, setCopiedInviteLink] = useState(false);
   const [copiedPlayLink, setCopiedPlayLink] = useState(false);
-  const [passwordOverride, setPasswordOverride] = useState("");
 
   if (!user) return null;
 
-  const effectiveUser: OnboardingUserInfo = {
-    ...user,
-    password: passwordOverride || user.password,
-  };
-  const message = buildArchonOnboardingMessage(effectiveUser);
+  const message = buildArchonOnboardingMessage(user);
   const installUrl = archonInstallUrl();
+  const banner = emailBanner(user);
+  const BannerIcon = banner.icon;
 
   function handleCopyMsg() {
     navigator.clipboard.writeText(message).then(() => {
       setCopiedMsg(true);
       setTimeout(() => setCopiedMsg(false), 2500);
+    });
+  }
+
+  function handleCopyInviteLink() {
+    if (!user.inviteUrl) return;
+    navigator.clipboard.writeText(user.inviteUrl).then(() => {
+      setCopiedInviteLink(true);
+      setTimeout(() => setCopiedInviteLink(false), 2500);
     });
   }
 
@@ -52,8 +95,8 @@ export function ArchonOnboardingShare({ open, onOpenChange, user, panelBg }: Arc
 
   function handleClose(next: boolean) {
     if (!next) {
-      setPasswordOverride("");
       setCopiedMsg(false);
+      setCopiedInviteLink(false);
       setCopiedPlayLink(false);
     }
     onOpenChange(next);
@@ -61,94 +104,101 @@ export function ArchonOnboardingShare({ open, onOpenChange, user, panelBg }: Arc
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="border-white/20 sm:max-w-lg max-h-[90vh] overflow-y-auto" style={panelBg}>
-        <DialogHeader>
-          <DialogTitle className="text-white flex items-center gap-2">
-            <Share2 className="h-4 w-4 text-primary" />
-            Send onboarding — {user.firstName}
+      <DialogContent
+        className="border-white/20 sm:max-w-md w-[calc(100vw-1.5rem)] max-h-[min(85vh,640px)] overflow-x-hidden overflow-y-auto gap-3 p-4 sm:p-5"
+        style={panelBg}
+      >
+        <DialogHeader className="space-y-1.5 text-left pr-6">
+          <DialogTitle className="text-white flex items-center gap-2 text-base">
+            <Mail className="h-4 w-4 text-primary shrink-0" />
+            Onboarding — {user.firstName}
           </DialogTitle>
+          <p className="text-xs text-white/50">
+            Invites are sent by email. WhatsApp is optional backup only.
+          </p>
         </DialogHeader>
 
-        <p className="text-sm text-white/60">
-          IntelAfri-only distribution. This message includes the Android install link and sign-in details.
-        </p>
-
-        {!user.password && (
-          <div className="space-y-1.5">
-            <Label className="text-white/50 text-xs">Password (optional — included in message)</Label>
-            <Input
-              type="text"
-              placeholder="Paste password if sharing credentials"
-              value={passwordOverride}
-              onChange={(e) => setPasswordOverride(e.target.value)}
-              className="bg-white/5 border-white/20 text-white placeholder:text-white/30 h-8 text-sm"
-              data-testid="input-archon-onboarding-password"
-            />
-          </div>
-        )}
-
-        <div className="rounded-xl overflow-hidden border border-white/10">
-          <div className="bg-[#075e54] px-4 py-2.5 flex items-center gap-2">
-            <div className="h-7 w-7 rounded-full bg-white/20 flex items-center justify-center text-xs font-bold text-white">
-              {user.firstName.charAt(0).toUpperCase()}
-            </div>
-            <span className="text-white text-sm font-medium">{user.firstName}</span>
-          </div>
-          <div className="bg-[#e5ddd5] dark:bg-[#1a1a1a] px-3 py-3">
-            <div className="bg-white dark:bg-[#2a2a2a] rounded-lg rounded-tl-none px-3 py-2.5 shadow-sm max-w-[95%] inline-block">
-              <p className="text-[12px] leading-relaxed text-gray-800 dark:text-gray-200 whitespace-pre-wrap break-words" data-testid="text-archon-onboarding-message">
-                {message}
-              </p>
-            </div>
+        <div className={`rounded-lg border px-3 py-2.5 flex gap-2.5 min-w-0 ${banner.className}`} data-testid="banner-archon-email-status">
+          <BannerIcon className="h-4 w-4 shrink-0 mt-0.5" />
+          <div className="min-w-0 space-y-0.5">
+            <p className="text-sm font-medium text-white">{banner.title}</p>
+            <p className="text-xs text-white/60 leading-snug break-words">{banner.body}</p>
           </div>
         </div>
 
-        <div className="flex flex-col gap-2">
-          <Button
-            className="w-full h-11 bg-[#25d366] hover:bg-[#1ebe5d] text-white font-semibold gap-2"
-            onClick={handleWhatsApp}
-            data-testid="button-archon-onboarding-whatsapp"
-          >
-            <svg viewBox="0 0 24 24" className="h-5 w-5 fill-white" xmlns="http://www.w3.org/2000/svg">
-              <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
-            </svg>
-            Send via WhatsApp
-          </Button>
+        {user.inviteUrl && (
+          <div className="space-y-1.5 min-w-0">
+            <p className="text-[11px] uppercase tracking-wider text-white/40">Invite link</p>
+            <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 flex items-center gap-2 min-w-0">
+              <Link2 className="h-3.5 w-3.5 text-primary shrink-0" />
+              <span className="flex-1 text-xs font-mono text-white/60 truncate min-w-0" title={user.inviteUrl}>
+                {shortUrl(user.inviteUrl)}
+              </span>
+            </div>
+            <Button
+              className="w-full h-9 bg-primary hover:bg-primary/90 text-white gap-2"
+              onClick={handleCopyInviteLink}
+              data-testid="button-archon-copy-invite-link"
+            >
+              {copiedInviteLink
+                ? <><CheckCheck className="h-4 w-4" /> Invite link copied</>
+                : <><Copy className="h-4 w-4" /> Copy invite link</>}
+            </Button>
+          </div>
+        )}
+
+        <div className="space-y-1.5 min-w-0">
+          <p className="text-[11px] uppercase tracking-wider text-white/40">Message preview</p>
+          <div className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 max-h-24 overflow-y-auto overflow-x-hidden min-w-0">
+            <p className="text-[11px] leading-relaxed text-white/55 whitespace-pre-wrap break-all" data-testid="text-archon-onboarding-message">
+              {message}
+            </p>
+          </div>
           <Button
             variant="outline"
-            className="w-full h-10 gap-2 border-white/20 text-white hover:bg-white/10"
+            className="w-full h-8 text-xs gap-1.5 border-white/20 text-white/80 hover:bg-white/10"
             onClick={handleCopyMsg}
             data-testid="button-archon-onboarding-copy"
           >
             {copiedMsg
-              ? <><CheckCheck className="h-4 w-4 text-green-400" /> Message copied!</>
-              : <><Copy className="h-4 w-4" /> Copy message</>}
+              ? <><CheckCheck className="h-3.5 w-3.5 text-green-400" /> Message copied</>
+              : <><Copy className="h-3.5 w-3.5" /> Copy full message</>}
           </Button>
         </div>
 
         {installUrl ? (
-          <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 flex items-center gap-2">
-            <Link2 className="h-3.5 w-3.5 text-white/40 shrink-0" />
-            <span className="flex-1 text-xs font-mono text-white/50 truncate">{installUrl}</span>
+          <div className="rounded-md border border-white/10 bg-white/5 px-2.5 py-2 flex items-center gap-2 min-w-0">
+            <span className="text-[11px] text-white/40 shrink-0">Android</span>
+            <span className="flex-1 text-[11px] font-mono text-white/50 truncate min-w-0" title={installUrl}>{shortUrl(installUrl, 20)}</span>
             <button
               type="button"
               onClick={handleCopyPlayLink}
-              className="shrink-0 text-white/50 hover:text-white transition-colors"
+              className="shrink-0 text-white/50 hover:text-white"
               data-testid="button-archon-copy-install-link"
             >
               {copiedPlayLink ? <CheckCheck className="h-3.5 w-3.5 text-green-400" /> : <Copy className="h-3.5 w-3.5" />}
             </button>
           </div>
         ) : (
-          <p className="text-[11px] text-amber-400/90 rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-2">
-            Set <code className="text-[10px]">VITE_PLAY_TESTING_JOIN_URL</code> on the server for automatic install links.
+          <p className="text-[11px] text-amber-400/90 rounded-md border border-amber-500/25 bg-amber-500/10 px-2.5 py-1.5 leading-snug break-words">
+            Install link missing — set <code className="text-[10px]">VITE_PLAY_TESTING_JOIN_URL</code> on the server.
           </p>
         )}
 
-        <DialogFooter>
+        <button
+          type="button"
+          onClick={handleWhatsApp}
+          className="text-xs text-white/45 hover:text-white/75 flex items-center justify-center gap-1.5 py-1 transition-colors"
+          data-testid="button-archon-onboarding-whatsapp"
+        >
+          <MessageCircle className="h-3.5 w-3.5" />
+          Optional: share via WhatsApp instead
+        </button>
+
+        <DialogFooter className="sm:justify-end pt-0">
           <Button
             variant="ghost"
-            className="text-white/60 hover:text-white hover:bg-white/10"
+            className="text-white/60 hover:text-white hover:bg-white/10 h-8"
             onClick={() => handleClose(false)}
             data-testid="button-archon-onboarding-done"
           >

@@ -4,6 +4,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Incident, Category, Location, FormField, CustomMap } from "@shared/schema";
+import { isDispatchStaff, isOwnIncidentScopedRole, isFieldReporter } from "@shared/user-roles";
 import { IncidentDialog, AttachmentsDialog } from "@/components/incident-dialog";
 import { OccurrenceBookDesktopTable } from "@/components/occurrence-book-desktop-table";
 import { IncidentEvidenceSection } from "@/components/incident-evidence-section";
@@ -129,7 +130,7 @@ export default function OccurrenceBook() {
   const { data: liveIncidents = [] } = useQuery<LiveIncidentBrief[]>({
     queryKey: ["/api/incidents/live"],
     refetchInterval: 5000,
-    enabled: !!(currentUser?.role === "administrator" || currentUser?.role === "supervisor"),
+    enabled: !!(currentUser?.role && isDispatchStaff(currentUser.role)),
   });
 
   const { data: recentPanicAlerts = [] } = useQuery<PanicAlert[]>({
@@ -184,7 +185,7 @@ export default function OccurrenceBook() {
       if (!res.ok) return [];
       return res.json();
     },
-    enabled: !!(viewingIncident?.id && (currentUser?.role === "administrator" || currentUser?.role === "supervisor")),
+    enabled: !!(viewingIncident?.id && currentUser?.role && isDispatchStaff(currentUser.role)),
   });
 
   type ChatConversation = { recipientId: string | null; recipientFirstName: string | null; recipientLastName: string | null; unreadCount: number };
@@ -251,7 +252,9 @@ export default function OccurrenceBook() {
   }, []);
 
   const isAdmin = currentUser?.role === "administrator";
-  const isSupervisor = currentUser?.role === "supervisor";
+  const isDispatch = currentUser?.role ? isDispatchStaff(currentUser.role) : false;
+  const isControlRoomUser = currentUser?.role === "control_room";
+  const isOwnIncidentUser = currentUser?.role ? isOwnIncidentScopedRole(currentUser.role) : false;
   const isReporter = currentUser?.role === "reporter";
 
   useEffect(() => {
@@ -284,8 +287,13 @@ export default function OccurrenceBook() {
     deepLinkHandledRef.current = deepLinkIncidentId;
     const target = incidents.find((inc) => inc.id === deepLinkIncidentId);
     if (target) {
-      setEditingIncident(target);
-      setDialogOpen(true);
+      setViewingIncident(target);
+    } else {
+      toast({
+        title: "Incident not found",
+        description: "This incident is not in your occurrence book view.",
+        variant: "destructive",
+      });
     }
     const params = new URLSearchParams(search);
     params.delete("incident");
@@ -293,7 +301,7 @@ export default function OccurrenceBook() {
     setLocation(remaining ? `/occurrence-book?${remaining}` : "/occurrence-book");
   }, [deepLinkIncidentId, isLoading, incidents, search, setLocation]);
   const canEdit = isAdmin || (currentUser?.canEditIncidents ?? true);
-  const canDelete = !isReporter && (isAdmin || (currentUser?.canDeleteIncidents ?? true));
+  const canDelete = !isOwnIncidentUser && !isControlRoomUser && (isAdmin || (currentUser?.canDeleteIncidents ?? true));
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
@@ -347,7 +355,7 @@ export default function OccurrenceBook() {
 
   const filteredIncidents = useMemo(() => {
     return incidents.filter((inc) => {
-      if (isReporter && currentUser?.id && inc.userId !== currentUser.id) return false;
+      if (isOwnIncidentUser && currentUser?.id && inc.userId !== currentUser.id) return false;
       if (selectedMapId !== null && inc.customMapId !== selectedMapId) return false;
       if (dateFrom && inc.incidentDate < dateFrom) return false;
       if (dateTo && inc.incidentDate > dateTo) return false;
@@ -358,7 +366,7 @@ export default function OccurrenceBook() {
       }
       return true;
     });
-  }, [incidents, selectedMapId, dateFrom, dateTo, importBatchIdFilter, severityFilter, isReporter, currentUser?.id, categories]);
+  }, [incidents, selectedMapId, dateFrom, dateTo, importBatchIdFilter, severityFilter, isOwnIncidentUser, currentUser?.id, categories]);
 
   /** Desktop: only show custom-field columns when at least one visible row has data. */
   const tableCustomFields = useMemo(() => {
@@ -444,7 +452,7 @@ export default function OccurrenceBook() {
         </Button>
         <div className="flex-1 min-w-0">
           <h1 className="text-base md:text-lg font-semibold truncate" data-testid="text-page-title">
-            {isReporter
+            {isOwnIncidentUser
               ? periodParam === "week" ? "My Incidents — This Week" : periodParam === "day" ? "My Incidents — Today" : "My Incidents"
               : periodParam === "week" ? "Occurrence Book — This Week" : periodParam === "day" ? "Occurrence Book — Today" : "Occurrence Book"}
           </h1>
@@ -452,16 +460,16 @@ export default function OccurrenceBook() {
             {filteredIncidents.length} incident{filteredIncidents.length !== 1 ? "s" : ""} in view
           </p>
         </div>
-        {!isReporter && (
+        {!isOwnIncidentUser && (
           <Button size="sm" className="shrink-0" onClick={() => { setEditingIncident(null); setDialogOpen(true); }} data-testid="button-new-incident">
             <Plus className="h-4 w-4 mr-1.5" /> Report incident
           </Button>
         )}
-        {isReporter && <ConnectivityBadge className="shrink-0" />}
+        {isFieldReporter(currentUser?.role ?? "") && <ConnectivityBadge className="shrink-0" />}
       </div>
       <div className="p-4 md:p-6 space-y-4 overflow-y-auto flex-1">
 
-        {(isAdmin || isSupervisor) && (
+        {isDispatch && (
           <PanicBanner
             alerts={recentPanicAlerts}
             currentUserId={currentUser?.id}
@@ -471,7 +479,7 @@ export default function OccurrenceBook() {
           />
         )}
 
-        {(isAdmin || isSupervisor) && liveIncidents.length > 0 && !dismissedLiveAlert && (
+        {isDispatch && liveIncidents.length > 0 && !dismissedLiveAlert && (
           <div className="flex items-center gap-3 rounded-lg border border-amber-500/50 bg-amber-500/8 px-4 py-3" data-testid="banner-live-incidents-log">
             <Radio className="h-5 w-5 text-amber-500 shrink-0 animate-pulse" />
             <Link href="/live-monitor" className="flex-1 min-w-0 no-underline">

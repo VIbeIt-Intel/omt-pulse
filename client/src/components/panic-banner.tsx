@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useMutation } from "@tanstack/react-query";
-import { Siren, X, CheckCircle2, Phone, Radio, AlertOctagon, MapPin } from "lucide-react";
+import { Siren, X, Phone, Radio, AlertOctagon, MapPin } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { GeoLocationSheet, type GeoMapView } from "@/components/incident-location-sheet";
@@ -58,15 +58,6 @@ export function PanicBanner({ alerts, currentUserId, dismissedIds, onDismiss, te
   const [, navigate] = useLocation();
   const { toast } = useToast();
 
-  const acknowledge = useMutation({
-    mutationFn: (id: number) => apiRequest("POST", `/api/incidents/${id}/acknowledge-panic`, {}),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/panic/recent"] });
-      toast({ title: "Acknowledged", description: "The panicker has been notified that you are responding." });
-    },
-    onError: () => toast({ title: "Failed to acknowledge", variant: "destructive" }),
-  });
-
   const closePanic = useMutation({
     mutationFn: (id: number) => apiRequest("POST", `/api/incidents/${id}/close-panic`, {}),
     onSuccess: () => {
@@ -77,48 +68,11 @@ export function PanicBanner({ alerts, currentUserId, dismissedIds, onDismiss, te
     onError: () => toast({ title: "Failed to close", variant: "destructive" }),
   });
 
-  const joinPanic = useMutation({
-    mutationFn: (id: number) => apiRequest("POST", `/api/incidents/${id}/join-live`, {}),
-  });
-
   const [closingId, setClosingId] = useState<number | null>(null);
-  const [joiningId, setJoiningId] = useState<number | null>(null);
   const [geoMapView, setGeoMapView] = useState<GeoMapView | null>(null);
 
-  async function respondLive(alert: PanicAlert) {
-    const hasGps = alert.lat != null && alert.lng != null;
-    setJoiningId(alert.id);
-    try {
-      // Join the panicker's existing live incident (the panic itself is live).
-      // Idempotent: server allows re-join attempts; on the rare race where
-      // the panic was just closed, we surface a clear error rather than
-      // silently dropping the responder into a new live session.
-      await joinPanic.mutateAsync(alert.id);
-      if (hasGps) {
-        const target = {
-          lat: alert.lat!,
-          lng: alert.lng!,
-          name: `🆘 ${alert.firstName} ${alert.lastName}`.trim(),
-        };
-        try { localStorage.setItem("omt_panic_target", JSON.stringify(target)); } catch { /* ignore */ }
-      } else {
-        try { localStorage.removeItem("omt_panic_target"); } catch { /* ignore */ }
-      }
-      try { localStorage.setItem("omt_joined_incident_id", String(alert.id)); } catch { /* ignore */ }
-      await queryClient.refetchQueries({ queryKey: ["/api/incidents/live"] });
-      if (!hasGps) {
-        toast({
-          title: "Joined panic response",
-          description: "No GPS yet — the map will update when they turn location on.",
-        });
-      }
-      navigate("/live-incident");
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Could not join the panic incident";
-      toast({ title: "Couldn't respond", description: msg, variant: "destructive" });
-    } finally {
-      setJoiningId(null);
-    }
+  function respondLive(alert: PanicAlert) {
+    navigate(`/live-incident?join=${alert.id}`);
   }
 
   const visible = alerts.filter((a) => !dismissedIds.has(a.id));
@@ -240,33 +194,20 @@ export function PanicBanner({ alerts, currentUserId, dismissedIds, onDismiss, te
                   </button>
                 ) : (
                   <>
-                    {!hasAcked && (
-                      <button
-                        onClick={() => acknowledge.mutate(alert.id)}
-                        disabled={acknowledge.isPending}
-                        className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded bg-green-600 hover:bg-green-700 text-white disabled:opacity-60 transition-colors"
-                        data-testid={`button-acknowledge-panic${suffix}-${alert.id}`}
-                      >
-                        <CheckCircle2 className="h-3.5 w-3.5" />
-                        Acknowledge
-                      </button>
-                    )}
-                    {hasAcked && !hasArrived && (
+                    {!hasArrived && (
                       <button
                         onClick={() => respondLive(alert)}
-                        disabled={joiningId === alert.id}
-                        className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded bg-red-700 hover:bg-red-800 text-white disabled:opacity-60 transition-colors"
+                        className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded bg-red-700 hover:bg-red-800 text-white transition-colors"
                         data-testid={`button-respond-live-panic${suffix}-${alert.id}`}
                       >
                         <Radio className="h-3.5 w-3.5" />
-                        Respond Live
+                        {hasAcked ? "Open live view" : "Respond now"}
                       </button>
                     )}
                     {hasArrived && (
                       <button
                         onClick={() => respondLive(alert)}
-                        disabled={joiningId === alert.id}
-                        className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded bg-green-700 hover:bg-green-800 text-white disabled:opacity-60 transition-colors"
+                        className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded bg-green-700 hover:bg-green-800 text-white transition-colors"
                         data-testid={`button-reopen-live-panic${suffix}-${alert.id}`}
                       >
                         <MapPin className="h-3.5 w-3.5" />

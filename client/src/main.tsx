@@ -1,5 +1,7 @@
 import { createRoot } from "react-dom/client";
 import { Capacitor } from "@capacitor/core";
+import { initNativePushListeners } from "./lib/native-push";
+import { ensureAppCacheCurrent } from "./lib/ensure-app-cache-current";
 import App from "./App";
 import "./index.css";
 
@@ -7,12 +9,12 @@ import "./index.css";
 // transparent hole through to the native Google Map view drawn behind the WebView.
 if (Capacitor.isNativePlatform()) {
   document.documentElement.classList.add("capacitor-native");
-  void import("./lib/native-push").then(({ initNativePushListeners }) => initNativePushListeners());
+  initNativePushListeners();
 }
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch(() => {});
+    navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).catch(() => {});
   });
 }
 
@@ -60,3 +62,5 @@ window.addEventListener("pageshow", (event) => {
 });
 
 createRoot(document.getElementById(ROOT_ID)!).render(<App />);
+
+void ensureAppCacheCurrent();

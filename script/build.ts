@@ -1,6 +1,7 @@
 import { build as esbuild } from "esbuild";
 import { build as viteBuild } from "vite";
-import { rm, readFile } from "fs/promises";
+import { copyFile, rm, readFile } from "fs/promises";
+import path from "path";
 
 // server deps to bundle to reduce openat(2) syscalls
 // which helps cold start times
@@ -65,6 +66,21 @@ async function buildAll() {
     external: externals,
     logLevel: "info",
   });
+
+  const wasmSrc = path.join(
+    process.cwd(),
+    "node_modules",
+    "zxing-wasm",
+    "dist",
+    "reader",
+    "zxing_reader.wasm",
+  );
+  try {
+    await copyFile(wasmSrc, path.join("dist", "zxing_reader.wasm"));
+    console.log("copied zxing_reader.wasm to dist/");
+  } catch (err) {
+    console.warn("[build] Could not copy zxing_reader.wasm — server licence photo decode may fail:", err);
+  }
 }
 
 buildAll().catch((err) => {

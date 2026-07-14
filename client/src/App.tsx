@@ -1,12 +1,14 @@
 import { Switch, Route, useLocation, Link } from "wouter";
+import { canAccessPatrolModule } from "@shared/user-roles";
 import { useEffect, useState, useRef, useCallback } from "react";
 import {
   type NativePushStatus,
   enableNativePush,
   syncNativePushIfNeeded,
   initNativePushListeners,
-  consumePendingPushDeepLink,
+  schedulePendingPushDeepLinkConsumption,
   PUSH_DEEPLINK_EVENT,
+  PENDING_PUSH_URL_KEY,
 } from "@/lib/native-push";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -32,6 +34,9 @@ import LiveSeverityPage from "@/pages/live-severity";
 import LiveMonitorPage from "@/pages/live-monitor";
 import CommandDashboard from "@/pages/command-dashboard";
 import CommandsPage from "@/pages/commands";
+import FleetPage from "@/pages/fleet";
+import AccessControlPage from "@/pages/access-control";
+import PatrolPage from "@/pages/patrol";
 import VisibilityPage from "@/pages/visibility";
 import ArchonDashboard from "@/pages/archon-dashboard";
 import ArchonLoginPage from "@/pages/archon-login";
@@ -59,6 +64,7 @@ import { PermissionDeniedBanner } from "@/components/permission-denied-banner";
 import { PushPermissionBanner } from "@/components/push-permission-banner";
 import { PanicAlertSiren } from "@/components/panic-alert-siren";
 import { SetupWizardController } from "@/components/setup-wizard";
+import { isDispatchStaff, canUseLiveIncidentWorkflow } from "@shared/user-roles";
 import { Capacitor } from "@capacitor/core";
 
 function isCapacitorNative(): boolean {
@@ -89,6 +95,15 @@ type AuthUser = {
   avatarUrl?: string | null;
   orgName?: string | null;
   isSuperadmin?: boolean;
+  workstationId?: number | null;
+  workstation?: {
+    id: number;
+    name: string;
+    type: string;
+    locationId: number | null;
+    locationName: string | null;
+    kioskMode: boolean;
+  } | null;
 };
 
 function RoleGuard({ role, allowed, children }: { role: string; allowed: string[]; children: React.ReactNode }) {
@@ -153,7 +168,29 @@ function usePushSubscription(userId: string | undefined) {
   // Heartbeat — tells the server this user is online; fires every 60 s
   useEffect(() => {
     if (!userId) return;
-    const ping = () => fetch("/api/auth/heartbeat", { method: "POST", credentials: "include" }).catch(() => {});
+    const ping = () => {
+      const send = (lat?: number, lng?: number) => {
+        const body =
+          lat != null && lng != null && Number.isFinite(lat) && Number.isFinite(lng)
+            ? JSON.stringify({ lat, lng })
+            : "{}";
+        fetch("/api/auth/heartbeat", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body,
+        }).catch(() => {});
+      };
+      if (typeof navigator !== "undefined" && navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => send(pos.coords.latitude, pos.coords.longitude),
+          () => send(),
+          { maximumAge: 120_000, timeout: 10_000, enableHighAccuracy: false },
+        );
+      } else {
+        send();
+      }
+    };
     ping();
     const t = setInterval(ping, 60000);
     return () => clearInterval(t);
@@ -534,7 +571,7 @@ function NotificationSheet({ open, onOpenChange, onMarkAllRead }: { open: boolea
 }
 
 function AuthenticatedApp({ user }: { user: AuthUser }) {
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
   const nativeApp = isCapacitorNative();
   const { subState: pushSubState, subscribe: subscribePush } = usePushSubscription(user.id);
   const { fcmState, enablePush, enabling: enablingNativePush } = useCapacitorPush(user.id);
@@ -542,13 +579,16 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
 
   useEffect(() => {
     initNativePushListeners();
-    consumePendingPushDeepLink(navigate);
+    const stopRetries = schedulePendingPushDeepLinkConsumption(navigate);
     const onDeepLink = (event: Event) => {
       const url = (event as CustomEvent<{ url?: string }>).detail?.url;
       if (url?.startsWith("/")) navigate(url);
     };
     window.addEventListener(PUSH_DEEPLINK_EVENT, onDeepLink);
-    return () => window.removeEventListener(PUSH_DEEPLINK_EVENT, onDeepLink);
+    return () => {
+      stopRetries();
+      window.removeEventListener(PUSH_DEEPLINK_EVENT, onDeepLink);
+    };
   }, [navigate]);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
@@ -561,10 +601,12 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
     refetchInterval: 60000,
   });
 
-  // Auto-redirect: if the user has an active live incident (as creator or joiner)
-  // and lands anywhere other than /live-incident on app load, send them back immediately.
-  // Covers: logout → re-login, session expiry → re-login, PWA kill → reopen.
+  // Auto-redirect field responders with an active live incident back to /live-incident
+  // after cold start (logout → re-login, PWA kill → reopen). Dispatch roles on
+  // desktop need /live-monitor to watch incidents — including their own — so we
+  // never pull them away from the monitor or block explicit navigation there.
   const liveRedirectFiredRef = useRef(false);
+  const isDispatchRole = isDispatchStaff(user.role);
   const { data: myLiveIncidents = [], isSuccess: liveLoaded } = useQuery<
     Array<{ id: number; userId: string | null; isLive: boolean; responders?: Array<{ userId: string }> }>
   >({
@@ -573,6 +615,21 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
   });
   useEffect(() => {
     if (!liveLoaded || liveRedirectFiredRef.current) return;
+    if (user.role === "access_controller") return;
+    if (!canUseLiveIncidentWorkflow(user.role)) return;
+    if (location === "/live-monitor") return;
+    if (location === "/live-incident") return;
+    // Notification deep link wins over resume-to-live — joiners must see the join prompt first.
+    try {
+      if (
+        sessionStorage.getItem(PENDING_PUSH_URL_KEY)
+        || localStorage.getItem(PENDING_PUSH_URL_KEY)
+      ) {
+        return;
+      }
+    } catch { /* ignore */ }
+    // Desktop dispatch: monitor from control room; mobile native: stay on incident GPS page.
+    if (isDispatchRole && !nativeApp) return;
     const myActive = myLiveIncidents.find(
       (i) =>
         i.isLive &&
@@ -583,7 +640,7 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
       navigate("/live-incident");
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [liveLoaded, myLiveIncidents]);
+  }, [liveLoaded, myLiveIncidents, location, isDispatchRole, nativeApp]);
   const [notifLastSeen, setNotifLastSeen] = useState<number>(() => {
     try { return Number(localStorage.getItem("omt_notif_last_seen") ?? "0"); } catch { return 0; }
   });
@@ -679,8 +736,6 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
     }
   }
 
-  const [location] = useLocation();
-
   if (user.mustChangePassword) {
     if (location !== "/onboarding") {
       navigate("/onboarding");
@@ -718,25 +773,26 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
         <div className="flex flex-col flex-1 min-w-0 relative">
           {/* Full INTEL header — dashboard only */}
           {location === "/dashboard" && (
-          <header className="grid grid-cols-[1fr_auto_1fr] items-center p-2 border-b border-border bg-background text-foreground shrink-0 gap-2 z-40">
+          <header className="relative grid grid-cols-[1fr_auto_1fr] items-center p-2 border-b border-border bg-background text-foreground shrink-0 gap-2 z-40 min-h-[3rem]">
             {/* Left */}
-            <div className="flex items-center text-foreground">
+            <div className="flex items-center text-foreground z-10">
               <SidebarTrigger data-testid="button-sidebar-toggle" className="text-foreground" />
             </div>
 
-            {/* Centre — online status + logo */}
-            <div className="flex items-center justify-center gap-2 min-w-0">
-              <ConnectivityBadge className="shrink-0" />
+            {/* Centre — online pill left of Intel logo (logo at true header centre) */}
+            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center pointer-events-none">
+              <ConnectivityBadge className="absolute right-full mr-4 shrink-0 pointer-events-auto -translate-x-1" />
               <img
                 src={intelafriLogo}
                 alt="IntelAfri"
-                className="h-9 object-contain shrink-0 dark:mix-blend-screen"
+                className="relative h-9 object-contain shrink-0 invert dark:invert-0 pointer-events-auto"
                 data-testid="img-header-logo"
               />
             </div>
 
-            {/* Right — billing, theme, notifications, avatar */}
-            <div className="flex items-center gap-1 justify-end text-foreground">
+            {/* Right — action icons grouped, then avatar */}
+            <div className="flex items-center gap-2 justify-end text-foreground z-10 col-start-3">
+              <div className="flex items-center gap-0">
               {user.role === "administrator" && (
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -776,6 +832,7 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
                 </TooltipTrigger>
                 <TooltipContent side="bottom">Notifications</TooltipContent>
               </Tooltip>
+              </div>
               <NotificationSheet
                 open={notifSheetOpen}
                 onOpenChange={setNotifSheetOpen}
@@ -844,7 +901,7 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
           )}
 
           {/* Slim back-button header — all secondary pages */}
-          {location !== "/dashboard" && location !== "/live-incident" && location !== "/live-severity" && !location.startsWith("/chat") && location !== "/" && location !== "/occurrence-book" && (
+          {location !== "/dashboard" && location !== "/live-incident" && location !== "/live-severity" && location !== "/live-monitor" && !location.startsWith("/chat") && location !== "/" && location !== "/occurrence-book" && (
           <header className="flex items-center px-2 border-b shrink-0 h-14" data-testid="header-secondary">
             <button
               onClick={() => window.history.back()}
@@ -879,7 +936,7 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
               <Route path="/occurrence-book" component={OccurrenceBook} />
               <Route path="/" component={CommandDashboard} />
               <Route path="/analytics">
-                <RoleGuard role={user.role} allowed={["administrator", "supervisor"]}>
+                <RoleGuard role={user.role} allowed={["administrator", "supervisor", "control_room"]}>
                   <AnalyticsPage />
                 </RoleGuard>
               </Route>
@@ -904,13 +961,38 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
                   <BillingPage />
                 </RoleGuard>
               </Route>
-              <Route path="/live-incident" component={LiveIncidentPage} />
-              <Route path="/live-severity" component={LiveSeverityPage} />
+              <Route path="/live-incident">
+                <RoleGuard role={user.role} allowed={["administrator", "supervisor", "reporter"]}>
+                  <LiveIncidentPage />
+                </RoleGuard>
+              </Route>
+              <Route path="/live-severity">
+                <RoleGuard role={user.role} allowed={["administrator", "supervisor", "reporter"]}>
+                  <LiveSeverityPage />
+                </RoleGuard>
+              </Route>
               <Route path="/dashboard" component={CommandDashboard} />
               <Route path="/live-monitor">
-                <RoleGuard role={user.role} allowed={["administrator", "supervisor"]}>
+                <RoleGuard role={user.role} allowed={["administrator", "supervisor", "control_room"]}>
                   <LiveMonitorPage />
                 </RoleGuard>
+              </Route>
+              <Route path="/fleet">
+                <RoleGuard role={user.role} allowed={["administrator", "supervisor", "control_room"]}>
+                  <FleetPage />
+                </RoleGuard>
+              </Route>
+              <Route path="/access-control">
+                <RoleGuard role={user.role} allowed={["administrator", "supervisor", "control_room", "reporter", "access_controller"]}>
+                  <AccessControlPage userRole={user.role} />
+                </RoleGuard>
+              </Route>
+              <Route path="/patrol">
+                {canAccessPatrolModule(user.role) ? (
+                  <PatrolPage userRole={user.role} />
+                ) : (
+                  <RoleGuard role="none" allowed={[]}>{null}</RoleGuard>
+                )}
               </Route>
               <Route path="/commands">
                 {(user.isSuperadmin || user.role === "administrator")
@@ -977,12 +1059,22 @@ function ArchonApp() {
 }
 
 function AppContent() {
-  const { data: user, isLoading, error } = useQuery<AuthUser>({
+  const { data: user, isLoading, error } = useQuery<AuthUser | null>({
     queryKey: ["/api/auth/me"],
     retry: false,
-    // Re-check auth whenever the user brings the app back into focus (e.g. a
-    // deleted user switching back to the PWA after being removed by an admin).
     refetchOnWindowFocus: true,
+    queryFn: async () => {
+      const res = await fetch("/api/auth/me", {
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (res.status === 401) return null;
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`${res.status}: ${text || res.statusText}`);
+      }
+      return res.json();
+    },
   });
 
   if (isLoading) {
@@ -1046,7 +1138,7 @@ function RootRouter() {
     return <PrivacyPage />;
   }
 
-  // Login and register are public — no install gate (invite-only distribution).
+  // Login and register are public — no install gate.
   if (location === "/login" || location.startsWith("/register")) {
     return <AppRouter />;
   }

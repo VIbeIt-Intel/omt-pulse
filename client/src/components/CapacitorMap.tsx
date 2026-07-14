@@ -1,5 +1,6 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react';
 import { GoogleMap, MapType } from '@capacitor/google-maps';
+import { CapacitorGoogleMaps } from '@capacitor/google-maps/dist/esm/implementation';
 import { registerPlugin } from '@capacitor/core';
 import { pathFromDirectionsRoute } from '@/lib/decode-polyline';
 
@@ -104,6 +105,9 @@ export interface CapacitorMapHandle {
    * labels). Works on both native and the JS fallback map.
    */
   setMapType(type: "Normal" | "Hybrid" | "Satellite"): Promise<void>;
+
+  /** Re-sync native MapView bounds after DOM layout moves (Capacitor only tracks size, not position). */
+  syncBounds(): Promise<void>;
 }
 
 interface CapacitorMapProps {
@@ -171,6 +175,69 @@ const CapacitorMap = forwardRef<CapacitorMapHandle, CapacitorMapProps>(
     // Coalesced GPS updates — see setUserLocation for the race-avoidance rationale.
     const pendingUserPosRef = useRef<{ lat: number; lng: number } | null>(null);
     const userMarkerBusyRef = useRef<boolean>(false);
+    const lastSyncedBoundsRef = useRef({ x: -1, y: -1, width: -1, height: -1 });
+
+    const syncBounds = useCallback(async () => {
+      const el = elementRef.current;
+      if (!el) return;
+      // Do nothing until the native map actually exists. Calling onResize before
+      // create() is a no-op on native, but it would still poison the dedup cache
+      // below with the current rect — which then suppresses the FIRST real resync
+      // after the map is ready, leaving the native surface stuck at its (often
+      // partial) create-time rect. This was the "white gap until you open/close
+      // the destination sheet" bug.
+      if (!mapRef.current) return;
+      const rect = el.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      const bounds = {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+      };
+      const last = lastSyncedBoundsRef.current;
+      if (
+        last.x === bounds.x &&
+        last.y === bounds.y &&
+        last.width === bounds.width &&
+        last.height === bounds.height
+      ) {
+        return;
+      }
+      lastSyncedBoundsRef.current = bounds;
+      try {
+        await CapacitorGoogleMaps.onResize({ id: NATIVE_MAP_ID, mapBounds: bounds });
+      } catch (e) {
+        reportNativeError('syncBounds', e);
+      }
+    }, []);
+
+    // Capacitor's built-in ResizeObserver only calls onResize when width/height
+    // change — not when the element moves on screen. Track position too.
+    useEffect(() => {
+      const el = elementRef.current;
+      if (!el) return;
+      let raf = 0;
+      const tick = () => {
+        cancelAnimationFrame(raf);
+        raf = requestAnimationFrame(() => { void syncBounds(); });
+      };
+      const ro = new ResizeObserver(tick);
+      ro.observe(el);
+      window.addEventListener('scroll', tick, true);
+      window.addEventListener('resize', tick);
+      const interval = window.setInterval(tick, 400);
+      const stopBurst = window.setTimeout(() => window.clearInterval(interval), 4000);
+      tick();
+      return () => {
+        cancelAnimationFrame(raf);
+        ro.disconnect();
+        window.removeEventListener('scroll', tick, true);
+        window.removeEventListener('resize', tick);
+        window.clearInterval(interval);
+        window.clearTimeout(stopBurst);
+      };
+    }, [syncBounds]);
 
     // Create the native map once on mount; destroy on unmount.
     // Includes an 8-second readiness timeout: if GoogleMap.create() succeeds but
@@ -193,6 +260,27 @@ const CapacitorMap = forwardRef<CapacitorMapHandle, CapacitorMapProps>(
 
       (async () => {
         if (!elementRef.current) return;
+        // Wait for the host element to reach a STABLE size before creating the
+        // native MapView. The Android Maps SDK captures the element's screen
+        // rect at create time; if we create while the flex container is still
+        // resolving its height (summary card + footer settling), the native
+        // surface is locked to a too-small rect and `onResize` does not reliably
+        // re-stretch it — producing the "thin map strip + white gap" bug.
+        let prevH = -1;
+        let stableCount = 0;
+        for (let i = 0; i < 30; i++) {
+          if (cancelled || !elementRef.current) return;
+          const rect = elementRef.current.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 80 && rect.height === prevH) {
+            stableCount++;
+            if (stableCount >= 2) break;
+          } else {
+            stableCount = 0;
+          }
+          prevH = rect.height;
+          await new Promise((r) => setTimeout(r, 60));
+        }
+        if (cancelled || !elementRef.current) return;
         const map = await GoogleMap.create({
           id: NATIVE_MAP_ID,
           element: elementRef.current,
@@ -208,6 +296,19 @@ const CapacitorMap = forwardRef<CapacitorMapHandle, CapacitorMapProps>(
         clearTimeout(timeoutId);
         mapRef.current = map;
         onReady?.();
+        // Force the first post-ready resync(s) through the dedup guard — the
+        // native map was just created and may have captured a partial rect, so
+        // we must push the true element bounds at least once now that the map
+        // exists. Spread several attempts to cover slow-device layout settling.
+        const forceSync = () => {
+          lastSyncedBoundsRef.current = { x: -1, y: -1, width: -1, height: -1 };
+          void syncBounds();
+        };
+        forceSync();
+        setTimeout(forceSync, 100);
+        setTimeout(forceSync, 500);
+        setTimeout(forceSync, 1200);
+        setTimeout(forceSync, 2500);
         // Query the actual renderer chosen by the Maps SDK and surface it to
         // the caller for on-screen diagnostics (no adb needed).
         if (onRendererKnown) {
@@ -477,7 +578,9 @@ const CapacitorMap = forwardRef<CapacitorMapHandle, CapacitorMapProps>(
         }
       },
 
-    }), [apiKey]); // eslint-disable-line react-hooks/exhaustive-deps
+      syncBounds,
+
+    }), [apiKey, syncBounds]); // eslint-disable-line react-hooks/exhaustive-deps
 
     return (
       <div

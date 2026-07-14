@@ -24,6 +24,74 @@ function issueFromGeolocationCode(code: number | undefined): PanicLocationIssue 
 }
 
 /**
+ * User-tap probe for Allow Location — fresh fix only (maximumAge 0).
+ * Prompt: ~3s so the permission dialog can be answered; granted/GPS-off: ~1.5s then Settings.
+ */
+export async function probeLocationForAllowTap(
+  permissionHint: "granted" | "denied" | "prompt" | "unsupported" = "prompt",
+): Promise<PanicLocationResult> {
+  if (!navigator.geolocation) {
+    return { issue: "unsupported" };
+  }
+  const timeoutMs = permissionHint === "prompt" ? 3_000 : 1_500;
+  try {
+    const pos = await getCurrentPositionOnce({
+      enableHighAccuracy: false,
+      timeout: timeoutMs,
+      maximumAge: 0,
+    });
+    const lat = pos.coords.latitude;
+    const lng = pos.coords.longitude;
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      return { lat, lng };
+    }
+  } catch (err) {
+    const code =
+      typeof err === "object" && err !== null && "code" in err
+        ? (err as GeolocationPositionError).code
+        : undefined;
+    if (code === 1) return { issue: "denied" };
+    return { issue: issueFromGeolocationCode(code) };
+  }
+  return { issue: "unavailable" };
+}
+
+/** @deprecated Use probeLocationForAllowTap — kept for callers that need a longer first-time window. */
+export async function probeLocationPermissionGesture(): Promise<PanicLocationResult> {
+  return probeLocationForAllowTap("prompt");
+}
+
+/**
+ * Minimal probe when user taps Allow Location — fail fast to the right Settings screen.
+ * Permission denied returns immediately; cached GPS within 60s succeeds without waiting.
+ */
+export async function probeLocationAccess(): Promise<PanicLocationResult> {
+  if (!navigator.geolocation) {
+    return { issue: "unsupported" };
+  }
+  try {
+    const pos = await getCurrentPositionOnce({
+      enableHighAccuracy: false,
+      timeout: 1_000,
+      maximumAge: 60_000,
+    });
+    const lat = pos.coords.latitude;
+    const lng = pos.coords.longitude;
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      return { lat, lng };
+    }
+  } catch (err) {
+    const code =
+      typeof err === "object" && err !== null && "code" in err
+        ? (err as GeolocationPositionError).code
+        : undefined;
+    if (code === 1) return { issue: "denied" };
+    return { issue: issueFromGeolocationCode(code) };
+  }
+  return { issue: "unavailable" };
+}
+
+/**
  * Fast UI check only (~3s) — use when refreshing banners after Settings, not when sending SOS.
  */
 export async function quickPanicLocationCheck(): Promise<PanicLocationResult> {

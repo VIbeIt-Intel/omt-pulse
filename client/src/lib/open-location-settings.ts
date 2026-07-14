@@ -4,16 +4,28 @@ import {
   AndroidSettings,
   IOSSettings,
 } from "capacitor-native-settings";
-
+import {
+  hasOmtAppSettingsPlugin,
+  openOmtAppDetailsSettings,
+  openOmtLocationSourcesSettings,
+} from "@/lib/omt-app-settings";
 export type OpenLocationSettingsResult =
   | "opened"
   | "prompted"
   | "unavailable"
   | "manual";
 
+/** Which Android/iOS settings screen to open — never chain multiple screens. */
+export type LocationSettingsTarget = "phone-location" | "app-permissions";
+
 export type OpenLocationSettingsResponse = {
   result: OpenLocationSettingsResult;
   message: string;
+};
+
+export type OpenLocationSettingsOptions = {
+  /** GPS off / unavailable → phone Location; permission denied → app permissions. */
+  target?: LocationSettingsTarget;
 };
 
 const ANDROID_PACKAGE = "com.intelafri.omtpulse";
@@ -52,15 +64,33 @@ function nativePlatform(): "ios" | "android" | null {
   return null;
 }
 
-export function locationSettingsHint(): string {
+export function locationSettingsHint(
+  target: LocationSettingsTarget = "phone-location",
+): string {
   const platform = detectPlatform();
   if (platform === "android") {
-    return "Settings → Apps → OMT Pulse → Permissions → Location → Allow.";
+    if (target === "app-permissions") {
+      return "Settings → Apps → OMT Pulse → Permissions → Location → Allow.";
+    }
+    return "Settings → Location → turn Location on, then return to OMT Pulse.";
   }
   if (platform === "ios") {
-    return "Settings → OMT Pulse → Location → While Using the App.";
+    if (target === "app-permissions") {
+      return "Settings → OMT Pulse → Location → While Using the App.";
+    }
+    return "Settings → Privacy & Security → Location Services → On, then return to OMT Pulse.";
   }
   return "Allow location in your browser site settings for omtpulse.com.";
+}
+
+/** Short copy for toasts after we send the user to Settings — not an error message. */
+export function locationSettingsUserMessage(
+  target: LocationSettingsTarget = "phone-location",
+): string {
+  if (target === "app-permissions") {
+    return "Allow Location for OMT Pulse, then return to the app.";
+  }
+  return "Turn on Location, then return to OMT Pulse.";
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
@@ -72,26 +102,25 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   ]);
 }
 
-function openAndroidIntentFallback(): boolean {
-  const intents = [
-    `intent:#Intent;action=android.settings.APPLICATION_DETAILS_SETTINGS;data=package:${ANDROID_PACKAGE};end`,
-    `intent:#Intent;action=android.settings.APPLICATION_DETAILS_SETTINGS;package=${ANDROID_PACKAGE};end`,
-    "intent:#Intent;action=android.settings.LOCATION_SOURCE_SETTINGS;end",
-  ];
-  for (const uri of intents) {
-    try {
-      const a = document.createElement("a");
-      a.href = uri;
-      a.style.display = "none";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      return true;
-    } catch {
-      /* next */
-    }
+function androidIntentForTarget(target: LocationSettingsTarget): string {
+  if (target === "app-permissions") {
+    return `intent:#Intent;action=android.settings.APPLICATION_DETAILS_SETTINGS;data=package:${ANDROID_PACKAGE};end`;
   }
-  return false;
+  return "intent:#Intent;action=android.settings.LOCATION_SOURCE_SETTINGS;end";
+}
+
+function openAndroidIntentFallback(target: LocationSettingsTarget): boolean {
+  try {
+    const a = document.createElement("a");
+    a.href = androidIntentForTarget(target);
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function openIosUrlFallback(): boolean {
@@ -108,31 +137,40 @@ function openIosUrlFallback(): boolean {
   }
 }
 
+function androidSettingForTarget(target: LocationSettingsTarget): AndroidSettings {
+  return target === "app-permissions"
+    ? AndroidSettings.ApplicationDetails
+    : AndroidSettings.Location;
+}
+
+function iosSettingForTarget(target: LocationSettingsTarget): IOSSettings {
+  return target === "app-permissions" ? IOSSettings.App : IOSSettings.LocationServices;
+}
+
+/**
+ * Custom Capacitor plugin (bundled in the Play Store APK) — uses startActivity
+ * directly and is more reliable from the WebView than third-party settings plugins.
+ */
+async function openViaOmtAppSettings(target: LocationSettingsTarget): Promise<boolean> {
+  if (!hasOmtAppSettingsPlugin()) return false;
+  if (target === "app-permissions") {
+    return openOmtAppDetailsSettings();
+  }
+  return openOmtLocationSourcesSettings();
+}
+
 /**
  * Uses capacitor-native-settings already bundled in the Play Store APK.
- * Does not require a new APK release.
+ * Opens exactly one settings screen — no waterfall across Apps / Location / App info.
  */
-async function openViaNativeSettingsPlugin(platform: "android" | "ios"): Promise<boolean> {
+async function openViaNativeSettingsPlugin(
+  platform: "android" | "ios",
+  target: LocationSettingsTarget,
+): Promise<boolean> {
   if (platform === "android") {
-    const options = [
-      AndroidSettings.ApplicationDetails,
-      AndroidSettings.Location,
-      AndroidSettings.Application,
-    ];
-    for (const option of options) {
-      try {
-        await withTimeout(NativeSettings.openAndroid({ option }), 2_500);
-        return true;
-      } catch {
-        /* next */
-      }
-    }
     try {
       await withTimeout(
-        NativeSettings.open({
-          optionAndroid: AndroidSettings.ApplicationDetails,
-          optionIOS: IOSSettings.App,
-        }),
+        NativeSettings.openAndroid({ option: androidSettingForTarget(target) }),
         2_500,
       );
       return true;
@@ -142,7 +180,10 @@ async function openViaNativeSettingsPlugin(platform: "android" | "ios"): Promise
   }
 
   try {
-    await withTimeout(NativeSettings.openIOS({ option: IOSSettings.App }), 2_500);
+    await withTimeout(
+      NativeSettings.openIOS({ option: iosSettingForTarget(target) }),
+      2_500,
+    );
     return true;
   } catch {
     return false;
@@ -161,28 +202,40 @@ async function promptBrowserLocation(): Promise<boolean> {
 }
 
 /** Best-effort Settings open — optional; manual steps are the reliable path without a new APK. */
-export async function openLocationSettings(): Promise<OpenLocationSettingsResponse> {
-  const manualMsg = `If Settings did not open, go manually: ${locationSettingsHint()}`;
+export async function openLocationSettings(
+  options: OpenLocationSettingsOptions = {},
+): Promise<OpenLocationSettingsResponse> {
+  const target = options.target ?? "phone-location";
+  const manualMsg = `If Settings did not open, go manually: ${locationSettingsHint(target)}`;
   const platform = nativePlatform();
 
   if (platform === "android" || platform === "ios") {
-    if (await openViaNativeSettingsPlugin(platform)) {
+    if (platform === "android" && (await openViaOmtAppSettings(target))) {
       return {
         result: "opened",
-        message: `Opening Settings… ${manualMsg}`,
+        message: locationSettingsUserMessage(target),
       };
     }
-    if (platform === "android" && openAndroidIntentFallback()) {
-      return { result: "opened", message: `Trying Settings… ${manualMsg}` };
+    if (await openViaNativeSettingsPlugin(platform, target)) {
+      return {
+        result: "opened",
+        message: locationSettingsUserMessage(target),
+      };
+    }
+    if (platform === "android" && openAndroidIntentFallback(target)) {
+      return {
+        result: "opened",
+        message: locationSettingsUserMessage(target),
+      };
     }
     if (platform === "ios" && openIosUrlFallback()) {
-      return { result: "opened", message: `Trying Settings… ${manualMsg}` };
+      return { result: "opened", message: locationSettingsUserMessage(target) };
     }
     return { result: "manual", message: manualMsg };
   }
 
-  if (detectPlatform() === "android" && openAndroidIntentFallback()) {
-    return { result: "opened", message: `Trying Settings… ${manualMsg}` };
+  if (detectPlatform() === "android" && openAndroidIntentFallback(target)) {
+    return { result: "opened", message: locationSettingsUserMessage(target) };
   }
 
   if (await promptBrowserLocation()) {

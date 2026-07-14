@@ -2,16 +2,20 @@ import { useState, useMemo, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import type { Location } from "@shared/schema";
+import { isDispatchStaff, isFieldReporter, isAccessController } from "@shared/user-roles";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { IncidentDialog } from "@/components/incident-dialog";
 import { OmtShield } from "@/components/omt-shield";
 import { HeartbeatLine } from "@/components/heartbeat-line";
 import { PanicBanner, type PanicAlert } from "@/components/panic-banner";
+import { PanicJoinBanner } from "@/components/panic-join-banner";
+import { LiveIncidentJoinBanner } from "@/components/live-incident-join-banner";
 import { PanicConfirmOverlay } from "@/components/panic-confirm-overlay";
+import { OperationsDashboard, type DashboardUserSummary } from "@/components/operations-dashboard";
 import { useToast } from "@/hooks/use-toast";
 import {
-  PlusCircle,
+  ClipboardList,
   Radio,
   ChevronRight,
   Siren,
@@ -28,7 +32,7 @@ type DashboardData = {
   totalIncidents: number;
   liveCount: number;
   chartData: Array<{ label: string; count: number }>;
-  users: unknown[];
+  users: DashboardUserSummary[];
 };
 
 type LiveIncidentRow = {
@@ -51,7 +55,10 @@ type LiveIncidentRow = {
   liveStartedAt: string | null;
   responderFirstName: string | null;
   responderLastName: string | null;
-  isEscalated?: boolean;
+  responderArrivedAt: string | null;
+  responderPositionUpdatedAt: string | null;
+  panicAcknowledgedAt?: string | null;
+  isEscalated: boolean;
   responders?: Array<{
     userId: string;
     firstName: string;
@@ -432,19 +439,19 @@ function StatTile({
 }) {
   const inner = (
     <>
-      <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium mb-1">{label}</p>
+      <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wide font-medium mb-1">{label}</p>
       <p
-        className={`text-3xl font-bold tabular-nums ${highlight ? "text-green-600 dark:text-green-400" : ""}`}
+        className={`text-2xl sm:text-3xl font-bold tabular-nums ${highlight ? "text-green-600 dark:text-green-400" : ""}`}
         data-testid={testId}
       >
         {value}
       </p>
-      <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
+      <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5 flex items-center gap-1 leading-snug">
         {sublabel}
-        {onClick && <ChevronRight className="h-3.5 w-3.5" />}
+        {onClick && <ChevronRight className="h-3 w-3 sm:h-3.5 sm:w-3.5 shrink-0" />}
       </p>
-                                      </>
-                                    );
+    </>
+  );
 
   if (!onClick) {
     return (
@@ -461,7 +468,7 @@ function StatTile({
       className="text-left w-full rounded-xl border bg-card shadow-sm hover:bg-muted/40 active:scale-[0.99] transition-all touch-manipulation"
       data-testid={`${testId}-button`}
     >
-      <div className="p-4">{inner}</div>
+      <div className="p-3 sm:p-4">{inner}</div>
     </button>
   );
 }
@@ -489,8 +496,9 @@ export default function CommandDashboard() {
   const { data: currentUser } = useQuery<{ id: string; firstName: string; lastName: string; role: string }>({
     queryKey: ["/api/auth/me"],
   });
-  const isReporter = currentUser?.role === "reporter";
-  const isDispatch = currentUser?.role === "administrator" || currentUser?.role === "supervisor";
+  const isReporter = isFieldReporter(currentUser?.role ?? "");
+  const isGateOperator = isAccessController(currentUser?.role ?? "");
+  const isDispatch = currentUser?.role ? isDispatchStaff(currentUser.role) : false;
 
   const { data: panicAlerts = [] } = useQuery<PanicAlert[]>({
     queryKey: ["/api/panic/recent"],
@@ -535,6 +543,36 @@ export default function CommandDashboard() {
     );
   }, [liveIncidents, isReporter, currentUser?.id]);
 
+  const joinableLiveIncidents = useMemo(() => {
+    if (!isReporter || !currentUser) return [];
+    return liveIncidents.filter((inc) => {
+      if (inc.userId === currentUser.id) return false;
+      if ((inc.categoryName ?? "").toLowerCase().includes("panic")) return false;
+      if ((inc.responders ?? []).some((r) => r.userId === currentUser.id)) return false;
+      return true;
+    });
+  }, [liveIncidents, isReporter, currentUser?.id]);
+
+  const pendingPanics = useMemo(() => {
+    if (!currentUser) return [];
+    return panicAlerts.filter((a) => {
+      if (dismissedPanicIds.has(a.id)) return false;
+      if (a.panicClosedAt) return false;
+      if (a.userId === currentUser.id) return false;
+      const liveInc = liveIncidents.find((i) => i.id === a.id);
+      const activelyResponding = (liveInc?.responders ?? []).some(
+        (r) => r.userId === currentUser.id && !r.arrivedAt,
+      );
+      return !activelyResponding;
+    });
+  }, [panicAlerts, dismissedPanicIds, currentUser?.id, liveIncidents]);
+
+  const scrollPanicAlerts = useMemo(() => {
+    return panicAlerts.filter(
+      (a) => !dismissedPanicIds.has(a.id) && !pendingPanics.some((p) => p.id === a.id),
+    );
+  }, [panicAlerts, dismissedPanicIds, pendingPanics]);
+
   const [userPos, setUserPos] = useState<{ lat: number; lng: number } | null>(null);
   const [gpsUnavailable, setGpsUnavailable] = useState(false);
 
@@ -555,19 +593,61 @@ export default function CommandDashboard() {
 
   const hasRedLive = visibleLiveIncidents.some((i) => i.severity === "red");
 
-  function openIncidentsList() {
-    navigate(`/occurrence-book?period=${period}`);
+  function openOccurrenceBook(incidentId?: number, bookPeriod?: Period) {
+    const params = new URLSearchParams({ period: bookPeriod ?? period });
+    if (incidentId != null) params.set("incident", String(incidentId));
+    navigate(`/occurrence-book?${params.toString()}`);
   }
 
-  const liveCountDisplay = visibleLiveIncidents.length;
+  const liveCountDisplay = isGateOperator
+    ? 0
+    : isReporter
+    ? visibleLiveIncidents.length + joinableLiveIncidents.length + pendingPanics.length
+    : visibleLiveIncidents.length + pendingPanics.length;
+
+  const liveTileSublabel = (() => {
+    const panicN = pendingPanics.length;
+    if (!isReporter) {
+      if (panicN > 0 && liveCountDisplay === panicN) {
+        return panicN === 1 ? "panic — tap to respond" : `${panicN} panics — tap to respond`;
+      }
+      return liveCountDisplay > 0 ? "active · tap to open" : "no active incidents";
+    }
+    const joinN = joinableLiveIncidents.length;
+    const visN = visibleLiveIncidents.length;
+    if (panicN > 0 && joinN === 0 && visN === 0) {
+      return panicN === 1 ? "panic — tap to respond" : `${panicN} panics — tap to respond`;
+    }
+    if (panicN > 0 || joinN > 0) {
+      const parts: string[] = [];
+      if (panicN > 0) parts.push(panicN === 1 ? "1 panic" : `${panicN} panics`);
+      if (joinN > 0) parts.push(joinN === 1 ? "1 to join" : `${joinN} to join`);
+      if (visN > 0) parts.push(`${visN} active`);
+      return `${parts.join(" · ")} — tap to open`;
+    }
+    if (visN > 0) return "active · tap to open";
+    return "no active incidents";
+  })();
 
   function openLiveView() {
+    if (isGateOperator) {
+      toast({ title: "No live incidents", description: "Use Panic/SOS for emergencies or report a manual incident." });
+      return;
+    }
     if (liveCountDisplay === 0) {
       toast({ title: "No live incidents", description: "There are no active live incidents right now." });
       return;
     }
     if (isDispatch) {
       navigate("/live-monitor");
+      return;
+    }
+    if (pendingPanics.length > 0) {
+      navigate(`/live-incident?join=${pendingPanics[0].id}`);
+      return;
+    }
+    if (isReporter && joinableLiveIncidents.length > 0) {
+      navigate(`/live-incident?join=${joinableLiveIncidents[0].id}`);
       return;
     }
     const inc = visibleLiveIncidents[0];
@@ -587,35 +667,62 @@ export default function CommandDashboard() {
     }
     if (inc.userId === currentUser?.id) {
       navigate("/live-incident");
-    } else {
+      return;
+    }
+    const alreadyJoined = (inc.responders ?? []).some(
+      (r) => r.userId === currentUser?.id && !r.arrivedAt,
+    );
+    if (alreadyJoined) {
       try { localStorage.setItem("omt_joined_incident_id", String(inc.id)); } catch { /* ignore */ }
       navigate("/live-incident");
+    } else {
+      navigate(`/live-incident?join=${inc.id}`);
     }
   }
 
   const periodLabel = period === "day" ? "Today" : "This Week";
-  const incidentSublabel = isReporter
+  const incidentSublabel = (isReporter || isGateOperator)
     ? `my incident${(data?.totalIncidents ?? 0) === 1 ? "" : "s"} · tap to view`
     : `incident${(data?.totalIncidents ?? 0) === 1 ? "" : "s"} · tap to view`;
 
-  return (
+  function openLiveMonitor(incidentId?: number) {
+    if (incidentId != null) {
+      navigate(`/live-monitor?incidentId=${incidentId}`);
+      return;
+    }
+    if (liveCountDisplay === 0) {
+      toast({ title: "No live incidents", description: "There are no active live incidents right now." });
+      return;
+    }
+    navigate("/live-monitor");
+  }
+
+  const mobileDashboard = (
     <div className="h-full overflow-y-auto bg-background">
-      {visibleLiveIncidents.length > 0 && (
+      {( !isGateOperator && (pendingPanics.length > 0 || joinableLiveIncidents.length > 0 || visibleLiveIncidents.length > 0)) && (
         <div
           className="sticky top-0 z-30 border-b border-border/80 bg-background/95 backdrop-blur-md shadow-sm"
           data-testid="banner-live-incident-priority"
         >
-          <div className="max-w-4xl mx-auto w-full px-4 md:px-6 pt-3 pb-3">
-            <LiveIncidentDashboardCard
-              incidents={visibleLiveIncidents}
-              hasRedLive={hasRedLive}
-              isDispatch={isDispatch}
-              locations={locations}
-              currentUserId={currentUser?.id}
-              userPos={userPos}
-              gpsUnavailable={gpsUnavailable}
-              onOpenRow={openLiveIncidentRow}
-            />
+          <div className="max-w-4xl mx-auto w-full px-4 md:px-6 pt-3 pb-3 space-y-3">
+            {pendingPanics.length > 0 && (
+              <PanicJoinBanner alerts={pendingPanics} testIdSuffix="sticky" />
+            )}
+            {joinableLiveIncidents.length > 0 && (
+              <LiveIncidentJoinBanner incidents={joinableLiveIncidents} testIdSuffix="sticky" />
+            )}
+            {visibleLiveIncidents.length > 0 && (
+              <LiveIncidentDashboardCard
+                incidents={visibleLiveIncidents}
+                hasRedLive={hasRedLive}
+                isDispatch={isDispatch}
+                locations={locations}
+                currentUserId={currentUser?.id}
+                userPos={userPos}
+                gpsUnavailable={gpsUnavailable}
+                onOpenRow={openLiveIncidentRow}
+              />
+            )}
           </div>
         </div>
       )}
@@ -641,7 +748,7 @@ export default function CommandDashboard() {
         </div>
 
         <PanicBanner
-          alerts={panicAlerts}
+          alerts={scrollPanicAlerts}
           currentUserId={currentUser?.id}
           dismissedIds={dismissedPanicIds}
           onDismiss={dismissPanic}
@@ -683,6 +790,7 @@ export default function CommandDashboard() {
             onClick={() => setPanicOpen(true)}
             testId="button-panic"
           />
+          {!isGateOperator && (
           <ActionTile
             title="Start Live Incident"
             subtitle="Share GPS and navigate in real time"
@@ -691,10 +799,11 @@ export default function CommandDashboard() {
             onClick={() => navigate("/live-severity")}
             testId="button-start-live-incident"
           />
+          )}
           <ActionTile
             title="Report Incident"
-            subtitle="Log an occurrence to the book"
-            icon={PlusCircle}
+            subtitle="Report what happened"
+            icon={ClipboardList}
             variant="primary"
             onClick={() => setLogIncidentOpen(true)}
             testId="button-report-incident"
@@ -702,56 +811,83 @@ export default function CommandDashboard() {
         </div>
       </div>
 
-      <div className="p-4 md:p-6 pt-1 pb-28 space-y-4 max-w-4xl mx-auto w-full">
-        <div className="flex justify-center">
-          <div className="flex items-center rounded-lg border border-border overflow-hidden text-sm">
-            <button
-              onClick={() => setPeriod("day")}
-              className={`px-4 py-1.5 font-medium transition-colors ${period === "day" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted"}`}
-              data-testid="toggle-period-day"
-            >
-              Today
-            </button>
-            <button
-              onClick={() => setPeriod("week")}
-              className={`px-4 py-1.5 font-medium transition-colors border-l border-border ${period === "week" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted"}`}
-              data-testid="toggle-period-week"
-            >
-              This Week
-            </button>
+      <div className="p-4 md:p-6 pt-1 pb-28 max-w-4xl mx-auto w-full">
+        <div className="space-y-3">
+          <div className="flex justify-center">
+            <div className="flex items-center rounded-lg border border-border overflow-hidden text-sm">
+              <button
+                onClick={() => setPeriod("day")}
+                className={`px-4 py-1.5 font-medium transition-colors ${period === "day" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted"}`}
+                data-testid="toggle-period-day"
+              >
+                Today
+              </button>
+              <button
+                onClick={() => setPeriod("week")}
+                className={`px-4 py-1.5 font-medium transition-colors border-l border-border ${period === "week" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted"}`}
+                data-testid="toggle-period-week"
+              >
+                This Week
+              </button>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:gap-3">
+            {isLoading ? (
+              <>
+                <Skeleton className="h-24 w-full rounded-xl" />
+                <Skeleton className="h-24 w-full rounded-xl" />
+              </>
+            ) : (
+              <>
+                <StatTile
+                  label={periodLabel}
+                  value={data?.totalIncidents ?? 0}
+                  sublabel={incidentSublabel}
+                  onClick={() => openOccurrenceBook()}
+                  testId="stat-total-incidents"
+                />
+                <StatTile
+                  label="Currently Live"
+                  value={liveCountDisplay}
+                  sublabel={liveTileSublabel}
+                  onClick={openLiveView}
+                  highlight={liveCountDisplay > 0}
+                  testId="stat-live-count"
+                />
+              </>
+            )}
           </div>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {isLoading ? (
-            <>
-              <Skeleton className="h-24 w-full rounded-xl" />
-              <Skeleton className="h-24 w-full rounded-xl" />
-            </>
-              ) : (
-                <>
-              <StatTile
-                label={periodLabel}
-                value={data?.totalIncidents ?? 0}
-                sublabel={incidentSublabel}
-                onClick={openIncidentsList}
-                testId="stat-total-incidents"
-              />
-              <StatTile
-                label="Currently Live"
-                value={liveCountDisplay}
-                sublabel={
-                  liveCountDisplay > 0
-                    ? `active · tap to open`
-                    : "no active incidents"
-                }
-                onClick={openLiveView}
-                highlight={liveCountDisplay > 0}
-                testId="stat-live-count"
-              />
-                </>
-              )}
+      </div>
+    </div>
+  );
+
+  return (
+    <>
+      {isDispatch && (
+        <div className="hidden lg:flex lg:flex-col h-full min-h-0 overflow-hidden">
+          <OperationsDashboard
+            currentUser={currentUser}
+            liveIncidents={liveIncidents}
+            panicAlerts={panicAlerts}
+            dismissedPanicIds={dismissedPanicIds}
+            onDismissPanic={dismissPanic}
+            locations={locations}
+            period={period}
+            onPeriodChange={setPeriod}
+            dashboardData={data}
+            dashboardLoading={isLoading}
+            totalUnread={totalUnread}
+            unreadSenders={unreadSenders}
+            onOpenChat={() => navigate("/chat")}
+            onOpenLiveMonitor={openLiveMonitor}
+            onOpenOccurrence={openOccurrenceBook}
+            onPanic={() => setPanicOpen(true)}
+          />
         </div>
-              </div>
+      )}
+
+      <div className={isDispatch ? "lg:hidden h-full" : "h-full"}>{mobileDashboard}</div>
 
       <IncidentDialog open={logIncidentOpen} onOpenChange={setLogIncidentOpen} />
 
@@ -760,6 +896,6 @@ export default function CommandDashboard() {
         onOpenChange={setPanicOpen}
         confirmTestId="button-confirm-panic-dashboard"
       />
-    </div>
+    </>
   );
 }

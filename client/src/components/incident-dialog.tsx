@@ -6,6 +6,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Category, Location, Incident, FormField, CustomMap, AttachmentWithUploader } from "@shared/schema";
+import { usesLocationAssignmentScope } from "@shared/user-roles";
 import { getEligibleManualTypes, getOtherManualTypes, getSeverityGroupKey, SEVERITY_GROUP_ORDER, SEVERITY_GROUP_LABELS } from "@/lib/incident-categories";
 import {
   Dialog,
@@ -40,17 +41,35 @@ import {
   INVOLVEMENT_FIELD_KEYS,
   readInvolvement,
 } from "./incident-involvement-section";
-import { IncidentSapsSection, isSapsFormField } from "./incident-saps-section";
-import { IncidentDescriptionSection } from "./incident-description-section";
-import { CalendarIcon, Clock, MapPin, Upload, Paperclip, X, Loader2, Camera, Mic, Square, Globe, Map, LocateFixed } from "lucide-react";
+import { IncidentSapsSection, isSapsFormField, SapsCaseTile, hasSapsCaseData, clearSapsCustomFields } from "./incident-saps-section";
+import { IncidentReportDescriptionField } from "./incident-report-description-field";
+import { IncidentReportSuccess } from "./incident-report-success";
+import { IncidentReportMoreDetailsSection } from "./incident-report-more-details-section";
+import { IncidentReportSceneEvidenceSection } from "./incident-report-scene-evidence-section";
+import { normalizeAudioMimeType, resolveAttachmentKind } from "@/lib/attachment-kind";
+import { CalendarIcon, Clock, MapPin, Upload, X, Loader2, Camera, Mic, Square, Globe, Map, LocateFixed } from "lucide-react";
 import { loadGoogleMaps } from "@/lib/google-maps-loader";
-import { quickPanicLocationCheck, hasPanicCoordinates, type PanicLocationResult } from "@/lib/panic-location";
+import { quickPanicLocationCheck, acquirePanicLocation, hasPanicCoordinates, panicLocationWarning, type PanicLocationResult } from "@/lib/panic-location";
 import { preloadLocationSettingsModule } from "@/lib/open-location-settings";
 import { OpenLocationSettingsButton } from "@/components/open-location-settings-button";
 import { AttachmentPreview, attachmentUploaderLabel } from "@/components/attachment-preview";
 import { IncidentEvidenceSection } from "@/components/incident-evidence-section";
 import { GeoLocationSheet, type GeoMapView } from "@/components/incident-location-sheet";
 import { CoordinateLink } from "@/components/coordinate-link";
+import { cn } from "@/lib/utils";
+import {
+  createAudioMediaRecorder,
+  openMicStream,
+  recorderMimeType,
+  recordingErrorMessage,
+} from "@/lib/voice-recorder";
+import {
+  cancelNativeRecording,
+  getNativeRecordingMode,
+  startNativeRecording,
+  stopNativeRecording,
+} from "@/lib/native-audio-recorder";
+import { nativeMicDeniedHint, nativeVoiceApkUpdateHint } from "@/lib/native-mic-hint";
 
 const incidentFormSchema = z.object({
   incidentDate: z.string().min(1, "Date is required"),
@@ -122,7 +141,9 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
   const geocoderRef = useRef<google.maps.Geocoder | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const recordingStreamRef = useRef<MediaStream | null>(null);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const useNativeRecorder = getNativeRecordingMode() === "plugin";
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
@@ -155,7 +176,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
       const res = await fetch(`/api/users/${currentUser!.id}/location-assignments`, { credentials: "include" });
       return res.json();
     },
-    enabled: !!currentUser?.id && (currentUser?.role === "supervisor" || currentUser?.role === "reporter"),
+    enabled: !!currentUser?.id && !!currentUser?.role && usesLocationAssignmentScope(currentUser.role),
   });
 
   const allowedLocations = (() => {
@@ -170,15 +191,28 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
   });
   const fieldsLoaded = !fieldsLoading;
 
+  const [personInvolved, setPersonInvolved] = useState(false);
+  const [vehicleInvolved, setVehicleInvolved] = useState(false);
+  const [geoMapView, setGeoMapView] = useState<GeoMapView | null>(null);
+  /** After a fast new report — success screen before optional enrich. */
+  const [reportSuccess, setReportSuccess] = useState<Incident | null>(null);
+  /** Re-open form to add Person / Vehicle / SAPS after initial submit. */
+  const [enrichIncident, setEnrichIncident] = useState<Incident | null>(null);
+  const [sapsSectionOpen, setSapsSectionOpen] = useState(false);
+
+  const activeIncident = incident ?? enrichIncident;
+  const isSuccessView = reportSuccess != null;
+  const isNewQuickReport = !incident && !enrichIncident && !isSuccessView;
+
   type IncidentResponder = { id: number; userId: string; firstName: string; lastName: string; joinedAt: string; leftAt: string | null; arrivedAt: string | null; arrivalNote: string | null; lastLat: number | null; lastLng: number | null };
   const { data: incidentResponders = [] } = useQuery<IncidentResponder[]>({
-    queryKey: ["/api/incidents", incident?.id, "responders"],
+    queryKey: ["/api/incidents", activeIncident?.id, "responders"],
     queryFn: async () => {
-      const res = await fetch(`/api/incidents/${incident!.id}/responders`, { credentials: "include" });
+      const res = await fetch(`/api/incidents/${activeIncident!.id}/responders`, { credentials: "include" });
       if (!res.ok) return [];
       return res.json();
     },
-    enabled: !!incident?.id && !!incident?.liveStartedAt,
+    enabled: !!activeIncident?.id && !!activeIncident?.liveStartedAt,
     staleTime: 0,
   });
 
@@ -187,9 +221,6 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
   );
   const sapsCustomFields = orgCustomFields.filter(isSapsFormField);
   const otherOrgCustomFields = orgCustomFields.filter((f) => !isSapsFormField(f));
-  const [personInvolved, setPersonInvolved] = useState(false);
-  const [vehicleInvolved, setVehicleInvolved] = useState(false);
-  const [geoMapView, setGeoMapView] = useState<GeoMapView | null>(null);
 
   const form = useForm<IncidentFormValues>({
     resolver: zodResolver(incidentFormSchema),
@@ -211,45 +242,57 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
   });
 
   useEffect(() => {
-    if (!open && isRecording) {
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
-        mediaRecorderRef.current.stop();
-      }
-      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
-      setIsRecording(false);
-      setRecordingSeconds(0);
-    }
     if (!open) {
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+      if (isRecording) {
+        if (mediaRecorderRef.current?.state !== "inactive") {
+          mediaRecorderRef.current?.stop();
+        }
+        if (useNativeRecorder) void cancelNativeRecording();
+        recordingStreamRef.current?.getTracks().forEach((t) => t.stop());
+        recordingStreamRef.current = null;
+        setIsRecording(false);
+        setRecordingSeconds(0);
+      }
       setAttachmentError(null);
+    }
+  }, [open, isRecording, useNativeRecorder]);
+
+  useEffect(() => {
+    if (!open) {
+      setReportSuccess(null);
+      setEnrichIncident(null);
+      setSapsSectionOpen(false);
     }
   }, [open]);
 
   useEffect(() => {
     setPendingAttachments([]);
-    if (incident) {
-      const hasCustomMap = incident.customMapId != null;
+    if (activeIncident) {
+      const hasCustomMap = activeIncident.customMapId != null;
       const mode: LocationMode = hasCustomMap ? "customMap" : "geographic";
       setLocationMode(mode);
-      setSelectedCustomMapId(incident.customMapId ?? null);
+      setSelectedCustomMapId(activeIncident.customMapId ?? null);
       form.reset({
-        incidentDate: incident.incidentDate,
-        incidentTime: incident.incidentTime,
-        locationId: incident.locationId,
-        locationName: incident.locationName,
-        latitude: incident.latitude,
-        longitude: incident.longitude,
-        customMapId: incident.customMapId ?? null,
-        customMapX: incident.customMapX ?? null,
-        customMapY: incident.customMapY ?? null,
-        categoryId: incident.categoryId,
-        otherCategoryNote: incident.otherCategoryNote,
-        description: incident.description,
-        customFields: (incident.customFields as Record<string, string | number | null>) || {},
+        incidentDate: activeIncident.incidentDate,
+        incidentTime: activeIncident.incidentTime,
+        locationId: activeIncident.locationId,
+        locationName: activeIncident.locationName,
+        latitude: activeIncident.latitude,
+        longitude: activeIncident.longitude,
+        customMapId: activeIncident.customMapId ?? null,
+        customMapX: activeIncident.customMapX ?? null,
+        customMapY: activeIncident.customMapY ?? null,
+        categoryId: activeIncident.categoryId,
+        otherCategoryNote: activeIncident.otherCategoryNote,
+        description: activeIncident.description,
+        customFields: (activeIncident.customFields as Record<string, string | number | null>) || {},
       });
-      const inv = readInvolvement(incident.customFields as Record<string, string | number | null>);
+      const inv = readInvolvement(activeIncident.customFields as Record<string, string | number | null>);
       setPersonInvolved(inv.personInvolved);
       setVehicleInvolved(inv.vehicleInvolved);
-      fetch(`/api/incidents/${incident.id}/attachments`, { credentials: "include" })
+      setSapsSectionOpen(hasSapsCaseData(sapsCustomFields, activeIncident.customFields as Record<string, string | number | null>));
+      fetch(`/api/incidents/${activeIncident.id}/attachments`, { credentials: "include" })
         .then(r => r.json())
         .then(data => setExistingAttachments(data))
         .catch(() => setExistingAttachments([]));
@@ -263,6 +306,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
       });
       setPersonInvolved(false);
       setVehicleInvolved(false);
+      setSapsSectionOpen(false);
       form.reset({
         incidentDate: new Date().toISOString().split("T")[0],
         incidentTime: new Date().toTimeString().slice(0, 5),
@@ -279,7 +323,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
         customFields: defaults,
       });
     }
-  }, [incident, open]);
+  }, [activeIncident, open]);
 
   const applyGpsPosition = (lat: number, lng: number) => {
     // Capture the GPS fix UNCONDITIONALLY. The raw lat/lng is what the incident
@@ -301,42 +345,50 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
       map.setCenter({ lat, lng });
       map.setZoom(14);
     }
-    // Reverse-geocode for a friendly place name. The geocoder is a standalone
-    // service and works even when the visual map isn't ready.
-    if (geocoderRef.current) {
-      setMapLoading(true);
-      geocoderRef.current.geocode({ location: { lat, lng } }, (results, status) => {
-        setMapLoading(false);
-        if (status === google.maps.GeocoderStatus.OK && results?.[0]) {
-          const address = results[0].formatted_address;
-          const placeName =
-            results[0].address_components?.find((component) =>
-              component.types.some((type) =>
-                [
-                  "street_address",
-                  "premise",
-                  "subpremise",
-                  "route",
-                  "point_of_interest",
-                  "establishment",
-                  "neighborhood",
-                  "sublocality",
-                  "locality",
-                  "administrative_area_level_3",
-                  "administrative_area_level_2",
-                ].includes(type)
-              )
-            )?.long_name ||
-            results[0].address_components?.find((component) => !/^[A-Z0-9]{4}\+[A-Z0-9]{2}$/i.test(component.long_name))?.long_name ||
-            address;
-          setPendingAddress(address);
-          form.setValue("locationName", placeName);
-          if (pinRef.current) pinRef.current.setTitle(placeName);
-        } else {
-          setPendingAddress(null);
+    // Reverse-geocode for a friendly place name. Lazy-init geocoder so inline
+    // "Use current location" works without opening the map modal first.
+    void (async () => {
+      try {
+        await loadGoogleMaps();
+        if (!geocoderRef.current) {
+          geocoderRef.current = new google.maps.Geocoder();
         }
-      });
-    }
+        setMapLoading(true);
+        geocoderRef.current.geocode({ location: { lat, lng } }, (results, status) => {
+          setMapLoading(false);
+          if (status === google.maps.GeocoderStatus.OK && results?.[0]) {
+            const address = results[0].formatted_address;
+            const placeName =
+              results[0].address_components?.find((component) =>
+                component.types.some((type) =>
+                  [
+                    "street_address",
+                    "premise",
+                    "subpremise",
+                    "route",
+                    "point_of_interest",
+                    "establishment",
+                    "neighborhood",
+                    "sublocality",
+                    "locality",
+                    "administrative_area_level_3",
+                    "administrative_area_level_2",
+                  ].includes(type)
+                )
+              )?.long_name ||
+              results[0].address_components?.find((component) => !/^[A-Z0-9]{4}\+[A-Z0-9]{2}$/i.test(component.long_name))?.long_name ||
+              address;
+            setPendingAddress(address);
+            form.setValue("locationName", placeName);
+            if (pinRef.current) pinRef.current.setTitle(placeName);
+          } else {
+            setPendingAddress(null);
+          }
+        });
+      } catch {
+        setMapLoading(false);
+      }
+    })();
   };
 
   const locationReady = locationProbe != null && hasPanicCoordinates(locationProbe);
@@ -377,6 +429,36 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
     );
   };
+
+  async function handleUseCurrentLocation() {
+    if (!navigator.geolocation) {
+      toast({
+        title: "Location unavailable",
+        description: "This device does not support GPS.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setGpsLoading(true);
+    try {
+      const loc = await acquirePanicLocation();
+      if (hasPanicCoordinates(loc)) {
+        applyGpsPosition(loc.lat, loc.lng);
+        toast({
+          title: "Location set",
+          description: "This incident will use your current GPS position.",
+        });
+      } else {
+        toast({
+          title: "Could not get location",
+          description: panicLocationWarning(loc.issue),
+          variant: "destructive",
+        });
+      }
+    } finally {
+      setGpsLoading(false);
+    }
+  }
 
   useEffect(() => {
     if (!mapModalOpen) {
@@ -511,10 +593,10 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
         queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
       }
       let savedIncident: Incident;
-      if (incident) {
+      if (activeIncident) {
         // If converting a live incident, try to capture the reporter's current GPS position
         let convertCoords: { liveConvertLat?: number; liveConvertLng?: number } = {};
-        if (incident.isLive) {
+        if (activeIncident.isLive) {
           try {
             const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
               navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000, maximumAge: 10000 });
@@ -524,7 +606,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
             // geolocation unavailable or denied — submit without it
           }
         }
-        const resp = await apiRequest("PATCH", `/api/incidents/${incident.id}`, { ...resolvedData, ...convertCoords });
+        const resp = await apiRequest("PATCH", `/api/incidents/${activeIncident.id}`, { ...resolvedData, ...convertCoords });
         savedIncident = await resp.json();
       } else {
         const resp = await apiRequest("POST", "/api/incidents", resolvedData);
@@ -537,15 +619,22 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
       }
       return savedIncident;
     },
-    onSuccess: () => {
+    onSuccess: (savedIncident) => {
       queryClient.invalidateQueries({ queryKey: ["/api/incidents"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
       setPendingAttachments([]);
-      toast({
-        title: incident ? "Incident updated" : "Incident reported",
-        description: incident ? "The incident has been updated successfully." : "A new incident has been recorded in the occurrence book.",
-      });
-      onOpenChange(false);
+      if (activeIncident) {
+        toast({
+          title: incident ? "Incident updated" : "Details saved",
+          description: incident
+            ? "The incident has been updated successfully."
+            : "Extra details have been added to your report.",
+        });
+        setEnrichIncident(null);
+        onOpenChange(false);
+        return;
+      }
+      setReportSuccess(savedIncident);
     },
     onError: (error: Error) => {
       toast({
@@ -557,11 +646,32 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
   });
 
   const onSubmit = async (data: IncidentFormValues) => {
+    if (isFieldVisible(formFields, "categoryId", fieldsLoaded) && data.categoryId == null) {
+      form.setError("categoryId", { message: "Please select an incident type" });
+      return;
+    }
     const selectedCategory = categories.find((c) => c.id === data.categoryId);
     const isOtherSelected = data.categoryId === -1 || selectedCategory?.isOther;
     if (isOtherSelected && !data.otherCategoryNote?.trim()) {
       form.setError("otherCategoryNote", { message: "Please specify the occurrence type" });
       return;
+    }
+    if (isFieldVisible(formFields, "location", fieldsLoaded)) {
+      if (locationMode === "customMap") {
+        if (data.customMapId == null || data.customMapX == null || data.customMapY == null) {
+          form.setError("customMapId", { message: "Please select a map and place a pin" });
+          return;
+        }
+      } else {
+        const hasLocation =
+          data.locationId != null
+          || (data.latitude != null && data.longitude != null)
+          || Boolean(data.locationName?.trim());
+        if (!hasLocation) {
+          form.setError("locationId", { message: "Please set a location using GPS, the map, or a predefined site" });
+          return;
+        }
+      }
     }
     let normalizedData = data;
     if (locationMode === "customMap") {
@@ -632,10 +742,14 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
       for (const file of arr) {
         // Compress images before uploading to keep storage size small
         const uploadFile = file.type.startsWith("image/") ? await compressImageFile(file) : file;
+        let uploadMime = uploadFile.type || "application/octet-stream";
+        if (source === "voice" || uploadFile.name.includes("voice-note")) {
+          uploadMime = normalizeAudioMimeType(uploadMime, uploadFile.name);
+        }
         const urlResp = await fetch("/api/uploads", {
           method: "POST",
-          headers: { "Content-Type": uploadFile.type || "application/octet-stream" },
-          body: uploadFile,
+          headers: { "Content-Type": uploadMime },
+          body: uploadFile.type.startsWith("image/") ? uploadFile : new File([uploadFile], uploadFile.name, { type: uploadMime }),
           credentials: "include",
         });
         if (!urlResp.ok) {
@@ -643,7 +757,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
           throw new Error(errData.message || "Failed to upload file");
         }
         const { objectUrl } = await urlResp.json();
-        setPendingAttachments(prev => [...prev, { url: objectUrl, filename: uploadFile.name, mimeType: uploadFile.type || "application/octet-stream" }]);
+        setPendingAttachments(prev => [...prev, { url: objectUrl, filename: uploadFile.name, mimeType: uploadMime }]);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Could not upload the file. Please try again.";
@@ -664,29 +778,62 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
     cameraInputRef.current?.click();
   };
 
+  function voiceErrorDescription(description: string): string {
+    if (description === "mic-denied") return nativeMicDeniedHint();
+    if (description === "needs-apk-update") return nativeVoiceApkUpdateHint();
+    return description;
+  }
+
+  function voiceBlobToFile(blob: Blob, mimeType: string): File {
+    const ext = mimeType.includes("mp4") ? "m4a" : mimeType.includes("ogg") ? "ogg" : "webm";
+    const name = `voice-note-${Date.now()}.${ext}`;
+    const type = normalizeAudioMimeType(mimeType || blob.type, name);
+    return new File([blob], name, { type });
+  }
+
   const startRecording = async () => {
+    if (isRecording || uploadingAttachment) return;
+    setAttachmentError(null);
+
+    if (useNativeRecorder) {
+      try {
+        await startNativeRecording();
+        setRecordingSeconds(0);
+        setIsRecording(true);
+        recordingTimerRef.current = setInterval(() => {
+          setRecordingSeconds((s) => s + 1);
+        }, 1000);
+      } catch (err: unknown) {
+        setIsRecording(false);
+        setRecordingSeconds(0);
+        const { title, description } = recordingErrorMessage(err);
+        toast({
+          title,
+          description: voiceErrorDescription(description),
+          variant: "destructive",
+        });
+      }
+      return;
+    }
+
     let stream: MediaStream | null = null;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const supportedType = ["audio/webm", "audio/ogg", "audio/mp4"].find((t) =>
-        MediaRecorder.isTypeSupported(t)
-      );
-      if (!supportedType) {
-        stream.getTracks().forEach((t) => t.stop());
-        toast({ title: "Recording not supported", description: "Your browser does not support audio recording.", variant: "destructive" });
-        return;
-      }
-      const recorder = new MediaRecorder(stream, { mimeType: supportedType });
+      stream = await openMicStream();
+      recordingStreamRef.current = stream;
       audioChunksRef.current = [];
+      const recorder = createAudioMediaRecorder(stream);
+      const mimeType = recorderMimeType(recorder);
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) audioChunksRef.current.push(e.data);
       };
       recorder.onstop = () => {
         stream!.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(audioChunksRef.current, { type: supportedType });
-        const ext = supportedType.split("/")[1] ?? "webm";
-        const file = new File([blob], `voice-note-${Date.now()}.${ext}`, { type: supportedType });
-        handleAttachmentUpload([file], "voice");
+        recordingStreamRef.current = null;
+        const blob = new Blob(audioChunksRef.current, { type: mimeType });
+        if (blob.size > 0) {
+          void handleAttachmentUpload([voiceBlobToFile(blob, mimeType)], "voice");
+        }
+        mediaRecorderRef.current = null;
         if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
         setIsRecording(false);
         setRecordingSeconds(0);
@@ -700,13 +847,14 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
       }, 1000);
     } catch (err: unknown) {
       if (stream) stream.getTracks().forEach((t) => t.stop());
-      const isDenied = err instanceof DOMException && (err.name === "NotAllowedError" || err.name === "PermissionDeniedError");
-      if (isDenied) {
-        setAttachmentError("Microphone access was denied. Please enable microphone access in your device settings and try again.");
+      recordingStreamRef.current = null;
+      const { title, description } = recordingErrorMessage(err);
+      if (description === "mic-denied") {
+        setAttachmentError(voiceErrorDescription(description));
       } else {
         toast({
-          title: "Recording failed",
-          description: "Could not start recording. Please try again.",
+          title,
+          description: voiceErrorDescription(description),
           variant: "destructive",
         });
       }
@@ -714,8 +862,37 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
   };
 
   const stopRecording = () => {
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+
+    if (useNativeRecorder && isRecording) {
+      setIsRecording(false);
+      setRecordingSeconds(0);
+      void stopNativeRecording()
+        .then(({ blob, mimeType }) => {
+          if (blob.size === 0) throw new Error("Recording was empty");
+          return handleAttachmentUpload([voiceBlobToFile(blob, mimeType)], "voice");
+        })
+        .catch((err: unknown) => {
+          const { title, description } = recordingErrorMessage(err);
+          toast({
+            title,
+            description: voiceErrorDescription(description),
+            variant: "destructive",
+          });
+        });
+      return;
+    }
+
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       mediaRecorderRef.current.stop();
+    } else {
+      recordingStreamRef.current?.getTracks().forEach((t) => t.stop());
+      recordingStreamRef.current = null;
+      setIsRecording(false);
+      setRecordingSeconds(0);
     }
   };
 
@@ -795,16 +972,37 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
   const activeCustomMap = customMaps.find((m) => m.id === selectedCustomMapId) ?? null;
   const watchedCustomMapX = form.watch("customMapX");
   const watchedCustomMapY = form.watch("customMapY");
+  const watchedCustomFields = (form.watch("customFields") as Record<string, string | number | null>) || {};
+
+  const successTypeLabel = reportSuccess?.categoryId
+    ? categories.find((c) => c.id === reportSuccess.categoryId)?.name ?? null
+    : reportSuccess?.otherCategoryNote?.trim() ?? null;
+
+  function handleDialogOpenChange(next: boolean) {
+    if (!next) {
+      setReportSuccess(null);
+      setEnrichIncident(null);
+    }
+    onOpenChange(next);
+  }
+
+  function handleAddMoreDetails() {
+    if (!reportSuccess) return;
+    setEnrichIncident(reportSuccess);
+    setReportSuccess(null);
+  }
 
   return (
     <>
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl p-0 flex flex-col" style={{ maxHeight: "calc(100dvh - 2rem)" }}>
-        <div className="overflow-y-auto flex-1 p-6" style={{ WebkitOverflowScrolling: "touch" } as React.CSSProperties}>
-        <DialogHeader>
-          <DialogTitle className="text-lg font-semibold flex items-center gap-2 flex-wrap" data-testid="text-dialog-title">
-            {incident ? "Edit Incident" : "Report New Incident"}
-            {incident?.liveStartedAt && (
+    <Dialog open={open} onOpenChange={handleDialogOpenChange}>
+      <DialogContent className="max-w-4xl p-0 flex flex-col gap-0 overflow-hidden" style={{ maxHeight: "calc(100dvh - 2rem)" }}>
+        <DialogHeader className="shrink-0 px-6 pt-5 pb-4 border-b border-border/50 text-center sm:text-center space-y-0">
+          <DialogTitle
+            className="text-xl font-semibold tracking-tight text-center flex items-center justify-center gap-2 flex-wrap"
+            data-testid="text-dialog-title"
+          >
+            {incident ? "Edit Incident" : enrichIncident ? "Add more details" : isSuccessView ? "Report sent" : "Report New Incident"}
+            {activeIncident?.liveStartedAt && (
               <span className="inline-flex items-center gap-1 rounded-full bg-green-500/15 text-green-600 dark:text-green-400 border border-green-500/25 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide" data-testid="badge-live-incident">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-500 shrink-0" />
                 Live Incident
@@ -813,10 +1011,19 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
           </DialogTitle>
         </DialogHeader>
 
+        <div className="overflow-y-auto flex-1 px-6 py-5" style={{ WebkitOverflowScrolling: "touch" } as React.CSSProperties}>
+        {isSuccessView && reportSuccess ? (
+          <IncidentReportSuccess
+            incident={reportSuccess}
+            typeLabel={successTypeLabel}
+            onAddDetails={handleAddMoreDetails}
+            onDone={() => handleDialogOpenChange(false)}
+          />
+        ) : (
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          <form id="incident-report-form" onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
             {(showDate || showTime) && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-3">
                 {showDate && (
                   <FormFieldComponent
                     control={form.control}
@@ -1022,57 +1229,117 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
 
                 {locationMode === "geographic" && (
                   <>
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={openMapPicker}
-                      data-testid="button-toggle-map"
-                      className="gap-1.5 bg-red-700/90 hover:bg-red-800 text-white border-0"
-                    >
-                      <LocateFixed className="h-3.5 w-3.5" />
-                      {form.watch("latitude") && form.watch("longitude") ? "Change Location" : "Pick on Map"}
-                    </Button>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => void handleUseCurrentLocation()}
+                        disabled={gpsLoading}
+                        data-testid="button-use-current-location"
+                        className="gap-1.5 bg-primary hover:bg-primary/90 text-primary-foreground border-0 h-10"
+                      >
+                        {gpsLoading ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <LocateFixed className="h-3.5 w-3.5" />
+                        )}
+                        Use current location
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={openMapPicker}
+                        disabled={gpsLoading}
+                        data-testid="button-toggle-map"
+                        className="gap-1.5 bg-red-700/90 hover:bg-red-800 text-white border-0 h-10"
+                      >
+                        <MapPin className="h-3.5 w-3.5" />
+                        {form.watch("latitude") && form.watch("longitude") ? "Change on map" : "Pick on map"}
+                      </Button>
+                    </div>
 
                     <p className="text-xs text-muted-foreground">
-                      Tap the map to place the pin, or choose a predefined site below.
+                      {isNewQuickReport
+                        ? "Tap green for GPS, or red to adjust on the map."
+                        : "Use current location for a quick GPS fix, pick on the map to adjust, or choose a predefined site below."}
                     </p>
 
-                    <FormFieldComponent
-                      control={form.control}
-                      name="locationId"
-                      render={({ field }) => (
-                        <FormItem>
-                          <Select
-                            onValueChange={(val) => handleLocationSelect(parseInt(val))}
-                            value={field.value?.toString() || ""}
-                          >
-                            <FormControl>
-                              <SelectTrigger data-testid="select-location">
-                                <SelectValue placeholder="Select predefined location" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {allowedLocations.map((loc) => (
-                                <SelectItem key={loc.id} value={loc.id.toString()}>
-                                  {loc.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    {form.watch("latitude") && form.watch("longitude") && (
-                      <p className="text-xs text-muted-foreground" data-testid="text-coordinates">
-                        Coordinates: {form.watch("latitude")?.toFixed(5)}, {form.watch("longitude")?.toFixed(5)}
-                      </p>
+                    {allowedLocations.length > 0 && (
+                      isNewQuickReport ? (
+                        <details className="group">
+                          <summary className="text-xs text-muted-foreground cursor-pointer list-none flex items-center gap-1 hover:text-foreground">
+                            <span className="underline-offset-2 group-open:underline">Or choose a predefined site</span>
+                          </summary>
+                          <div className="pt-2">
+                            <FormFieldComponent
+                              control={form.control}
+                              name="locationId"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <Select
+                                    onValueChange={(val) => handleLocationSelect(parseInt(val))}
+                                    value={field.value?.toString() || ""}
+                                  >
+                                    <FormControl>
+                                      <SelectTrigger data-testid="select-location">
+                                        <SelectValue placeholder="Select predefined location" />
+                                      </SelectTrigger>
+                                    </FormControl>
+                                    <SelectContent>
+                                      {allowedLocations.map((loc) => (
+                                        <SelectItem key={loc.id} value={loc.id.toString()}>
+                                          {loc.name}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                          </div>
+                        </details>
+                      ) : (
+                        <FormFieldComponent
+                          control={form.control}
+                          name="locationId"
+                          render={({ field }) => (
+                            <FormItem>
+                              <Select
+                                onValueChange={(val) => handleLocationSelect(parseInt(val))}
+                                value={field.value?.toString() || ""}
+                              >
+                                <FormControl>
+                                  <SelectTrigger data-testid="select-location">
+                                    <SelectValue placeholder="Select predefined location" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {allowedLocations.map((loc) => (
+                                    <SelectItem key={loc.id} value={loc.id.toString()}>
+                                      {loc.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      )
                     )}
-                    {pendingAddress && (
-                      <p className="text-xs text-muted-foreground" data-testid="text-picked-address">
-                        {pendingAddress}
-                      </p>
+
+                    {form.watch("latitude") != null && form.watch("longitude") != null && (
+                      <div className="rounded-xl border border-primary/25 bg-primary/5 px-3 py-2.5 space-y-1" data-testid="banner-location-set">
+                        <p className="text-xs font-medium text-primary" data-testid="text-coordinates">
+                          GPS: {form.watch("latitude")?.toFixed(5)}, {form.watch("longitude")?.toFixed(5)}
+                        </p>
+                        {(pendingAddress || form.watch("locationName")) && (
+                          <p className="text-xs text-muted-foreground" data-testid="text-picked-address">
+                            {mapLoading ? "Finding nearest address…" : (pendingAddress ?? form.watch("locationName"))}
+                          </p>
+                        )}
+                      </div>
                     )}
                   </>
                 )}
@@ -1185,36 +1452,265 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
               </div>
             )}
 
-            <IncidentInvolvementSection
-              customFields={(form.watch("customFields") as Record<string, string | number | null>) || {}}
-              onChange={(next) => form.setValue("customFields", next)}
-              personInvolved={personInvolved}
-              vehicleInvolved={vehicleInvolved}
-              onPersonInvolvedChange={setPersonInvolved}
-              onVehicleInvolvedChange={setVehicleInvolved}
-            />
-
-            {sapsCustomFields.length > 0 && (
-              <IncidentSapsSection
-                fields={sapsCustomFields}
-                customFields={(form.watch("customFields") as Record<string, string | number | null>) || {}}
-                onChange={(next) => form.setValue("customFields", next)}
-              />
-            )}
-
             {showDescription && (
               <FormFieldComponent
                 control={form.control}
                 name="description"
                 render={({ field, fieldState }) => (
-                  <IncidentDescriptionSection
+                  <IncidentReportDescriptionField
                     value={field.value || ""}
                     onChange={(v) => field.onChange(v)}
                     error={fieldState.error?.message}
+                    isRecording={isRecording}
+                    recordingSeconds={recordingSeconds}
+                    onStartVoice={startRecording}
+                    onStopVoice={stopRecording}
+                    voiceBusy={uploadingAttachment && uploadSource === "voice"}
                   />
                 )}
               />
             )}
+
+            <IncidentReportSceneEvidenceSection>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
+                className="hidden"
+                data-testid="input-file-upload"
+                onChange={(e) => {
+                  if (e.target.files?.length) {
+                    setAttachmentError(null);
+                    handleAttachmentUpload(e.target.files);
+                  }
+                  e.target.value = "";
+                }}
+              />
+              <input
+                ref={cameraInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                data-testid="input-camera-upload"
+                onChange={(e) => {
+                  if (e.target.files?.length) {
+                    setAttachmentError(null);
+                    handleAttachmentUpload(e.target.files, "camera");
+                  }
+                  e.target.value = "";
+                }}
+              />
+
+              <div className="grid grid-cols-3 gap-2">
+                {isRecording ? (
+                  <button
+                    type="button"
+                    onClick={stopRecording}
+                    data-testid="button-stop-recording"
+                    className={cn(
+                      "col-span-3 flex items-center justify-center gap-2 rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-3.5",
+                      "text-destructive animate-pulse active:scale-[0.99] transition-all touch-manipulation",
+                    )}
+                  >
+                    <Square className="h-4 w-4 shrink-0" />
+                    <span className="text-sm font-semibold">
+                      Stop recording ({Math.floor(recordingSeconds / 60)}:{String(recordingSeconds % 60).padStart(2, "0")})
+                    </span>
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => { setAttachmentError(null); fileInputRef.current?.click(); }}
+                      disabled={uploadingAttachment}
+                      data-testid="button-upload-file"
+                      className={cn(
+                        "flex flex-col items-center justify-center gap-2 rounded-xl border border-border/70 bg-card px-2 py-3.5",
+                        "hover:border-primary/35 hover:bg-muted/35 active:scale-[0.98] transition-all touch-manipulation",
+                        "disabled:opacity-50 disabled:pointer-events-none min-h-[4.75rem]",
+                      )}
+                    >
+                      <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary">
+                        {uploadingAttachment && uploadSource === "file" ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Upload className="h-4 w-4" />
+                        )}
+                      </span>
+                      <span className="text-[11px] font-medium leading-tight text-center">Upload</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleTakePhoto}
+                      disabled={uploadingAttachment}
+                      data-testid="button-take-photo"
+                      className={cn(
+                        "flex flex-col items-center justify-center gap-2 rounded-xl border border-border/70 bg-card px-2 py-3.5",
+                        "hover:border-primary/35 hover:bg-muted/35 active:scale-[0.98] transition-all touch-manipulation",
+                        "disabled:opacity-50 disabled:pointer-events-none min-h-[4.75rem]",
+                      )}
+                    >
+                      <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary">
+                        {uploadingAttachment && uploadSource === "camera" ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Camera className="h-4 w-4" />
+                        )}
+                      </span>
+                      <span className="text-[11px] font-medium leading-tight text-center">Photo</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => { setAttachmentError(null); startRecording(); }}
+                      disabled={uploadingAttachment}
+                      data-testid="button-start-recording"
+                      className={cn(
+                        "flex flex-col items-center justify-center gap-2 rounded-xl border border-border/70 bg-card px-2 py-3.5",
+                        "hover:border-primary/35 hover:bg-muted/35 active:scale-[0.98] transition-all touch-manipulation",
+                        "disabled:opacity-50 disabled:pointer-events-none min-h-[4.75rem]",
+                      )}
+                    >
+                      <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary">
+                        {uploadingAttachment && uploadSource === "voice" ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Mic className="h-4 w-4" />
+                        )}
+                      </span>
+                      <span className="text-[11px] font-medium leading-tight text-center">
+                        {uploadingAttachment && uploadSource === "voice" ? "Saving…" : "Voice"}
+                      </span>
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {attachmentError && (
+                <p className="text-xs text-destructive" data-testid="text-attachment-error">
+                  {attachmentError}
+                </p>
+              )}
+
+              {existingAttachments.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Saved</p>
+                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                    {existingAttachments.map((att) => (
+                      <div
+                        key={att.id}
+                        className="relative rounded-lg border border-border/80 overflow-hidden bg-card shadow-sm"
+                        data-testid={`card-existing-attachment-${att.id}`}
+                      >
+                        <AttachmentPreview url={att.url} alt={att.filename} mimeType={att.mimeType} filename={att.filename} />
+                        <div className="p-1.5 text-[10px] bg-background border-t border-border/60 space-y-0.5">
+                          <p className="truncate font-medium">{att.filename}</p>
+                          <p className="text-muted-foreground leading-tight truncate">
+                            {attachmentUploaderLabel(att)}
+                          </p>
+                        </div>
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteExistingAttachment(att.id)}
+                            className="absolute top-1 right-1 bg-destructive text-destructive-foreground rounded-full p-0.5 hover:opacity-80"
+                            data-testid={`button-delete-existing-attachment-${att.id}`}
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {pendingAttachments.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Ready to submit ({pendingAttachments.length})
+                  </p>
+                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                    {pendingAttachments.map((att, i) => {
+                      const isAudio = resolveAttachmentKind(att.mimeType, att.filename) === "audio";
+                      return (
+                      <div
+                        key={i}
+                        className={cn(
+                          "relative rounded-lg border border-primary/25 overflow-hidden bg-card shadow-sm",
+                          isAudio && "col-span-3 sm:col-span-4",
+                        )}
+                        data-testid={`card-pending-attachment-${i}`}
+                      >
+                        <AttachmentPreview
+                          url={att.url}
+                          alt={att.filename}
+                          mimeType={att.mimeType}
+                          filename={att.filename}
+                          compact={!isAudio}
+                        />
+                        {!isAudio && (
+                        <div className="p-1.5 text-[10px] text-center truncate bg-background border-t border-border/60 font-medium">
+                          {att.filename}
+                        </div>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setPendingAttachments((prev) => prev.filter((_, idx) => idx !== i))}
+                          className="absolute top-1 right-1 bg-destructive text-destructive-foreground rounded-full p-0.5 hover:opacity-80 z-10"
+                          data-testid={`button-remove-pending-attachment-${i}`}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    );})}
+                  </div>
+                </div>
+              )}
+            </IncidentReportSceneEvidenceSection>
+
+            <IncidentReportMoreDetailsSection enrichMode={Boolean(enrichIncident)}>
+              <IncidentInvolvementSection
+                customFields={watchedCustomFields}
+                onChange={(next) => form.setValue("customFields", next)}
+                personInvolved={personInvolved}
+                vehicleInvolved={vehicleInvolved}
+                onPersonInvolvedChange={setPersonInvolved}
+                onVehicleInvolvedChange={setVehicleInvolved}
+                threeColumnTiles={sapsCustomFields.length > 0}
+                thirdColumnTile={
+                  sapsCustomFields.length > 0 ? (
+                    <SapsCaseTile
+                      open={sapsSectionOpen}
+                      onToggle={() => {
+                        const next = !sapsSectionOpen;
+                        setSapsSectionOpen(next);
+                        if (!next) {
+                          form.setValue(
+                            "customFields",
+                            clearSapsCustomFields(sapsCustomFields, watchedCustomFields),
+                          );
+                        }
+                      }}
+                    />
+                  ) : undefined
+                }
+              />
+
+              {sapsCustomFields.length > 0 && (
+                <IncidentSapsSection
+                  fields={sapsCustomFields}
+                  customFields={watchedCustomFields}
+                  onChange={(next) => form.setValue("customFields", next)}
+                  hideTile
+                  open={sapsSectionOpen}
+                  onOpenChange={setSapsSectionOpen}
+                />
+              )}
+            </IncidentReportMoreDetailsSection>
 
             {otherOrgCustomFields.length > 0 && (
               <div className="space-y-4">
@@ -1282,181 +1778,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
               </div>
             )}
 
-            <div className="space-y-4 border border-border rounded-lg p-4 bg-muted/30">
-              <div className="flex items-center gap-2">
-                <Paperclip className="h-4 w-4 text-muted-foreground" />
-                <h3 className="text-sm font-medium">Evidence</h3>
-              </div>
-
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
-                className="hidden"
-                data-testid="input-file-upload"
-                onChange={(e) => {
-                  if (e.target.files?.length) {
-                    setAttachmentError(null);
-                    handleAttachmentUpload(e.target.files);
-                  }
-                  e.target.value = "";
-                }}
-              />
-              <input
-                ref={cameraInputRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="hidden"
-                data-testid="input-camera-upload"
-                onChange={(e) => {
-                  if (e.target.files?.length) {
-                    setAttachmentError(null);
-                    handleAttachmentUpload(e.target.files, "camera");
-                  }
-                  e.target.value = "";
-                }}
-              />
-
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => { setAttachmentError(null); fileInputRef.current?.click(); }}
-                  disabled={uploadingAttachment || isRecording}
-                  data-testid="button-upload-file"
-                  className="gap-1.5"
-                >
-                  {uploadingAttachment && uploadSource === "file" ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Upload className="h-3.5 w-3.5" />
-                  )}
-                  Upload File
-                </Button>
-
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleTakePhoto}
-                  disabled={uploadingAttachment || isRecording}
-                  data-testid="button-take-photo"
-                  className="gap-1.5"
-                >
-                  {uploadingAttachment && uploadSource === "camera" ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Camera className="h-3.5 w-3.5" />
-                  )}
-                  Take Photo
-                </Button>
-
-                {!isRecording ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => { setAttachmentError(null); startRecording(); }}
-                    disabled={uploadingAttachment}
-                    data-testid="button-start-recording"
-                    className="gap-1.5"
-                  >
-                    {uploadingAttachment && uploadSource === "voice" ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Mic className="h-3.5 w-3.5" />
-                    )}
-                    {uploadingAttachment && uploadSource === "voice" ? "Saving…" : "Record Voice"}
-                  </Button>
-                ) : (
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    size="sm"
-                    onClick={stopRecording}
-                    data-testid="button-stop-recording"
-                    className="gap-1.5 animate-pulse"
-                  >
-                    <Square className="h-3.5 w-3.5" />
-                    Stop ({Math.floor(recordingSeconds / 60)}:{String(recordingSeconds % 60).padStart(2, "0")})
-                  </Button>
-                )}
-              </div>
-
-              {attachmentError && (
-                <p className="text-xs text-destructive" data-testid="text-attachment-error">
-                  {attachmentError}
-                </p>
-              )}
-
-              {existingAttachments.length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-xs text-muted-foreground font-medium">Saved Evidence</p>
-                  <div className="flex flex-wrap gap-2">
-                    {existingAttachments.map((att) => (
-                      <div
-                        key={att.id}
-                        className="relative border border-border rounded-md overflow-hidden w-28"
-                        data-testid={`card-existing-attachment-${att.id}`}
-                      >
-                        <AttachmentPreview url={att.url} alt={att.filename} mimeType={att.mimeType} filename={att.filename} />
-                        <div className="p-1 text-xs bg-background border-t border-border space-y-0.5">
-                          <p className="truncate">{att.filename}</p>
-                          <p className="text-[10px] text-muted-foreground leading-tight">
-                            {attachmentUploaderLabel(att)}
-                          </p>
-                        </div>
-                        {isAdmin && (
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteExistingAttachment(att.id)}
-                            className="absolute top-1 right-1 bg-destructive text-destructive-foreground rounded-full p-0.5 hover:opacity-80"
-                            data-testid={`button-delete-existing-attachment-${att.id}`}
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {pendingAttachments.length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-xs text-muted-foreground font-medium">
-                    Pending Evidence ({pendingAttachments.length})
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {pendingAttachments.map((att, i) => (
-                      <div
-                        key={i}
-                        className="relative border border-border rounded-md overflow-hidden w-28"
-                        data-testid={`card-pending-attachment-${i}`}
-                      >
-                        <AttachmentPreview url={att.url} alt={att.filename} mimeType={att.mimeType} filename={att.filename} />
-                        <div className="p-1 text-xs text-center truncate bg-background border-t border-border">
-                          {att.filename}
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setPendingAttachments((prev) => prev.filter((_, idx) => idx !== i))}
-                          className="absolute top-1 right-1 bg-destructive text-destructive-foreground rounded-full p-0.5 hover:opacity-80"
-                          data-testid={`button-remove-pending-attachment-${i}`}
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {incident?.liveStartedAt && (
+            {activeIncident?.liveStartedAt && (
               <div className="rounded-md border border-border bg-muted/30 p-4 space-y-3" data-testid="section-live-timeline">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
@@ -1465,21 +1787,21 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Live Started</p>
-                    <p className="text-sm mt-0.5" data-testid="text-live-started">{new Date(incident.liveStartedAt).toLocaleString()}</p>
+                    <p className="text-sm mt-0.5" data-testid="text-live-started">{new Date(activeIncident.liveStartedAt).toLocaleString()}</p>
                   </div>
-                  {incident.responderArrivedAt && (
+                  {activeIncident.responderArrivedAt && (
                     <div>
                       <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Responder Arrived</p>
-                      <p className="text-sm mt-0.5" data-testid="text-responder-arrived">{new Date(incident.responderArrivedAt).toLocaleString()}</p>
+                      <p className="text-sm mt-0.5" data-testid="text-responder-arrived">{new Date(activeIncident.responderArrivedAt).toLocaleString()}</p>
                     </div>
                   )}
-                  {incident.liveStartLat != null && incident.liveStartLng != null && (
+                  {activeIncident.liveStartLat != null && activeIncident.liveStartLng != null && (
                     <div>
                       <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Origin Coordinates</p>
                       <div className="mt-0.5">
                         <CoordinateLink
-                          lat={incident.liveStartLat}
-                          lng={incident.liveStartLng}
+                          lat={activeIncident.liveStartLat}
+                          lng={activeIncident.liveStartLng}
                           onOpenMap={setGeoMapView}
                           className="text-sm"
                           testId="link-live-origin"
@@ -1487,27 +1809,27 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                       </div>
                     </div>
                   )}
-                  {(incident as any).destinationName && (
+                  {(activeIncident as any).destinationName && (
                     <div>
                       <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Destination</p>
-                      {(incident as any).destinationLat != null && (incident as any).destinationLng != null ? (
+                      {(activeIncident as any).destinationLat != null && (activeIncident as any).destinationLng != null ? (
                         <div className="mt-0.5">
                           <CoordinateLink
-                            lat={Number((incident as any).destinationLat)}
-                            lng={Number((incident as any).destinationLng)}
-                            label={(incident as any).destinationName}
+                            lat={Number((activeIncident as any).destinationLat)}
+                            lng={Number((activeIncident as any).destinationLng)}
+                            label={(activeIncident as any).destinationName}
                             onOpenMap={setGeoMapView}
                             className="text-sm"
                             testId="link-live-destination"
                           />
                         </div>
                       ) : (
-                        <p className="text-sm mt-0.5" data-testid="text-live-destination">{(incident as any).destinationName}</p>
+                        <p className="text-sm mt-0.5" data-testid="text-live-destination">{(activeIncident as any).destinationName}</p>
                       )}
                     </div>
                   )}
-                  {incident.responderArrivedAt && (() => {
-                    const mins = (new Date(incident.responderArrivedAt).getTime() - new Date(incident.liveStartedAt).getTime()) / 60000;
+                  {activeIncident.responderArrivedAt && (() => {
+                    const mins = (new Date(activeIncident.responderArrivedAt).getTime() - new Date(activeIncident.liveStartedAt!).getTime()) / 60000;
                     const label = mins < 1 ? "< 1 min" : `${Math.round(mins)} min`;
                     return (
                       <div>
@@ -1516,28 +1838,28 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                       </div>
                     );
                   })()}
-                  {incident.liveEndedAt && (
+                  {activeIncident.liveEndedAt && (
                     <div>
                       <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Closed</p>
-                      <p className="text-sm mt-0.5" data-testid="text-live-ended">{new Date(incident.liveEndedAt).toLocaleString()}</p>
+                      <p className="text-sm mt-0.5" data-testid="text-live-ended">{new Date(activeIncident.liveEndedAt).toLocaleString()}</p>
                     </div>
                   )}
-                  {incident.liveEndedAt && (
+                  {activeIncident.liveEndedAt && (
                     <div>
                       <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">End Type</p>
                       <p className="text-sm mt-0.5 font-medium" data-testid="text-live-end-type">
-                        {incident.liveClosedManually ? "Manually closed" : "Converted to incident"}
+                        {activeIncident.liveClosedManually ? "Manually closed" : "Converted to incident"}
                       </p>
                     </div>
                   )}
-                  {(incident as any).closedByName && incident.liveEndedAt && (
+                  {(activeIncident as any).closedByName && activeIncident.liveEndedAt && (
                     <div>
                       <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Closed by</p>
-                      <p className="text-sm mt-0.5 font-medium" data-testid="text-live-closed-by">{(incident as any).closedByName}</p>
+                      <p className="text-sm mt-0.5 font-medium" data-testid="text-live-closed-by">{(activeIncident as any).closedByName}</p>
                     </div>
                   )}
-                  {incident.liveEndedAt && (() => {
-                    const totalMs = new Date(incident.liveEndedAt).getTime() - new Date(incident.liveStartedAt).getTime();
+                  {activeIncident.liveEndedAt && (() => {
+                    const totalMs = new Date(activeIncident.liveEndedAt).getTime() - new Date(activeIncident.liveStartedAt!).getTime();
                     const totalSecs = Math.floor(totalMs / 1000);
                     const hours = Math.floor(totalSecs / 3600);
                     const mins = Math.floor((totalSecs % 3600) / 60);
@@ -1553,13 +1875,13 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                       </div>
                     );
                   })()}
-                  {incident.liveEndedAt && !incident.liveClosedManually && incident.liveConvertLat != null && incident.liveConvertLng != null && (
+                  {activeIncident.liveEndedAt && !activeIncident.liveClosedManually && activeIncident.liveConvertLat != null && activeIncident.liveConvertLng != null && (
                     <div>
                       <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Location at Submission</p>
                       <div className="mt-0.5">
                         <CoordinateLink
-                          lat={incident.liveConvertLat}
-                          lng={incident.liveConvertLng}
+                          lat={activeIncident.liveConvertLat}
+                          lng={activeIncident.liveConvertLng}
                           onOpenMap={setGeoMapView}
                           className="text-sm"
                           testId="link-live-convert-location"
@@ -1567,13 +1889,13 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                       </div>
                     </div>
                   )}
-                  {incident.liveEndedAt && incident.liveClosedManually && (incident as any).liveEndLat != null && (incident as any).liveEndLng != null && (
+                  {activeIncident.liveEndedAt && activeIncident.liveClosedManually && (activeIncident as any).liveEndLat != null && (activeIncident as any).liveEndLng != null && (
                     <div>
                       <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Closed From</p>
                       <div className="mt-0.5">
                         <CoordinateLink
-                          lat={Number((incident as any).liveEndLat)}
-                          lng={Number((incident as any).liveEndLng)}
+                          lat={Number((activeIncident as any).liveEndLat)}
+                          lng={Number((activeIncident as any).liveEndLng)}
                           onOpenMap={setGeoMapView}
                           className="text-sm"
                           testId="link-live-end-location"
@@ -1650,18 +1972,31 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
               </div>
             )}
 
-            <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)} data-testid="button-cancel-incident">
-                Cancel
-              </Button>
-              <Button type="submit" data-testid="button-submit-incident" disabled={mutation.isPending}>
-                {mutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-                {incident ? "Update Incident" : "Report Incident"}
-              </Button>
-            </div>
           </form>
         </Form>
+        )}
         </div>
+
+        {!isSuccessView && (
+        <div className="shrink-0 flex flex-col-reverse sm:flex-row sm:justify-end gap-2 px-6 py-4 border-t border-border/50 bg-muted/20">
+          <Button type="button" variant="outline" onClick={() => handleDialogOpenChange(false)} data-testid="button-cancel-incident" className="h-11 sm:min-w-[6.5rem]">
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            form="incident-report-form"
+            data-testid="button-submit-incident"
+            disabled={mutation.isPending}
+            className={cn(
+              "h-12 text-base font-semibold shadow-sm",
+              !incident && "flex-1 sm:flex-none sm:min-w-[11rem] bg-primary hover:bg-primary/90 text-primary-foreground",
+            )}
+          >
+            {mutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+            {incident ? "Update Incident" : enrichIncident ? "Save details" : "Report Incident"}
+          </Button>
+        </div>
+        )}
       </DialogContent>
     </Dialog>
 

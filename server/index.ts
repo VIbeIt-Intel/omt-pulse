@@ -10,6 +10,13 @@ import { seedDatabase } from "./seed";
 import { db } from "./storage";
 import { sql } from "drizzle-orm";
 import { migrateCommands } from "./migrate-commands";
+import { migrateAccessControl } from "./migrate-access-control";
+import { migrateBillingRates } from "./migrate-billing-rates";
+import { migratePatrol } from "./migrate-patrol";
+import { migrateFleetAlerts } from "./migrate-fleet-alerts";
+import { migrateWorkstations } from "./migrate-workstations";
+import { startFleetOfflineAlertMonitor } from "./fleet-alerts/detection";
+import { startVehicleTrackingFromEnv } from "./vehicle-tracking";
 
 console.log("[startup] Push subscription health check complete");
 
@@ -22,6 +29,8 @@ declare module "express-session" {
     // - "all": superadmin override — see every command in the org
     // - undefined: defaults to the user's first accessible command (typically Central)
     activeCommandId?: number | "all";
+    /** Set when operator signs in on an enrolled dedicated device */
+    workstationId?: number;
   }
 }
 
@@ -168,6 +177,10 @@ app.use((req, res, next) => {
   await safeMigrate("live_responders.destination_lng", sql`ALTER TABLE live_responders ADD COLUMN IF NOT EXISTS destination_lng DOUBLE PRECISION`);
   await safeMigrate("live_responders.destination_name", sql`ALTER TABLE live_responders ADD COLUMN IF NOT EXISTS destination_name TEXT`);
 
+  await safeMigrate("users.last_lat", sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_lat DOUBLE PRECISION`);
+  await safeMigrate("users.last_lng", sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_lng DOUBLE PRECISION`);
+  await safeMigrate("users.last_position_at", sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_position_at TIMESTAMP`);
+
   // panic_acknowledgers — created here (not just via drizzle-kit push) so
   // every environment, including production, boots with the table present.
   // Without this, /api/panic/recent, acknowledge-panic, and the panic banner
@@ -184,6 +197,58 @@ app.use((req, res, next) => {
   `);
   await safeMigrate("panic_acknowledgers.incident_idx", sql`CREATE INDEX IF NOT EXISTS panic_ack_incident_idx ON panic_acknowledgers (incident_id)`);
   await safeMigrate("panic_acknowledgers.org_idx", sql`CREATE INDEX IF NOT EXISTS panic_ack_org_idx ON panic_acknowledgers (organization_id)`);
+
+  await safeMigrate("tracker_devices.create", sql`
+    CREATE TABLE IF NOT EXISTS tracker_devices (
+      id SERIAL PRIMARY KEY,
+      imei VARCHAR(20) NOT NULL UNIQUE,
+      organization_id VARCHAR NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      command_id INTEGER REFERENCES commands(id) ON DELETE SET NULL,
+      protocol VARCHAR(32) NOT NULL DEFAULT 'gt06',
+      label TEXT,
+      last_lat DOUBLE PRECISION,
+      last_lng DOUBLE PRECISION,
+      last_speed_kph DOUBLE PRECISION,
+      last_heading DOUBLE PRECISION,
+      last_ignition_on BOOLEAN,
+      last_mileage_km DOUBLE PRECISION,
+      last_gps_valid BOOLEAN,
+      last_position_at TIMESTAMP,
+      last_seen_at TIMESTAMP,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `);
+  await safeMigrate("tracker_positions.create", sql`
+    CREATE TABLE IF NOT EXISTS tracker_positions (
+      id SERIAL PRIMARY KEY,
+      device_id INTEGER NOT NULL REFERENCES tracker_devices(id) ON DELETE CASCADE,
+      organization_id VARCHAR NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      latitude DOUBLE PRECISION NOT NULL,
+      longitude DOUBLE PRECISION NOT NULL,
+      speed_kph DOUBLE PRECISION,
+      heading DOUBLE PRECISION,
+      ignition_on BOOLEAN,
+      mileage_km DOUBLE PRECISION,
+      gps_valid BOOLEAN NOT NULL DEFAULT TRUE,
+      packet_type VARCHAR(16),
+      recorded_at TIMESTAMP NOT NULL,
+      received_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `);
+  await safeMigrate("tracker_positions.device_idx", sql`
+    CREATE INDEX IF NOT EXISTS tracker_positions_device_idx ON tracker_positions (device_id, recorded_at DESC)
+  `);
+  await safeMigrate("tracker_devices.command_idx", sql`
+    CREATE INDEX IF NOT EXISTS tracker_devices_command_idx ON tracker_devices (command_id)
+  `);
+  await safeMigrate("tracker_devices.vehicle_make", sql`ALTER TABLE tracker_devices ADD COLUMN IF NOT EXISTS vehicle_make TEXT`);
+  await safeMigrate("tracker_devices.vehicle_model", sql`ALTER TABLE tracker_devices ADD COLUMN IF NOT EXISTS vehicle_model TEXT`);
+  await safeMigrate("tracker_devices.vehicle_registration", sql`ALTER TABLE tracker_devices ADD COLUMN IF NOT EXISTS vehicle_registration TEXT`);
+  await safeMigrate("tracker_devices.assigned_user_id", sql`ALTER TABLE tracker_devices ADD COLUMN IF NOT EXISTS assigned_user_id VARCHAR REFERENCES users(id) ON DELETE SET NULL`);
+  await safeMigrate("tracker_devices.notes", sql`ALTER TABLE tracker_devices ADD COLUMN IF NOT EXISTS notes TEXT`);
+  await safeMigrate("tracker_devices.vehicle_photo_url", sql`ALTER TABLE tracker_devices ADD COLUMN IF NOT EXISTS vehicle_photo_url TEXT`);
+  await safeMigrate("tracker_devices.today_odometer_distance_km", sql`ALTER TABLE tracker_devices ADD COLUMN IF NOT EXISTS today_odometer_distance_km DOUBLE PRECISION`);
+  await safeMigrate("tracker_devices.last_trip_distance_km", sql`ALTER TABLE tracker_devices ADD COLUMN IF NOT EXISTS last_trip_distance_km DOUBLE PRECISION`);
 
   await safeMigrate("incident_evidence_notes.create", sql`
     CREATE TABLE IF NOT EXISTS incident_evidence_notes (
@@ -272,6 +337,11 @@ app.use((req, res, next) => {
 
   await seedDatabase().catch((err) => console.error("Seed error:", err));
   await migrateCommands().catch((err) => console.error("Commands migration error:", err));
+  await migrateAccessControl().catch((err) => console.error("Access control migration error:", err));
+  await migrateBillingRates().catch((err) => console.error("Billing rates migration error:", err));
+  await migratePatrol().catch((err) => console.error("Patrol migration error:", err));
+  await migrateFleetAlerts().catch((err) => console.error("Fleet alerts migration error:", err));
+  await migrateWorkstations().catch((err) => console.error("Workstations migration error:", err));
 
   await registerRoutes(httpServer, app);
 
@@ -304,6 +374,8 @@ app.use((req, res, next) => {
     },
     () => {
       log(`serving on port ${port}`);
+      startVehicleTrackingFromEnv();
+      startFleetOfflineAlertMonitor();
     },
   );
 })();

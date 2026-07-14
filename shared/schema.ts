@@ -2,11 +2,17 @@ import { sql } from "drizzle-orm";
 import { pgTable, text, varchar, integer, timestamp, doublePrecision, serial, boolean, jsonb, unique, date } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+import type { WorkstationType } from "./workstations";
 
 export const organizations = pgTable("organizations", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
   address: text("address").notNull(),
+  addressStreet: text("address_street"),
+  addressSuburb: text("address_suburb"),
+  addressCity: text("address_city"),
+  addressProvince: text("address_province"),
+  addressPostalCode: text("address_postal_code"),
   phone: text("phone").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   trialEndsAt: timestamp("trial_ends_at"),
@@ -21,8 +27,17 @@ export const organizations = pgTable("organizations", {
   rateAdmin: integer("rate_admin"),
   rateSupervisor: integer("rate_supervisor"),
   rateReporter: integer("rate_reporter"),
+  rateAccessController: integer("rate_access_controller"),
+  rateControlRoom: integer("rate_control_room"),
+  ratePatrolUser: integer("rate_patrol_user"),
   storageLimitGb: integer("storage_limit_gb"),
   billingNotes: text("billing_notes"),
+  companyRegistrationNumber: text("company_registration_number"),
+  vatNumber: text("vat_number"),
+  primaryContactFirstName: text("primary_contact_first_name"),
+  primaryContactLastName: text("primary_contact_last_name"),
+  primaryContactEmail: text("primary_contact_email"),
+  primaryContactPhone: text("primary_contact_phone"),
 });
 
 export const insertOrganizationSchema = createInsertSchema(organizations).omit({ id: true, createdAt: true });
@@ -49,7 +64,12 @@ export const users = pgTable("users", {
   inviteToken: text("invite_token").unique(),
   inviteTokenExpiresAt: timestamp("invite_token_expires_at"),
   lastSeenAt: timestamp("last_seen_at"),
+  lastLat: doublePrecision("last_lat"),
+  lastLng: doublePrecision("last_lng"),
+  lastPositionAt: timestamp("last_position_at"),
   isSuperadmin: boolean("is_superadmin").notNull().default(false),
+  /** bcrypt hash of 4–6 digit shift PIN for shared / dedicated device login */
+  shiftPinHash: text("shift_pin_hash"),
 });
 
 // ── Commands (sub-organisations within an org) ──────────────────────────────
@@ -132,6 +152,51 @@ export const locations = pgTable("locations", {
 export const insertLocationSchema = createInsertSchema(locations).omit({ id: true, organizationId: true });
 export type InsertLocation = z.infer<typeof insertLocationSchema>;
 export type Location = typeof locations.$inferSelect;
+
+/** Enrolled dedicated device bound to a premises / post (gate tablet, shared shift phone). */
+export const workstations = pgTable("workstations", {
+  id: serial("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  type: text("type").notNull().$type<WorkstationType>().default("gate_desk"),
+  locationId: integer("location_id").references(() => locations.id, { onDelete: "set null" }),
+  commandId: integer("command_id").references(() => commands.id, { onDelete: "set null" }),
+  deviceToken: text("device_token").unique(),
+  enrolmentCode: text("enrolment_code"),
+  enrolmentExpiresAt: timestamp("enrolment_expires_at"),
+  enrolledAt: timestamp("enrolled_at"),
+  lastSeenAt: timestamp("last_seen_at"),
+  lastLat: doublePrecision("last_lat"),
+  lastLng: doublePrecision("last_lng"),
+  kioskMode: boolean("kiosk_mode").notNull().default(true),
+  isActive: boolean("is_active").notNull().default(true),
+  currentOperatorUserId: varchar("current_operator_user_id").references(() => users.id, { onDelete: "set null" }),
+  operatorSessionStartedAt: timestamp("operator_session_started_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertWorkstationSchema = createInsertSchema(workstations).omit({
+  id: true,
+  createdAt: true,
+  organizationId: true,
+  deviceToken: true,
+  enrolmentCode: true,
+  enrolmentExpiresAt: true,
+  enrolledAt: true,
+  lastSeenAt: true,
+  lastLat: true,
+  lastLng: true,
+  currentOperatorUserId: true,
+  operatorSessionStartedAt: true,
+});
+export type InsertWorkstation = z.infer<typeof insertWorkstationSchema>;
+export type Workstation = typeof workstations.$inferSelect;
+
+export type WorkstationWithDetails = Workstation & {
+  locationName: string | null;
+  commandName: string | null;
+  currentOperatorName: string | null;
+};
 
 export const incidentCategories = pgTable("incident_categories", {
   id: serial("id").primaryKey(),
@@ -433,3 +498,340 @@ export const fcmTokens = pgTable("fcm_tokens", {
   token: text("token").notNull().unique(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+/** GPS tracker hardware registered by IMEI (GT06 and future protocols). */
+export const trackerDevices = pgTable("tracker_devices", {
+  id: serial("id").primaryKey(),
+  imei: varchar("imei", { length: 20 }).notNull().unique(),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  commandId: integer("command_id").references(() => commands.id, { onDelete: "set null" }),
+  protocol: varchar("protocol", { length: 32 }).notNull().default("gt06"),
+  label: text("label"),
+  vehicleMake: text("vehicle_make"),
+  vehicleModel: text("vehicle_model"),
+  vehicleRegistration: text("vehicle_registration"),
+  vehiclePhotoUrl: text("vehicle_photo_url"),
+  assignedUserId: varchar("assigned_user_id").references(() => users.id, { onDelete: "set null" }),
+  notes: text("notes"),
+  lastLat: doublePrecision("last_lat"),
+  lastLng: doublePrecision("last_lng"),
+  lastSpeedKph: doublePrecision("last_speed_kph"),
+  lastHeading: doublePrecision("last_heading"),
+  lastIgnitionOn: boolean("last_ignition_on"),
+  lastMileageKm: doublePrecision("last_mileage_km"),
+  todayOdometerDistanceKm: doublePrecision("today_odometer_distance_km"),
+  lastTripDistanceKm: doublePrecision("last_trip_distance_km"),
+  lastGpsValid: boolean("last_gps_valid"),
+  lastPositionAt: timestamp("last_position_at"),
+  lastSeenAt: timestamp("last_seen_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertTrackerDeviceSchema = createInsertSchema(trackerDevices).omit({ id: true, createdAt: true });
+export type InsertTrackerDevice = z.infer<typeof insertTrackerDeviceSchema>;
+export type TrackerDevice = typeof trackerDevices.$inferSelect;
+
+/** Historical GPS positions from tracker devices. */
+export const trackerPositions = pgTable("tracker_positions", {
+  id: serial("id").primaryKey(),
+  deviceId: integer("device_id").notNull().references(() => trackerDevices.id, { onDelete: "cascade" }),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  latitude: doublePrecision("latitude").notNull(),
+  longitude: doublePrecision("longitude").notNull(),
+  speedKph: doublePrecision("speed_kph"),
+  heading: doublePrecision("heading"),
+  ignitionOn: boolean("ignition_on"),
+  mileageKm: doublePrecision("mileage_km"),
+  gpsValid: boolean("gps_valid").notNull().default(true),
+  packetType: varchar("packet_type", { length: 16 }),
+  recordedAt: timestamp("recorded_at").notNull(),
+  receivedAt: timestamp("received_at").defaultNow().notNull(),
+});
+
+export const insertTrackerPositionSchema = createInsertSchema(trackerPositions).omit({ id: true, receivedAt: true });
+export type InsertTrackerPosition = z.infer<typeof insertTrackerPositionSchema>;
+export type TrackerPosition = typeof trackerPositions.$inferSelect;
+
+// ── Fleet alerts ───────────────────────────────────────────────────────────────
+
+export const fleetAlertDefaults = pgTable("fleet_alert_defaults", {
+  organizationId: varchar("organization_id")
+    .primaryKey()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  speedLimitKph: doublePrecision("speed_limit_kph").notNull().default(120),
+  idleMinutes: integer("idle_minutes").notNull().default(30),
+  offlineMinutes: integer("offline_minutes").notNull().default(30),
+  geofenceEnabled: boolean("geofence_enabled").notNull().default(false),
+  geofenceLat: doublePrecision("geofence_lat"),
+  geofenceLng: doublePrecision("geofence_lng"),
+  geofenceRadiusM: doublePrecision("geofence_radius_m").default(2000),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const fleetDeviceAlertRules = pgTable("fleet_device_alert_rules", {
+  deviceId: integer("device_id")
+    .primaryKey()
+    .references(() => trackerDevices.id, { onDelete: "cascade" }),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  alertsEnabled: boolean("alerts_enabled").notNull().default(true),
+  speedLimitKph: doublePrecision("speed_limit_kph"),
+  idleMinutes: integer("idle_minutes"),
+  offlineMinutes: integer("offline_minutes"),
+  geofenceEnabled: boolean("geofence_enabled"),
+  geofenceLat: doublePrecision("geofence_lat"),
+  geofenceLng: doublePrecision("geofence_lng"),
+  geofenceRadiusM: doublePrecision("geofence_radius_m"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const fleetAlerts = pgTable("fleet_alerts", {
+  id: serial("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  deviceId: integer("device_id").notNull().references(() => trackerDevices.id, { onDelete: "cascade" }),
+  alertType: varchar("alert_type", { length: 32 }).notNull(),
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  details: text("details"),
+  latitude: doublePrecision("latitude"),
+  longitude: doublePrecision("longitude"),
+  speedKph: doublePrecision("speed_kph"),
+  triggeredAt: timestamp("triggered_at").defaultNow().notNull(),
+  pushSent: boolean("push_sent").notNull().default(false),
+});
+
+export type FleetAlertDefaults = typeof fleetAlertDefaults.$inferSelect;
+export type FleetDeviceAlertRules = typeof fleetDeviceAlertRules.$inferSelect;
+export type FleetAlert = typeof fleetAlerts.$inferSelect;
+
+export type ResolvedFleetAlertRules = {
+  alertsEnabled: boolean;
+  speedLimitKph: number;
+  idleMinutes: number;
+  offlineMinutes: number;
+  geofenceEnabled: boolean;
+  geofenceLat: number | null;
+  geofenceLng: number | null;
+  geofenceRadiusM: number;
+};
+
+export type FleetAlertSummary = FleetAlert & {
+  vehicleLabel: string | null;
+  vehicleRegistration: string | null;
+};
+
+// ── Access Control (Phase 1) ─────────────────────────────────────────────────
+
+export const ACCESS_ENTRY_CATEGORIES = [
+  "visitor",
+  "contractor",
+  "delivery",
+  "official_vehicle",
+  "other",
+] as const;
+export type AccessEntryCategory = (typeof ACCESS_ENTRY_CATEGORIES)[number];
+
+export const ACCESS_LOG_STATUSES = ["inside", "exited"] as const;
+export type AccessLogStatus = (typeof ACCESS_LOG_STATUSES)[number];
+
+/** Pre-configured destinations guards must select when logging entry. */
+export const destinations = pgTable("destinations", {
+  id: serial("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  /** Premises this destination belongs to (gate destinations scoped per site). */
+  locationId: integer("location_id").references(() => locations.id, { onDelete: "set null" }),
+  name: text("name").notNull(),
+  type: text("type").notNull().default("building"),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertDestinationSchema = createInsertSchema(destinations).omit({ id: true, createdAt: true, organizationId: true });
+export type InsertDestination = z.infer<typeof insertDestinationSchema>;
+export type Destination = typeof destinations.$inferSelect;
+
+export const ACCESS_PARTY_ROLES = ["walk_in", "driver", "passenger"] as const;
+export type AccessPartyRole = (typeof ACCESS_PARTY_ROLES)[number];
+
+export const accessLogs = pgTable("access_logs", {
+  id: serial("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  category: text("category").notNull(),
+  destinationId: integer("destination_id").notNull().references(() => destinations.id, { onDelete: "restrict" }),
+  status: text("status").notNull().default("inside"),
+  /** Shared id for everyone checked in together (e.g. one vehicle party). */
+  visitGroupId: varchar("visit_group_id"),
+  partyRole: text("party_role"),
+  personFullName: text("person_full_name").notNull(),
+  personIdNumber: text("person_id_number"),
+  scanData: jsonb("scan_data").$type<import("./access-scan-data").AccessScanData | null>(),
+  companyName: text("company_name"),
+  contactNumber: text("contact_number"),
+  purpose: text("purpose"),
+  personPhotoUrl: text("person_photo_url"),
+  vehiclePhotoUrl: text("vehicle_photo_url"),
+  timeIn: timestamp("time_in").defaultNow().notNull(),
+  timeOut: timestamp("time_out"),
+  loggedByUserId: varchar("logged_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  workstationId: integer("workstation_id").references(() => workstations.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertAccessLogSchema = createInsertSchema(accessLogs).omit({
+  id: true,
+  createdAt: true,
+  organizationId: true,
+  status: true,
+  timeIn: true,
+  timeOut: true,
+  loggedByUserId: true,
+});
+export type InsertAccessLog = z.infer<typeof insertAccessLogSchema>;
+export type AccessLog = typeof accessLogs.$inferSelect;
+
+export const accessLogVehicles = pgTable("access_log_vehicles", {
+  id: serial("id").primaryKey(),
+  accessLogId: integer("access_log_id").notNull().references(() => accessLogs.id, { onDelete: "cascade" }),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  registration: text("registration"),
+  make: text("make"),
+  model: text("model"),
+  colour: text("colour"),
+  licenceDiscData: text("licence_disc_data"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertAccessLogVehicleSchema = createInsertSchema(accessLogVehicles).omit({
+  id: true,
+  createdAt: true,
+  organizationId: true,
+  accessLogId: true,
+});
+export type InsertAccessLogVehicle = z.infer<typeof insertAccessLogVehicleSchema>;
+export type AccessLogVehicle = typeof accessLogVehicles.$inferSelect;
+
+export type AccessLogWithDetails = AccessLog & {
+  destinationName: string;
+  loggedByName: string | null;
+  vehicle: AccessLogVehicle | null;
+};
+
+// ── Patrolling (MVP) ───────────────────────────────────────────────────────────
+
+export const PATROL_STATUSES = ["in_progress", "completed", "cancelled"] as const;
+export type PatrolStatus = (typeof PATROL_STATUSES)[number];
+
+export const PATROL_CHECKPOINT_LOG_STATUSES = ["completed", "missed"] as const;
+export type PatrolCheckpointLogStatus = (typeof PATROL_CHECKPOINT_LOG_STATUSES)[number];
+
+/** Pre-planned patrol path defined by an administrator or supervisor. */
+export const patrolRoutes = pgTable("patrol_routes", {
+  id: serial("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  /** Optional Group scope — routes can be limited to a Command. */
+  commandId: integer("command_id").references(() => commands.id, { onDelete: "set null" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  createdByUserId: varchar("created_by_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  unique("patrol_routes_org_name_unique").on(table.organizationId, table.name),
+]);
+
+export const insertPatrolRouteSchema = createInsertSchema(patrolRoutes).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  organizationId: true,
+});
+export type InsertPatrolRoute = z.infer<typeof insertPatrolRouteSchema>;
+export type PatrolRoute = typeof patrolRoutes.$inferSelect;
+
+/** Ordered stop on a patrol route. */
+export const patrolCheckpoints = pgTable("patrol_checkpoints", {
+  id: serial("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  routeId: integer("route_id").notNull().references(() => patrolRoutes.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  orderIndex: integer("order_index").notNull(),
+  latitude: doublePrecision("latitude"),
+  longitude: doublePrecision("longitude"),
+  instructions: text("instructions"),
+  photoRequired: boolean("photo_required").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  unique("patrol_checkpoints_route_order_unique").on(table.routeId, table.orderIndex),
+]);
+
+export const insertPatrolCheckpointSchema = createInsertSchema(patrolCheckpoints).omit({
+  id: true,
+  createdAt: true,
+  organizationId: true,
+  routeId: true,
+});
+export type InsertPatrolCheckpoint = z.infer<typeof insertPatrolCheckpointSchema>;
+export type PatrolCheckpoint = typeof patrolCheckpoints.$inferSelect;
+
+/** A guard executing a route (Patrol User or Access Controller). */
+export const patrols = pgTable("patrols", {
+  id: serial("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  routeId: integer("route_id").notNull().references(() => patrolRoutes.id, { onDelete: "restrict" }),
+  startedByUserId: varchar("started_by_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  endedAt: timestamp("ended_at"),
+  status: text("status").notNull().default("in_progress"),
+  totalCheckpoints: integer("total_checkpoints").notNull(),
+  completedCheckpoints: integer("completed_checkpoints").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertPatrolSchema = createInsertSchema(patrols).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  organizationId: true,
+  endedAt: true,
+  completedCheckpoints: true,
+});
+export type InsertPatrol = z.infer<typeof insertPatrolSchema>;
+export type Patrol = typeof patrols.$inferSelect;
+
+/** Proof record when a checkpoint is clocked or marked missed. */
+export const patrolCheckpointLogs = pgTable("patrol_checkpoint_logs", {
+  id: serial("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  patrolId: integer("patrol_id").notNull().references(() => patrols.id, { onDelete: "cascade" }),
+  checkpointId: integer("checkpoint_id").notNull().references(() => patrolCheckpoints.id, { onDelete: "restrict" }),
+  clockedAt: timestamp("clocked_at").defaultNow().notNull(),
+  latitude: doublePrecision("latitude"),
+  longitude: doublePrecision("longitude"),
+  photoUrl: text("photo_url"),
+  notes: text("notes"),
+  status: text("status").notNull().default("completed"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  unique("patrol_checkpoint_logs_patrol_checkpoint_unique").on(table.patrolId, table.checkpointId),
+]);
+
+export const insertPatrolCheckpointLogSchema = createInsertSchema(patrolCheckpointLogs).omit({
+  id: true,
+  createdAt: true,
+  organizationId: true,
+  patrolId: true,
+  clockedAt: true,
+});
+export type InsertPatrolCheckpointLog = z.infer<typeof insertPatrolCheckpointLogSchema>;
+export type PatrolCheckpointLog = typeof patrolCheckpointLogs.$inferSelect;
+
+export type PatrolWithRoute = Patrol & {
+  routeName: string;
+  startedByName: string;
+};
+
+export type PatrolCheckpointLogWithCheckpoint = PatrolCheckpointLog & {
+  checkpointName: string;
+  orderIndex: number;
+};

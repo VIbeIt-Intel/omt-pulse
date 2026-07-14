@@ -35,8 +35,8 @@ function probeGeolocation(): Promise<PermissionState> {
     };
 
     // External safety net: if getCurrentPosition hangs (Capacitor quirk),
-    // assume "granted" after 6 s so the banner clears rather than staying stuck.
-    const safetyTimer = setTimeout(() => settle("granted"), 6000);
+    // treat as still pending — do not falsely clear the location overlay.
+    const safetyTimer = setTimeout(() => settle("prompt"), 6000);
 
     navigator.geolocation.getCurrentPosition(
       () => { clearTimeout(safetyTimer); settle("granted"); },
@@ -45,9 +45,8 @@ function probeGeolocation(): Promise<PermissionState> {
         if (err.code === 1 /* PERMISSION_DENIED */) {
           settle("denied");
         } else {
-          // POSITION_UNAVAILABLE or TIMEOUT — permission was granted but GPS
-          // couldn't get a fix. Treat as granted so the banner clears.
-          settle("granted");
+          // POSITION_UNAVAILABLE or TIMEOUT — permission may be OK but phone GPS is off.
+          settle("prompt");
         }
       },
       { timeout: 5000, maximumAge: Infinity, enableHighAccuracy: false }
