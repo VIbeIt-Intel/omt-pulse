@@ -33,12 +33,13 @@ export async function probeLocationForAllowTap(
   if (!navigator.geolocation) {
     return { issue: "unsupported" };
   }
-  const timeoutMs = permissionHint === "prompt" ? 3_000 : 1_500;
+  // Indoor / post-toggle cold starts often need longer than 1.5s.
+  const timeoutMs = permissionHint === "prompt" ? 6_000 : 8_000;
   try {
     const pos = await getCurrentPositionOnce({
       enableHighAccuracy: false,
       timeout: timeoutMs,
-      maximumAge: 0,
+      maximumAge: 15_000,
     });
     const lat = pos.coords.latitude;
     const lng = pos.coords.longitude;

@@ -421,6 +421,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
     try {
       const { result, lat, lng } = await requestLocationAccess({
         permissionHint: locationPermission,
+        probeMode: "settle",
       });
       if (result === "granted" && lat != null && lng != null) {
         const loc = { lat, lng };
@@ -449,6 +450,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
     try {
       const { result, message, lat, lng } = await requestLocationAccess({
         permissionHint: locationPermission,
+        probeMode: "settle",
       });
       if (result === "granted" && lat != null && lng != null) {
         applyGpsPosition(lat, lng);
@@ -460,8 +462,8 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
       }
       if (result === "settings-opened") {
         toast({
-          title: "Open phone Location",
-          description: message,
+          title: "Check phone Location",
+          description: `${message} Then return here and tap Use current location again.`,
         });
         return;
       }
