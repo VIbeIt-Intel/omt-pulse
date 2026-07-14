@@ -2,6 +2,7 @@ import {
   probeLocationForAllowTap,
   probeLocationQuickDetect,
   acquirePanicLocation,
+  acquireSettlingLocation,
   hasPanicCoordinates,
   type PanicLocationIssue,
   type PanicLocationResult,
@@ -12,6 +13,7 @@ import {
   locationSettingsUserMessage,
   type LocationSettingsTarget,
 } from "@/lib/open-location-settings";
+import { getOmtLocationServicesEnabled } from "@/lib/omt-app-settings";
 import type { PermissionState } from "@/hooks/use-permission-status";
 
 export type LocationAccessResult =
@@ -26,13 +28,19 @@ export type RequestLocationAccessOptions = {
   permissionHint?: PermissionState;
   /**
    * allow-tap: short probe (live incident Allow Location).
-   * settle: quick denied/off check, then a real GPS wait (Report Incident).
+   * settle: Location-off fail-fast, then GPS wait when Location is on (Report Incident).
    */
   probeMode?: "allow-tap" | "settle";
 };
 
 const SETTINGS_OPENED_AT_KEY = "omt_loc_settings_opened_at";
 const SETTINGS_REOPEN_COOLDOWN_MS = 120_000;
+
+const LOCATION_OFF_MESSAGE =
+  "Location is off. On your phone open Settings, search “Location”, turn it on, return here and tap Use current location again — or use Pick on map.";
+
+const GPS_SLOW_MESSAGE =
+  "GPS timed out. Wait a few seconds outdoors with Location on, tap again, or use Pick on map.";
 
 function settingsTargetForIssue(issue?: PanicLocationIssue): LocationSettingsTarget {
   return issue === "denied" ? "app-permissions" : "phone-location";
@@ -44,12 +52,12 @@ function issueMessage(issue?: PanicLocationIssue): string {
     case "denied":
       return `Location is blocked for OMT Pulse. ${locationSettingsHint(target)}`;
     case "timeout":
-      return "GPS timed out. Wait a few seconds with Location on, then try again — or pick on the map.";
+      return GPS_SLOW_MESSAGE;
     case "unsupported":
       return "This device cannot report GPS.";
     case "unavailable":
     default:
-      return `Turn on Location in your phone settings. ${locationSettingsHint(target)}`;
+      return LOCATION_OFF_MESSAGE;
   }
 }
 
@@ -90,10 +98,20 @@ async function openSettingsForIssue(issue?: PanicLocationIssue): Promise<{
   return { result: "unavailable", message: settings.message || issueMessage(issue) };
 }
 
+function granted(lat: number, lng: number) {
+  window.dispatchEvent(new CustomEvent("omt:location-granted"));
+  return {
+    result: "granted" as const,
+    message: "GPS is on — tracking your position.",
+    lat,
+    lng,
+  };
+}
+
 /**
  * User-tap handler for live incident / map / report screens.
- * Report Incident waits for a real fix; permission denied still opens app settings.
- * Phone Location is never auto-opened on OEMs that land on the wrong Settings screen.
+ * Location off → fail fast with clear steps (no long spin, no wrong Settings jump).
+ * Location on → wait for a real GPS fix.
  */
 export async function requestLocationAccess(
   options: RequestLocationAccessOptions = {},
@@ -111,18 +129,13 @@ export async function requestLocationAccess(
   }
 
   let loc: PanicLocationResult;
+  /** Only show “GPS timed out” when we know Location services are on. */
+  let locationServicesLikelyOn = false;
 
   if (probeMode === "settle") {
-    // 1) Fast check: only short-circuit on clear denied / unsupported / instant fix.
     loc = await probeLocationQuickDetect();
     if (hasPanicCoordinates(loc)) {
-      window.dispatchEvent(new CustomEvent("omt:location-granted"));
-      return {
-        result: "granted",
-        message: "GPS is on — tracking your position.",
-        lat: loc.lat,
-        lng: loc.lng,
-      };
+      return granted(loc.lat, loc.lng);
     }
     if (loc.issue === "unsupported") {
       return { result: "unsupported", message: issueMessage("unsupported") };
@@ -130,9 +143,28 @@ export async function requestLocationAccess(
     if (loc.issue === "denied") {
       return openSettingsForIssue("denied");
     }
-    // 2) Timeout / unavailable after ~2s is normal for cold GPS — wait properly.
-    // Do NOT treat this as "Location off" (that regression broke working phones).
-    loc = await acquirePanicLocation();
+
+    const servicesOn = await getOmtLocationServicesEnabled();
+    const justFromSettings = recentlyOpenedLocationSettings();
+
+    // Native: Location toggle is off → stop immediately (don't wait ~30s for GPS).
+    if (servicesOn === false) {
+      return { result: "unavailable", message: LOCATION_OFF_MESSAGE };
+    }
+
+    // No native API (web / older APK): POSITION_UNAVAILABLE after ~2s usually means off.
+    if (servicesOn === null && loc.issue === "unavailable" && !justFromSettings) {
+      return { result: "unavailable", message: LOCATION_OFF_MESSAGE };
+    }
+
+    locationServicesLikelyOn = servicesOn === true || justFromSettings;
+
+    // Location on (or returned from Settings) → full wait. Unknown timeout → short settle only.
+    if (locationServicesLikelyOn) {
+      loc = await acquirePanicLocation();
+    } else {
+      loc = await acquireSettlingLocation();
+    }
   } else {
     loc = await probeLocationForAllowTap(
       permissionHint === "unsupported" ? "prompt" : permissionHint,
@@ -140,13 +172,7 @@ export async function requestLocationAccess(
   }
 
   if (hasPanicCoordinates(loc)) {
-    window.dispatchEvent(new CustomEvent("omt:location-granted"));
-    return {
-      result: "granted",
-      message: "GPS is on — tracking your position.",
-      lat: loc.lat,
-      lng: loc.lng,
-    };
+    return granted(loc.lat!, loc.lng!);
   }
 
   if (loc.issue === "unsupported") {
@@ -157,18 +183,10 @@ export async function requestLocationAccess(
     return openSettingsForIssue("denied");
   }
 
-  // Soft recovery: never auto-jump into phone Location settings (Samsung opens root Settings).
-  if (loc.issue === "timeout" || recentlyOpenedLocationSettings()) {
-    return {
-      result: "unavailable",
-      message:
-        "Location looks on, but a GPS fix is still coming in. Wait a few seconds outdoors, tap again, or use Pick on map.",
-    };
+  // Never auto-open phone Location settings here (Samsung often lands on root Settings).
+  if (locationServicesLikelyOn && loc.issue === "timeout") {
+    return { result: "unavailable", message: GPS_SLOW_MESSAGE };
   }
 
-  return {
-    result: "unavailable",
-    message:
-      "Could not get a GPS fix. Confirm Location is on for this phone, return here and tap Use current location again — or use Pick on map.",
-  };
+  return { result: "unavailable", message: LOCATION_OFF_MESSAGE };
 }

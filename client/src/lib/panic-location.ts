@@ -151,16 +151,10 @@ export async function quickPanicLocationCheck(): Promise<PanicLocationResult> {
   return { issue: "unavailable" };
 }
 
-/** Best-effort GPS for panic: high-accuracy first, then a faster fallback. */
-export async function acquirePanicLocation(): Promise<PanicLocationResult> {
+async function acquireWithAttempts(attempts: PositionOptions[]): Promise<PanicLocationResult> {
   if (!navigator.geolocation) {
     return { issue: "unsupported" };
   }
-
-  const attempts: PositionOptions[] = [
-    { enableHighAccuracy: true, timeout: 18_000, maximumAge: 0 },
-    { enableHighAccuracy: false, timeout: 12_000, maximumAge: 30_000 },
-  ];
 
   let lastCode: number | undefined;
   for (const opts of attempts) {
@@ -183,6 +177,22 @@ export async function acquirePanicLocation(): Promise<PanicLocationResult> {
   }
 
   return { issue: issueFromGeolocationCode(lastCode) };
+}
+
+/** Best-effort GPS for panic: high-accuracy first, then a faster fallback. */
+export async function acquirePanicLocation(): Promise<PanicLocationResult> {
+  return acquireWithAttempts([
+    { enableHighAccuracy: true, timeout: 18_000, maximumAge: 0 },
+    { enableHighAccuracy: false, timeout: 12_000, maximumAge: 30_000 },
+  ]);
+}
+
+/** Shorter settle wait when Location is on but fix is cold (~8s). */
+export async function acquireSettlingLocation(): Promise<PanicLocationResult> {
+  return acquireWithAttempts([
+    { enableHighAccuracy: true, timeout: 8_000, maximumAge: 15_000 },
+    { enableHighAccuracy: false, timeout: 6_000, maximumAge: 60_000 },
+  ]);
 }
 
 /** User-facing hint when panic is sent without coordinates. */

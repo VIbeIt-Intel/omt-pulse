@@ -3,8 +3,11 @@ package com.intelafri.omtpulse;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.location.LocationManager;
 import android.net.Uri;
+import android.os.Build;
 import android.provider.Settings;
+import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
@@ -13,6 +16,30 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 /** Opens Android system settings from the WebView (reliable for location / app permissions). */
 @CapacitorPlugin(name = "OmtAppSettings")
 public class OmtAppSettingsPlugin extends Plugin {
+
+    /** True when system Location (GPS / network) is enabled — not app permission. */
+    @PluginMethod
+    public void isLocationEnabled(PluginCall call) {
+        try {
+            LocationManager lm =
+                    (LocationManager) getContext().getSystemService(android.content.Context.LOCATION_SERVICE);
+            boolean enabled;
+            if (lm == null) {
+                enabled = false;
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                enabled = lm.isLocationEnabled();
+            } else {
+                enabled =
+                        lm.isProviderEnabled(LocationManager.GPS_PROVIDER)
+                                || lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER);
+            }
+            JSObject ret = new JSObject();
+            ret.put("enabled", enabled);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("Failed to read location enabled state", e);
+        }
+    }
 
     @PluginMethod
     public void openAppDetails(PluginCall call) {
