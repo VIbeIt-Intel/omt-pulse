@@ -49,8 +49,10 @@ import { IncidentReportSceneEvidenceSection } from "./incident-report-scene-evid
 import { normalizeAudioMimeType, resolveAttachmentKind } from "@/lib/attachment-kind";
 import { CalendarIcon, Clock, MapPin, Upload, X, Loader2, Camera, Mic, Square, Globe, Map, LocateFixed } from "lucide-react";
 import { loadGoogleMaps } from "@/lib/google-maps-loader";
-import { quickPanicLocationCheck, acquirePanicLocation, hasPanicCoordinates, panicLocationWarning, type PanicLocationResult } from "@/lib/panic-location";
+import { quickPanicLocationCheck, hasPanicCoordinates, type PanicLocationResult } from "@/lib/panic-location";
+import { requestLocationAccess } from "@/lib/request-location-access";
 import { preloadLocationSettingsModule } from "@/lib/open-location-settings";
+import { usePermissionStatus } from "@/hooks/use-permission-status";
 import { OpenLocationSettingsButton } from "@/components/open-location-settings-button";
 import { AttachmentPreview, attachmentUploaderLabel } from "@/components/attachment-preview";
 import { IncidentEvidenceSection } from "@/components/incident-evidence-section";
@@ -123,6 +125,7 @@ type LocationMode = "geographic" | "customMap";
 
 export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogProps) {
   const { toast } = useToast();
+  const { location: locationPermission } = usePermissionStatus();
   const [mapModalOpen, setMapModalOpen] = useState(false);
   const [pendingLatLng, setPendingLatLng] = useState<{ lat: number; lng: number } | null>(null);
   const [pendingAddress, setPendingAddress] = useState<string | null>(null);
@@ -409,26 +412,28 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
     return loc;
   }
 
-  const handleUseMyLocation = () => {
+  const handleUseMyLocation = async () => {
     if (!navigator.geolocation) {
       setLocationProbe({ issue: "unsupported" });
       return;
     }
     setGpsLoading(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setGpsLoading(false);
-        const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+    try {
+      const { result, lat, lng } = await requestLocationAccess({
+        permissionHint: locationPermission,
+      });
+      if (result === "granted" && lat != null && lng != null) {
+        const loc = { lat, lng };
         setLocationProbe(loc);
-        applyGpsPosition(loc.lat, loc.lng);
-      },
-      (err) => {
-        setGpsLoading(false);
-        const issue = err.code === 1 ? "denied" : err.code === 3 ? "timeout" : "unavailable";
-        setLocationProbe({ issue });
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
-    );
+        applyGpsPosition(lat, lng);
+        return;
+      }
+      setLocationProbe({
+        issue: result === "denied" ? "denied" : result === "unsupported" ? "unsupported" : "unavailable",
+      });
+    } finally {
+      setGpsLoading(false);
+    }
   };
 
   async function handleUseCurrentLocation() {
@@ -442,20 +447,29 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
     }
     setGpsLoading(true);
     try {
-      const loc = await acquirePanicLocation();
-      if (hasPanicCoordinates(loc)) {
-        applyGpsPosition(loc.lat, loc.lng);
+      const { result, message, lat, lng } = await requestLocationAccess({
+        permissionHint: locationPermission,
+      });
+      if (result === "granted" && lat != null && lng != null) {
+        applyGpsPosition(lat, lng);
         toast({
           title: "Location set",
           description: "This incident will use your current GPS position.",
         });
-      } else {
-        toast({
-          title: "Could not get location",
-          description: panicLocationWarning(loc.issue),
-          variant: "destructive",
-        });
+        return;
       }
+      if (result === "settings-opened") {
+        toast({
+          title: "Open phone Location",
+          description: message,
+        });
+        return;
+      }
+      toast({
+        title: "Could not get location",
+        description: message,
+        variant: "destructive",
+      });
     } finally {
       setGpsLoading(false);
     }
@@ -2047,7 +2061,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                 />
                 <button
                   type="button"
-                  onClick={handleUseMyLocation}
+                  onClick={() => void handleUseMyLocation()}
                   disabled={gpsLoading}
                   title="Use my location"
                   data-testid="button-use-my-location"
