@@ -28,7 +28,7 @@ export type RequestLocationAccessOptions = {
   permissionHint?: PermissionState;
   /**
    * allow-tap: short probe (live incident Allow Location).
-   * settle: Location-off fail-fast, then GPS wait when Location is on (Report Incident).
+   * settle: Location-off → open Location screen; Location on → wait for GPS (Report Incident).
    */
   probeMode?: "allow-tap" | "settle";
 };
@@ -110,7 +110,7 @@ function granted(lat: number, lng: number) {
 
 /**
  * User-tap handler for live incident / map / report screens.
- * Location off → fail fast with clear steps (no long spin, no wrong Settings jump).
+ * Location off → open Location settings (OMT plugin — not root Settings).
  * Location on → wait for a real GPS fix.
  */
 export async function requestLocationAccess(
@@ -129,7 +129,6 @@ export async function requestLocationAccess(
   }
 
   let loc: PanicLocationResult;
-  /** Only show “GPS timed out” when we know Location services are on. */
   let locationServicesLikelyOn = false;
 
   if (probeMode === "settle") {
@@ -147,23 +146,26 @@ export async function requestLocationAccess(
     const servicesOn = await getOmtLocationServicesEnabled();
     const justFromSettings = recentlyOpenedLocationSettings();
 
-    // Native: Location toggle is off → stop immediately (don't wait ~30s for GPS).
-    if (servicesOn === false) {
-      return { result: "unavailable", message: LOCATION_OFF_MESSAGE };
-    }
-
-    // No native API (web / older APK): POSITION_UNAVAILABLE after ~2s usually means off.
-    if (servicesOn === null && loc.issue === "unavailable" && !justFromSettings) {
-      return { result: "unavailable", message: LOCATION_OFF_MESSAGE };
+    // Native confirmed Location off → open Location toggle screen (not root Settings).
+    if (servicesOn === false && !justFromSettings) {
+      return openSettingsForIssue("unavailable");
     }
 
     locationServicesLikelyOn = servicesOn === true || justFromSettings;
 
-    // Location on (or returned from Settings) → full wait. Unknown timeout → short settle only.
     if (locationServicesLikelyOn) {
       loc = await acquirePanicLocation();
     } else {
+      // Plugin missing / web: wait briefly, then open Location settings once.
       loc = await acquireSettlingLocation();
+      if (
+        !hasPanicCoordinates(loc) &&
+        !justFromSettings &&
+        loc.issue !== "denied" &&
+        loc.issue !== "unsupported"
+      ) {
+        return openSettingsForIssue(loc.issue);
+      }
     }
   } else {
     loc = await probeLocationForAllowTap(
@@ -183,8 +185,8 @@ export async function requestLocationAccess(
     return openSettingsForIssue("denied");
   }
 
-  // Never auto-open phone Location settings here (Samsung often lands on root Settings).
-  if (locationServicesLikelyOn && loc.issue === "timeout") {
+  // After waiting with Location known-on: GPS problem, not "Location off".
+  if (locationServicesLikelyOn || loc.issue === "timeout") {
     return { result: "unavailable", message: GPS_SLOW_MESSAGE };
   }
 
