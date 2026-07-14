@@ -1,8 +1,10 @@
 import {
   probeLocationForAllowTap,
+  probeLocationQuickDetect,
   acquirePanicLocation,
   hasPanicCoordinates,
   type PanicLocationIssue,
+  type PanicLocationResult,
 } from "@/lib/panic-location";
 import {
   openLocationSettings,
@@ -24,7 +26,7 @@ export type RequestLocationAccessOptions = {
   permissionHint?: PermissionState;
   /**
    * allow-tap: short probe (live incident Allow Location).
-   * settle: longer multi-attempt fix (Report Incident Use current location).
+   * settle: quick off-detect, then longer wait only after returning from Settings.
    */
   probeMode?: "allow-tap" | "settle";
 };
@@ -69,11 +71,28 @@ function markLocationSettingsOpened(): void {
   }
 }
 
+async function openSettingsForIssue(issue?: PanicLocationIssue): Promise<{
+  result: LocationAccessResult;
+  message: string;
+}> {
+  const target = settingsTargetForIssue(issue);
+  const settings = await openLocationSettings({ target });
+  if (settings.result === "opened" || settings.result === "prompted") {
+    markLocationSettingsOpened();
+    return {
+      result: "settings-opened",
+      message: locationSettingsUserMessage(target),
+    };
+  }
+  if (issue === "denied") {
+    return { result: "denied", message: settings.message || issueMessage("denied") };
+  }
+  return { result: "unavailable", message: settings.message || issueMessage(issue) };
+}
+
 /**
  * User-tap handler for live incident / map / report screens.
- * 1) Try GPS.
- * 2) If blocked, open the right Settings screen.
- * 3) Do not reopen Location settings in a loop after the user just turned GPS on.
+ * Location-off should open Settings in ~2s; cold GPS after return gets a longer wait.
  */
 export async function requestLocationAccess(
   options: RequestLocationAccessOptions = {},
@@ -87,26 +106,40 @@ export async function requestLocationAccess(
   const probeMode = options.probeMode ?? "allow-tap";
 
   if (permissionHint === "denied") {
-    const settings = await openLocationSettings({ target: "app-permissions" });
-    if (settings.result === "opened" || settings.result === "prompted") {
-      markLocationSettingsOpened();
-      return {
-        result: "settings-opened",
-        message: locationSettingsUserMessage("app-permissions"),
-      };
-    }
-    return {
-      result: "denied",
-      message: settings.message || issueMessage("denied"),
-    };
+    return openSettingsForIssue("denied");
   }
 
-  const loc =
-    probeMode === "settle"
-      ? await acquirePanicLocation()
-      : await probeLocationForAllowTap(
-          permissionHint === "unsupported" ? "prompt" : permissionHint,
-        );
+  let loc: PanicLocationResult;
+
+  if (probeMode === "settle") {
+    // 1) Fail-fast (~2s): Location off / denied → Settings immediately (no 30s spinner).
+    loc = await probeLocationQuickDetect();
+    if (hasPanicCoordinates(loc)) {
+      window.dispatchEvent(new CustomEvent("omt:location-granted"));
+      return {
+        result: "granted",
+        message: "GPS is on — tracking your position.",
+        lat: loc.lat,
+        lng: loc.lng,
+      };
+    }
+    if (loc.issue === "unsupported") {
+      return { result: "unsupported", message: issueMessage("unsupported") };
+    }
+    if (loc.issue === "denied") {
+      return openSettingsForIssue("denied");
+    }
+    // First attempt with Location likely off → open Settings quickly.
+    if (!recentlyOpenedLocationSettings()) {
+      return openSettingsForIssue(loc.issue);
+    }
+    // 2) User just returned from Settings — give cold GPS a real chance.
+    loc = await acquirePanicLocation();
+  } else {
+    loc = await probeLocationForAllowTap(
+      permissionHint === "unsupported" ? "prompt" : permissionHint,
+    );
+  }
 
   if (hasPanicCoordinates(loc)) {
     window.dispatchEvent(new CustomEvent("omt:location-granted"));
@@ -122,8 +155,6 @@ export async function requestLocationAccess(
     return { result: "unsupported", message: issueMessage("unsupported") };
   }
 
-  // Cold GPS after enabling Location often times out briefly — don't bounce back
-  // into Settings if we already sent the user there recently.
   if (
     (loc.issue === "timeout" || loc.issue === "unavailable") &&
     recentlyOpenedLocationSettings()
@@ -135,26 +166,5 @@ export async function requestLocationAccess(
     };
   }
 
-  const target = settingsTargetForIssue(loc.issue);
-  const settings = await openLocationSettings({ target });
-  if (settings.result === "opened" || settings.result === "prompted") {
-    markLocationSettingsOpened();
-    return {
-      result: "settings-opened",
-      message: locationSettingsUserMessage(target),
-    };
-  }
-
-  const base = issueMessage(loc.issue);
-  if (loc.issue === "denied") {
-    return {
-      result: "denied",
-      message: settings.message || base,
-    };
-  }
-
-  return {
-    result: "unavailable",
-    message: settings.message || base,
-  };
+  return openSettingsForIssue(loc.issue);
 }

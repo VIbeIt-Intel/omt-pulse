@@ -24,8 +24,37 @@ function issueFromGeolocationCode(code: number | undefined): PanicLocationIssue 
 }
 
 /**
- * User-tap probe for Allow Location — fresh fix only (maximumAge 0).
- * Prompt: ~3s so the permission dialog can be answered; granted/GPS-off: ~1.5s then Settings.
+ * Fail-fast probe (~2s) to detect Location off / permission denied before a long wait.
+ */
+export async function probeLocationQuickDetect(): Promise<PanicLocationResult> {
+  if (!navigator.geolocation) {
+    return { issue: "unsupported" };
+  }
+  try {
+    const pos = await getCurrentPositionOnce({
+      enableHighAccuracy: false,
+      timeout: 2_000,
+      maximumAge: 0,
+    });
+    const lat = pos.coords.latitude;
+    const lng = pos.coords.longitude;
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      return { lat, lng };
+    }
+  } catch (err) {
+    const code =
+      typeof err === "object" && err !== null && "code" in err
+        ? (err as GeolocationPositionError).code
+        : undefined;
+    if (code === 1) return { issue: "denied" };
+    return { issue: issueFromGeolocationCode(code) };
+  }
+  return { issue: "unavailable" };
+}
+
+/**
+ * User-tap probe for Allow Location.
+ * Prompt: slightly longer so the permission dialog can be answered.
  */
 export async function probeLocationForAllowTap(
   permissionHint: "granted" | "denied" | "prompt" | "unsupported" = "prompt",
@@ -33,8 +62,9 @@ export async function probeLocationForAllowTap(
   if (!navigator.geolocation) {
     return { issue: "unsupported" };
   }
-  // Indoor / post-toggle cold starts often need longer than 1.5s.
-  const timeoutMs = permissionHint === "prompt" ? 6_000 : 8_000;
+  // Fail-fast when permission already known — Location-off should open Settings quickly.
+  // First-time prompt needs a bit more time for the system dialog.
+  const timeoutMs = permissionHint === "prompt" ? 4_000 : 2_500;
   try {
     const pos = await getCurrentPositionOnce({
       enableHighAccuracy: false,
