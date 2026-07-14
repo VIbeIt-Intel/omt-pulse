@@ -1,6 +1,9 @@
 import { PLAY_STORE_URL, PLAY_TESTING_JOIN_URL } from "@/lib/site-links";
 import { OMT_APP_ORIGIN, appInviteUrl, appLoginUrl as sharedLoginUrl } from "@shared/app-url";
 
+/** How the invite was (or was not) emailed when this dialog opened. */
+export type OnboardingEmailStatus = "sent" | "failed" | "skipped" | "manual";
+
 export type OnboardingUserInfo = {
   firstName: string;
   email: string;
@@ -8,6 +11,8 @@ export type OnboardingUserInfo = {
   password?: string;
   inviteUrl?: string;
   orgName?: string | null;
+  /** Welcome / resend email outcome for this dialog session */
+  emailStatus?: OnboardingEmailStatus;
 };
 
 export function appLoginUrl(): string {

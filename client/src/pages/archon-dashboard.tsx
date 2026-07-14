@@ -525,6 +525,7 @@ export default function ArchonDashboard() {
         email: f.adminEmail.trim().toLowerCase(),
         inviteUrl: data.inviteUrl ?? undefined,
         orgName: data.org.name,
+        emailStatus: data.welcomeEmailSent ? "sent" : f.sendWelcomeEmail ? "failed" : "skipped",
       });
       setShowOnboardingShare(true);
       setShowNewClient(false);
@@ -554,6 +555,7 @@ export default function ArchonDashboard() {
           email: user.email,
           inviteUrl: data.inviteUrl,
           orgName: user.orgName,
+          emailStatus: data.welcomeEmailSent ? "sent" : "failed",
         });
         setShowOnboardingShare(true);
       }
@@ -607,6 +609,7 @@ export default function ArchonDashboard() {
         email: f.email.trim().toLowerCase(),
         password: f.password,
         orgName: newAdminTarget?.name ?? null,
+        emailStatus: "manual",
       });
       setShowOnboardingShare(true);
       setNewAdminTarget(null);
@@ -650,6 +653,7 @@ export default function ArchonDashboard() {
           email: passwordTarget.email,
           password: newPassword,
           orgName: passwordTarget.orgName,
+          emailStatus: "manual",
         });
         setShowOnboardingShare(true);
       }
@@ -1039,6 +1043,7 @@ export default function ArchonDashboard() {
                                             email: user.email,
                                             inviteUrl: userInviteUrl(user) ?? undefined,
                                             orgName: user.orgName,
+                                            emailStatus: "manual",
                                           });
                                           setShowOnboardingShare(true);
                                         }}
