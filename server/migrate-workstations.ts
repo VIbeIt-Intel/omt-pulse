@@ -51,4 +51,8 @@ export async function migrateWorkstations() {
   await safe("access_logs.workstation_id", sql`
     ALTER TABLE access_logs ADD COLUMN IF NOT EXISTS workstation_id INTEGER REFERENCES workstations(id) ON DELETE SET NULL
   `);
+
+  await safe("workstations.position_user_id", sql`
+    ALTER TABLE workstations ADD COLUMN IF NOT EXISTS position_user_id VARCHAR REFERENCES users(id) ON DELETE SET NULL
+  `);
 }

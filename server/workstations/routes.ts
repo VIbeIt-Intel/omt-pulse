@@ -8,7 +8,9 @@ import { eq } from "drizzle-orm";
 import {
   createWorkstation,
   enrolWorkstationByCode,
+  ensurePositionUser,
   findUserByShiftPin,
+  getUserById,
   getWorkstationByDeviceToken,
   getWorkstationsByOrg,
   regenerateWorkstationEnrolmentCode,
@@ -63,6 +65,27 @@ const createWorkstationBodySchema = insertWorkstationSchema.extend({
   locationId: z.number().int().positive(),
   commandId: z.number().int().positive().optional().nullable(),
 });
+
+async function openPositionSession(req: Request, ws: NonNullable<Request["currentWorkstation"]>) {
+  const positionUserId = await ensurePositionUser(ws);
+  const operator = await getUserById(positionUserId);
+  if (!operator || !operator.isActive) {
+    throw new Error("Position account is missing or inactive");
+  }
+
+  req.session.userId = operator.id;
+  req.session.workstationId = ws.id;
+  await setWorkstationOperator(ws.id, operator.id);
+
+  const { password: _pw, shiftPinHash: _pin, ...safeUser } = operator;
+  return {
+    user: {
+      ...safeUser,
+      permissions: getPermissionsForRole(operator.role),
+    },
+    workstation: await getWorkstationByDeviceToken(ws.deviceToken!),
+  };
+}
 
 export function registerWorkstationRoutes(app: Express) {
   app.get("/api/workstations", requireAdmin, async (req, res) => {
@@ -120,6 +143,19 @@ export function registerWorkstationRoutes(app: Express) {
       operatorLoggedIn: !!req.session.userId,
       sessionWorkstationId: req.session.workstationId ?? null,
     });
+  });
+
+  /** No-PIN v1: open a session as the position account for this enrolled device. */
+  app.post("/api/workstations/open-session", requireWorkstationToken, async (req, res) => {
+    try {
+      const payload = await openPositionSession(req, req.currentWorkstation!);
+      req.session.save((err) => {
+        if (err) return res.status(500).json({ message: "Could not open position session" });
+        res.json(payload);
+      });
+    } catch (err) {
+      res.status(500).json({ message: err instanceof Error ? err.message : "Open session failed" });
+    }
   });
 
   app.post("/api/workstations/shift-login", requireWorkstationToken, async (req, res) => {

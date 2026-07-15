@@ -20,6 +20,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ConnectivityBadge } from "@/components/connectivity-badge";
 import { useOutboxDrain } from "@/hooks/use-outbox-drain";
+import { useWorkstationHeartbeat } from "@/hooks/use-workstation-heartbeat";
 import { SubscriptionWall } from "@/components/subscription-wall";
 import NotFound from "@/pages/not-found";
 import OccurrenceBook from "@/pages/occurrence-book";
@@ -38,6 +39,8 @@ import CommandsPage from "@/pages/commands";
 import FleetPage from "@/pages/fleet";
 import AccessControlPage from "@/pages/access-control";
 import PatrolPage from "@/pages/patrol";
+import WorkstationsAdminPage from "@/pages/workstations-admin";
+import WorkstationEnrolPage from "@/pages/workstation-enrol";
 import VisibilityPage from "@/pages/visibility";
 import ArchonDashboard from "@/pages/archon-dashboard";
 import ArchonLoginPage from "@/pages/archon-login";
@@ -570,6 +573,7 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
     };
   }, [navigate]);
   useOutboxDrain(true);
+  useWorkstationHeartbeat(true);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [notifSheetOpen, setNotifSheetOpen] = useState(false);
@@ -937,6 +941,16 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
                   <UserAdminPage />
                 </RoleGuard>
               </Route>
+              <Route path="/positions">
+                <RoleGuard role={user.role} allowed={["administrator"]}>
+                  <WorkstationsAdminPage />
+                </RoleGuard>
+              </Route>
+              <Route path="/workstations">
+                <RoleGuard role={user.role} allowed={["administrator"]}>
+                  <WorkstationsAdminPage />
+                </RoleGuard>
+              </Route>
               <Route path="/import">
                 <RoleGuard role={user.role} allowed={["administrator"]}>
                   <ImportPage />
@@ -1018,6 +1032,8 @@ function UnauthenticatedApp() {
       <Route path="/login" component={LoginPage} />
       <Route path="/register" component={RedirectToLogin} />
       <Route path="/privacy" component={PrivacyPage} />
+      <Route path="/positions/enrol" component={WorkstationEnrolPage} />
+      <Route path="/workstation/enrol" component={WorkstationEnrolPage} />
       <Route component={RedirectToLogin} />
     </Switch>
   );
@@ -1086,6 +1102,9 @@ function AppRouter() {
   if (location.startsWith("/privacy")) {
     return <PrivacyPage />;
   }
+  if (location.startsWith("/positions/enrol") || location.startsWith("/workstation/enrol")) {
+    return <WorkstationEnrolPage />;
+  }
   return <AppContent />;
 }
 
@@ -1112,6 +1131,9 @@ function RootRouter() {
   }
   if (location.startsWith("/privacy")) {
     return <PrivacyPage />;
+  }
+  if (location.startsWith("/positions/enrol") || location.startsWith("/workstation/enrol")) {
+    return <WorkstationEnrolPage />;
   }
 
   // Login and register are public — no install gate.

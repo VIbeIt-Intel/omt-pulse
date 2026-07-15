@@ -60,8 +60,10 @@ export async function enrolWorkstation(code: string): Promise<WorkstationSession
     body: JSON.stringify({ code: code.trim().toUpperCase() }),
   });
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || "Enrolment failed");
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      typeof body.message === "string" ? body.message : "Enrolment failed",
+    );
   }
   const data = await res.json();
   setStoredWorkstationToken(data.deviceToken);
@@ -69,6 +71,26 @@ export async function enrolWorkstation(code: string): Promise<WorkstationSession
     deviceToken: data.deviceToken,
     workstation: data.workstation,
   };
+}
+
+/** No-PIN: open cookie session as the position account for this enrolled device. */
+export async function openPositionSession() {
+  const res = await fetch("/api/workstations/open-session", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...workstationAuthHeaders(),
+    },
+    credentials: "include",
+    body: "{}",
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      typeof body.message === "string" ? body.message : "Could not open position session",
+    );
+  }
+  return res.json() as Promise<{ user: Record<string, unknown>; workstation: WorkstationWithDetails }>;
 }
 
 export async function shiftLogin(pin: string) {

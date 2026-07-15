@@ -5,15 +5,30 @@ import {
   readCachedAuthUser,
 } from "@/lib/auth-cache";
 import type { AuthUser } from "@/lib/auth-user";
+import {
+  getStoredWorkstationToken,
+  openPositionSession,
+  workstationAuthHeaders,
+} from "@/lib/workstation-session";
 
-/** /api/auth/me with offline fallback to the last successful session. */
+/** /api/auth/me with offline fallback + dedicated-device position reopen. */
 export async function fetchAuthMe(): Promise<AuthUser | null> {
   try {
     const res = await fetch("/api/auth/me", {
       credentials: "include",
       cache: "no-store",
+      headers: workstationAuthHeaders(),
     });
     if (res.status === 401) {
+      if (getStoredWorkstationToken()) {
+        try {
+          const opened = await openPositionSession();
+          cacheAuthUser(opened.user as AuthUser);
+          return opened.user as AuthUser;
+        } catch {
+          /* fall through to logged-out */
+        }
+      }
       clearCachedAuthUser();
       return null;
     }

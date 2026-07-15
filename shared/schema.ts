@@ -170,6 +170,8 @@ export const workstations = pgTable("workstations", {
   lastLng: doublePrecision("last_lng"),
   kioskMode: boolean("kiosk_mode").notNull().default(true),
   isActive: boolean("is_active").notNull().default(true),
+  /** Synthetic user representing this position (no-PIN dedicated device login). */
+  positionUserId: varchar("position_user_id").references(() => users.id, { onDelete: "set null" }),
   currentOperatorUserId: varchar("current_operator_user_id").references(() => users.id, { onDelete: "set null" }),
   operatorSessionStartedAt: timestamp("operator_session_started_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -186,6 +188,7 @@ export const insertWorkstationSchema = createInsertSchema(workstations).omit({
   lastSeenAt: true,
   lastLat: true,
   lastLng: true,
+  positionUserId: true,
   currentOperatorUserId: true,
   operatorSessionStartedAt: true,
 });

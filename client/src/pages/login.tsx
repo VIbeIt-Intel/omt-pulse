@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
-import { Lock, Eye, EyeOff, Mail, ArrowLeft } from "lucide-react";
+import { Lock, Eye, EyeOff, Mail, ArrowLeft, MonitorSmartphone } from "lucide-react";
 import { HeartbeatLine } from "@/components/heartbeat-line";
 import { OmtShield } from "@/components/omt-shield";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,9 @@ import { Input } from "@/components/ui/input";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { clearStoredWorkstationToken } from "@/lib/workstation-session";
+import { getStoredWorkstationToken, openPositionSession } from "@/lib/workstation-session";
+import { cacheAuthUser } from "@/lib/auth-cache";
+import type { AuthUser } from "@/lib/auth-user";
 
 const loginSchema = z.object({
   email: z.string().email("Enter a valid email address"),
@@ -35,8 +37,25 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
-    clearStoredWorkstationToken();
-  }, []);
+    // Dedicated devices: if already enrolled, reopen the position session (no PIN).
+    const token = getStoredWorkstationToken();
+    if (!token) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const session = await openPositionSession();
+        if (cancelled) return;
+        cacheAuthUser(session.user as AuthUser);
+        queryClient.clear();
+        navigate("/");
+      } catch {
+        /* stay on login — enrol again or personal sign-in */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate, queryClient]);
 
   const form = useForm<LoginForm>({
     resolver: zodResolver(loginSchema),
@@ -174,6 +193,16 @@ export default function LoginPage() {
               <p className="mt-4 text-center text-sm text-muted-foreground">
                 Access is by invitation only. Contact your organisation administrator if you need an account.
               </p>
+              <div className="mt-4 border-t pt-4">
+                <Link
+                  href="/positions/enrol"
+                  className="flex items-center justify-center gap-2 text-sm text-primary hover:underline"
+                  data-testid="link-enrol-device"
+                >
+                  <MonitorSmartphone className="h-4 w-4" />
+                  Enrol dedicated device
+                </Link>
+              </div>
               <p className="mt-3 text-center text-xs text-muted-foreground">
                 <Link href="/privacy" className="hover:text-foreground hover:underline" data-testid="link-privacy-login">
                   Privacy Policy

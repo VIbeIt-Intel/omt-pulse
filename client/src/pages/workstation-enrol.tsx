@@ -4,7 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { enrolWorkstation } from "@/lib/workstation-session";
+import { enrolWorkstation, openPositionSession } from "@/lib/workstation-session";
+import { cacheAuthUser } from "@/lib/auth-cache";
+import type { AuthUser } from "@/lib/auth-user";
 import { queryClient } from "@/lib/queryClient";
 import { Loader2, MonitorSmartphone } from "lucide-react";
 
@@ -19,11 +21,13 @@ export default function WorkstationEnrolPage() {
     setLoading(true);
     try {
       const result = await enrolWorkstation(code);
+      const session = await openPositionSession();
+      cacheAuthUser(session.user as AuthUser);
+      await queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
       toast({
-        title: "Device enrolled",
-        description: `${result.workstation.name} is ready for shift sign-in.`,
+        title: "Device ready",
+        description: `${result.workstation.name} is enrolled and signed in as this position.`,
       });
-      void queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
       navigate("/");
     } catch (err) {
       toast({
@@ -43,7 +47,8 @@ export default function WorkstationEnrolPage() {
           <MonitorSmartphone className="h-10 w-10 mx-auto text-primary" />
           <h1 className="text-xl font-semibold">Enrol dedicated device</h1>
           <p className="text-sm text-muted-foreground">
-            Enter the enrolment code from your administrator to bind this tablet or phone to a gate post or shared shift device.
+            Enter the enrolment code from your administrator to bind this phone to a position
+            (e.g. East Gate Access Control or Romeo 1 Patrol). No PIN — the device becomes that position.
           </p>
         </div>
 
@@ -65,7 +70,7 @@ export default function WorkstationEnrolPage() {
         </Button>
 
         <Button type="button" variant="ghost" className="w-full" onClick={() => navigate("/login")}>
-          Back to normal sign-in
+          Back to personal sign-in
         </Button>
       </div>
     </div>

@@ -8,6 +8,25 @@ export const WORKSTATION_TYPE_LABELS: Record<WorkstationType, string> = {
   patrol_post: "Patrol post (fixed or shared)",
 };
 
+/** Role used by the synthetic position account (no PIN v1). */
+export function defaultRoleForWorkstationType(type: string): string {
+  if (type === "gate_desk") return "access_controller";
+  if (type === "patrol_post") return "patrol_user";
+  return "reporter";
+}
+
+/** Synthetic emails for position accounts — never shown as normal Users. */
+export const POSITION_USER_EMAIL_SUFFIX = "@omt.device";
+
+export function isPositionUserEmail(email: string | null | undefined): boolean {
+  return typeof email === "string" && email.toLowerCase().endsWith(POSITION_USER_EMAIL_SUFFIX);
+}
+
+export function positionUserEmail(workstationId: number, organizationId: string): string {
+  const orgPart = organizationId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 12) || "org";
+  return `pos.${workstationId}.${orgPart}${POSITION_USER_EMAIL_SUFFIX}`;
+}
+
 export function isGateDeskWorkstation(type: string): boolean {
   return type === "gate_desk";
 }

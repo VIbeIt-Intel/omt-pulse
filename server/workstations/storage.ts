@@ -10,7 +10,11 @@ import {
   type WorkstationWithDetails,
   type InsertWorkstation,
 } from "@shared/schema";
-import { WORKSTATION_TYPES } from "@shared/workstations";
+import {
+  WORKSTATION_TYPES,
+  defaultRoleForWorkstationType,
+  positionUserEmail,
+} from "@shared/workstations";
 import { db } from "../storage";
 import { and, eq, asc, isNotNull } from "drizzle-orm";
 
@@ -23,6 +27,11 @@ function generateEnrolmentCode(): string {
 
 function generateDeviceToken(): string {
   return randomBytes(32).toString("hex");
+}
+
+/** Unusable random password — position accounts sign in via device token only. */
+async function hashUnusablePassword(): Promise<string> {
+  return bcrypt.hash(randomBytes(32).toString("hex"), SALT_ROUNDS);
 }
 
 function hydrateWorkstation(
@@ -103,6 +112,65 @@ export async function getWorkstationByDeviceToken(token: string): Promise<Workst
   return fetchWorkstationDetails(eq(workstations.deviceToken, token));
 }
 
+/** Ensure a synthetic position user exists for no-PIN dedicated-device sessions. */
+export async function ensurePositionUser(ws: Workstation): Promise<string> {
+  if (ws.positionUserId) {
+    const [existing] = await db.select().from(users).where(eq(users.id, ws.positionUserId)).limit(1);
+    if (existing?.isActive) return existing.id;
+  }
+
+  const email = positionUserEmail(ws.id, ws.organizationId);
+  const [byEmail] = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  if (byEmail) {
+    await db.update(workstations).set({ positionUserId: byEmail.id }).where(eq(workstations.id, ws.id));
+    if (ws.commandId != null) {
+      await ensureCommandMembership(byEmail.id, ws.commandId, ws.organizationId);
+    }
+    return byEmail.id;
+  }
+
+  const nameParts = ws.name.trim().split(/\s+/);
+  const firstName = nameParts[0] || ws.name;
+  const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : "Position";
+  const role = defaultRoleForWorkstationType(ws.type);
+  const password = await hashUnusablePassword();
+
+  const [created] = await db
+    .insert(users)
+    .values({
+      organizationId: ws.organizationId,
+      firstName,
+      lastName,
+      email,
+      role,
+      password,
+      mustChangePassword: false,
+      canEditIncidents: true,
+      canManageAttachments: true,
+      canDeleteIncidents: false,
+      isActive: true,
+    })
+    .returning();
+
+  await db.update(workstations).set({ positionUserId: created.id }).where(eq(workstations.id, ws.id));
+
+  if (ws.commandId != null) {
+    await ensureCommandMembership(created.id, ws.commandId, ws.organizationId);
+  }
+
+  return created.id;
+}
+
+async function ensureCommandMembership(userId: string, commandId: number, organizationId: string) {
+  const [existing] = await db
+    .select()
+    .from(commandUsers)
+    .where(and(eq(commandUsers.userId, userId), eq(commandUsers.commandId, commandId)))
+    .limit(1);
+  if (existing) return;
+  await db.insert(commandUsers).values({ userId, commandId, organizationId });
+}
+
 export async function createWorkstation(
   data: InsertWorkstation,
   orgId: string,
@@ -125,6 +193,8 @@ export async function createWorkstation(
     })
     .returning();
 
+  await ensurePositionUser(row);
+
   const details = await getWorkstationById(row.id, orgId);
   if (!details) throw new Error("Workstation not found after create");
   return { ...details, enrolmentCode, enrolmentExpiresAt };
@@ -146,6 +216,25 @@ export async function updateWorkstation(
     .returning();
 
   if (!row) return undefined;
+
+  if (row.positionUserId && (data.name != null || data.type != null)) {
+    const patch: Partial<typeof users.$inferInsert> = {};
+    if (data.name != null) {
+      const parts = data.name.trim().split(/\s+/);
+      patch.firstName = parts[0] || data.name;
+      patch.lastName = parts.length > 1 ? parts.slice(1).join(" ") : "Position";
+    }
+    if (data.type != null) {
+      patch.role = defaultRoleForWorkstationType(data.type);
+    }
+    if (Object.keys(patch).length > 0) {
+      await db.update(users).set(patch).where(eq(users.id, row.positionUserId));
+    }
+  }
+  if (row.positionUserId && data.commandId != null) {
+    await ensureCommandMembership(row.positionUserId, data.commandId, orgId);
+  }
+
   return getWorkstationById(id, orgId);
 }
 
@@ -202,6 +291,9 @@ export async function enrolWorkstationByCode(code: string): Promise<{
       lastSeenAt: now,
     })
     .where(eq(workstations.id, ws.id));
+
+  const fresh = await db.select().from(workstations).where(eq(workstations.id, ws.id)).limit(1);
+  if (fresh[0]) await ensurePositionUser(fresh[0]);
 
   const workstation = await getWorkstationByDeviceToken(deviceToken);
   if (!workstation) throw new Error("Enrolment failed");
@@ -287,4 +379,9 @@ export async function userCanOperateWorkstation(
   }
 
   return true;
+}
+
+export async function getUserById(userId: string) {
+  const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+  return user ?? null;
 }

@@ -24,6 +24,7 @@ import { createInviteToken, hashPlaceholderPassword } from "./user-invite";
 import { appInviteUrl } from "@shared/app-url";
 import { formatOrgAddress } from "@shared/org-address";
 import { resolveAttachmentByteSize } from "@shared/attachment-byte-size";
+import { isPositionUserEmail } from "@shared/workstations";
 
 const objectStorageService = new ObjectStorageService();
 
@@ -927,6 +928,7 @@ const AUTH_WHITELIST = [
   "/version",
   "/workstations/enrol",
   "/workstations/me",
+  "/workstations/open-session",
   "/workstations/shift-login",
   "/workstations/shift-logout",
   "/workstations/unenrol",
@@ -1931,9 +1933,11 @@ export async function registerRoutes(
       storage.getUsersByOrg(orgId),
       storage.getOrgPushRegistrationByUser(orgId),
     ]);
+    // Hide synthetic position accounts (dedicated devices) from the people list.
+    const people = orgUsers.filter((u) => !isPositionUserEmail(u.email));
     // Attach Command memberships per user so the User Admin table can show
     // which Command each user belongs to and flag users with no assignment.
-    const withCommands = await Promise.all(orgUsers.map(async (u) => {
+    const withCommands = await Promise.all(people.map(async (u) => {
       const { password: _pw, ...safe } = u;
       const cmds = await storage.getUserCommands(u.id);
       const pushRegistration = pushRegistrationByUser.get(u.id) ?? { fcm: false, web: false };

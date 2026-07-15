@@ -95,7 +95,7 @@ export default function WorkstationsAdminPage() {
       const ws = workstations.find((w) => w.id === id);
       setEnrolDialog({
         code: data.enrolmentCode,
-        name: ws?.name ?? "Workstation",
+        name: ws?.name ?? "Position",
         expiresAt: data.enrolmentExpiresAt,
       });
     },
@@ -113,15 +113,15 @@ export default function WorkstationsAdminPage() {
         <div>
           <h1 className="text-2xl font-semibold flex items-center gap-2">
             <MonitorSmartphone className="h-7 w-7" />
-            Workstations
+            Positions
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Dedicated gate tablets and shared shift devices. Enrol once per physical device, then guards sign in with their shift PIN.
+            Dedicated company phones bound to a post (East Gate, Romeo 1, …). Create a position, then enrol the device with the code — no shift PIN.
           </p>
         </div>
         <Button type="button" onClick={() => setDialogOpen(true)}>
           <Plus className="h-4 w-4 mr-1" />
-          Add workstation
+          Add position
         </Button>
       </div>
 
@@ -131,7 +131,7 @@ export default function WorkstationsAdminPage() {
         </div>
       ) : workstations.length === 0 ? (
         <div className="rounded-lg border border-dashed p-8 text-center text-muted-foreground">
-          No workstations yet. Add a gate desk or shared mobile device to generate an enrolment code.
+          No positions yet. Add East Gate Access Control, Romeo 1 Patrol, etc. to generate an enrolment code.
         </div>
       ) : (
         <Table>
@@ -184,12 +184,12 @@ export default function WorkstationsAdminPage() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add workstation</DialogTitle>
+            <DialogTitle>Add position</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-1.5">
               <Label>Name</Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Main gate tablet" />
+              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="East Gate Access Control" />
             </div>
             <div className="space-y-1.5">
               <Label>Type</Label>
@@ -258,7 +258,8 @@ export default function WorkstationsAdminPage() {
           {enrolDialog && (
             <div className="space-y-4 py-2">
               <p className="text-sm text-muted-foreground">
-                On the device, open <span className="font-mono">/workstation/enrol</span> or tap Enrol device from the login screen. Code expires in 48 hours.
+                On the dedicated phone, open Enrol device from the login screen (or go to{" "}
+                <span className="font-mono">/positions/enrol</span>). Code expires in 48 hours. After enrol, the phone signs in as this position — no PIN.
               </p>
               <div className="flex items-center gap-2">
                 <Input readOnly value={enrolDialog.code} className="font-mono text-lg tracking-widest text-center" />
