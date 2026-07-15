@@ -52,49 +52,8 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Plus, Pencil, Trash2, Settings, ListChecks, Eye, EyeOff, MapPin, ChevronDown, ChevronUp, Tag, Map, Upload, X, ScanSearch, Radio } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { GoogleAddressPinPicker } from "@/components/google-address-pin-picker";
 import type { CustomMap } from "@shared/schema";
-
-function LocationMapPicker({ onSelect, height = 280, initialLat, initialLng }: {
-  onSelect: (lat: number, lng: number) => void;
-  height?: number;
-  initialLat?: number | null;
-  initialLng?: number | null;
-}) {
-  const mapRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<L.Map | null>(null);
-  const markerRef = useRef<L.Marker | null>(null);
-
-  useEffect(() => {
-    if (!mapRef.current || mapInstanceRef.current) return;
-    const hasInitial = initialLat != null && initialLng != null;
-    const center: [number, number] = hasInitial ? [initialLat!, initialLng!] : [-26.2041, 28.0473];
-    const zoom = hasInitial ? 14 : 10;
-    const map = L.map(mapRef.current).setView(center, zoom);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-    }).addTo(map);
-    if (hasInitial) {
-      markerRef.current = L.marker([initialLat!, initialLng!]).addTo(map);
-    }
-    map.on("click", (e: L.LeafletMouseEvent) => {
-      const { lat, lng } = e.latlng;
-      if (markerRef.current) {
-        markerRef.current.setLatLng([lat, lng]);
-      } else {
-        markerRef.current = L.marker([lat, lng]).addTo(map);
-      }
-      onSelect(parseFloat(lat.toFixed(6)), parseFloat(lng.toFixed(6)));
-    });
-    mapInstanceRef.current = map;
-    return () => {
-      map.remove();
-      mapInstanceRef.current = null;
-      markerRef.current = null;
-    };
-  }, []);
-
-  return <div ref={mapRef} style={{ height: `${height}px`, borderRadius: "6px", zIndex: 0 }} />;
-}
 
 const fieldTypeLabels: Record<string, string> = {
   text: "Text",
@@ -804,9 +763,6 @@ function LocationManager() {
   const [icon, setIcon] = useState("map-pin");
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
-  const [mapDialogOpen, setMapDialogOpen] = useState(false);
-  const [tempLat, setTempLat] = useState<number | null>(null);
-  const [tempLng, setTempLng] = useState<number | null>(null);
 
   const { data: locations = [], isLoading } = useQuery<Location[]>({
     queryKey: ["/api/locations"],
@@ -873,24 +829,6 @@ function LocationManager() {
     setDialogOpen(true);
   };
 
-  const openMapDialog = () => {
-    setTempLat(latitude);
-    setTempLng(longitude);
-    setMapDialogOpen(true);
-  };
-
-  const confirmMapSelection = () => {
-    setLatitude(tempLat);
-    setLongitude(tempLng);
-    setMapDialogOpen(false);
-  };
-
-  const cancelMapDialog = () => {
-    setTempLat(latitude);
-    setTempLng(longitude);
-    setMapDialogOpen(false);
-  };
-
   const closeDialog = () => {
     setDialogOpen(false);
     setEditingId(null);
@@ -900,9 +838,6 @@ function LocationManager() {
     setIcon("map-pin");
     setLatitude(null);
     setLongitude(null);
-    setTempLat(null);
-    setTempLng(null);
-    setMapDialogOpen(false);
   };
 
   return (
@@ -1004,12 +939,16 @@ function LocationManager() {
           <div className="space-y-4">
             <div>
               <Label>Name <span className="text-red-500">*</span></Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Main Gate" data-testid="input-location-name" />
+              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Nico Venter House" data-testid="input-location-name" />
             </div>
-            <div>
-              <Label>Address <span className="text-muted-foreground text-xs">(optional)</span></Label>
-              <Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="e.g. 1 Main Road, Johannesburg" data-testid="input-location-address" />
-            </div>
+            <GoogleAddressPinPicker
+              value={{ address, latitude, longitude }}
+              onChange={(next) => {
+                setAddress(next.address);
+                setLatitude(next.latitude);
+                setLongitude(next.longitude);
+              }}
+            />
             <div>
               <Label>Colour</Label>
               <div className="flex items-center gap-3 mt-1.5">
@@ -1063,37 +1002,6 @@ function LocationManager() {
                 ))}
               </div>
             </div>
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <Label>Map Pin <span className="text-muted-foreground text-xs">(optional)</span></Label>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={openMapDialog}
-                  data-testid="button-toggle-map"
-                >
-                  <MapPin className="h-3.5 w-3.5 mr-1.5" />
-                  {latitude != null && longitude != null ? "Change Pin" : "Pick on Map"}
-                </Button>
-              </div>
-              {latitude != null && longitude != null ? (
-                <div className="flex items-center justify-between rounded-md border px-3 py-2 bg-muted/40">
-                  <span className="text-xs font-mono text-muted-foreground" data-testid="text-coordinates">
-                    {latitude.toFixed(6)}, {longitude.toFixed(6)}
-                  </span>
-                  <button
-                    type="button"
-                    className="text-xs text-destructive hover:underline ml-4"
-                    onClick={() => { setLatitude(null); setLongitude(null); }}
-                  >
-                    Clear
-                  </button>
-                </div>
-              ) : (
-                <p className="text-xs text-muted-foreground italic">No pin selected</p>
-              )}
-            </div>
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="outline" onClick={closeDialog} data-testid="button-cancel-location">Cancel</Button>
               <Button
@@ -1120,31 +1028,6 @@ function LocationManager() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      <Dialog open={mapDialogOpen} onOpenChange={(open) => { if (!open) cancelMapDialog(); }}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Pick Location on Map</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">Click anywhere on the map to place a pin. Click Confirm to save it.</p>
-            <LocationMapPicker onSelect={(lat, lng) => { setTempLat(lat); setTempLng(lng); }} height={500} initialLat={tempLat} initialLng={tempLng} />
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-mono text-muted-foreground" data-testid="text-map-coordinates">
-                {tempLat != null && tempLng != null
-                  ? `${tempLat.toFixed(6)}, ${tempLng.toFixed(6)}`
-                  : "No pin selected — click the map"}
-              </span>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={cancelMapDialog} data-testid="button-cancel-map">Cancel</Button>
-                <Button size="sm" onClick={confirmMapSelection} disabled={tempLat == null || tempLng == null} data-testid="button-confirm-map">
-                  Confirm
-                </Button>
-              </div>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
     </>
   );
 }
