@@ -1,4 +1,6 @@
+import { Capacitor } from "@capacitor/core";
 import { APP_CACHE_VERSION } from "@shared/cache-version";
+import { usesLocalCapacitorShell } from "@/lib/api-base";
 
 async function querySwCacheVersion(): Promise<string | null> {
   if (!("serviceWorker" in navigator)) return null;
@@ -49,8 +51,15 @@ async function nukeCachesAndReload(): Promise<void> {
 /**
  * If the active service worker or cache buckets are from an older build,
  * wipe everything and reload once so deploys actually reach the device.
+ *
+ * Capacitator local-shell APKs must never do this: their JS is baked into the
+ * install. Comparing against the live server cacheVersion would reload forever
+ * (bundle stays old; server moves on).
  */
 export async function ensureAppCacheCurrent(): Promise<void> {
+  if (Capacitor.isNativePlatform() || usesLocalCapacitorShell()) {
+    return;
+  }
   if (!("serviceWorker" in navigator) || !("caches" in window)) return;
 
   try {
@@ -60,6 +69,14 @@ export async function ensureAppCacheCurrent(): Promise<void> {
       if (res.ok) {
         const data = (await res.json()) as { cacheVersion?: string };
         if (data.cacheVersion && data.cacheVersion !== APP_CACHE_VERSION) {
+          // One-shot only — never infinite-loop if the reload fails to update.
+          const flag = `omt_reloaded_for_${data.cacheVersion}`;
+          try {
+            if (sessionStorage.getItem(flag)) return;
+            sessionStorage.setItem(flag, "1");
+          } catch {
+            /* ignore */
+          }
           await nukeCachesAndReload();
           return;
         }
@@ -78,6 +95,13 @@ export async function ensureAppCacheCurrent(): Promise<void> {
     );
 
     if (staleBuckets.length > 0 || (swVersion && swVersion !== APP_CACHE_VERSION)) {
+      const flag = `omt_reloaded_sw_${APP_CACHE_VERSION}`;
+      try {
+        if (sessionStorage.getItem(flag)) return;
+        sessionStorage.setItem(flag, "1");
+      } catch {
+        /* ignore */
+      }
       await nukeCachesAndReload();
     }
   } catch {

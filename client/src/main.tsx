@@ -12,9 +12,8 @@ if (Capacitor.isNativePlatform()) {
   document.documentElement.classList.add("capacitor-native");
   installNativeApiBaseFetch();
   initNativePushListeners();
-}
-
-if ("serviceWorker" in navigator) {
+} else if ("serviceWorker" in navigator) {
+  // PWA only — Capacitor serves bundled assets; a SW causes stale-cache pain.
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).catch(() => {});
   });
