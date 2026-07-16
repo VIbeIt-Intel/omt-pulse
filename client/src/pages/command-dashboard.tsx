@@ -387,7 +387,7 @@ function ActionTile({
   subtitle?: string;
   icon: LucideIcon;
   onClick: () => void;
-  variant?: "primary" | "live" | "panic";
+  variant?: "primary" | "live" | "panic" | "access";
   testId: string;
 }) {
   const surface =
@@ -395,9 +395,13 @@ function ActionTile({
       ? "bg-gradient-to-br from-red-600 to-red-700 text-white shadow-lg shadow-red-600/30 ring-2 ring-red-500/40"
       : variant === "live"
       ? "bg-gradient-to-br from-orange-500 to-amber-600 text-white shadow-lg shadow-orange-500/25"
+      : variant === "access"
+      ? "bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-600/25"
       : "bg-gradient-to-br from-primary to-primary/85 text-primary-foreground shadow-lg shadow-primary/20";
   const subtitleClass =
-    variant === "live" || variant === "panic" ? "text-white/85" : "text-primary-foreground/80";
+    variant === "live" || variant === "panic" || variant === "access"
+      ? "text-white/85"
+      : "text-primary-foreground/80";
   const titleClass =
     variant === "panic" ? "font-bold text-xl sm:text-2xl leading-tight tracking-tight" : "font-bold text-base leading-tight";
 
@@ -792,7 +796,6 @@ export default function CommandDashboard() {
             onClick={() => setPanicOpen(true)}
             testId="button-panic"
           />
-          {!isGateOperator && (
           <ActionTile
             title="Start Live Incident"
             subtitle="Share GPS and navigate in real time"
@@ -801,13 +804,12 @@ export default function CommandDashboard() {
             onClick={() => navigate("/live-severity")}
             testId="button-start-live-incident"
           />
-          )}
           {canAccessControl && (
           <ActionTile
             title="Access Control"
             subtitle="Scan people & vehicles in and out"
             icon={ShieldCheck}
-            variant="primary"
+            variant="access"
             onClick={() => navigate("/access-control")}
             testId="button-access-control"
           />

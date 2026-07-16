@@ -962,12 +962,12 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
                 </RoleGuard>
               </Route>
               <Route path="/live-incident">
-                <RoleGuard role={user.role} allowed={["administrator", "supervisor", "reporter"]}>
+                <RoleGuard role={user.role} allowed={["administrator", "supervisor", "reporter", "access_controller"]}>
                   <LiveIncidentPage />
                 </RoleGuard>
               </Route>
               <Route path="/live-severity">
-                <RoleGuard role={user.role} allowed={["administrator", "supervisor", "reporter"]}>
+                <RoleGuard role={user.role} allowed={["administrator", "supervisor", "reporter", "access_controller"]}>
                   <LiveSeverityPage />
                 </RoleGuard>
               </Route>

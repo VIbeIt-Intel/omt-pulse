@@ -3055,9 +3055,6 @@ export async function registerRoutes(
         return res.status(403).json({ message: "You are not assigned to this location" });
       }
     }
-    if (isAccessController(role) && parsed.data.isLive) {
-      return res.status(403).json({ message: "Access controllers can only file manual occurrence book entries" });
-    }
     if (parsed.data.customMapId != null) {
       const cmap = await storage.getCustomMap(parsed.data.customMapId, orgId);
       if (!cmap) return res.status(400).json({ message: "Invalid custom map" });

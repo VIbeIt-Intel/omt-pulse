@@ -60,7 +60,7 @@ export function isOwnIncidentScopedRole(role: string): boolean {
 
 /** Live Incident page, join-live, live-severity start flow. */
 export function canUseLiveIncidentWorkflow(role: string): boolean {
-  return isFieldReporter(role) || isDispatchStaff(role);
+  return isFieldReporter(role) || isDispatchStaff(role) || isAccessController(role);
 }
 
 export function usesLocationAssignmentScope(role: string): boolean {
