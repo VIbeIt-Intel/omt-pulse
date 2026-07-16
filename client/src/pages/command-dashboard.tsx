@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import type { Location } from "@shared/schema";
-import { isDispatchStaff, isFieldReporter, isAccessController } from "@shared/user-roles";
+import { isDispatchStaff, isFieldReporter, isAccessController, canViewAccessControlModule } from "@shared/user-roles";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { IncidentDialog } from "@/components/incident-dialog";
@@ -23,6 +23,7 @@ import {
   Navigation,
   MapPin,
   Clock,
+  ShieldCheck,
   type LucideIcon,
 } from "lucide-react";
 
@@ -498,6 +499,7 @@ export default function CommandDashboard() {
   });
   const isReporter = isFieldReporter(currentUser?.role ?? "");
   const isGateOperator = isAccessController(currentUser?.role ?? "");
+  const canAccessControl = canViewAccessControlModule(currentUser?.role ?? "");
   const isDispatch = currentUser?.role ? isDispatchStaff(currentUser.role) : false;
 
   const { data: panicAlerts = [] } = useQuery<PanicAlert[]>({
@@ -727,7 +729,7 @@ export default function CommandDashboard() {
         </div>
       )}
 
-      <div className="p-4 md:p-6 pb-4 space-y-4 max-w-4xl mx-auto w-full">
+      <div className={`p-4 md:p-6 space-y-4 max-w-4xl mx-auto w-full ${isGateOperator ? "pb-28" : "pb-4"}`}>
 
         <div className="flex flex-col items-center gap-2 pt-3 pb-1">
           <OmtShield variant="hero" />
@@ -800,6 +802,16 @@ export default function CommandDashboard() {
             testId="button-start-live-incident"
           />
           )}
+          {canAccessControl && (
+          <ActionTile
+            title="Access Control"
+            subtitle="Scan people & vehicles in and out"
+            icon={ShieldCheck}
+            variant="primary"
+            onClick={() => navigate("/access-control")}
+            testId="button-access-control"
+          />
+          )}
           <ActionTile
             title="Report Incident"
             subtitle="Report what happened"
@@ -811,6 +823,7 @@ export default function CommandDashboard() {
         </div>
       </div>
 
+      {!isGateOperator && (
       <div className="p-4 md:p-6 pt-1 pb-28 max-w-4xl mx-auto w-full">
         <div className="space-y-3">
           <div className="flex justify-center">
@@ -859,6 +872,7 @@ export default function CommandDashboard() {
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 
