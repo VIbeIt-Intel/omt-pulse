@@ -33,6 +33,33 @@ import { ArrowLeft, Loader2, MapPin, Pencil, Plus, Trash2 } from "lucide-react";
 
 type OrgCommand = { id: number; name: string };
 
+type AssigneeCandidate = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  role: string;
+};
+
+type ScheduleForm = {
+  isEnabled: boolean;
+  intervalMinutes: number;
+  jitterMinutes: number;
+  startWithinMinutes: number;
+  quietStartHour: string;
+  quietEndHour: string;
+  assigneeUserIds: string[];
+};
+
+const defaultScheduleForm = (): ScheduleForm => ({
+  isEnabled: false,
+  intervalMinutes: 60,
+  jitterMinutes: 12,
+  startWithinMinutes: 15,
+  quietStartHour: "none",
+  quietEndHour: "none",
+  assigneeUserIds: [],
+});
+
 type PatrolRouteAdminSheetProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -81,6 +108,7 @@ export function PatrolRouteAdminSheet({
   const [commandId, setCommandId] = useState<string>("all");
   const [checkpoints, setCheckpoints] = useState<PatrolCheckpointDraft[]>([emptyPatrolCheckpoint()]);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(0);
+  const [schedule, setSchedule] = useState<ScheduleForm>(defaultScheduleForm);
 
   const { data: editingRoute, isLoading: editingLoading } = useQuery<PatrolRouteWithCheckpoints>({
     queryKey: ["/api/patrol/routes", editingRouteId],
@@ -90,6 +118,29 @@ export function PatrolRouteAdminSheet({
       if (!res.ok) throw new Error("Failed to load route");
       return res.json();
     },
+  });
+
+  const { data: scheduleData } = useQuery({
+    queryKey: ["/api/patrol/routes", editingRouteId, "schedule"],
+    enabled: open && mode === "edit" && editingRouteId != null,
+    queryFn: async () => {
+      const res = await fetch(`/api/patrol/routes/${editingRouteId}/schedule`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load schedule");
+      return res.json() as Promise<{
+        isEnabled: boolean;
+        intervalMinutes: number;
+        jitterMinutes: number;
+        startWithinMinutes: number;
+        quietStartHour: number | null;
+        quietEndHour: number | null;
+        assigneeUserIds: string[];
+      }>;
+    },
+  });
+
+  const { data: assigneeCandidates = [] } = useQuery<AssigneeCandidate[]>({
+    queryKey: ["/api/patrol/assignee-candidates"],
+    enabled: open && (mode === "create" || mode === "edit"),
   });
 
   useEffect(() => {
@@ -102,6 +153,19 @@ export function PatrolRouteAdminSheet({
     setSelectedIndex(drafts.length > 0 ? 0 : null);
   }, [mode, editingRoute]);
 
+  useEffect(() => {
+    if (mode !== "edit" || !scheduleData) return;
+    setSchedule({
+      isEnabled: scheduleData.isEnabled,
+      intervalMinutes: scheduleData.intervalMinutes,
+      jitterMinutes: scheduleData.jitterMinutes,
+      startWithinMinutes: scheduleData.startWithinMinutes,
+      quietStartHour: scheduleData.quietStartHour != null ? String(scheduleData.quietStartHour) : "none",
+      quietEndHour: scheduleData.quietEndHour != null ? String(scheduleData.quietEndHour) : "none",
+      assigneeUserIds: scheduleData.assigneeUserIds ?? [],
+    });
+  }, [mode, scheduleData]);
+
   function resetForm() {
     setMode("list");
     setEditingRouteId(null);
@@ -110,6 +174,7 @@ export function PatrolRouteAdminSheet({
     setCommandId("all");
     setCheckpoints([emptyPatrolCheckpoint()]);
     setSelectedIndex(0);
+    setSchedule(defaultScheduleForm());
   }
 
   function handleSheetOpenChange(next: boolean) {
@@ -156,6 +221,15 @@ export function PatrolRouteAdminSheet({
       if (!name.trim()) throw new Error("Route name is required");
       if (ready.length === 0) throw new Error("Add at least one checkpoint");
       const payload = serializeCheckpoints(ready);
+      const schedulePayload = {
+        isEnabled: schedule.isEnabled,
+        intervalMinutes: schedule.intervalMinutes,
+        jitterMinutes: schedule.jitterMinutes,
+        startWithinMinutes: schedule.startWithinMinutes,
+        quietStartHour: schedule.quietStartHour === "none" ? null : parseInt(schedule.quietStartHour, 10),
+        quietEndHour: schedule.quietEndHour === "none" ? null : parseInt(schedule.quietEndHour, 10),
+        assigneeUserIds: schedule.assigneeUserIds,
+      };
 
       if (mode === "create") {
         const res = await apiRequest("POST", "/api/patrol/routes", {
@@ -165,6 +239,8 @@ export function PatrolRouteAdminSheet({
           isActive: true,
           checkpoints: payload,
         });
+        const created = (await res.json()) as { id: number };
+        await apiRequest("PUT", `/api/patrol/routes/${created.id}/schedule`, schedulePayload);
         return res;
       }
 
@@ -177,6 +253,7 @@ export function PatrolRouteAdminSheet({
         await apiRequest("PUT", `/api/patrol/routes/${editingRouteId}/checkpoints`, {
           checkpoints: payload,
         });
+        await apiRequest("PUT", `/api/patrol/routes/${editingRouteId}/schedule`, schedulePayload);
       }
     },
     onSuccess: () => {
@@ -338,6 +415,159 @@ export function PatrolRouteAdminSheet({
                     <Plus className="h-4 w-4 mr-1" />
                     Add checkpoint
                   </Button>
+                </div>
+
+                <div className="space-y-3 rounded-lg border p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium">Scheduled prompts</p>
+                      <p className="text-xs text-muted-foreground">
+                        Push to a patroller about every hour (±jitter)
+                      </p>
+                    </div>
+                    <Switch
+                      checked={schedule.isEnabled}
+                      onCheckedChange={(v) => setSchedule((s) => ({ ...s, isEnabled: v }))}
+                    />
+                  </div>
+
+                  {schedule.isEnabled && (
+                    <div className="space-y-3 pt-1">
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="space-y-1">
+                          <Label className="text-xs">Interval (min)</Label>
+                          <Input
+                            type="number"
+                            min={30}
+                            max={180}
+                            value={schedule.intervalMinutes}
+                            onChange={(e) =>
+                              setSchedule((s) => ({
+                                ...s,
+                                intervalMinutes: parseInt(e.target.value, 10) || 60,
+                              }))
+                            }
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Jitter ±</Label>
+                          <Input
+                            type="number"
+                            min={0}
+                            max={30}
+                            value={schedule.jitterMinutes}
+                            onChange={(e) =>
+                              setSchedule((s) => ({
+                                ...s,
+                                jitterMinutes: parseInt(e.target.value, 10) || 0,
+                              }))
+                            }
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Start within</Label>
+                          <Input
+                            type="number"
+                            min={5}
+                            max={60}
+                            value={schedule.startWithinMinutes}
+                            onChange={(e) =>
+                              setSchedule((s) => ({
+                                ...s,
+                                startWithinMinutes: parseInt(e.target.value, 10) || 15,
+                              }))
+                            }
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <Label className="text-xs">Quiet from (SA)</Label>
+                          <Select
+                            value={schedule.quietStartHour}
+                            onValueChange={(v) => setSchedule((s) => ({ ...s, quietStartHour: v }))}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="None" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">None</SelectItem>
+                              {Array.from({ length: 24 }, (_, h) => (
+                                <SelectItem key={h} value={String(h)}>
+                                  {String(h).padStart(2, "0")}:00
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Quiet until (SA)</Label>
+                          <Select
+                            value={schedule.quietEndHour}
+                            onValueChange={(v) => setSchedule((s) => ({ ...s, quietEndHour: v }))}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="None" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">None</SelectItem>
+                              {Array.from({ length: 24 }, (_, h) => (
+                                <SelectItem key={h} value={String(h)}>
+                                  {String(h).padStart(2, "0")}:00
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label className="text-xs">Assignees (optional)</Label>
+                        <p className="text-[11px] text-muted-foreground">
+                          Leave empty to use the route group / all patrol-capable users. One person is
+                          prompted per cycle (round-robin).
+                        </p>
+                        <div className="max-h-36 overflow-y-auto space-y-1.5 rounded-md border p-2">
+                          {assigneeCandidates.length === 0 ? (
+                            <p className="text-xs text-muted-foreground px-1 py-2">
+                              No patrol-capable users found
+                            </p>
+                          ) : (
+                            assigneeCandidates.map((u) => {
+                              const checked = schedule.assigneeUserIds.includes(u.id);
+                              return (
+                                <label
+                                  key={u.id}
+                                  className="flex items-center gap-2 text-sm px-1 py-0.5 cursor-pointer"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    className="rounded border-input"
+                                    checked={checked}
+                                    onChange={() =>
+                                      setSchedule((s) => ({
+                                        ...s,
+                                        assigneeUserIds: checked
+                                          ? s.assigneeUserIds.filter((id) => id !== u.id)
+                                          : [...s.assigneeUserIds, u.id],
+                                      }))
+                                    }
+                                  />
+                                  <span className="truncate">
+                                    {u.firstName} {u.lastName}
+                                  </span>
+                                  <span className="text-[10px] text-muted-foreground ml-auto shrink-0">
+                                    {u.role.replace("_", " ")}
+                                  </span>
+                                </label>
+                              );
+                            })
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <Button

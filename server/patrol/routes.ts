@@ -22,6 +22,12 @@ import {
   startPatrol,
   updatePatrolRoute,
 } from "./storage";
+import {
+  getScheduleForRoute,
+  listAssigneeCandidates,
+  listPendingDispatchesForUser,
+  upsertScheduleForRoute,
+} from "./schedule-storage";
 
 function canManagePatrolRoutes(role: string): boolean {
   return role === "administrator" || role === "supervisor";
@@ -64,6 +70,16 @@ const clockBodySchema = z.object({
   photoUrl: z.string().max(2000).optional().nullable(),
   notes: z.string().max(1000).optional().nullable(),
   status: z.enum(PATROL_CHECKPOINT_LOG_STATUSES).optional(),
+});
+
+const upsertScheduleBodySchema = z.object({
+  isEnabled: z.boolean(),
+  intervalMinutes: z.number().int().min(30).max(180).default(60),
+  jitterMinutes: z.number().int().min(0).max(30).default(12),
+  startWithinMinutes: z.number().int().min(5).max(60).default(15),
+  quietStartHour: z.number().int().min(0).max(23).nullable().optional(),
+  quietEndHour: z.number().int().min(0).max(23).nullable().optional(),
+  assigneeUserIds: z.array(z.string().min(1)).max(50).optional(),
 });
 
 export function registerPatrolRoutes(app: Express) {
@@ -151,6 +167,60 @@ export function registerPatrolRoutes(app: Express) {
     } catch (err) {
       res.status(400).json({ message: err instanceof Error ? err.message : "Failed to update checkpoints" });
     }
+  });
+
+  app.get("/api/patrol/routes/:id/schedule", requirePatrolManager, async (req, res) => {
+    const id = parseInt(String(req.params.id), 10);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+
+    const schedule = await getScheduleForRoute(id, req.currentUser!.organizationId);
+    res.json(
+      schedule ?? {
+        routeId: id,
+        isEnabled: false,
+        intervalMinutes: 60,
+        jitterMinutes: 12,
+        startWithinMinutes: 15,
+        quietStartHour: null,
+        quietEndHour: null,
+        assigneeUserIds: [],
+        nextDueAt: null,
+        lastDispatchedAt: null,
+      },
+    );
+  });
+
+  app.put("/api/patrol/routes/:id/schedule", requirePatrolManager, async (req, res) => {
+    const id = parseInt(String(req.params.id), 10);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+
+    const parsed = upsertScheduleBodySchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
+
+    try {
+      const schedule = await upsertScheduleForRoute(
+        id,
+        req.currentUser!.organizationId,
+        req.currentUser!.id,
+        parsed.data,
+      );
+      res.json(schedule);
+    } catch (err) {
+      res.status(400).json({ message: err instanceof Error ? err.message : "Failed to save schedule" });
+    }
+  });
+
+  app.get("/api/patrol/assignee-candidates", requirePatrolManager, async (req, res) => {
+    res.json(await listAssigneeCandidates(req.currentUser!.organizationId));
+  });
+
+  app.get("/api/patrol/dispatches/pending", async (req, res) => {
+    if (!requirePermission(req, res, "patrol.execute")) return;
+    const pending = await listPendingDispatchesForUser(
+      req.currentUser!.id,
+      req.currentUser!.organizationId,
+    );
+    res.json(pending);
   });
 
   // ── Patrol execution ───────────────────────────────────────────────────────

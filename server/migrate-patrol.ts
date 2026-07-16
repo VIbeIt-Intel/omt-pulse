@@ -107,4 +107,65 @@ export async function migratePatrol() {
     CREATE INDEX IF NOT EXISTS patrol_checkpoint_logs_org_clocked_idx
       ON patrol_checkpoint_logs (organization_id, clocked_at DESC)
   `);
+
+  await safe("patrol_route_schedules.create", sql`
+    CREATE TABLE IF NOT EXISTS patrol_route_schedules (
+      id SERIAL PRIMARY KEY,
+      organization_id VARCHAR NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      route_id INTEGER NOT NULL REFERENCES patrol_routes(id) ON DELETE CASCADE,
+      is_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+      interval_minutes INTEGER NOT NULL DEFAULT 60,
+      jitter_minutes INTEGER NOT NULL DEFAULT 12,
+      start_within_minutes INTEGER NOT NULL DEFAULT 15,
+      quiet_start_hour INTEGER,
+      quiet_end_hour INTEGER,
+      next_due_at TIMESTAMP NOT NULL,
+      last_dispatched_at TIMESTAMP,
+      created_by_user_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      CONSTRAINT patrol_route_schedules_route_unique UNIQUE (route_id)
+    )
+  `);
+  await safe("patrol_route_schedules.due_idx", sql`
+    CREATE INDEX IF NOT EXISTS patrol_route_schedules_due_idx
+      ON patrol_route_schedules (is_enabled, next_due_at)
+  `);
+
+  await safe("patrol_schedule_assignees.create", sql`
+    CREATE TABLE IF NOT EXISTS patrol_schedule_assignees (
+      schedule_id INTEGER NOT NULL REFERENCES patrol_route_schedules(id) ON DELETE CASCADE,
+      user_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      organization_id VARCHAR NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      CONSTRAINT patrol_schedule_assignees_pk UNIQUE (schedule_id, user_id)
+    )
+  `);
+  await safe("patrol_schedule_assignees.user_idx", sql`
+    CREATE INDEX IF NOT EXISTS patrol_schedule_assignees_user_idx
+      ON patrol_schedule_assignees (user_id)
+  `);
+
+  await safe("patrol_schedule_dispatches.create", sql`
+    CREATE TABLE IF NOT EXISTS patrol_schedule_dispatches (
+      id SERIAL PRIMARY KEY,
+      organization_id VARCHAR NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      schedule_id INTEGER NOT NULL REFERENCES patrol_route_schedules(id) ON DELETE CASCADE,
+      route_id INTEGER NOT NULL REFERENCES patrol_routes(id) ON DELETE CASCADE,
+      user_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      status TEXT NOT NULL DEFAULT 'pending',
+      pushed_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      start_by_at TIMESTAMP NOT NULL,
+      patrol_id INTEGER REFERENCES patrols(id) ON DELETE SET NULL,
+      overdue_notified_at TIMESTAMP,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `);
+  await safe("patrol_schedule_dispatches.pending_idx", sql`
+    CREATE INDEX IF NOT EXISTS patrol_schedule_dispatches_pending_idx
+      ON patrol_schedule_dispatches (status, start_by_at)
+  `);
+  await safe("patrol_schedule_dispatches.user_pending_idx", sql`
+    CREATE INDEX IF NOT EXISTS patrol_schedule_dispatches_user_pending_idx
+      ON patrol_schedule_dispatches (user_id, status, route_id)
+  `);
 }

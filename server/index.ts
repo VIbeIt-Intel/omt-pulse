@@ -17,6 +17,7 @@ import { migrateFleetAlerts } from "./migrate-fleet-alerts";
 import { migrateWorkstations } from "./migrate-workstations";
 import { migrateAttachmentByteSize } from "./migrate-attachment-byte-size";
 import { startFleetOfflineAlertMonitor } from "./fleet-alerts/detection";
+import { startPatrolScheduleMonitor } from "./patrol/schedule-monitor";
 import { startVehicleTrackingFromEnv } from "./vehicle-tracking";
 
 console.log("[startup] Push subscription health check complete");
@@ -404,6 +405,7 @@ app.use((req, res, next) => {
       log(`serving on port ${port}`);
       startVehicleTrackingFromEnv();
       startFleetOfflineAlertMonitor();
+      startPatrolScheduleMonitor();
     },
   );
 })();

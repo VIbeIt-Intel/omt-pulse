@@ -51,6 +51,13 @@ export function resolvePushDeepLink(data: Record<string, unknown> | undefined): 
     }
     return "/fleet";
   }
+  if (type === "patrol_scheduled" || type === "patrol_overdue") {
+    const routeId = data?.routeId;
+    if (routeId != null && String(routeId)) {
+      return `/patrol?routeId=${routeId}`;
+    }
+    return "/patrol";
+  }
   return null;
 }
 

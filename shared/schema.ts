@@ -842,3 +842,67 @@ export type PatrolCheckpointLogWithCheckpoint = PatrolCheckpointLog & {
   checkpointName: string;
   orderIndex: number;
 };
+
+/** Jittered push schedule for a patrol route (one per route). */
+export const patrolRouteSchedules = pgTable("patrol_route_schedules", {
+  id: serial("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  routeId: integer("route_id").notNull().references(() => patrolRoutes.id, { onDelete: "cascade" }),
+  isEnabled: boolean("is_enabled").notNull().default(false),
+  /** Target minutes between prompts (~hourly by default). */
+  intervalMinutes: integer("interval_minutes").notNull().default(60),
+  /** Random ± minutes applied to each interval. */
+  jitterMinutes: integer("jitter_minutes").notNull().default(12),
+  /** How long the patroller has to tap Start after a push. */
+  startWithinMinutes: integer("start_within_minutes").notNull().default(15),
+  /** Quiet hours in Africa/Johannesburg local time (nullable = none). */
+  quietStartHour: integer("quiet_start_hour"),
+  quietEndHour: integer("quiet_end_hour"),
+  nextDueAt: timestamp("next_due_at").notNull(),
+  lastDispatchedAt: timestamp("last_dispatched_at"),
+  createdByUserId: varchar("created_by_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  unique("patrol_route_schedules_route_unique").on(table.routeId),
+]);
+
+export const insertPatrolRouteScheduleSchema = createInsertSchema(patrolRouteSchedules).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  organizationId: true,
+  createdByUserId: true,
+  lastDispatchedAt: true,
+});
+export type InsertPatrolRouteSchedule = z.infer<typeof insertPatrolRouteScheduleSchema>;
+export type PatrolRouteSchedule = typeof patrolRouteSchedules.$inferSelect;
+
+/** Explicit assignees for a schedule. Empty = fall back to route group / all patrol.execute users. */
+export const patrolScheduleAssignees = pgTable("patrol_schedule_assignees", {
+  scheduleId: integer("schedule_id").notNull().references(() => patrolRouteSchedules.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+}, (table) => [
+  unique("patrol_schedule_assignees_pk").on(table.scheduleId, table.userId),
+]);
+
+export const PATROL_DISPATCH_STATUSES = ["pending", "started", "overdue", "missed", "cancelled"] as const;
+export type PatrolDispatchStatus = (typeof PATROL_DISPATCH_STATUSES)[number];
+
+/** One push prompt to a patroller for a scheduled route. */
+export const patrolScheduleDispatches = pgTable("patrol_schedule_dispatches", {
+  id: serial("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  scheduleId: integer("schedule_id").notNull().references(() => patrolRouteSchedules.id, { onDelete: "cascade" }),
+  routeId: integer("route_id").notNull().references(() => patrolRoutes.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  status: text("status").notNull().default("pending"),
+  pushedAt: timestamp("pushed_at").defaultNow().notNull(),
+  startByAt: timestamp("start_by_at").notNull(),
+  patrolId: integer("patrol_id").references(() => patrols.id, { onDelete: "set null" }),
+  overdueNotifiedAt: timestamp("overdue_notified_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type PatrolScheduleDispatch = typeof patrolScheduleDispatches.$inferSelect;

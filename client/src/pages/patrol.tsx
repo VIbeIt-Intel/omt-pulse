@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import type { PatrolRoute } from "@shared/schema";
 import { canManagePatrolRoutes } from "@/lib/user-roles";
 import type { PatrolDetail, PatrolHistoryItem } from "@/lib/patrol-types";
@@ -10,6 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { cn } from "@/lib/utils";
 import { Footprints, History, Loader2, Plus, Route } from "lucide-react";
 
 type PatrolPageProps = {
@@ -18,12 +20,27 @@ type PatrolPageProps = {
 
 type OrgCommand = { id: number; name: string };
 
+type PendingDispatch = {
+  id: number;
+  routeId: number;
+  status: string;
+  startByAt: string;
+  routeName: string;
+};
+
 export default function PatrolPage({ userRole }: PatrolPageProps) {
   const isManager = canManagePatrolRoutes(userRole);
   const [tab, setTab] = useState<"run" | "history">("run");
   const [routeSheetOpen, setRouteSheetOpen] = useState(false);
   const { toast } = useToast();
   const qc = useQueryClient();
+  const [location] = useLocation();
+  const highlightRouteId = useMemo(() => {
+    const raw = new URLSearchParams(window.location.search).get("routeId");
+    if (!raw) return null;
+    const n = parseInt(raw, 10);
+    return Number.isFinite(n) ? n : null;
+  }, [location]);
 
   const { data: activePatrol, isLoading: activeLoading } = useQuery<PatrolDetail | null>({
     queryKey: ["/api/patrol/patrols/active"],
@@ -33,6 +50,19 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
   const { data: routes = [], isLoading: routesLoading } = useQuery<PatrolRoute[]>({
     queryKey: ["/api/patrol/routes"],
   });
+
+  const { data: pendingDispatches = [] } = useQuery<PendingDispatch[]>({
+    queryKey: ["/api/patrol/dispatches/pending"],
+    refetchInterval: 30_000,
+  });
+
+  const pendingByRoute = useMemo(() => {
+    const map = new Map<number, PendingDispatch>();
+    for (const d of pendingDispatches) {
+      if (!map.has(d.routeId)) map.set(d.routeId, d);
+    }
+    return map;
+  }, [pendingDispatches]);
 
   const { data: history = [], isLoading: historyLoading } = useQuery<PatrolHistoryItem[]>({
     queryKey: ["/api/patrol/patrols"],
@@ -49,12 +79,25 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
     onSuccess: () => {
       toast({ title: "Patrol started" });
       void qc.invalidateQueries({ queryKey: ["/api/patrol/patrols/active"] });
+      void qc.invalidateQueries({ queryKey: ["/api/patrol/dispatches/pending"] });
       setTab("run");
     },
     onError: (e: Error) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
   });
 
   const loading = activeLoading || routesLoading;
+  const sortedRoutes = useMemo(() => {
+    return [...routes].sort((a, b) => {
+      const aPending = pendingByRoute.has(a.id) ? 0 : 1;
+      const bPending = pendingByRoute.has(b.id) ? 0 : 1;
+      if (aPending !== bPending) return aPending - bPending;
+      if (highlightRouteId != null) {
+        if (a.id === highlightRouteId) return -1;
+        if (b.id === highlightRouteId) return 1;
+      }
+      return a.name.localeCompare(b.name);
+    });
+  }, [routes, pendingByRoute, highlightRouteId]);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -113,27 +156,38 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
           ) : (
             <div className="p-4 space-y-2">
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Start a route</p>
-              {routes.map((route) => (
-                <div
-                  key={route.id}
-                  className="flex items-center justify-between gap-3 rounded-lg border px-4 py-3"
-                >
-                  <div>
-                    <p className="font-medium text-sm">{route.name}</p>
-                    {route.description && (
-                      <p className="text-xs text-muted-foreground line-clamp-2">{route.description}</p>
+              {sortedRoutes.map((route) => {
+                const pending = pendingByRoute.get(route.id);
+                const highlighted = highlightRouteId === route.id || !!pending;
+                return (
+                  <div
+                    key={route.id}
+                    className={cn(
+                      "flex items-center justify-between gap-3 rounded-lg border px-4 py-3",
+                      highlighted && "border-primary/60 bg-primary/5",
                     )}
-                  </div>
-                  <Button
-                    type="button"
-                    size="sm"
-                    disabled={startMutation.isPending}
-                    onClick={() => startMutation.mutate(route.id)}
                   >
-                    {startMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Start"}
-                  </Button>
-                </div>
-              ))}
+                    <div className="min-w-0">
+                      <p className="font-medium text-sm">{route.name}</p>
+                      {pending ? (
+                        <p className="text-xs text-primary font-medium mt-0.5">
+                          {pending.status === "overdue" ? "Overdue — start now" : "Due now — start patrol"}
+                        </p>
+                      ) : route.description ? (
+                        <p className="text-xs text-muted-foreground line-clamp-2">{route.description}</p>
+                      ) : null}
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={startMutation.isPending}
+                      onClick={() => startMutation.mutate(route.id)}
+                    >
+                      {startMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Start"}
+                    </Button>
+                  </div>
+                );
+              })}
             </div>
           )}
         </TabsContent>

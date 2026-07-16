@@ -397,6 +397,127 @@ async function dispatchFleetAlertPush(
   } catch { /* best-effort */ }
 }
 
+const PATROL_OVERDUE_NOTIFY_ROLES = ["administrator", "supervisor", "control_room"] as const;
+
+async function dispatchPatrolPush(req: PatrolPushRequest): Promise<void> {
+  const detailUrl = `/patrol?routeId=${req.routeId}`;
+  const isOverdue = req.kind === "patrol_overdue";
+  const title = isOverdue ? "Patrol overdue" : "Patrol due";
+  const body = isOverdue
+    ? `${req.patrollerName ?? "Patroller"} has not started ${req.routeName}`
+    : `Time to run ${req.routeName}`;
+  const data = {
+    type: req.kind,
+    url: detailUrl,
+    routeId: String(req.routeId),
+    ...(req.dispatchId != null ? { dispatchId: String(req.dispatchId) } : {}),
+  };
+  const payload = JSON.stringify({ type: req.kind, title, body, url: detailUrl, routeId: String(req.routeId) });
+  const pushedUserIds = new Set<string>();
+
+  if (!isOverdue && req.userId) {
+    const fcmSubs = await storage.getFcmTokensByUser(req.userId);
+    if (fcmSubs.length > 0) {
+      await sendFcmBatch(fcmSubs.map((s) => s.token), {
+        title,
+        body,
+        data,
+        notificationTag: `patrol-${req.routeId}`,
+      });
+      pushedUserIds.add(req.userId);
+    }
+
+    const webSubs = await storage.getPushSubscriptionsByOrg(req.organizationId);
+    const userWeb = webSubs.filter((s) => s.userId === req.userId);
+    if (userWeb.length > 0) {
+      await Promise.allSettled(
+        dedupeByEndpoint(userWeb).map(async (sub) => {
+          try {
+            await webpush.sendNotification(
+              { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+              payload,
+              URGENT_PUSH,
+            );
+            pushedUserIds.add(sub.userId);
+          } catch (err: unknown) {
+            const statusCode =
+              typeof err === "object" && err !== null && "statusCode" in err
+                ? (err as { statusCode: number }).statusCode
+                : 0;
+            if (statusCode === 410 || statusCode === 404) {
+              await storage.deletePushSubscription(sub.endpoint);
+            }
+          }
+        }),
+      );
+    }
+
+    if (!pushedUserIds.has(req.userId)) {
+      await storage.createNotificationLog({
+        organizationId: req.organizationId,
+        userId: req.userId,
+        title,
+        body,
+        url: detailUrl,
+      }).catch(() => {});
+    }
+    return;
+  }
+
+  // Overdue: remind patroller + notify supervisors/admins/control room
+  if (req.userId) {
+    const fcmSubs = await storage.getFcmTokensByUser(req.userId);
+    if (fcmSubs.length > 0) {
+      await sendFcmBatch(fcmSubs.map((s) => s.token), {
+        title,
+        body: `Start ${req.routeName} now — overdue`,
+        data,
+        notificationTag: `patrol-overdue-${req.routeId}`,
+      });
+    }
+  }
+
+  const roles = [...PATROL_OVERDUE_NOTIFY_ROLES];
+  const fcmSubs = await storage.getFcmTokensByOrg(req.organizationId, req.userId, roles);
+  if (fcmSubs.length > 0) {
+    await sendFcmBatch(fcmSubs.map((s) => s.token), {
+      title,
+      body,
+      data,
+      notificationTag: `patrol-overdue-mgmt-${req.routeId}`,
+    });
+    for (const s of fcmSubs) pushedUserIds.add(s.userId);
+  }
+
+  const webSubs = await storage.getPushSubscriptionsByOrg(
+    req.organizationId,
+    req.userId,
+    roles,
+  );
+  if (webSubs.length > 0) {
+    await Promise.allSettled(
+      dedupeByEndpoint(webSubs).map(async (sub) => {
+        try {
+          await webpush.sendNotification(
+            { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+            payload,
+            URGENT_PUSH,
+          );
+          pushedUserIds.add(sub.userId);
+        } catch (err: unknown) {
+          const statusCode =
+            typeof err === "object" && err !== null && "statusCode" in err
+              ? (err as { statusCode: number }).statusCode
+              : 0;
+          if (statusCode === 410 || statusCode === 404) {
+            await storage.deletePushSubscription(sub.endpoint);
+          }
+        }
+      }),
+    );
+  }
+}
+
 /** userId:locationId → was inside premises radius on last known position */
 const premiseGeofenceInside = new Map<string, boolean>();
 
@@ -1120,6 +1241,7 @@ import { registerFleetAlertRoutes } from "./fleet-alerts/routes";
 import { registerWorkstationRoutes, attachWorkstation } from "./workstations/routes";
 import { hashShiftPin } from "./workstations/storage";
 import { registerFleetAlertPushHandler } from "./fleet-alerts/push";
+import { registerPatrolPushHandler, type PatrolPushRequest } from "./patrol/push";
 import { FLEET_ALERT_NOTIFY_ROLES } from "@shared/fleet-alerts";
 import type { FleetAlertSummary } from "@shared/schema";
 
@@ -5672,6 +5794,10 @@ export async function registerRoutes(
 
   registerFleetAlertPushHandler(async ({ alert, commandId }) => {
     await dispatchFleetAlertPush(alert.organizationId, alert, commandId);
+  });
+
+  registerPatrolPushHandler(async (req) => {
+    await dispatchPatrolPush(req);
   });
 
   return httpServer;

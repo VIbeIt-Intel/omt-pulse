@@ -12,6 +12,7 @@ import {
 } from "@shared/schema";
 import { db } from "../storage";
 import { eq, and, desc, asc, or, isNull, inArray, sql } from "drizzle-orm";
+import { linkDispatchOnPatrolStart } from "./schedule-storage";
 
 export type PatrolRouteWithCheckpoints = PatrolRoute & { checkpoints: PatrolCheckpoint[] };
 
@@ -201,6 +202,8 @@ export async function startPatrol(routeId: number, userId: string, orgId: string
       updatedAt: new Date(),
     })
     .returning();
+
+  await linkDispatchOnPatrolStart(routeId, userId, orgId, patrol.id).catch(() => {});
 
   return (await getPatrolDetail(patrol.id, orgId))!;
 }
