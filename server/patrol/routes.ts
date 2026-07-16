@@ -52,6 +52,8 @@ const createRouteBodySchema = insertPatrolRouteSchema.extend({
   checkpoints: z.array(checkpointInputSchema).min(1).max(50).optional(),
 });
 
+const updateRouteBodySchema = insertPatrolRouteSchema.partial();
+
 const replaceCheckpointsSchema = z.object({
   checkpoints: z.array(checkpointInputSchema).min(1).max(50),
 });
@@ -127,7 +129,7 @@ export function registerPatrolRoutes(app: Express) {
     const id = parseInt(String(req.params.id), 10);
     if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
 
-    const partial = insertPatrolRouteSchema.partial().safeParse(req.body);
+    const partial = updateRouteBodySchema.safeParse(req.body);
     if (!partial.success) return res.status(400).json({ message: partial.error.message });
 
     const orgId = req.currentUser!.organizationId;

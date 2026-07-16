@@ -77,7 +77,7 @@ export async function getPatrolRouteWithCheckpoints(
 }
 
 export async function createPatrolRoute(
-  data: Omit<InsertPatrolRoute, "createdByUserId">,
+  data: InsertPatrolRoute,
   orgId: string,
   userId: string,
 ): Promise<PatrolRoute> {
@@ -95,7 +95,7 @@ export async function createPatrolRoute(
 
 export async function updatePatrolRoute(
   id: number,
-  data: Partial<Omit<InsertPatrolRoute, "createdByUserId">>,
+  data: Partial<InsertPatrolRoute>,
   orgId: string,
 ): Promise<PatrolRoute | undefined> {
   const [row] = await db

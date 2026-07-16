@@ -749,6 +749,8 @@ export const insertPatrolRouteSchema = createInsertSchema(patrolRoutes).omit({
   createdAt: true,
   updatedAt: true,
   organizationId: true,
+  /** Set from session on the server — never accept from the client. */
+  createdByUserId: true,
 });
 export type InsertPatrolRoute = z.infer<typeof insertPatrolRouteSchema>;
 export type PatrolRoute = typeof patrolRoutes.$inferSelect;
