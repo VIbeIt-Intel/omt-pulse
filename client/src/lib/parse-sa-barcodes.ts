@@ -9,6 +9,7 @@
 
 import { isPlausibleSaVehicleRegistration } from "@shared/parse-sa-licence-disc";
 import { parseSaMvlDiscBarcode } from "@shared/parse-sa-mvl-disc";
+import { looksLikeSaTdlBarcode, parseSaTdlBarcode } from "@shared/parse-sa-tdl-barcode";
 
 import {
   looksLikeSadlEncryptedString,
@@ -30,7 +31,7 @@ export type ParsedSaId = {
   extraFields?: string[];
   /** True when barcode only had ID digits (green book / partial scan). */
   idOnly?: boolean;
-  documentType?: "smart_id" | "drivers_licence" | "id_book";
+  documentType?: "smart_id" | "drivers_licence" | "temporary_drivers_licence" | "id_book";
   driversLicenceNumber?: string;
   licenceExpiryDate?: string;
   licenceValidFrom?: string;
@@ -79,6 +80,27 @@ export function parseSaIdentityScan(raw: string): ParsedSaId {
       return {
         documentType: "drivers_licence",
         hint: "Driver's licence detected — use Scan or Take photo to decode.",
+      };
+    }
+
+    if (looksLikeSaTdlBarcode(trimmed)) {
+      const tdl = parseSaTdlBarcode(trimmed);
+      if (tdl.complete) {
+        return {
+          documentType: "temporary_drivers_licence",
+          personFullName: tdl.personFullName,
+          personSurname: tdl.personSurname,
+          personIdNumber: tdl.personIdNumber,
+          personDateOfBirth: tdl.personDateOfBirth,
+          driversLicenceNumber: tdl.driversLicenceNumber,
+          licenceExpiryDate: tdl.licenceExpiryDate,
+          vehicleCodes: tdl.vehicleCodes,
+          hint: tdl.hint,
+        };
+      }
+      return {
+        documentType: "temporary_drivers_licence",
+        hint: tdl.hint ?? "Temporary licence barcode not fully readable — enter details manually.",
       };
     }
 
@@ -131,6 +153,13 @@ export function parseSaIdBarcode(raw: string): ParsedSaId {
       documentType: "id_book",
       hint:
         "Only the ID number was read. Scan the large square PDF417 on the back of a Smart ID or driver's licence (hold steady for 2–3 seconds).",
+    };
+  }
+
+  if (looksLikeSaTdlBarcode(trimmed)) {
+    return {
+      documentType: "temporary_drivers_licence",
+      hint: "Temporary licence barcode not fully readable — enter name and ID manually.",
     };
   }
 

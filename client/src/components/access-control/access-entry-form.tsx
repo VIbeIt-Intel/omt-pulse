@@ -92,8 +92,14 @@ function emptyPerson(showManual = false): PersonDraft {
 }
 
 function buildLicenceNote(parsed: ParsedSaId): string | null {
-  if (parsed.documentType !== "drivers_licence") return null;
+  if (
+    parsed.documentType !== "drivers_licence" &&
+    parsed.documentType !== "temporary_drivers_licence"
+  ) {
+    return null;
+  }
   const parts: string[] = [];
+  if (parsed.documentType === "temporary_drivers_licence") parts.push("Temporary DL");
   if (parsed.driversLicenceNumber) parts.push(`DL ${parsed.driversLicenceNumber}`);
   if (parsed.licenceExpiryDate) parts.push(`expires ${parsed.licenceExpiryDate}`);
   if (parsed.vehicleCodes?.length) parts.push(`codes ${parsed.vehicleCodes.join(", ")}`);

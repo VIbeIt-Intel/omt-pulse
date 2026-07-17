@@ -98,7 +98,7 @@ const accessScanDriversLicenceSchema = z.object({
 const accessScanDataSchema = z.object({
   capturedAt: z.string().max(40),
   scanMethod: z.enum(ACCESS_SCAN_METHODS),
-  documentType: z.enum(["smart_id", "drivers_licence", "id_book"]).optional(),
+  documentType: z.enum(["smart_id", "drivers_licence", "temporary_drivers_licence", "id_book"]).optional(),
   identity: accessScanIdentitySchema,
   driversLicence: accessScanDriversLicenceSchema.optional(),
   extraFields: z.array(z.string().max(200)).max(20).optional(),

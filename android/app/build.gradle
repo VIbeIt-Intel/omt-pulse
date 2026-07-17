@@ -34,8 +34,8 @@ android {
         applicationId "com.intelafri.omtpulse"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 21
-        versionName "1.0.19"
+        versionCode 22
+        versionName "1.0.20"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Injected at CI build time via GOOGLE_MAPS_ANDROID_API_KEY (see .env.example).
         // Local dev: add GOOGLE_MAPS_ANDROID_API_KEY=... to android/local.properties

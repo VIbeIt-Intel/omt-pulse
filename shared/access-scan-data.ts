@@ -37,7 +37,7 @@ export type AccessScanDriversLicence = {
 export type AccessScanData = {
   capturedAt: string;
   scanMethod: AccessScanMethod;
-  documentType?: "smart_id" | "drivers_licence" | "id_book";
+  documentType?: "smart_id" | "drivers_licence" | "temporary_drivers_licence" | "id_book";
   identity: AccessScanIdentity;
   driversLicence?: AccessScanDriversLicence;
   /** Unmapped Smart ID pipe fields (index 8+). */
@@ -48,7 +48,7 @@ export type AccessScanData = {
 
 /** Input shape from client parsers — mirrors ParsedSaId without importing client code. */
 export type AccessScanCaptureInput = {
-  documentType?: "smart_id" | "drivers_licence" | "id_book";
+  documentType?: "smart_id" | "drivers_licence" | "temporary_drivers_licence" | "id_book";
   personFullName?: string;
   personIdNumber?: string;
   personSurname?: string;
@@ -127,7 +127,7 @@ export function buildAccessScanData(
 
   const driversLicence: AccessScanDriversLicence | undefined = dl
     ? driversLicenceFromSadl(dl)
-    : parsed.documentType === "drivers_licence"
+    : parsed.documentType === "drivers_licence" || parsed.documentType === "temporary_drivers_licence"
       ? {
           licenceNumber: clean(parsed.driversLicenceNumber),
           issueDate: clean(parsed.licenceValidFrom),
