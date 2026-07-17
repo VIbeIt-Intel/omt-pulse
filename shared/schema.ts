@@ -602,6 +602,8 @@ export const fleetAlerts = pgTable("fleet_alerts", {
   speedKph: doublePrecision("speed_kph"),
   triggeredAt: timestamp("triggered_at").defaultNow().notNull(),
   pushSent: boolean("push_sent").notNull().default(false),
+  acknowledgedAt: timestamp("acknowledged_at"),
+  acknowledgedByUserId: varchar("acknowledged_by_user_id").references(() => users.id, { onDelete: "set null" }),
 });
 
 export type FleetAlertDefaults = typeof fleetAlertDefaults.$inferSelect;

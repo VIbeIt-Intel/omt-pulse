@@ -64,4 +64,14 @@ export async function migrateFleetAlerts(): Promise<void> {
   await safe("fleet_alerts.org_idx", sql`
     CREATE INDEX IF NOT EXISTS fleet_alerts_org_idx ON fleet_alerts (organization_id, triggered_at DESC)
   `);
+  await safe("fleet_alerts.acknowledged_at", sql`
+    ALTER TABLE fleet_alerts ADD COLUMN IF NOT EXISTS acknowledged_at TIMESTAMP
+  `);
+  await safe("fleet_alerts.acknowledged_by_user_id", sql`
+    ALTER TABLE fleet_alerts ADD COLUMN IF NOT EXISTS acknowledged_by_user_id VARCHAR REFERENCES users(id) ON DELETE SET NULL
+  `);
+  await safe("fleet_alerts.unacked_org_idx", sql`
+    CREATE INDEX IF NOT EXISTS fleet_alerts_unacked_org_idx ON fleet_alerts (organization_id, triggered_at DESC)
+    WHERE acknowledged_at IS NULL
+  `);
 }

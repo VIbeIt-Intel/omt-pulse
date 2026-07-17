@@ -4,6 +4,7 @@ import { isDispatchStaff } from "@shared/user-roles";
 import type { ResolvedFleetAlertRules } from "@shared/schema";
 import {
   getActiveFleetAlertCountsByDevice,
+  acknowledgeFleetAlert,
   getFleetAlertDefaults,
   getFleetAlerts,
   getResolvedFleetAlertRules,
@@ -81,6 +82,16 @@ export function registerFleetAlertRoutes(app: Express) {
     const orgId = req.currentUser!.organizationId;
     const hours = parseInt(String(req.query.hours ?? "24"), 10);
     res.json(await getActiveFleetAlertCountsByDevice(orgId, Number.isFinite(hours) ? hours : 24));
+  });
+
+  app.post("/api/fleet-alerts/:id/acknowledge", requireFleetAccess, async (req, res) => {
+    const alertId = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(alertId)) return res.status(400).json({ message: "Invalid id" });
+    const orgId = req.currentUser!.organizationId;
+    const userId = req.currentUser!.id;
+    const updated = await acknowledgeFleetAlert(alertId, orgId, userId);
+    if (!updated) return res.status(404).json({ message: "Alert not found" });
+    res.json(updated);
   });
 
   app.get("/api/fleet-alerts/rules/defaults", requireFleetAccess, async (req, res) => {

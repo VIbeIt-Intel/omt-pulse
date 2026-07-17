@@ -16,7 +16,7 @@ import {
   type FleetAlertType,
 } from "@shared/fleet-alerts";
 import { db } from "../storage";
-import { eq, and, desc, gte } from "drizzle-orm";
+import { eq, and, desc, gte, isNull } from "drizzle-orm";
 
 function mergeRules(
   defaults: FleetAlertDefaults | undefined,
@@ -253,6 +253,45 @@ export async function getFleetAlerts(
   return rows.map(mapAlertRow);
 }
 
+export async function acknowledgeFleetAlert(
+  alertId: number,
+  orgId: string,
+  userId: string,
+): Promise<FleetAlertSummary | undefined> {
+  const [updated] = await db
+    .update(fleetAlerts)
+    .set({
+      acknowledgedAt: new Date(),
+      acknowledgedByUserId: userId,
+    })
+    .where(and(eq(fleetAlerts.id, alertId), eq(fleetAlerts.organizationId, orgId)))
+    .returning();
+
+  if (!updated) return undefined;
+
+  const [device] = await db
+    .select({
+      label: trackerDevices.label,
+      vehicleRegistration: trackerDevices.vehicleRegistration,
+      vehicleMake: trackerDevices.vehicleMake,
+      vehicleModel: trackerDevices.vehicleModel,
+    })
+    .from(trackerDevices)
+    .where(eq(trackerDevices.id, updated.deviceId))
+    .limit(1);
+
+  const vehicleLabel =
+    [device?.vehicleMake, device?.vehicleModel].filter(Boolean).join(" ").trim()
+    || device?.label
+    || null;
+
+  return {
+    ...updated,
+    vehicleLabel,
+    vehicleRegistration: device?.vehicleRegistration ?? null,
+  };
+}
+
 export async function getActiveFleetAlertCountsByDevice(
   orgId: string,
   hours = 24,
@@ -263,7 +302,13 @@ export async function getActiveFleetAlertCountsByDevice(
       deviceId: fleetAlerts.deviceId,
     })
     .from(fleetAlerts)
-    .where(and(eq(fleetAlerts.organizationId, orgId), gte(fleetAlerts.triggeredAt, since)));
+    .where(
+      and(
+        eq(fleetAlerts.organizationId, orgId),
+        gte(fleetAlerts.triggeredAt, since),
+        isNull(fleetAlerts.acknowledgedAt),
+      ),
+    );
 
   const counts: Record<number, number> = {};
   for (const row of rows) {
