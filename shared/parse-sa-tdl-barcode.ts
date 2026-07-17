@@ -100,7 +100,7 @@ export function parseSaTdlBarcode(raw: string): ParsedSaTdlBarcode {
     const nameParts = extractSurnameFromSegment(segment);
     if (nameParts.surname && !surname) {
       surname = nameParts.surname;
-      if (nameParts.prefix && !licenceRef) licenceRef = nameParts.prefix;
+      if (nameParts.prefix) licenceRef = nameParts.prefix.toUpperCase();
       continue;
     }
 
