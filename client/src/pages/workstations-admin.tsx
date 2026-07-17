@@ -20,6 +20,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Table,
   TableBody,
   TableCell,
@@ -30,7 +40,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { Copy, Loader2, MonitorSmartphone, Plus, RefreshCw } from "lucide-react";
+import { Copy, Eye, Loader2, MonitorSmartphone, Plus, RefreshCw } from "lucide-react";
 
 type OrgCommand = { id: number; name: string; isCentral: boolean };
 
@@ -43,6 +53,7 @@ export default function WorkstationsAdminPage() {
   const [locationId, setLocationId] = useState("");
   const [commandId, setCommandId] = useState("");
   const [enrolDialog, setEnrolDialog] = useState<{ code: string; name: string; expiresAt: string } | null>(null);
+  const [reenrolConfirm, setReenrolConfirm] = useState<WorkstationWithDetails | null>(null);
 
   const { data: workstations = [], isLoading } = useQuery<WorkstationWithDetails[]>({
     queryKey: ["/api/workstations"],
@@ -85,6 +96,26 @@ export default function WorkstationsAdminPage() {
     onError: (e: Error) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
   });
 
+  /** Non-destructive: reveal existing code (or issue one if missing/expired). Never unbinds. */
+  const showCodeMutation = useMutation({
+    mutationFn: async (ws: WorkstationWithDetails) => {
+      const res = await apiRequest("GET", `/api/workstations/${ws.id}/enrolment-code`);
+      return { ...(await res.json()), name: ws.name };
+    },
+    onSuccess: (data) => {
+      if (data.issuedNew) {
+        void qc.invalidateQueries({ queryKey: ["/api/workstations"] });
+      }
+      setEnrolDialog({
+        code: data.enrolmentCode,
+        name: data.name,
+        expiresAt: data.enrolmentExpiresAt,
+      });
+    },
+    onError: (e: Error) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
+  });
+
+  /** Destructive: unbind device + new code (only after confirm). */
   const regenerateMutation = useMutation({
     mutationFn: async (id: number) => {
       const res = await apiRequest("POST", `/api/workstations/${id}/regenerate-code`, {});
@@ -92,11 +123,16 @@ export default function WorkstationsAdminPage() {
     },
     onSuccess: (data, id) => {
       void qc.invalidateQueries({ queryKey: ["/api/workstations"] });
-      const ws = workstations.find((w) => w.id === id);
+      const ws = workstations.find((w) => w.id === id) ?? reenrolConfirm;
+      setReenrolConfirm(null);
       setEnrolDialog({
         code: data.enrolmentCode,
         name: ws?.name ?? "Position",
         expiresAt: data.enrolmentExpiresAt,
+      });
+      toast({
+        title: "Device unbound",
+        description: "Enter this new code on the phone to enrol again.",
       });
     },
     onError: (e: Error) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
@@ -106,6 +142,8 @@ export default function WorkstationsAdminPage() {
     void navigator.clipboard.writeText(code);
     toast({ title: "Code copied" });
   }
+
+  const actionPending = showCodeMutation.isPending || regenerateMutation.isPending;
 
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-5xl mx-auto">
@@ -164,16 +202,29 @@ export default function WorkstationsAdminPage() {
                   {ws.currentOperatorName ?? "—"}
                 </TableCell>
                 <TableCell className="text-right">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={regenerateMutation.isPending}
-                    onClick={() => regenerateMutation.mutate(ws.id)}
-                  >
-                    <RefreshCw className="h-3.5 w-3.5 mr-1" />
-                    {ws.enrolledAt ? "Re-enrol" : "Show code"}
-                  </Button>
+                  {ws.enrolledAt ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={actionPending}
+                      onClick={() => setReenrolConfirm(ws)}
+                    >
+                      <RefreshCw className="h-3.5 w-3.5 mr-1" />
+                      Re-enrol
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={actionPending}
+                      onClick={() => showCodeMutation.mutate(ws)}
+                    >
+                      <Eye className="h-3.5 w-3.5 mr-1" />
+                      Show code
+                    </Button>
+                  )}
                 </TableCell>
               </TableRow>
             ))}
@@ -261,6 +312,9 @@ export default function WorkstationsAdminPage() {
                 On the dedicated phone, open Enrol device from the login screen (or go to{" "}
                 <span className="font-mono">/positions/enrol</span>). Code expires in 48 hours. After enrol, the phone signs in as this position — no PIN.
               </p>
+              <p className="text-xs text-muted-foreground">
+                Showing this code does not unbind a device. Use Re-enrol only when you need to replace the phone.
+              </p>
               <div className="flex items-center gap-2">
                 <Input readOnly value={enrolDialog.code} className="font-mono text-lg tracking-widest text-center" />
                 <Button type="button" variant="outline" size="icon" onClick={() => copyCode(enrolDialog.code)}>
@@ -271,6 +325,33 @@ export default function WorkstationsAdminPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!reenrolConfirm} onOpenChange={(open) => !open && setReenrolConfirm(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Re-enrol {reenrolConfirm?.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This unbinds the current phone and issues a new enrolment code. The old device will stop working as this position until someone enrols again with the new code.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={regenerateMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={regenerateMutation.isPending || !reenrolConfirm}
+              onClick={(e) => {
+                e.preventDefault();
+                if (reenrolConfirm) regenerateMutation.mutate(reenrolConfirm.id);
+              }}
+            >
+              {regenerateMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                "Unbind & new code"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

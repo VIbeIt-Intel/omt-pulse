@@ -14,6 +14,7 @@ import {
   getWorkstationByDeviceToken,
   getWorkstationsByOrg,
   regenerateWorkstationEnrolmentCode,
+  revealWorkstationEnrolmentCode,
   setWorkstationOperator,
   touchWorkstation,
   updateWorkstation,
@@ -116,6 +117,26 @@ export function registerWorkstationRoutes(app: Express) {
     res.json(updated);
   });
 
+  /** Non-destructive: show existing code, or issue one if missing/expired (never unbinds). */
+  app.get("/api/workstations/:id/enrolment-code", requireAdmin, async (req, res) => {
+    const id = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid id" });
+    const orgId = req.currentUser!.organizationId;
+    const result = await revealWorkstationEnrolmentCode(id, orgId);
+    if (result.ok === false) {
+      if (result.reason === "not_found") return res.status(404).json({ message: "Workstation not found" });
+      return res.status(409).json({
+        message: "This position is already enrolled. Use Re-enrol to unbind the device and issue a new code.",
+      });
+    }
+    res.json({
+      enrolmentCode: result.enrolmentCode,
+      enrolmentExpiresAt: result.enrolmentExpiresAt,
+      issuedNew: result.issuedNew,
+    });
+  });
+
+  /** Destructive: clears device binding and issues a new enrolment code. */
   app.post("/api/workstations/:id/regenerate-code", requireAdmin, async (req, res) => {
     const id = parseInt(String(req.params.id), 10);
     if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid id" });

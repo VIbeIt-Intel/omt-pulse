@@ -238,6 +238,50 @@ export async function updateWorkstation(
   return getWorkstationById(id, orgId);
 }
 
+/**
+ * Reveal the current enrolment code without unbinding a device.
+ * If the code is missing or expired (and the position is not enrolled), issue a fresh one.
+ * If already enrolled, callers must use regenerateWorkstationEnrolmentCode (destructive).
+ */
+export async function revealWorkstationEnrolmentCode(
+  id: number,
+  orgId: string,
+): Promise<
+  | { ok: true; enrolmentCode: string; enrolmentExpiresAt: Date; issuedNew: boolean }
+  | { ok: false; reason: "not_found" | "already_enrolled" }
+> {
+  const existing = await getWorkstationById(id, orgId);
+  if (!existing) return { ok: false, reason: "not_found" };
+  if (existing.enrolledAt) return { ok: false, reason: "already_enrolled" };
+
+  const expiresAt = existing.enrolmentExpiresAt
+    ? new Date(existing.enrolmentExpiresAt).getTime()
+    : 0;
+  const codeStillValid =
+    !!existing.enrolmentCode && expiresAt > Date.now();
+
+  if (codeStillValid && existing.enrolmentCode && existing.enrolmentExpiresAt) {
+    return {
+      ok: true,
+      enrolmentCode: existing.enrolmentCode,
+      enrolmentExpiresAt: new Date(existing.enrolmentExpiresAt),
+      issuedNew: false,
+    };
+  }
+
+  const enrolmentCode = generateEnrolmentCode();
+  const enrolmentExpiresAt = new Date(Date.now() + ENROLMENT_TTL_MS);
+  const [row] = await db
+    .update(workstations)
+    .set({ enrolmentCode, enrolmentExpiresAt })
+    .where(and(eq(workstations.id, id), eq(workstations.organizationId, orgId)))
+    .returning();
+
+  if (!row) return { ok: false, reason: "not_found" };
+  return { ok: true, enrolmentCode, enrolmentExpiresAt, issuedNew: true };
+}
+
+/** Destructive: unbinds the device and issues a new enrolment code. */
 export async function regenerateWorkstationEnrolmentCode(
   id: number,
   orgId: string,
