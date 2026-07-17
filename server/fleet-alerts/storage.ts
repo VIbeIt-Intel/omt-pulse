@@ -193,8 +193,8 @@ export async function createFleetAlert(input: {
     .limit(1);
 
   const vehicleLabel =
-    [device?.vehicleMake, device?.vehicleModel].filter(Boolean).join(" ").trim()
-    || device?.label
+    device?.label?.trim()
+    || [device?.vehicleMake, device?.vehicleModel].filter(Boolean).join(" ").trim()
     || null;
 
   return {
@@ -216,7 +216,7 @@ function mapAlertRow(r: {
   vehicleModel: string | null;
 }): FleetAlertSummary {
   const vehicleLabel =
-    [r.vehicleMake, r.vehicleModel].filter(Boolean).join(" ").trim() || r.label || null;
+    r.label?.trim() || [r.vehicleMake, r.vehicleModel].filter(Boolean).join(" ").trim() || null;
   return {
     ...r.alert,
     vehicleLabel,
@@ -281,8 +281,8 @@ export async function acknowledgeFleetAlert(
     .limit(1);
 
   const vehicleLabel =
-    [device?.vehicleMake, device?.vehicleModel].filter(Boolean).join(" ").trim()
-    || device?.label
+    device?.label?.trim()
+    || [device?.vehicleMake, device?.vehicleModel].filter(Boolean).join(" ").trim()
     || null;
 
   return {
@@ -350,9 +350,9 @@ export async function getTrackerDevicesForAlertScan(): Promise<TrackerDeviceForA
 }
 
 export function vehicleDisplayNameForAlert(device: TrackerDeviceForAlerts): string {
+  if (device.label?.trim()) return device.label.trim();
   const makeModel = [device.vehicleMake, device.vehicleModel].filter(Boolean).join(" ").trim();
   if (makeModel) return makeModel;
-  if (device.label?.trim()) return device.label.trim();
   if (device.vehicleRegistration?.trim()) return device.vehicleRegistration.trim();
   return `Vehicle #${device.id}`;
 }

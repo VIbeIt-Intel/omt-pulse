@@ -208,7 +208,9 @@ export function vehicleDisplayName(device: {
   label?: string | null;
   imei: string;
 }): string {
+  const label = device.label?.trim();
+  if (label) return label;
   const makeModel = [device.vehicleMake, device.vehicleModel].filter(Boolean).join(" ").trim();
   if (makeModel) return makeModel;
-  return device.label?.trim() || `Vehicle …${device.imei.slice(-4)}`;
+  return `Vehicle …${device.imei.slice(-4)}`;
 }
