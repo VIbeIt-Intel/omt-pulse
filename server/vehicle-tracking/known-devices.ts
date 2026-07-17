@@ -7,8 +7,8 @@ export const KNOWN_TRACKER_DEVICES: Record<
   { note: string; targetCommandName: string }
 > = {
   "866656089774212": {
-    note: "OBD GPS tracker",
-    targetCommandName: "Command",
+    note: "Ford Kuga OBD GPS tracker",
+    targetCommandName: "Central / Head Office",
   },
 };
 
