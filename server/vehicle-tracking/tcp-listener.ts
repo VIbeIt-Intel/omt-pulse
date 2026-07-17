@@ -70,6 +70,19 @@ function processPacket(connection: TrackerConnection, packet: Buffer): void {
       );
     }
 
+    if (result.followUpResponses?.length) {
+      for (const followUp of result.followUpResponses) {
+        // Brief delay so the terminal finishes processing the login ACK first.
+        setTimeout(() => {
+          if (connection.socket.destroyed) return;
+          connection.socket.write(followUp);
+          console.log(
+            `[${LOG}] follow-up sent to ${connection.deviceId ?? connection.remoteAddress} (${followUp.length} bytes)`,
+          );
+        }, 400);
+      }
+    }
+
     const imei = connection.deviceId;
     if (imei && (result.position || result.ignitionUpdate)) {
       void persistProtocolResult(imei, handler.id, result).catch((err) => {
@@ -101,6 +114,8 @@ function onConnection(socket: Socket): void {
   };
 
   console.log(`[${LOG}] connect ${remoteAddress}`);
+  socket.setKeepAlive(true, 30_000);
+  socket.setTimeout(0);
 
   socket.on("data", (chunk: Buffer) => {
     connection.buffer = Buffer.concat([connection.buffer, chunk]);

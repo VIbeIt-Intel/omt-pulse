@@ -27,6 +27,75 @@ function parseGt06DateTime(packet: Buffer, offset: number): Date | null {
   return new Date(Date.UTC(year, month - 1, day, hour, minute, second));
 }
 
+/**
+ * Parse Concox DWXX / WHERE style coordinates.
+ * Examples:
+ *   Lat:N23d5.1708m,Lon:E114d23.6212m
+ *   Lat:N23.086180,Lon:E114.393686
+ */
+export function parseDwxxCoordinates(text: string): {
+  latitude: number;
+  longitude: number;
+  speedKph: number | null;
+  heading: number | null;
+} | null {
+  const latMatch = text.match(/Lat:\s*([NS])\s*([\d.]+)(?:d([\d.]+)m)?/i);
+  const lonMatch = text.match(/Lon:\s*([EW])\s*([\d.]+)(?:d([\d.]+)m)?/i);
+  if (!latMatch || !lonMatch) return null;
+
+  const toDecimal = (hemi: string, degStr: string, minStr?: string): number => {
+    let deg = parseFloat(degStr);
+    if (minStr) deg += parseFloat(minStr) / 60;
+    if (hemi === "S" || hemi === "W") deg = -deg;
+    return deg;
+  };
+
+  const latitude = toDecimal(latMatch[1]!.toUpperCase(), latMatch[2]!, latMatch[3]);
+  const longitude = toDecimal(lonMatch[1]!.toUpperCase(), lonMatch[2]!, lonMatch[3]);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return null;
+
+  const speedMatch = text.match(/Speed:\s*([\d.]+)/i);
+  const courseMatch = text.match(/Course:\s*([\d.]+)/i);
+
+  return {
+    latitude,
+    longitude,
+    speedKph: speedMatch ? parseFloat(speedMatch[1]!) : null,
+    heading: courseMatch ? parseFloat(courseMatch[1]!) : null,
+  };
+}
+
+function parseStringCommandPacket(packet: Buffer, dataStart: number): Gt06ParseResult | null {
+  // 0x15: cmdLen(1) + serverFlag(4) + ascii content + language(2) + serial(2) + crc(2)
+  if (packet.length < dataStart + 1 + 4 + 2 + 2) return null;
+  const cmdLen = packet[dataStart]!;
+  const contentStart = dataStart + 1 + 4;
+  const contentLen = Math.max(0, cmdLen - 4);
+  if (packet.length < contentStart + contentLen) return null;
+  const text = packet.subarray(contentStart, contentStart + contentLen).toString("ascii");
+  console.log(`[${LOG}] string response: ${text.slice(0, 200)}`);
+
+  const coords = parseDwxxCoordinates(text);
+  if (!coords) {
+    return { packetType: "0x15-string" };
+  }
+
+  return {
+    packetType: "0x15-dwxx",
+    position: {
+      latitude: coords.latitude,
+      longitude: coords.longitude,
+      speedKph: coords.speedKph,
+      heading: coords.heading,
+      ignitionOn: null,
+      mileageKm: null,
+      gpsValid: true,
+      recordedAt: new Date(),
+    },
+  };
+}
+
 export type Gt06ParseResult = {
   packetType: string;
   position?: {
@@ -47,8 +116,8 @@ export type Gt06ParseResult = {
 };
 
 /**
- * Parse GT06 location (0x12), extended location (0x22), and heartbeat (0x13).
- * Returns null when the packet type is not handled or data is too short.
+ * Parse GT06 location (0x12), extended location (0x22), heartbeat (0x13),
+ * and string command replies (0x15, e.g. DWXX#).
  */
 export function parseGt06Packet(packet: Buffer): Gt06ParseResult | null {
   if (!looksLikeGt06(packet)) return null;
@@ -124,6 +193,10 @@ export function parseGt06Packet(packet: Buffer): Gt06ParseResult | null {
         recordedAt: new Date(),
       },
     };
+  }
+
+  if (proto === 0x15) {
+    return parseStringCommandPacket(packet, dataStart);
   }
 
   return null;

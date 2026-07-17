@@ -29,6 +29,8 @@ export type ProtocolHandleResult = {
   deviceId?: string | null;
   /** Optional bytes to send back to the device (e.g. GT06 login ACK). */
   response?: Buffer;
+  /** Extra packets to send after the primary response (e.g. location request). */
+  followUpResponses?: Buffer[];
   /** GPS fix to persist (location packets). */
   position?: ParsedTrackerPosition | null;
   /** Heartbeat / status — update ignition without a new position row. */
