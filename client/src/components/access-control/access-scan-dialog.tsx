@@ -484,7 +484,8 @@ export function AccessScanDialog({
                   </Button>
                 </div>
                 <p className="text-[11px] text-muted-foreground text-center">
-                  Through plastic sleeves, <strong>Photo of front</strong> reads name + ID from the card text.
+                  Use the PDF417 on the <strong>plastic card</strong> back. Temporary paper licences have no card barcode — scan ID instead, or use{" "}
+                  <strong>Photo of front</strong> / type on the form.
                 </p>
               </>
             )}

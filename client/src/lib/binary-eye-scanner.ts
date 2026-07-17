@@ -326,7 +326,14 @@ export function describeBinaryEyeFailure(
     if (d?.hadSadlPayload) {
       return `Barcode read but decrypt failed${detail}. Try again or use Photo of front for name + ID.`;
     }
-    return `No licence barcode in scan${detail}. Point at the PDF417 on the back-right of the card.`;
+    // Temporary paper licences often have a short PDF417 that is not the card SADL (~720 bytes).
+    if (d?.bytesLength != null && d.bytesLength > 0 && d.bytesLength < 400) {
+      return (
+        `That barcode is not a plastic driver's licence (got ${d.bytesLength} bytes; card needs ~720). ` +
+        `Temporary / paper licences cannot be read via barcode — scan the person's ID, or use Photo of front / type on the form.`
+      );
+    }
+    return `No licence barcode in scan${detail}. Point at the PDF417 on the back-right of the plastic card (not a temporary paper licence).`;
   }
 
   if (kind === "national_id") {
