@@ -161,9 +161,13 @@ export const gt06ProtocolHandler: TrackerProtocolHandler = {
       response = buildProtocolAck(packet) ?? undefined;
       if (response && proto === 0x01) {
         console.log(`[${LOG}] login ACK queued (${response.length} bytes)`);
-        // Device is online but many OBD units stay silent until asked — request a fix.
-        followUpResponses.push(buildGt06ServerCommand("DWXX#", 1));
-        console.log(`[${LOG}] queued DWXX# location request after login`);
+        // Many OBD units only login while ACC-off / GPSOFF and never push 0x12.
+        // Ask for a fix and nudge ACC-off upload intervals over GPRS.
+        followUpResponses.push(buildGt06ServerCommand("WHERE#", 1));
+        followUpResponses.push(buildGt06ServerCommand("DWXX#", 2));
+        followUpResponses.push(buildGt06ServerCommand("TIMER,30,60#", 3));
+        followUpResponses.push(buildGt06ServerCommand("GPSDUP,ON#", 4));
+        console.log(`[${LOG}] queued WHERE# / DWXX# / TIMER / GPSDUP after login`);
       }
     }
 

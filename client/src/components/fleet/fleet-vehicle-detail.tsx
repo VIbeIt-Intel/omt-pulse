@@ -465,9 +465,20 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
                 <Skeleton className="h-[320px]" />
               </div>
             ) : dayBuckets.length === 0 ? (
-              <p className="text-sm text-muted-foreground p-8 text-center">
-                No GPS history yet for this vehicle.
-              </p>
+              <div className="p-6 sm:p-8 text-center space-y-2 max-w-lg mx-auto">
+                <p className="text-sm text-muted-foreground">
+                  {device.lastSeenAt
+                    ? "Tracker is online but has not sent a GPS fix yet (common when ignition is off)."
+                    : "No GPS history yet for this vehicle."}
+                </p>
+                {device.lastSeenAt && (
+                  <p className="text-xs text-muted-foreground">
+                    SMS the tracker SIM: <span className="font-mono">WHERE,000000#</span> then{" "}
+                    <span className="font-mono">TIMER,30,60#</span> so it reports while parked. Or turn
+                    ignition on outdoors once.
+                  </p>
+                )}
+              </div>
             ) : (
               <>
                 <div className="px-4 py-3 border-b flex gap-1.5 overflow-x-auto">

@@ -71,16 +71,16 @@ function processPacket(connection: TrackerConnection, packet: Buffer): void {
     }
 
     if (result.followUpResponses?.length) {
-      for (const followUp of result.followUpResponses) {
-        // Brief delay so the terminal finishes processing the login ACK first.
+      result.followUpResponses.forEach((followUp, index) => {
+        // Stagger so the terminal can process each command.
         setTimeout(() => {
           if (connection.socket.destroyed) return;
           connection.socket.write(followUp);
           console.log(
-            `[${LOG}] follow-up sent to ${connection.deviceId ?? connection.remoteAddress} (${followUp.length} bytes)`,
+            `[${LOG}] follow-up ${index + 1}/${result.followUpResponses!.length} sent to ${connection.deviceId ?? connection.remoteAddress} (${followUp.length} bytes)`,
           );
-        }, 400);
-      }
+        }, 400 + index * 600);
+      });
     }
 
     const imei = connection.deviceId;
