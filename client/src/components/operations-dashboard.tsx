@@ -29,14 +29,22 @@ import {
   CalendarRange,
   Building2,
   Car,
+  Gauge,
+  KeyRound,
+  Navigation,
   Network,
+  Route as RouteIcon,
+  Signal,
+  UserRound,
   type LucideIcon,
 } from "lucide-react";
 import {
+  formatMileageKm,
   getVehicleMotionStatus,
   formatFreshnessAgo,
   freshnessClassDark,
   getFreshnessTier,
+  headingLabel,
   MOTION_STATUS,
   vehicleDisplayName,
 } from "@/lib/fleet-intelligence";
@@ -513,6 +521,30 @@ function OpsSubSectionHeader({
   );
 }
 
+function FleetMetric({
+  icon: Icon,
+  label,
+  value,
+  valueClassName,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  valueClassName?: string;
+}) {
+  return (
+    <div className="min-w-0 rounded-md border border-slate-700/60 bg-slate-950/35 px-2.5 py-2">
+      <div className="flex items-center gap-1.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-slate-500">
+        <Icon className="h-3 w-3 shrink-0" />
+        {label}
+      </div>
+      <p className={cn("mt-1 truncate text-xs font-semibold tabular-nums text-slate-200", valueClassName)}>
+        {value}
+      </p>
+    </div>
+  );
+}
+
 function KpiCard({
   label,
   value,
@@ -799,6 +831,13 @@ export function OperationsDashboard({
     () => filterTrackersForFacility(trackers, locationAssignments, selectedLocation, selectedLocationId),
     [trackers, locationAssignments, selectedLocation, selectedLocationId],
   );
+  const fleetStatusCounts = useMemo(() => {
+    const counts = { moving: 0, idle: 0, offline: 0 };
+    for (const device of siteFleet) {
+      counts[getVehicleMotionStatus(device.lastSeenAt, device.lastSpeedKph)] += 1;
+    }
+    return counts;
+  }, [siteFleet]);
   const siteMonitorLoading =
     kpiLoading || trackersLoading || assignmentsLoading || commandAssignmentsLoading;
   const showGroupSelector =
@@ -1154,43 +1193,111 @@ export function OperationsDashboard({
                     : "No vehicles linked to this site."}
                 </p>
               ) : (
-                <ul className="divide-y divide-blue-900/20">
+                <div className="p-3">
+                  <div className="mb-3 grid grid-cols-3 overflow-hidden rounded-lg border border-slate-700/60 bg-slate-950/35">
+                    <div className="border-r border-slate-700/60 px-3 py-2 text-center">
+                      <p className="text-base font-bold tabular-nums text-emerald-400">{fleetStatusCounts.moving}</p>
+                      <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-500">Moving</p>
+                    </div>
+                    <div className="border-r border-slate-700/60 px-3 py-2 text-center">
+                      <p className="text-base font-bold tabular-nums text-amber-400">{fleetStatusCounts.idle}</p>
+                      <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-500">Idle</p>
+                    </div>
+                    <div className="px-3 py-2 text-center">
+                      <p className="text-base font-bold tabular-nums text-slate-400">{fleetStatusCounts.offline}</p>
+                      <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-500">Offline</p>
+                    </div>
+                  </div>
+
+                  <ul className="grid gap-3 2xl:grid-cols-2">
                   {siteFleet.map((device) => {
                     const motion = getVehicleMotionStatus(device.lastSeenAt, device.lastSpeedKph);
                     const motionCfg = MOTION_STATUS[motion];
                     const speed =
                       device.lastSpeedKph != null ? Math.round(device.lastSpeedKph) : null;
                     const freshness = getFreshnessTier(device.lastSeenAt);
+                    const registration = device.vehicleRegistration?.trim() || `IMEI …${device.imei.slice(-6)}`;
+                    const heading =
+                      device.lastHeading == null
+                        ? "—"
+                        : `${headingLabel(device.lastHeading)} · ${Math.round(device.lastHeading)}°`;
                     return (
-                      <li key={device.id} className="px-3 py-2 hover:bg-blue-950/25">
-                        <p className="text-xs font-semibold text-slate-100 truncate">
-                          {vehicleDisplayName(device)}
-                        </p>
-                        <p className="text-[10px] text-slate-500 truncate">
-                          {device.vehicleRegistration?.trim() || `IMEI …${device.imei.slice(-6)}`}
-                        </p>
-                        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                      <li
+                        key={device.id}
+                        className="rounded-xl border border-cyan-900/50 bg-gradient-to-br from-slate-800/75 to-slate-900/70 p-3 shadow-sm shadow-black/20"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex min-w-0 items-start gap-2.5">
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-cyan-800/50 bg-cyan-950/40 text-cyan-300">
+                              <Car className="h-4 w-4" />
+                            </span>
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-bold text-slate-100">
+                                {vehicleDisplayName(device)}
+                              </p>
+                              <p className="mt-0.5 truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                                {registration}
+                              </p>
+                            </div>
+                          </div>
                           <span
                             className={cn(
-                              "inline-flex rounded border px-1 py-0 text-[8px] font-bold uppercase",
+                              "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-1 text-[9px] font-bold uppercase",
                               motionCfg.pill,
                             )}
                           >
+                            <span className={cn("h-1.5 w-1.5 rounded-full", motionCfg.dot)} />
                             {motionCfg.label}
                           </span>
-                          {speed != null && (
-                            <span className="text-[10px] tabular-nums text-slate-300">
-                              {speed} km/h
+                        </div>
+
+                        <div className="mt-3 grid grid-cols-2 gap-2 xl:grid-cols-4">
+                          <FleetMetric
+                            icon={Gauge}
+                            label="Speed"
+                            value={speed == null ? "—" : `${speed} km/h`}
+                            valueClassName={motion === "moving" ? "text-emerald-300" : undefined}
+                          />
+                          <FleetMetric
+                            icon={KeyRound}
+                            label="Ignition"
+                            value={
+                              device.lastIgnitionOn == null
+                                ? "Unknown"
+                                : device.lastIgnitionOn
+                                  ? "On"
+                                  : "Off"
+                            }
+                            valueClassName={device.lastIgnitionOn ? "text-amber-300" : undefined}
+                          />
+                          <FleetMetric
+                            icon={RouteIcon}
+                            label="Today"
+                            value={formatMileageKm(device.todayOdometerDistanceKm)}
+                          />
+                          <FleetMetric icon={Navigation} label="Heading" value={heading} />
+                        </div>
+
+                        <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-slate-700/50 pt-2">
+                          <span className="inline-flex items-center gap-1.5 text-[10px] text-slate-500">
+                            <Signal className="h-3 w-3" />
+                            Last signal
+                            <strong className={cn("font-semibold tabular-nums", freshnessClassDark(freshness))}>
+                              {formatFreshnessAgo(device.lastSeenAt)}
+                            </strong>
+                          </span>
+                          {device.assignedUserName && (
+                            <span className="inline-flex max-w-full items-center gap-1.5 truncate text-[10px] text-slate-400">
+                              <UserRound className="h-3 w-3 shrink-0" />
+                              {device.assignedUserName}
                             </span>
                           )}
-                          <span className={cn("text-[10px] tabular-nums", freshnessClassDark(freshness))}>
-                            {formatFreshnessAgo(device.lastSeenAt)}
-                          </span>
                         </div>
                       </li>
                     );
                   })}
-                </ul>
+                  </ul>
+                </div>
               )}
             </div>
           </div>
