@@ -758,7 +758,8 @@ export type InsertPatrolRoute = z.infer<typeof insertPatrolRouteSchema>;
 export type PatrolRoute = typeof patrolRoutes.$inferSelect;
 
 /** Soft geofence radius (metres) used when a checkpoint has coordinates. */
-export const DEFAULT_PATROL_CHECKPOINT_RADIUS_M = 75;
+/** Must be at the pin — soft 75 m was too lenient for field proof. */
+export const DEFAULT_PATROL_CHECKPOINT_RADIUS_M = 40;
 
 /** Ordered stop on a patrol route. */
 export const patrolCheckpoints = pgTable("patrol_checkpoints", {

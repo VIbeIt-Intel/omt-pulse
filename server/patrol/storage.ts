@@ -17,6 +17,7 @@ import {
 import {
   evaluateCheckpointProof,
   maxGapSeconds,
+  minTravelSecondsBetween,
   pathDistanceM,
 } from "@shared/patrol-proof";
 import { db } from "../storage";
@@ -415,7 +416,52 @@ export async function clockCheckpoint(
           userLng: data.longitude,
           accuracyM: data.accuracyM,
         })
-      : { distanceM: null, withinGeofence: null, flagged: false };
+      : { distanceM: null, withinGeofence: null, flagged: false, blockReason: null };
+
+  // Hard geofence: completed clocks must be at the pin with a usable GPS fix.
+  if (logStatus === "completed" && proof.blockReason) {
+    throw new Error(proof.blockReason);
+  }
+
+  // Reject impossible "tap-through" clocks when planned pins are far apart.
+  if (logStatus === "completed") {
+    const [prevLog] = await db
+      .select({
+        clockedAt: patrolCheckpointLogs.clockedAt,
+        checkpointId: patrolCheckpointLogs.checkpointId,
+      })
+      .from(patrolCheckpointLogs)
+      .where(eq(patrolCheckpointLogs.patrolId, patrolId))
+      .orderBy(desc(patrolCheckpointLogs.clockedAt))
+      .limit(1);
+
+    if (prevLog) {
+      const [prevCp] = await db
+        .select()
+        .from(patrolCheckpoints)
+        .where(eq(patrolCheckpoints.id, prevLog.checkpointId))
+        .limit(1);
+      if (
+        prevCp?.latitude != null &&
+        prevCp.longitude != null &&
+        checkpoint.latitude != null &&
+        checkpoint.longitude != null
+      ) {
+        const requiredSec = minTravelSecondsBetween(
+          { lat: prevCp.latitude, lng: prevCp.longitude },
+          { lat: checkpoint.latitude, lng: checkpoint.longitude },
+        );
+        const elapsedSec =
+          (Date.now() - new Date(prevLog.clockedAt).getTime()) / 1000;
+        if (requiredSec > 0 && elapsedSec < requiredSec) {
+          const wait = Math.ceil(requiredSec - elapsedSec);
+          throw new Error(
+            `Too soon after the previous checkpoint — wait about ${wait}s more (or walk to the next pin).`,
+          );
+        }
+      }
+    }
+  }
 
   await db.transaction(async (tx) => {
     await tx.insert(patrolCheckpointLogs).values({

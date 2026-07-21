@@ -42,7 +42,7 @@ export async function migratePatrol() {
       order_index INTEGER NOT NULL,
       latitude DOUBLE PRECISION,
       longitude DOUBLE PRECISION,
-      geofence_radius_m DOUBLE PRECISION NOT NULL DEFAULT 75,
+      geofence_radius_m DOUBLE PRECISION NOT NULL DEFAULT 40,
       instructions TEXT,
       photo_required BOOLEAN NOT NULL DEFAULT FALSE,
       created_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -51,7 +51,17 @@ export async function migratePatrol() {
   `);
   await safe("patrol_checkpoints.geofence_radius_m", sql`
     ALTER TABLE patrol_checkpoints
-      ADD COLUMN IF NOT EXISTS geofence_radius_m DOUBLE PRECISION NOT NULL DEFAULT 75
+      ADD COLUMN IF NOT EXISTS geofence_radius_m DOUBLE PRECISION NOT NULL DEFAULT 40
+  `);
+  // Tighten legacy soft-geofence (75 m) so existing routes enforce the new 40 m hard radius.
+  await safe("patrol_checkpoints.geofence_radius_m.tighten_75_to_40", sql`
+    UPDATE patrol_checkpoints
+    SET geofence_radius_m = 40
+    WHERE geofence_radius_m = 75
+  `);
+  await safe("patrol_checkpoints.geofence_radius_m.default_40", sql`
+    ALTER TABLE patrol_checkpoints
+      ALTER COLUMN geofence_radius_m SET DEFAULT 40
   `);
   await safe("patrol_checkpoints.route_idx", sql`
     CREATE INDEX IF NOT EXISTS patrol_checkpoints_route_idx ON patrol_checkpoints (route_id, order_index)

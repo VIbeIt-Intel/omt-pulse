@@ -10,6 +10,8 @@ import { apiRequest } from "@/lib/queryClient";
 import { requestLocationAccess } from "@/lib/request-location-access";
 import { prepareAndUploadFile } from "@/lib/upload-media";
 import { startPatrolTracking, stopPatrolTracking } from "@/lib/patrol-tracking";
+import { evaluateCheckpointProof } from "@shared/patrol-proof";
+import { DEFAULT_PATROL_CHECKPOINT_RADIUS_M } from "@shared/schema";
 import { Camera, CheckCircle2, Loader2, MapPin, SkipForward, XCircle } from "lucide-react";
 
 const ACTIVE_PATROL_KEY = ["/api/patrol/patrols/active"];
@@ -27,6 +29,11 @@ export function PatrolActiveRun({ patrol }: PatrolActiveRunProps) {
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [trackTrail, setTrackTrail] = useState<Array<{ lat: number; lng: number }>>([]);
+  const [liveFix, setLiveFix] = useState<{
+    lat: number;
+    lng: number;
+    accuracyM: number | null;
+  } | null>(null);
 
   const loggedIds = useMemo(
     () => new Set(patrol.logs.map((l) => l.checkpointId)),
@@ -38,6 +45,19 @@ export function PatrolActiveRun({ patrol }: PatrolActiveRunProps) {
       ? Math.round((patrol.logs.length / patrol.totalCheckpoints) * 100)
       : 0;
 
+  const radiusM = nextCheckpoint?.geofenceRadiusM ?? DEFAULT_PATROL_CHECKPOINT_RADIUS_M;
+  const proximity = useMemo(() => {
+    if (!nextCheckpoint || !liveFix) return null;
+    return evaluateCheckpointProof({
+      checkpointLat: nextCheckpoint.latitude,
+      checkpointLng: nextCheckpoint.longitude,
+      geofenceRadiusM: radiusM,
+      userLat: liveFix.lat,
+      userLng: liveFix.lng,
+      accuracyM: liveFix.accuracyM,
+    });
+  }, [nextCheckpoint, liveFix, radiusM]);
+
   useEffect(() => {
     let cancelled = false;
     void startPatrolTracking({
@@ -45,6 +65,11 @@ export function PatrolActiveRun({ patrol }: PatrolActiveRunProps) {
       trackUploadToken: patrol.trackUploadToken,
       onPoint: (p) => {
         if (cancelled) return;
+        setLiveFix({
+          lat: p.latitude,
+          lng: p.longitude,
+          accuracyM: p.accuracyM ?? null,
+        });
         setTrackTrail((prev) => {
           const next = [...prev, { lat: p.latitude, lng: p.longitude }];
           return next.length > 500 ? next.slice(-500) : next;
@@ -56,6 +81,22 @@ export function PatrolActiveRun({ patrol }: PatrolActiveRunProps) {
       void stopPatrolTracking({ flush: true });
     };
   }, [patrol.id, patrol.trackUploadToken]);
+
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        setLiveFix({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracyM: pos.coords.accuracy ?? null,
+        });
+      },
+      () => {},
+      { enableHighAccuracy: true, maximumAge: 5_000, timeout: 12_000 },
+    );
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, [patrol.id]);
 
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ACTIVE_PATROL_KEY });
@@ -85,10 +126,20 @@ export function PatrolActiveRun({ patrol }: PatrolActiveRunProps) {
             navigator.geolocation.getCurrentPosition(
               (pos) => resolve(pos.coords.accuracy ?? null),
               () => resolve(null),
-              { enableHighAccuracy: true, maximumAge: 5_000, timeout: 8_000 },
+              { enableHighAccuracy: true, maximumAge: 2_000, timeout: 8_000 },
             );
           });
         }
+
+        const proof = evaluateCheckpointProof({
+          checkpointLat: nextCheckpoint.latitude,
+          checkpointLng: nextCheckpoint.longitude,
+          geofenceRadiusM: nextCheckpoint.geofenceRadiusM ?? radiusM,
+          userLat: lat,
+          userLng: lng,
+          accuracyM,
+        });
+        if (proof.blockReason) throw new Error(proof.blockReason);
       }
 
       const res = await apiRequest(
@@ -109,9 +160,7 @@ export function PatrolActiveRun({ patrol }: PatrolActiveRunProps) {
       toast({
         title: "Checkpoint recorded",
         description:
-          status === "completed"
-            ? "GPS position saved for management review"
-            : undefined,
+          status === "completed" ? "You were within the checkpoint radius" : undefined,
       });
       setNotes("");
       setPhotoPreview(null);
@@ -119,7 +168,7 @@ export function PatrolActiveRun({ patrol }: PatrolActiveRunProps) {
       invalidate();
     },
     onError: (e: Error) => {
-      toast({ title: "Location required", description: e.message, variant: "destructive" });
+      toast({ title: "Cannot clock", description: e.message, variant: "destructive" });
     },
   });
 
@@ -168,6 +217,7 @@ export function PatrolActiveRun({ patrol }: PatrolActiveRunProps) {
   }
 
   const busy = clockMutation.isPending || completeMutation.isPending || cancelMutation.isPending || uploading;
+  const tooFar = proximity?.blockReason != null;
 
   return (
     <div className="space-y-4 p-4">
@@ -204,13 +254,28 @@ export function PatrolActiveRun({ patrol }: PatrolActiveRunProps) {
         <div className="rounded-lg border p-4 space-y-3">
           <div className="flex items-start gap-2">
             <MapPin className="h-5 w-5 text-primary shrink-0 mt-0.5" />
-            <div>
+            <div className="min-w-0">
               <p className="font-medium">{nextCheckpoint.name}</p>
               {nextCheckpoint.instructions && (
                 <p className="text-sm text-muted-foreground mt-1">{nextCheckpoint.instructions}</p>
               )}
               {nextCheckpoint.photoRequired && (
                 <p className="text-xs text-amber-600 mt-1">Photo required</p>
+              )}
+              {proximity?.distanceM != null ? (
+                <p
+                  className={`text-xs mt-1.5 font-medium ${
+                    tooFar ? "text-destructive" : "text-green-600"
+                  }`}
+                >
+                  {tooFar
+                    ? `${Math.round(proximity.distanceM)} m away — move within ${Math.round(radiusM)} m to clock`
+                    : `At checkpoint · ${Math.round(proximity.distanceM)} m from pin`}
+                </p>
+              ) : (
+                <p className="text-xs mt-1.5 text-muted-foreground">
+                  You must be within {Math.round(radiusM)} m of this pin to clock it.
+                </p>
               )}
             </div>
           </div>
@@ -228,7 +293,13 @@ export function PatrolActiveRun({ patrol }: PatrolActiveRunProps) {
               {photoPreview ? (
                 <img src={photoPreview} alt="Checkpoint" className="rounded-md max-h-40 object-cover" />
               ) : (
-                <Button type="button" variant="outline" size="sm" onClick={() => photoRef.current?.click()} disabled={busy}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => photoRef.current?.click()}
+                  disabled={busy}
+                >
                   <Camera className="h-4 w-4 mr-1" />
                   Take photo
                 </Button>
@@ -250,7 +321,11 @@ export function PatrolActiveRun({ patrol }: PatrolActiveRunProps) {
               disabled={busy || (nextCheckpoint.photoRequired && !photoUrl)}
               onClick={() => clockMutation.mutate("completed")}
             >
-              {clockMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-1" />}
+              {clockMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <CheckCircle2 className="h-4 w-4 mr-1" />
+              )}
               Clock checkpoint
             </Button>
             <Button
