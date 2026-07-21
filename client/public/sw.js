@@ -1,4 +1,4 @@
-const CACHE_NAME = "omt-v209";
+const CACHE_NAME = "omt-v210";
 
 // When the page asks us to nuke everything (after a new deploy), wipe all
 // caches and tell every controlled tab to reload. The page also unregisters
@@ -193,6 +193,33 @@ self.addEventListener("push", (event) => {
   // Set app badge
   if (navigator.setAppBadge) {
     navigator.setAppBadge(1).catch(() => {});
+  }
+
+  // Patrol due/overdue — distinct urgent alert with a custom sound. Browsers
+  // can't attach a sound to a background notification, so we ask any open tab
+  // to play the patrol tone and fall back to a strong vibration pattern.
+  if (data.type === "patrol_scheduled" || data.type === "patrol_overdue") {
+    const isOverdue = data.type === "patrol_overdue";
+    event.waitUntil(
+      Promise.all([
+        self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) =>
+          clients.forEach((client) => client.postMessage({ type: "PLAY_PATROL_SOUND" }))
+        ),
+        self.registration.showNotification(data.title ?? "Patrol due", {
+          body: data.body ?? "Time to run your patrol.",
+          icon: "/icon-192.png",
+          badge: "/icon-192.png",
+          tag: `patrol-${data.routeId ?? Date.now()}`,
+          renotify: true,
+          requireInteraction: true,
+          vibrate: isOverdue
+            ? [600, 150, 600, 150, 600, 150, 1000]
+            : [400, 120, 400, 120, 700],
+          data: { url: data.url ?? "/patrol" },
+        }),
+      ])
+    );
+    return;
   }
 
   const isPanic = data.type === "panic";

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy fix/licence-front-ocr-v121 (fleet multi-vehicle grid, omt-v167).
+# Deploy fix/licence-front-ocr-v121 (patrol alert sound + FCM channel, omt-v210).
 set -eu
 cd /opt/omt-pulse
 BRANCH="fix/licence-front-ocr-v121"

@@ -650,6 +650,13 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
       if (event.data?.type === "INVALIDATE_PANIC") {
         qc.invalidateQueries({ queryKey: ["/api/panic/recent"] });
       }
+      if (event.data?.type === "PLAY_PATROL_SOUND") {
+        try {
+          const audio = new Audio("/patrol_alert.wav");
+          audio.volume = 1;
+          void audio.play().catch(() => {});
+        } catch { /* autoplay may be blocked until user interacts */ }
+      }
     }
     navigator.serviceWorker.addEventListener("message", onSwMessage);
     return () => navigator.serviceWorker.removeEventListener("message", onSwMessage);

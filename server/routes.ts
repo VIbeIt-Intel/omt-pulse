@@ -103,14 +103,30 @@ function liveIncidentNotifyRoles(severity: string | null | undefined): string[] 
 
 async function sendFcmBatch(
   tokens: string[],
-  payload: { title: string; body: string; data?: Record<string, string>; notificationTag?: string },
+  payload: {
+    title: string;
+    body: string;
+    data?: Record<string, string>;
+    notificationTag?: string;
+    /** Android notification channel id (must be created on-device). */
+    channelId?: string;
+    /** Custom sound name (Android raw resource / APNs sound file). */
+    sound?: string;
+  },
 ): Promise<void> {
   if (!fcmReady || tokens.length === 0) return;
   const messaging = admin.messaging();
   const android: admin.messaging.AndroidConfig = { priority: "high" };
-  if (payload.notificationTag) {
-    android.notification = { tag: payload.notificationTag };
+  const androidNotification: NonNullable<admin.messaging.AndroidConfig["notification"]> = {};
+  if (payload.notificationTag) androidNotification.tag = payload.notificationTag;
+  // On Android O+ the channel owns the sound; the sound field only matters
+  // pre-O. Set both so every OS version plays the custom tone.
+  if (payload.channelId) androidNotification.channelId = payload.channelId;
+  if (payload.sound) androidNotification.sound = payload.sound;
+  if (Object.keys(androidNotification).length > 0) {
+    android.notification = androidNotification;
   }
+  const apnsSound = payload.sound ? `${payload.sound}.caf` : "default";
   const results = await Promise.allSettled(
     tokens.map((token) =>
       messaging.send({
@@ -118,7 +134,7 @@ async function sendFcmBatch(
         notification: { title: payload.title, body: payload.body },
         data: payload.data ?? {},
         android,
-        apns: { payload: { aps: { sound: "default", contentAvailable: true } } },
+        apns: { payload: { aps: { sound: apnsSound, contentAvailable: true } } },
       })
     )
   );
@@ -398,6 +414,9 @@ async function dispatchFleetAlertPush(
 }
 
 const PATROL_OVERDUE_NOTIFY_ROLES = ["administrator", "supervisor", "control_room"] as const;
+// Must match PATROL_NOTIFICATION_CHANNEL_ID / raw sound name on the device.
+const PATROL_ALERT_CHANNEL = "patrol_alerts";
+const PATROL_ALERT_SOUND = "patrol_alert";
 
 async function dispatchPatrolPush(req: PatrolPushRequest): Promise<void> {
   const detailUrl = `/patrol?routeId=${req.routeId}`;
@@ -423,6 +442,8 @@ async function dispatchPatrolPush(req: PatrolPushRequest): Promise<void> {
         body,
         data,
         notificationTag: `patrol-${req.routeId}`,
+        channelId: PATROL_ALERT_CHANNEL,
+        sound: PATROL_ALERT_SOUND,
       });
       pushedUserIds.add(req.userId);
     }
@@ -473,6 +494,8 @@ async function dispatchPatrolPush(req: PatrolPushRequest): Promise<void> {
         body: `Start ${req.routeName} now — overdue`,
         data,
         notificationTag: `patrol-overdue-${req.routeId}`,
+        channelId: PATROL_ALERT_CHANNEL,
+        sound: PATROL_ALERT_SOUND,
       });
     }
   }
@@ -485,6 +508,8 @@ async function dispatchPatrolPush(req: PatrolPushRequest): Promise<void> {
       body,
       data,
       notificationTag: `patrol-overdue-mgmt-${req.routeId}`,
+      channelId: PATROL_ALERT_CHANNEL,
+      sound: PATROL_ALERT_SOUND,
     });
     for (const s of fcmSubs) pushedUserIds.add(s.userId);
   }

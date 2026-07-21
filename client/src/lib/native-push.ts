@@ -8,6 +8,39 @@ export { PENDING_PUSH_URL_KEY };
 export const PUSH_DEEPLINK_EVENT = "omt:push-deeplink";
 
 let nativePushListenersReady = false;
+let patrolChannelReady = false;
+
+/** Dedicated Android channel that plays the loud patrol alert tone. */
+export const PATROL_NOTIFICATION_CHANNEL_ID = "patrol_alerts";
+
+/**
+ * Create the high-importance patrol notification channel (Android only).
+ *
+ * On Android O+ the channel — not the message — owns the sound, so the server
+ * push must target this channel id for the custom tone to play. Channels are
+ * created once and persist on the device; changing the sound later requires a
+ * new channel id because Android ignores edits to an existing channel's sound.
+ */
+export async function ensurePatrolNotificationChannel(): Promise<void> {
+  if (patrolChannelReady) return;
+  if (!Capacitor.isNativePlatform()) return;
+  if (Capacitor.getPlatform() !== "android") return;
+  try {
+    await PushNotifications.createChannel({
+      id: PATROL_NOTIFICATION_CHANNEL_ID,
+      name: "Patrol alerts",
+      description: "Alerts when a patrol is due or overdue",
+      importance: 5,
+      visibility: 1,
+      sound: "patrol_alert.wav",
+      vibration: true,
+      lights: true,
+    });
+    patrolChannelReady = true;
+  } catch {
+    /* channel creation is best-effort; falls back to the default channel sound */
+  }
+}
 
 function pushDataUrl(data: Record<string, unknown> | undefined): string | null {
   const url = data?.url;
@@ -97,6 +130,8 @@ export function initNativePushListeners(): void {
   if (nativePushListenersReady) return;
   if (!Capacitor.isNativePlatform()) return;
   nativePushListenersReady = true;
+
+  void ensurePatrolNotificationChannel();
 
   void PushNotifications.addListener(
     "pushNotificationActionPerformed",
