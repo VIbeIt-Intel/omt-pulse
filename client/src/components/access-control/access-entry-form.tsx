@@ -313,26 +313,32 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
   }
 
   return (
-    <div className="space-y-5 pb-6">
+    <div className="space-y-3 pb-6">
       <div>
         <Label className="text-xs text-muted-foreground uppercase tracking-wide">Entry type</Label>
-        <div className="mt-2 grid grid-cols-2 gap-2">
+        <div className="mt-1.5 grid grid-cols-2 gap-1.5">
           <Button
             type="button"
-            variant={mode === "walk_in" ? "default" : "outline"}
-            className="h-12 justify-start gap-2"
+            variant="outline"
+            className={cn(
+              "h-10 justify-start gap-2 font-normal",
+              mode === "walk_in" && "border-primary/50 bg-muted font-medium",
+            )}
             onClick={() => setModeAndReset("walk_in")}
           >
-            <User className="h-4 w-4" />
+            <User className="h-4 w-4 shrink-0" />
             Walk-in
           </Button>
           <Button
             type="button"
-            variant={mode === "vehicle" ? "default" : "outline"}
-            className="h-12 justify-start gap-2"
+            variant="outline"
+            className={cn(
+              "h-10 justify-start gap-2 font-normal",
+              mode === "vehicle" && "border-primary/50 bg-muted font-medium",
+            )}
             onClick={() => setModeAndReset("vehicle")}
           >
-            <Car className="h-4 w-4" />
+            <Car className="h-4 w-4 shrink-0" />
             Vehicle
           </Button>
         </div>
@@ -340,13 +346,17 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
 
       <div>
         <Label className="text-xs text-muted-foreground uppercase tracking-wide">Category</Label>
-        <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
           {ACCESS_ENTRY_CATEGORIES.map((cat) => (
             <Button
               key={cat}
               type="button"
-              variant={category === cat ? "default" : "outline"}
-              className="h-11 justify-start text-sm"
+              variant="outline"
+              size="sm"
+              className={cn(
+                "h-9 px-3 text-sm font-normal",
+                category === cat && "border-primary/50 bg-muted font-medium",
+              )}
               onClick={() => setCategory(cat)}
             >
               {ACCESS_CATEGORY_LABELS[cat]}
@@ -358,7 +368,7 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
       <div>
         <Label htmlFor="ac-destination">Destination *</Label>
         <Select value={destinationId} onValueChange={setDestinationId}>
-          <SelectTrigger id="ac-destination" className="mt-1.5 h-11">
+          <SelectTrigger id="ac-destination" className="mt-1 h-11">
             <SelectValue placeholder="Select destination" />
           </SelectTrigger>
           <SelectContent>
@@ -513,13 +523,13 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
         </div>
       )}
 
-      <div className="space-y-3">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 font-medium text-sm">
-            <User className="h-4 w-4" />
-            {mode === "vehicle" ? "People in vehicle" : "Person"}
-          </div>
-          {mode === "vehicle" && (
+      <div className="space-y-2">
+        {mode === "vehicle" && (
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 font-medium text-sm">
+              <User className="h-4 w-4" />
+              People in vehicle
+            </div>
             <Button
               type="button"
               variant="outline"
@@ -529,8 +539,8 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
               <UserPlus className="h-4 w-4 mr-1" />
               Add person
             </Button>
-          )}
-        </div>
+          </div>
+        )}
 
         {people.map((person, index) => (
           <PersonCard
@@ -679,21 +689,23 @@ function PersonCard({
   onPickPhoto: () => void;
 }) {
   const baseId = useId();
-  const roleLabel =
-    mode === "walk_in" ? "Person" : index === 0 ? "Driver" : `Passenger ${index}`;
+  const roleLabel = index === 0 ? "Driver" : `Passenger ${index}`;
   const hasIdentity = !!(person.fullName.trim() || person.idNumber.trim());
+  const showRoleHeader = mode === "vehicle";
 
   return (
     <div className="space-y-3 rounded-lg border p-4">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-sm font-medium">{roleLabel}</p>
-        {canRemove && (
-          <Button type="button" variant="ghost" size="sm" className="h-8 text-muted-foreground" onClick={onRemove}>
-            <Trash2 className="h-4 w-4 mr-1" />
-            Remove
-          </Button>
-        )}
-      </div>
+      {showRoleHeader && (
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-sm font-medium">{roleLabel}</p>
+          {canRemove && (
+            <Button type="button" variant="ghost" size="sm" className="h-8 text-muted-foreground" onClick={onRemove}>
+              <Trash2 className="h-4 w-4 mr-1" />
+              Remove
+            </Button>
+          )}
+        </div>
+      )}
 
       {!person.showManual && !hasIdentity ? (
         <div className="space-y-2">
@@ -707,9 +719,7 @@ function PersonCard({
               Scan licence
             </Button>
           </div>
-          <p className="text-xs text-muted-foreground">
-            Scan ID for Smart ID or ID book. Scan licence for driver&apos;s licence barcode.
-          </p>
+          <p className="text-xs text-muted-foreground">Smart ID / ID book, or licence barcode.</p>
           <Button
             type="button"
             variant="ghost"

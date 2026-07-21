@@ -90,7 +90,7 @@ export default function AccessControlPage({ userRole }: AccessControlPageProps) 
             </div>
             <div className="min-w-0">
               <h1 className="text-lg font-semibold leading-tight">Access Control</h1>
-              <p className="text-xs text-muted-foreground truncate">{subtitle}</p>
+              <p className="text-xs text-muted-foreground truncate hidden sm:block">{subtitle}</p>
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
