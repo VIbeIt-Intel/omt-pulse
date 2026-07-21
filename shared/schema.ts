@@ -757,6 +757,9 @@ export const insertPatrolRouteSchema = createInsertSchema(patrolRoutes).omit({
 export type InsertPatrolRoute = z.infer<typeof insertPatrolRouteSchema>;
 export type PatrolRoute = typeof patrolRoutes.$inferSelect;
 
+/** Soft geofence radius (metres) used when a checkpoint has coordinates. */
+export const DEFAULT_PATROL_CHECKPOINT_RADIUS_M = 75;
+
 /** Ordered stop on a patrol route. */
 export const patrolCheckpoints = pgTable("patrol_checkpoints", {
   id: serial("id").primaryKey(),
@@ -766,6 +769,8 @@ export const patrolCheckpoints = pgTable("patrol_checkpoints", {
   orderIndex: integer("order_index").notNull(),
   latitude: doublePrecision("latitude"),
   longitude: doublePrecision("longitude"),
+  /** Soft proof radius; clock is allowed outside but flagged for management. */
+  geofenceRadiusM: doublePrecision("geofence_radius_m").notNull().default(DEFAULT_PATROL_CHECKPOINT_RADIUS_M),
   instructions: text("instructions"),
   photoRequired: boolean("photo_required").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -793,6 +798,13 @@ export const patrols = pgTable("patrols", {
   status: text("status").notNull().default("in_progress"),
   totalCheckpoints: integer("total_checkpoints").notNull(),
   completedCheckpoints: integer("completed_checkpoints").notNull().default(0),
+  /** Opaque token for background GPS batch upload; cleared when patrol ends. */
+  trackUploadToken: text("track_upload_token"),
+  trackPointCount: integer("track_point_count").notNull().default(0),
+  distanceM: doublePrecision("distance_m"),
+  maxGapSeconds: integer("max_gap_seconds"),
+  geofencePassCount: integer("geofence_pass_count").notNull().default(0),
+  geofenceFailCount: integer("geofence_fail_count").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -804,6 +816,12 @@ export const insertPatrolSchema = createInsertSchema(patrols).omit({
   organizationId: true,
   endedAt: true,
   completedCheckpoints: true,
+  trackUploadToken: true,
+  trackPointCount: true,
+  distanceM: true,
+  maxGapSeconds: true,
+  geofencePassCount: true,
+  geofenceFailCount: true,
 });
 export type InsertPatrol = z.infer<typeof insertPatrolSchema>;
 export type Patrol = typeof patrols.$inferSelect;
@@ -817,6 +835,10 @@ export const patrolCheckpointLogs = pgTable("patrol_checkpoint_logs", {
   clockedAt: timestamp("clocked_at").defaultNow().notNull(),
   latitude: doublePrecision("latitude"),
   longitude: doublePrecision("longitude"),
+  accuracyM: doublePrecision("accuracy_m"),
+  distanceM: doublePrecision("distance_m"),
+  /** null when checkpoint has no coords or GPS missing; false = outside soft radius. */
+  withinGeofence: boolean("within_geofence"),
   photoUrl: text("photo_url"),
   notes: text("notes"),
   status: text("status").notNull().default("completed"),
@@ -831,9 +853,41 @@ export const insertPatrolCheckpointLogSchema = createInsertSchema(patrolCheckpoi
   organizationId: true,
   patrolId: true,
   clockedAt: true,
+  accuracyM: true,
+  distanceM: true,
+  withinGeofence: true,
 });
 export type InsertPatrolCheckpointLog = z.infer<typeof insertPatrolCheckpointLogSchema>;
 export type PatrolCheckpointLog = typeof patrolCheckpointLogs.$inferSelect;
+
+/** GPS breadcrumb recorded during an active patrol. */
+export const patrolTrackPoints = pgTable("patrol_track_points", {
+  id: serial("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  patrolId: integer("patrol_id").notNull().references(() => patrols.id, { onDelete: "cascade" }),
+  recordedAt: timestamp("recorded_at").notNull(),
+  receivedAt: timestamp("received_at").defaultNow().notNull(),
+  latitude: doublePrecision("latitude").notNull(),
+  longitude: doublePrecision("longitude").notNull(),
+  accuracyM: doublePrecision("accuracy_m"),
+  heading: doublePrecision("heading"),
+  speedMps: doublePrecision("speed_mps"),
+  altitudeM: doublePrecision("altitude_m"),
+  source: text("source").notNull().default("device"),
+  /** Client-monotonic sequence for idempotent batch upload. */
+  seq: integer("seq"),
+}, (table) => [
+  unique("patrol_track_points_patrol_seq_unique").on(table.patrolId, table.seq),
+]);
+
+export const insertPatrolTrackPointSchema = createInsertSchema(patrolTrackPoints).omit({
+  id: true,
+  receivedAt: true,
+  organizationId: true,
+  patrolId: true,
+});
+export type InsertPatrolTrackPoint = z.infer<typeof insertPatrolTrackPointSchema>;
+export type PatrolTrackPoint = typeof patrolTrackPoints.$inferSelect;
 
 export type PatrolWithRoute = Patrol & {
   routeName: string;

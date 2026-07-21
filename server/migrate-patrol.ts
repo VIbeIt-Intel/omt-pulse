@@ -42,11 +42,16 @@ export async function migratePatrol() {
       order_index INTEGER NOT NULL,
       latitude DOUBLE PRECISION,
       longitude DOUBLE PRECISION,
+      geofence_radius_m DOUBLE PRECISION NOT NULL DEFAULT 75,
       instructions TEXT,
       photo_required BOOLEAN NOT NULL DEFAULT FALSE,
       created_at TIMESTAMP NOT NULL DEFAULT NOW(),
       CONSTRAINT patrol_checkpoints_route_order_unique UNIQUE (route_id, order_index)
     )
+  `);
+  await safe("patrol_checkpoints.geofence_radius_m", sql`
+    ALTER TABLE patrol_checkpoints
+      ADD COLUMN IF NOT EXISTS geofence_radius_m DOUBLE PRECISION NOT NULL DEFAULT 75
   `);
   await safe("patrol_checkpoints.route_idx", sql`
     CREATE INDEX IF NOT EXISTS patrol_checkpoints_route_idx ON patrol_checkpoints (route_id, order_index)
@@ -63,9 +68,33 @@ export async function migratePatrol() {
       status TEXT NOT NULL DEFAULT 'in_progress',
       total_checkpoints INTEGER NOT NULL,
       completed_checkpoints INTEGER NOT NULL DEFAULT 0,
+      track_upload_token TEXT,
+      track_point_count INTEGER NOT NULL DEFAULT 0,
+      distance_m DOUBLE PRECISION,
+      max_gap_seconds INTEGER,
+      geofence_pass_count INTEGER NOT NULL DEFAULT 0,
+      geofence_fail_count INTEGER NOT NULL DEFAULT 0,
       created_at TIMESTAMP NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMP NOT NULL DEFAULT NOW()
     )
+  `);
+  await safe("patrols.track_upload_token", sql`
+    ALTER TABLE patrols ADD COLUMN IF NOT EXISTS track_upload_token TEXT
+  `);
+  await safe("patrols.track_point_count", sql`
+    ALTER TABLE patrols ADD COLUMN IF NOT EXISTS track_point_count INTEGER NOT NULL DEFAULT 0
+  `);
+  await safe("patrols.distance_m", sql`
+    ALTER TABLE patrols ADD COLUMN IF NOT EXISTS distance_m DOUBLE PRECISION
+  `);
+  await safe("patrols.max_gap_seconds", sql`
+    ALTER TABLE patrols ADD COLUMN IF NOT EXISTS max_gap_seconds INTEGER
+  `);
+  await safe("patrols.geofence_pass_count", sql`
+    ALTER TABLE patrols ADD COLUMN IF NOT EXISTS geofence_pass_count INTEGER NOT NULL DEFAULT 0
+  `);
+  await safe("patrols.geofence_fail_count", sql`
+    ALTER TABLE patrols ADD COLUMN IF NOT EXISTS geofence_fail_count INTEGER NOT NULL DEFAULT 0
   `);
   await safe("patrols.org_status_started_idx", sql`
     CREATE INDEX IF NOT EXISTS patrols_org_status_started_idx
@@ -92,12 +121,24 @@ export async function migratePatrol() {
       clocked_at TIMESTAMP NOT NULL DEFAULT NOW(),
       latitude DOUBLE PRECISION,
       longitude DOUBLE PRECISION,
+      accuracy_m DOUBLE PRECISION,
+      distance_m DOUBLE PRECISION,
+      within_geofence BOOLEAN,
       photo_url TEXT,
       notes TEXT,
       status TEXT NOT NULL DEFAULT 'completed',
       created_at TIMESTAMP NOT NULL DEFAULT NOW(),
       CONSTRAINT patrol_checkpoint_logs_patrol_checkpoint_unique UNIQUE (patrol_id, checkpoint_id)
     )
+  `);
+  await safe("patrol_checkpoint_logs.accuracy_m", sql`
+    ALTER TABLE patrol_checkpoint_logs ADD COLUMN IF NOT EXISTS accuracy_m DOUBLE PRECISION
+  `);
+  await safe("patrol_checkpoint_logs.distance_m", sql`
+    ALTER TABLE patrol_checkpoint_logs ADD COLUMN IF NOT EXISTS distance_m DOUBLE PRECISION
+  `);
+  await safe("patrol_checkpoint_logs.within_geofence", sql`
+    ALTER TABLE patrol_checkpoint_logs ADD COLUMN IF NOT EXISTS within_geofence BOOLEAN
   `);
   await safe("patrol_checkpoint_logs.patrol_idx", sql`
     CREATE INDEX IF NOT EXISTS patrol_checkpoint_logs_patrol_idx
@@ -167,5 +208,32 @@ export async function migratePatrol() {
   await safe("patrol_schedule_dispatches.user_pending_idx", sql`
     CREATE INDEX IF NOT EXISTS patrol_schedule_dispatches_user_pending_idx
       ON patrol_schedule_dispatches (user_id, status, route_id)
+  `);
+
+  await safe("patrol_track_points.create", sql`
+    CREATE TABLE IF NOT EXISTS patrol_track_points (
+      id SERIAL PRIMARY KEY,
+      organization_id VARCHAR NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      patrol_id INTEGER NOT NULL REFERENCES patrols(id) ON DELETE CASCADE,
+      recorded_at TIMESTAMP NOT NULL,
+      received_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      latitude DOUBLE PRECISION NOT NULL,
+      longitude DOUBLE PRECISION NOT NULL,
+      accuracy_m DOUBLE PRECISION,
+      heading DOUBLE PRECISION,
+      speed_mps DOUBLE PRECISION,
+      altitude_m DOUBLE PRECISION,
+      source VARCHAR(16) NOT NULL DEFAULT 'device',
+      seq INTEGER,
+      CONSTRAINT patrol_track_points_patrol_seq_unique UNIQUE (patrol_id, seq)
+    )
+  `);
+  await safe("patrol_track_points.patrol_recorded_idx", sql`
+    CREATE INDEX IF NOT EXISTS patrol_track_points_patrol_recorded_idx
+      ON patrol_track_points (patrol_id, recorded_at)
+  `);
+  await safe("patrol_track_points.org_recorded_idx", sql`
+    CREATE INDEX IF NOT EXISTS patrol_track_points_org_recorded_idx
+      ON patrol_track_points (organization_id, recorded_at DESC)
   `);
 }

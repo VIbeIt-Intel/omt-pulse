@@ -5,6 +5,7 @@ import type { PatrolRoute } from "@shared/schema";
 import { canManagePatrolRoutes } from "@/lib/user-roles";
 import type { PatrolDetail, PatrolHistoryItem } from "@/lib/patrol-types";
 import { PatrolActiveRun } from "@/components/patrol/patrol-active-run";
+import { PatrolHistoryDetailSheet } from "@/components/patrol/patrol-history-detail-sheet";
 import { PatrolRouteAdminSheet } from "@/components/patrol/patrol-route-admin-sheet";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -12,7 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
-import { Footprints, History, Loader2, Plus, Route } from "lucide-react";
+import { ChevronRight, Footprints, History, Loader2, Plus, Route } from "lucide-react";
 
 type PatrolPageProps = {
   userRole: string;
@@ -32,6 +33,7 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
   const isManager = canManagePatrolRoutes(userRole);
   const [tab, setTab] = useState<"run" | "history">("run");
   const [routeSheetOpen, setRouteSheetOpen] = useState(false);
+  const [historyPatrolId, setHistoryPatrolId] = useState<number | null>(null);
   const { toast } = useToast();
   const qc = useQueryClient();
   const [location] = useLocation();
@@ -204,14 +206,31 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
             ) : (
               <ul className="p-4 space-y-2">
                 {history.map((p) => (
-                  <li key={p.id} className="rounded-lg border px-4 py-3 text-sm">
-                    <div className="flex justify-between gap-2">
-                      <span className="font-medium">{p.routeName}</span>
-                      <span className="text-xs capitalize text-muted-foreground">{p.status.replace("_", " ")}</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {p.startedByName} · {p.completedCheckpoints}/{p.totalCheckpoints} checkpoints
-                    </p>
+                  <li key={p.id}>
+                    <button
+                      type="button"
+                      className="w-full rounded-lg border px-4 py-3 text-sm text-left hover:bg-muted/40 transition-colors"
+                      onClick={() => setHistoryPatrolId(p.id)}
+                    >
+                      <div className="flex justify-between gap-2 items-start">
+                        <span className="font-medium">{p.routeName}</span>
+                        <span className="flex items-center gap-1 shrink-0">
+                          <span className="text-xs capitalize text-muted-foreground">
+                            {p.status.replace("_", " ")}
+                          </span>
+                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {p.startedByName} · {p.completedCheckpoints}/{p.totalCheckpoints} checkpoints
+                        {p.distanceM != null ? ` · ${(p.distanceM / 1000).toFixed(2)} km` : ""}
+                      </p>
+                      {(p.geofenceFailCount ?? 0) > 0 && (
+                        <p className="text-[11px] text-destructive mt-1 font-medium">
+                          {p.geofenceFailCount} outside-radius clock-in(s)
+                        </p>
+                      )}
+                    </button>
                   </li>
                 ))}
               </ul>
@@ -226,6 +245,16 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
           onOpenChange={setRouteSheetOpen}
           routes={routes}
           commands={commands}
+        />
+      )}
+
+      {isManager && (
+        <PatrolHistoryDetailSheet
+          patrolId={historyPatrolId}
+          open={historyPatrolId != null}
+          onOpenChange={(open) => {
+            if (!open) setHistoryPatrolId(null);
+          }}
         />
       )}
     </div>

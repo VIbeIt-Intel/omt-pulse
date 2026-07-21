@@ -4,18 +4,23 @@ import {
   insertPatrolRouteSchema,
   PATROL_CHECKPOINT_LOG_STATUSES,
   PATROL_STATUSES,
+  DEFAULT_PATROL_CHECKPOINT_RADIUS_M,
 } from "@shared/schema";
 import { hasPermission } from "@shared/permissions";
 import { requirePermission } from "../permission-guard";
 import { storage } from "../storage";
 import {
+  appendPatrolTrackPoints,
   cancelPatrol,
   clockCheckpoint,
   completePatrol,
   createPatrolRoute,
+  findPatrolByTrackToken,
   getActivePatrolForUser,
   getPatrolDetail,
+  getPatrolReport,
   getPatrolRouteWithCheckpoints,
+  getPatrolTrackPoints,
   listPatrolHistory,
   listPatrolRoutes,
   replaceRouteCheckpoints,
@@ -45,11 +50,22 @@ async function getUserCommandIds(req: Request): Promise<number[]> {
   return cmds.map((c) => c.id);
 }
 
+function readPatrolTrackToken(req: Request): string | null {
+  const header = req.headers["x-patrol-track-token"];
+  if (typeof header === "string" && header.trim()) return header.trim();
+  const auth = req.headers.authorization;
+  if (typeof auth === "string" && auth.toLowerCase().startsWith("bearer ")) {
+    return auth.slice(7).trim() || null;
+  }
+  return null;
+}
+
 const checkpointInputSchema = z.object({
   name: z.string().min(1).max(200),
   orderIndex: z.number().int().min(0),
   latitude: z.number().min(-90).max(90).optional().nullable(),
   longitude: z.number().min(-180).max(180).optional().nullable(),
+  geofenceRadiusM: z.number().min(15).max(500).optional().nullable(),
   instructions: z.string().max(2000).optional().nullable(),
   photoRequired: z.boolean().optional(),
 });
@@ -67,9 +83,28 @@ const replaceCheckpointsSchema = z.object({
 const clockBodySchema = z.object({
   latitude: z.number().min(-90).max(90).optional().nullable(),
   longitude: z.number().min(-180).max(180).optional().nullable(),
+  accuracyM: z.number().positive().max(5000).optional().nullable(),
   photoUrl: z.string().max(2000).optional().nullable(),
   notes: z.string().max(1000).optional().nullable(),
   status: z.enum(PATROL_CHECKPOINT_LOG_STATUSES).optional(),
+});
+
+const trackBatchSchema = z.object({
+  points: z
+    .array(
+      z.object({
+        latitude: z.number().min(-90).max(90),
+        longitude: z.number().min(-180).max(180),
+        recordedAt: z.union([z.string().min(1), z.number()]),
+        accuracyM: z.number().positive().max(5000).optional().nullable(),
+        heading: z.number().min(0).max(360).optional().nullable(),
+        speedMps: z.number().min(0).max(100).optional().nullable(),
+        altitudeM: z.number().optional().nullable(),
+        seq: z.number().int().nonnegative().optional().nullable(),
+      }),
+    )
+    .min(1)
+    .max(100),
 });
 
 const upsertScheduleBodySchema = z.object({
@@ -83,7 +118,6 @@ const upsertScheduleBodySchema = z.object({
 });
 
 export function registerPatrolRoutes(app: Express) {
-  // ── Routes (admin/supervisor manage; executors read scoped list) ───────────
   app.get("/api/patrol/routes", async (req, res) => {
     if (!req.currentUser) return res.status(401).json({ message: "Unauthorized" });
     const orgId = req.currentUser.organizationId;
@@ -132,7 +166,14 @@ export function registerPatrolRoutes(app: Express) {
     try {
       const route = await createPatrolRoute(routeData, orgId, userId);
       if (checkpoints?.length) {
-        await replaceRouteCheckpoints(route.id, checkpoints, orgId);
+        await replaceRouteCheckpoints(
+          route.id,
+          checkpoints.map((cp) => ({
+            ...cp,
+            geofenceRadiusM: cp.geofenceRadiusM ?? DEFAULT_PATROL_CHECKPOINT_RADIUS_M,
+          })),
+          orgId,
+        );
       }
       const full = await getPatrolRouteWithCheckpoints(route.id, orgId);
       res.status(201).json(full);
@@ -223,7 +264,6 @@ export function registerPatrolRoutes(app: Express) {
     res.json(pending);
   });
 
-  // ── Patrol execution ───────────────────────────────────────────────────────
   app.get("/api/patrol/patrols/active", async (req, res) => {
     if (!requirePermission(req, res, "patrol.execute")) return;
     const active = await getActivePatrolForUser(req.currentUser!.id, req.currentUser!.organizationId);
@@ -260,6 +300,90 @@ export function registerPatrolRoutes(app: Express) {
     }
 
     res.json(detail);
+  });
+
+  app.get("/api/patrol/patrols/:id/report", async (req, res) => {
+    if (!req.currentUser) return res.status(401).json({ message: "Unauthorized" });
+    const id = parseInt(String(req.params.id), 10);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+
+    const report = await getPatrolReport(id, req.currentUser.organizationId);
+    if (!report) return res.status(404).json({ message: "Patrol not found" });
+
+    const isManager = canManagePatrolRoutes(req.currentUser.role);
+    const isOwner = report.startedByUserId === req.currentUser.id;
+    const canExecute = hasPermission(req.currentUser.role, "patrol.execute");
+    if (!isManager && !(canExecute && isOwner)) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    res.json(report);
+  });
+
+  app.get("/api/patrol/patrols/:id/track", async (req, res) => {
+    if (!req.currentUser) return res.status(401).json({ message: "Unauthorized" });
+    const id = parseInt(String(req.params.id), 10);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+
+    const detail = await getPatrolDetail(id, req.currentUser.organizationId);
+    if (!detail) return res.status(404).json({ message: "Patrol not found" });
+
+    const isManager = canManagePatrolRoutes(req.currentUser.role);
+    const isOwner = detail.startedByUserId === req.currentUser.id;
+    if (!isManager && !isOwner) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const points = await getPatrolTrackPoints(id, req.currentUser.organizationId);
+    res.json(points);
+  });
+
+  app.post("/api/patrol/patrols/:id/track", async (req, res) => {
+    const patrolId = parseInt(String(req.params.id), 10);
+    if (isNaN(patrolId)) return res.status(400).json({ message: "Invalid id" });
+
+    const parsed = trackBatchSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
+
+    const token = readPatrolTrackToken(req);
+    let orgId: string | null = null;
+    let authorized = false;
+
+    if (token) {
+      const byToken = await findPatrolByTrackToken(patrolId, token);
+      if (byToken && byToken.status === "in_progress") {
+        orgId = byToken.organizationId;
+        authorized = true;
+      }
+    }
+
+    if (!authorized && req.currentUser) {
+      if (!requirePermission(req, res, "patrol.execute")) return;
+      const detail = await getPatrolDetail(patrolId, req.currentUser.organizationId);
+      if (!detail || detail.startedByUserId !== req.currentUser.id) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      orgId = req.currentUser.organizationId;
+      authorized = true;
+    }
+
+    if (!authorized || !orgId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    try {
+      const result = await appendPatrolTrackPoints(
+        patrolId,
+        orgId,
+        parsed.data.points.map((p) => ({
+          ...p,
+          recordedAt: typeof p.recordedAt === "number" ? new Date(p.recordedAt) : p.recordedAt,
+        })),
+      );
+      res.json(result);
+    } catch (err) {
+      res.status(400).json({ message: err instanceof Error ? err.message : "Failed to save track" });
+    }
   });
 
   app.post("/api/patrol/patrols", async (req, res) => {

@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { PatrolDetail } from "@/lib/patrol-types";
 import { PatrolActiveMap } from "@/components/patrol/patrol-active-map";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { requestLocationAccess } from "@/lib/request-location-access";
 import { prepareAndUploadFile } from "@/lib/upload-media";
+import { startPatrolTracking, stopPatrolTracking } from "@/lib/patrol-tracking";
 import { Camera, CheckCircle2, Loader2, MapPin, SkipForward, XCircle } from "lucide-react";
 
 const ACTIVE_PATROL_KEY = ["/api/patrol/patrols/active"];
@@ -25,6 +26,7 @@ export function PatrolActiveRun({ patrol }: PatrolActiveRunProps) {
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [trackTrail, setTrackTrail] = useState<Array<{ lat: number; lng: number }>>([]);
 
   const loggedIds = useMemo(
     () => new Set(patrol.logs.map((l) => l.checkpointId)),
@@ -36,6 +38,25 @@ export function PatrolActiveRun({ patrol }: PatrolActiveRunProps) {
       ? Math.round((patrol.logs.length / patrol.totalCheckpoints) * 100)
       : 0;
 
+  useEffect(() => {
+    let cancelled = false;
+    void startPatrolTracking({
+      patrolId: patrol.id,
+      trackUploadToken: patrol.trackUploadToken,
+      onPoint: (p) => {
+        if (cancelled) return;
+        setTrackTrail((prev) => {
+          const next = [...prev, { lat: p.latitude, lng: p.longitude }];
+          return next.length > 500 ? next.slice(-500) : next;
+        });
+      },
+    });
+    return () => {
+      cancelled = true;
+      void stopPatrolTracking({ flush: true });
+    };
+  }, [patrol.id, patrol.trackUploadToken]);
+
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ACTIVE_PATROL_KEY });
     void qc.invalidateQueries({ queryKey: ["/api/patrol/patrols"] });
@@ -44,13 +65,27 @@ export function PatrolActiveRun({ patrol }: PatrolActiveRunProps) {
   const clockMutation = useMutation({
     mutationFn: async (status: "completed" | "missed") => {
       if (!nextCheckpoint) throw new Error("No checkpoint to clock");
-      const loc = status === "completed" ? await requestLocationAccess() : { lat: undefined, lng: undefined };
+      let accuracyM: number | null = null;
+      const loc =
+        status === "completed"
+          ? await requestLocationAccess()
+          : { lat: undefined, lng: undefined };
+      if (status === "completed" && navigator.geolocation) {
+        accuracyM = await new Promise<number | null>((resolve) => {
+          navigator.geolocation.getCurrentPosition(
+            (pos) => resolve(pos.coords.accuracy ?? null),
+            () => resolve(null),
+            { enableHighAccuracy: true, maximumAge: 5_000, timeout: 8_000 },
+          );
+        });
+      }
       const res = await apiRequest(
         "POST",
         `/api/patrol/patrols/${patrol.id}/checkpoints/${nextCheckpoint.id}/clock`,
         {
           latitude: loc.lat ?? null,
           longitude: loc.lng ?? null,
+          accuracyM,
           photoUrl: status === "completed" ? photoUrl : null,
           notes: notes.trim() || null,
           status,
@@ -58,8 +93,14 @@ export function PatrolActiveRun({ patrol }: PatrolActiveRunProps) {
       );
       return res.json() as Promise<PatrolDetail>;
     },
-    onSuccess: () => {
-      toast({ title: "Checkpoint recorded" });
+    onSuccess: (_detail, status) => {
+      toast({
+        title: "Checkpoint recorded",
+        description:
+          status === "completed"
+            ? "GPS position saved for management review"
+            : undefined,
+      });
       setNotes("");
       setPhotoPreview(null);
       setPhotoUrl(null);
@@ -71,7 +112,10 @@ export function PatrolActiveRun({ patrol }: PatrolActiveRunProps) {
   });
 
   const completeMutation = useMutation({
-    mutationFn: () => apiRequest("POST", `/api/patrol/patrols/${patrol.id}/complete`, {}),
+    mutationFn: async () => {
+      await stopPatrolTracking({ flush: true });
+      return apiRequest("POST", `/api/patrol/patrols/${patrol.id}/complete`, {});
+    },
     onSuccess: () => {
       toast({ title: "Patrol completed" });
       invalidate();
@@ -80,7 +124,10 @@ export function PatrolActiveRun({ patrol }: PatrolActiveRunProps) {
   });
 
   const cancelMutation = useMutation({
-    mutationFn: () => apiRequest("POST", `/api/patrol/patrols/${patrol.id}/cancel`, {}),
+    mutationFn: async () => {
+      await stopPatrolTracking({ flush: true });
+      return apiRequest("POST", `/api/patrol/patrols/${patrol.id}/cancel`, {});
+    },
     onSuccess: () => {
       toast({ title: "Patrol cancelled" });
       invalidate();
@@ -123,12 +170,16 @@ export function PatrolActiveRun({ patrol }: PatrolActiveRunProps) {
           <span className="text-xs font-medium text-primary">In progress</span>
         </div>
         <Progress value={progressPct} className="h-2" />
+        <p className="text-[11px] text-muted-foreground">
+          GPS tracking is on — keep notifications allowed so the route records even if the phone sleeps.
+        </p>
       </div>
 
       <PatrolActiveMap
         checkpoints={patrol.checkpoints}
         loggedCheckpointIds={loggedIds}
         nextCheckpointId={nextCheckpoint?.id ?? null}
+        trackTrail={trackTrail}
       />
 
       {nextCheckpoint ? (
@@ -229,6 +280,9 @@ export function PatrolActiveRun({ patrol }: PatrolActiveRunProps) {
                   <SkipForward className="h-3.5 w-3.5 text-muted-foreground" />
                 )}
                 <span>{log.checkpointName}</span>
+                {log.withinGeofence === false && (
+                  <span className="text-[10px] text-destructive font-medium">Outside radius</span>
+                )}
               </li>
             ))}
           </ul>

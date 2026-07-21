@@ -12,6 +12,8 @@ type PatrolActiveMapProps = {
   checkpoints: PatrolCheckpoint[];
   loggedCheckpointIds: Set<number>;
   nextCheckpointId: number | null;
+  /** Live breadcrumb from patrol tracking (actual path). */
+  trackTrail?: Array<{ lat: number; lng: number }>;
   className?: string;
 };
 
@@ -53,6 +55,7 @@ export function PatrolActiveMap({
   checkpoints,
   loggedCheckpointIds,
   nextCheckpointId,
+  trackTrail = [],
   className,
 }: PatrolActiveMapProps) {
   const [mapsReady, setMapsReady] = useState(false);
@@ -66,6 +69,7 @@ export function PatrolActiveMap({
   const checkpointMarkersRef = useRef<google.maps.Marker[]>([]);
   const userMarkerRef = useRef<google.maps.Marker | null>(null);
   const polylineRef = useRef<google.maps.Polyline | null>(null);
+  const trackPolylineRef = useRef<google.maps.Polyline | null>(null);
   const didInitialFitRef = useRef(false);
 
   const pinned = checkpoints.filter(hasCheckpointCoords);
@@ -145,6 +149,8 @@ export function PatrolActiveMap({
       userMarkerRef.current = null;
       polylineRef.current?.setMap(null);
       polylineRef.current = null;
+      trackPolylineRef.current?.setMap(null);
+      trackPolylineRef.current = null;
       if (mapInstanceRef.current) {
         google.maps.event.clearInstanceListeners(mapInstanceRef.current);
         mapInstanceRef.current = null;
@@ -196,6 +202,26 @@ export function PatrolActiveMap({
       });
     }
   }, [checkpoints, loggedCheckpointIds, nextCheckpointId, mapsReady]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapsReady) return;
+    if (trackPolylineRef.current) {
+      trackPolylineRef.current.setMap(null);
+      trackPolylineRef.current = null;
+    }
+    if (trackTrail.length >= 2) {
+      trackPolylineRef.current = new google.maps.Polyline({
+        path: trackTrail,
+        geodesic: true,
+        strokeColor: "#16a34a",
+        strokeOpacity: 0.9,
+        strokeWeight: 4,
+        map,
+        zIndex: 2,
+      });
+    }
+  }, [trackTrail, mapsReady]);
 
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -316,6 +342,14 @@ export function PatrolActiveMap({
             <span className="flex items-center gap-1">
               <span className="h-2.5 w-2.5 rounded-full bg-green-500" />
               You
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="h-2.5 w-2.5 rounded-full bg-green-700" />
+              Tracked path
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="h-2.5 w-2.5 rounded-full bg-blue-600" />
+              Planned
             </span>
           </div>
         )}
