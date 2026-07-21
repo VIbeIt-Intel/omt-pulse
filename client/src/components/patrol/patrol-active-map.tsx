@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { PatrolCheckpoint } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -97,6 +97,20 @@ export function PatrolActiveMap({
       setGpsUnavailable(true);
       return;
     }
+
+    // Immediate one-shot so the green "You" marker appears without waiting for watch.
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+        setUserPos({ lat, lng });
+        setGpsUnavailable(false);
+      },
+      () => setGpsUnavailable(true),
+      { enableHighAccuracy: true, maximumAge: 15_000, timeout: 15_000 },
+    );
+
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
         const lat = pos.coords.latitude;
@@ -106,10 +120,17 @@ export function PatrolActiveMap({
         setGpsUnavailable(false);
       },
       () => setGpsUnavailable(true),
-      { enableHighAccuracy: true, maximumAge: 8_000, timeout: 12_000 },
+      { enableHighAccuracy: true, maximumAge: 8_000, timeout: 20_000 },
     );
     return () => navigator.geolocation.clearWatch(watchId);
   }, []);
+
+  // Prefer live WebView GPS; fall back to last accepted track point from the tracker.
+  const displayPos = useMemo(() => {
+    if (userPos) return userPos;
+    const last = trackTrail[trackTrail.length - 1];
+    return last ?? null;
+  }, [userPos, trackTrail]);
 
   useEffect(() => {
     if (!mapsReady || !mapRef.current || mapInstanceRef.current) return;
@@ -227,8 +248,8 @@ export function PatrolActiveMap({
     const map = mapInstanceRef.current;
     if (!map || !mapsReady) return;
 
-    if (userPos) {
-      const position = { lat: userPos.lat, lng: userPos.lng };
+    if (displayPos) {
+      const position = { lat: displayPos.lat, lng: displayPos.lng };
       if (userMarkerRef.current) {
         userMarkerRef.current.setPosition(position);
       } else {
@@ -248,7 +269,7 @@ export function PatrolActiveMap({
         });
       }
     }
-  }, [userPos, mapsReady]);
+  }, [displayPos, mapsReady]);
 
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -262,7 +283,17 @@ export function PatrolActiveMap({
       if (!mapInstanceRef.current) return;
       google.maps.event.trigger(mapInstanceRef.current, "resize");
 
-      if (nextCp && hasCheckpointCoords(nextCp)) {
+      // Once we have the patroller's fix, keep them visible with the next pin.
+      if (displayPos && nextCp && hasCheckpointCoords(nextCp)) {
+        const bounds = new google.maps.LatLngBounds();
+        bounds.extend(displayPos);
+        bounds.extend({ lat: nextCp.latitude!, lng: nextCp.longitude! });
+        map.fitBounds(bounds, { top: 48, right: 48, bottom: 48, left: 48 });
+        didInitialFitRef.current = true;
+        return;
+      }
+
+      if (nextCp && hasCheckpointCoords(nextCp) && !displayPos) {
         map.panTo({ lat: nextCp.latitude!, lng: nextCp.longitude! });
         map.setZoom(16);
         didInitialFitRef.current = true;
@@ -275,14 +306,14 @@ export function PatrolActiveMap({
           if (!hasCheckpointCoords(cp)) continue;
           bounds.extend({ lat: cp.latitude!, lng: cp.longitude! });
         }
-        if (userPos) bounds.extend(userPos);
+        if (displayPos) bounds.extend(displayPos);
         map.fitBounds(bounds, { top: 40, right: 40, bottom: 40, left: 40 });
         didInitialFitRef.current = true;
       }
     }, 200);
 
     return () => window.clearTimeout(timer);
-  }, [nextCheckpointId, mapsReady, mapOpen, checkpoints, hasPins, userPos]);
+  }, [nextCheckpointId, mapsReady, mapOpen, checkpoints, hasPins, displayPos]);
 
   return (
     <Collapsible open={mapOpen} onOpenChange={setMapOpen} className={cn("rounded-lg border", className)}>
@@ -318,9 +349,11 @@ export function PatrolActiveMap({
               className="h-[min(32vh,260px)] w-full"
               data-testid="patrol-active-map"
             />
-            {gpsUnavailable && (
-              <p className="absolute bottom-2 left-2 right-2 rounded bg-background/90 px-2 py-1 text-[10px] text-muted-foreground text-center">
-                Location unavailable — enable GPS to see your position
+            {(!displayPos || gpsUnavailable) && (
+              <p className="absolute bottom-2 left-2 right-2 rounded bg-destructive/95 px-2 py-1.5 text-[11px] text-destructive-foreground text-center font-medium">
+                {gpsUnavailable
+                  ? "Location is off or blocked — turn on GPS to see your green position"
+                  : "Waiting for GPS fix…"}
               </p>
             )}
           </div>

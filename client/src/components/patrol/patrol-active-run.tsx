@@ -66,25 +66,37 @@ export function PatrolActiveRun({ patrol }: PatrolActiveRunProps) {
     mutationFn: async (status: "completed" | "missed") => {
       if (!nextCheckpoint) throw new Error("No checkpoint to clock");
       let accuracyM: number | null = null;
-      const loc =
-        status === "completed"
-          ? await requestLocationAccess()
-          : { lat: undefined, lng: undefined };
-      if (status === "completed" && navigator.geolocation) {
-        accuracyM = await new Promise<number | null>((resolve) => {
-          navigator.geolocation.getCurrentPosition(
-            (pos) => resolve(pos.coords.accuracy ?? null),
-            () => resolve(null),
-            { enableHighAccuracy: true, maximumAge: 5_000, timeout: 8_000 },
+      let lat: number | null = null;
+      let lng: number | null = null;
+
+      if (status === "completed") {
+        const loc = await requestLocationAccess({ probeMode: "settle" });
+        if (loc.result !== "granted" || loc.lat == null || loc.lng == null) {
+          throw new Error(
+            loc.result === "settings-opened"
+              ? loc.message || "Turn on Location, return here, then clock again."
+              : loc.message || "GPS is required to clock this checkpoint.",
           );
-        });
+        }
+        lat = loc.lat;
+        lng = loc.lng;
+        if (navigator.geolocation) {
+          accuracyM = await new Promise<number | null>((resolve) => {
+            navigator.geolocation.getCurrentPosition(
+              (pos) => resolve(pos.coords.accuracy ?? null),
+              () => resolve(null),
+              { enableHighAccuracy: true, maximumAge: 5_000, timeout: 8_000 },
+            );
+          });
+        }
       }
+
       const res = await apiRequest(
         "POST",
         `/api/patrol/patrols/${patrol.id}/checkpoints/${nextCheckpoint.id}/clock`,
         {
-          latitude: loc.lat ?? null,
-          longitude: loc.lng ?? null,
+          latitude: lat,
+          longitude: lng,
           accuracyM,
           photoUrl: status === "completed" ? photoUrl : null,
           notes: notes.trim() || null,
@@ -107,7 +119,7 @@ export function PatrolActiveRun({ patrol }: PatrolActiveRunProps) {
       invalidate();
     },
     onError: (e: Error) => {
-      toast({ title: "Failed", description: e.message, variant: "destructive" });
+      toast({ title: "Location required", description: e.message, variant: "destructive" });
     },
   });
 
@@ -170,9 +182,15 @@ export function PatrolActiveRun({ patrol }: PatrolActiveRunProps) {
           <span className="text-xs font-medium text-primary">In progress</span>
         </div>
         <Progress value={progressPct} className="h-2" />
-        <p className="text-[11px] text-muted-foreground">
-          GPS tracking is on — keep notifications allowed so the route records even if the phone sleeps.
-        </p>
+        {trackTrail.length > 0 ? (
+          <p className="text-[11px] text-muted-foreground">
+            GPS tracking is on — keep notifications allowed so the route records even if the phone sleeps.
+          </p>
+        ) : (
+          <p className="text-[11px] font-medium text-destructive rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-2">
+            Waiting for GPS… Turn Location on if it is off. Your green position appears on the map once a fix is available.
+          </p>
+        )}
       </div>
 
       <PatrolActiveMap

@@ -1,5 +1,5 @@
 @echo off
-REM Deploy fix/licence-front-ocr-v121 (patrol evidence + history map, omt-v211).
+REM Deploy fix/licence-front-ocr-v121 (require GPS before patrol start, omt-v212).
 cd /d "%~dp0"
 call "%~dp0resolve-ssh-key.bat"
 set HOST=ubuntu@154.65.108.187
@@ -30,6 +30,6 @@ if errorlevel 1 (
 )
 
 echo.
-echo === Done. Check https://omtpulse.com/api/version shows omt-v211 ===
+echo === Done. Check https://omtpulse.com/api/version shows omt-v212 ===
 echo Tell testers: force-close OMT Pulse and reopen.
 pause

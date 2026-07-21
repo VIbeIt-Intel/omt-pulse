@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy fix/licence-front-ocr-v121 (patrol evidence + history map, omt-v211).
+# Deploy fix/licence-front-ocr-v121 (require GPS before patrol start, omt-v212).
 set -eu
 cd /opt/omt-pulse
 BRANCH="fix/licence-front-ocr-v121"

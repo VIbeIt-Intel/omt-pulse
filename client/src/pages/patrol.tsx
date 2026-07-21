@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { requestLocationAccess } from "@/lib/request-location-access";
 import { cn } from "@/lib/utils";
 import { ChevronRight, Footprints, History, Loader2, Plus, Route } from "lucide-react";
 
@@ -77,14 +78,31 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
   });
 
   const startMutation = useMutation({
-    mutationFn: (routeId: number) => apiRequest("POST", "/api/patrol/patrols", { routeId }),
+    mutationFn: async (routeId: number) => {
+      // Hard gate: do not start a patrol without a live GPS fix. Opens Location /
+      // app permission settings when Location is off or blocked.
+      const loc = await requestLocationAccess({ probeMode: "settle" });
+      if (loc.result !== "granted" || loc.lat == null || loc.lng == null) {
+        const msg =
+          loc.result === "settings-opened"
+            ? loc.message || "Turn on Location, return here, then tap Start again."
+            : loc.message || "Location is required to start a patrol.";
+        throw new Error(msg);
+      }
+      return apiRequest("POST", "/api/patrol/patrols", { routeId });
+    },
     onSuccess: () => {
-      toast({ title: "Patrol started" });
+      toast({ title: "Patrol started", description: "GPS is on — your route will be recorded." });
       void qc.invalidateQueries({ queryKey: ["/api/patrol/patrols/active"] });
       void qc.invalidateQueries({ queryKey: ["/api/patrol/dispatches/pending"] });
       setTab("run");
     },
-    onError: (e: Error) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
+    onError: (e: Error) =>
+      toast({
+        title: "Location required",
+        description: e.message,
+        variant: "destructive",
+      }),
   });
 
   const loading = activeLoading || routesLoading;
@@ -158,6 +176,9 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
           ) : (
             <div className="p-4 space-y-2">
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Start a route</p>
+              <p className="text-[11px] text-muted-foreground rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2">
+                Location must be on before you can start. The app will ask for GPS and open phone Location settings if needed.
+              </p>
               {sortedRoutes.map((route) => {
                 const pending = pendingByRoute.get(route.id);
                 const highlighted = highlightRouteId === route.id || !!pending;
