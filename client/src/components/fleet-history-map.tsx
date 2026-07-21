@@ -20,6 +20,52 @@ type Props = {
 };
 
 const MAP_HEIGHT = "min(52vh, 420px)";
+/** Street / neighbourhood view for a parked or single-point vehicle. */
+const STATIONARY_ZOOM = 16;
+/** Cap after fitBounds so a tight GPS cluster doesn't zoom to building level. */
+const MAX_ROUTE_ZOOM = 17;
+/** Paths that never leave this radius are treated as stationary (GPS jitter). */
+const STATIONARY_SPAN_M = 50;
+
+function pathSpanM(path: Array<{ lat: number; lng: number }>): number {
+  if (path.length < 2) return 0;
+  let minLat = path[0]!.lat;
+  let maxLat = path[0]!.lat;
+  let minLng = path[0]!.lng;
+  let maxLng = path[0]!.lng;
+  for (const p of path) {
+    if (p.lat < minLat) minLat = p.lat;
+    if (p.lat > maxLat) maxLat = p.lat;
+    if (p.lng < minLng) minLng = p.lng;
+    if (p.lng > maxLng) maxLng = p.lng;
+  }
+  // Approx metres at mid-latitude (good enough to detect parked-car jitter).
+  const midLat = (minLat + maxLat) / 2;
+  const latM = (maxLat - minLat) * 111_320;
+  const lngM = (maxLng - minLng) * 111_320 * Math.cos((midLat * Math.PI) / 180);
+  return Math.hypot(latM, lngM);
+}
+
+function clampZoomAfterFit(map: google.maps.Map, maxZoom: number): void {
+  const apply = () => {
+    const z = map.getZoom() ?? 0;
+    if (z > maxZoom) map.setZoom(maxZoom);
+  };
+  // fitBounds is async — clamp once the camera settles.
+  google.maps.event.addListenerOnce(map, "idle", apply);
+  window.setTimeout(apply, 400);
+}
+
+function vehicleDotIcon(color: string, scale: number): google.maps.Symbol {
+  return {
+    path: google.maps.SymbolPath.CIRCLE,
+    scale,
+    fillColor: color,
+    fillOpacity: 1,
+    strokeColor: "#ffffff",
+    strokeWeight: 2,
+  };
+}
 
 export function FleetHistoryMap({ positions, className, testId = "fleet-history-map" }: Props) {
   const mapRef = useRef<HTMLDivElement>(null);
@@ -57,7 +103,7 @@ export function FleetHistoryMap({ positions, className, testId = "fleet-history-
     if (!mapInstanceRef.current) {
       mapInstanceRef.current = new google.maps.Map(mapRef.current, {
         center: path[0] ?? { lat: -26.2041, lng: 28.0473 },
-        zoom: 14,
+        zoom: STATIONARY_ZOOM,
         mapTypeControl: true,
         streetViewControl: false,
         fullscreenControl: true,
@@ -79,15 +125,22 @@ export function FleetHistoryMap({ positions, className, testId = "fleet-history-
 
     if (path.length === 0) return;
 
-    if (path.length === 1) {
-      startMarkerRef.current = new google.maps.Marker({
-        position: path[0],
+    const last = path[path.length - 1]!;
+    const spanM = pathSpanM(path);
+    const stationary = path.length === 1 || spanM < STATIONARY_SPAN_M;
+
+    if (stationary) {
+      // Parked / single fix: centre on the vehicle at a readable street zoom —
+      // never let fitBounds slam into max building-level zoom on GPS jitter.
+      endMarkerRef.current = new google.maps.Marker({
+        position: last,
         map,
-        title: "Position",
-        zIndex: 20,
+        title: "Vehicle location",
+        icon: vehicleDotIcon("#2563eb", 9),
+        zIndex: 21,
       });
-      map.setCenter(path[0]);
-      map.setZoom(15);
+      map.setCenter(last);
+      map.setZoom(STATIONARY_ZOOM);
       return;
     }
 
@@ -104,35 +157,22 @@ export function FleetHistoryMap({ positions, className, testId = "fleet-history-
       position: path[0],
       map,
       title: "Start",
-      icon: {
-        path: google.maps.SymbolPath.CIRCLE,
-        scale: 7,
-        fillColor: "#16a34a",
-        fillOpacity: 1,
-        strokeColor: "#ffffff",
-        strokeWeight: 2,
-      },
+      icon: vehicleDotIcon("#16a34a", 7),
       zIndex: 20,
     });
 
     endMarkerRef.current = new google.maps.Marker({
-      position: path[path.length - 1],
+      position: last,
       map,
       title: "Latest",
-      icon: {
-        path: google.maps.SymbolPath.CIRCLE,
-        scale: 8,
-        fillColor: "#2563eb",
-        fillOpacity: 1,
-        strokeColor: "#ffffff",
-        strokeWeight: 2,
-      },
+      icon: vehicleDotIcon("#2563eb", 8),
       zIndex: 21,
     });
 
     const bounds = new google.maps.LatLngBounds();
     for (const pt of path) bounds.extend(pt);
     map.fitBounds(bounds, { top: 48, right: 48, bottom: 48, left: 48 });
+    clampZoomAfterFit(map, MAX_ROUTE_ZOOM);
   }, [ready, path]);
 
   const shellStyle = { height: MAP_HEIGHT };
