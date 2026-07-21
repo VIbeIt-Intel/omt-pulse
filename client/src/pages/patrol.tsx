@@ -14,7 +14,19 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { requestLocationAccess } from "@/lib/request-location-access";
 import { cn } from "@/lib/utils";
-import { ChevronRight, Footprints, History, Loader2, Plus, Route } from "lucide-react";
+import {
+  AlertTriangle,
+  CalendarClock,
+  CheckCircle2,
+  ChevronRight,
+  Clock3,
+  Footprints,
+  History,
+  Loader2,
+  MapPin,
+  Plus,
+  Route,
+} from "lucide-react";
 
 type PatrolPageProps = {
   userRole: string;
@@ -29,6 +41,36 @@ type PendingDispatch = {
   startByAt: string;
   routeName: string;
 };
+
+function patrolDuration(startedAt: string | Date, endedAt: string | Date | null): string {
+  const start = new Date(startedAt).getTime();
+  const end = endedAt ? new Date(endedAt).getTime() : Date.now();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return "—";
+  const minutes = Math.max(1, Math.round((end - start) / 60_000));
+  if (minutes < 60) return `${minutes} min`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
+function patrolDistance(distanceM: number | null): string {
+  if (distanceM == null || !Number.isFinite(distanceM)) return "No track";
+  if (distanceM < 1000) return `${Math.round(distanceM)} m`;
+  return `${(distanceM / 1000).toFixed(2)} km`;
+}
+
+function patrolDate(value: string | Date): string {
+  return new Date(value).toLocaleDateString(undefined, {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function patrolTime(value: string | Date): string {
+  return new Date(value).toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 export default function PatrolPage({ userRole }: PatrolPageProps) {
   const isManager = canManagePatrolRoutes(userRole);
@@ -118,6 +160,14 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
       return a.name.localeCompare(b.name);
     });
   }, [routes, pendingByRoute, highlightRouteId]);
+  const historySummary = useMemo(() => {
+    const completed = history.filter((p) => p.status === "completed").length;
+    const checkpoints = history.reduce((sum, p) => sum + p.completedCheckpoints, 0);
+    const totalCheckpoints = history.reduce((sum, p) => sum + p.totalCheckpoints, 0);
+    const distanceM = history.reduce((sum, p) => sum + (p.distanceM ?? 0), 0);
+    const alerts = history.reduce((sum, p) => sum + (p.geofenceFailCount ?? 0), 0);
+    return { completed, checkpoints, totalCheckpoints, distanceM, alerts };
+  }, [history]);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -225,36 +275,109 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
             ) : history.length === 0 ? (
               <p className="p-8 text-center text-sm text-muted-foreground">No patrol history yet.</p>
             ) : (
-              <ul className="p-4 space-y-2">
-                {history.map((p) => (
-                  <li key={p.id}>
-                    <button
-                      type="button"
-                      className="w-full rounded-lg border px-4 py-3 text-sm text-left hover:bg-muted/40 transition-colors"
-                      onClick={() => setHistoryPatrolId(p.id)}
-                    >
-                      <div className="flex justify-between gap-2 items-start">
-                        <span className="font-medium">{p.routeName}</span>
-                        <span className="flex items-center gap-1 shrink-0">
-                          <span className="text-xs capitalize text-muted-foreground">
-                            {p.status.replace("_", " ")}
-                          </span>
-                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                        </span>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {p.startedByName} · {p.completedCheckpoints}/{p.totalCheckpoints} checkpoints
-                        {p.distanceM != null ? ` · ${(p.distanceM / 1000).toFixed(2)} km` : ""}
-                      </p>
-                      {(p.geofenceFailCount ?? 0) > 0 && (
-                        <p className="text-[11px] text-destructive mt-1 font-medium">
-                          {p.geofenceFailCount} outside-radius clock-in(s)
-                        </p>
-                      )}
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              <div className="p-4 space-y-4">
+                <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+                  <HistoryStat
+                    icon={CheckCircle2}
+                    label="Completed"
+                    value={`${historySummary.completed}/${history.length}`}
+                  />
+                  <HistoryStat
+                    icon={MapPin}
+                    label="Checkpoints"
+                    value={`${historySummary.checkpoints}/${historySummary.totalCheckpoints}`}
+                  />
+                  <HistoryStat
+                    icon={Route}
+                    label="Distance"
+                    value={patrolDistance(historySummary.distanceM)}
+                  />
+                  <HistoryStat
+                    icon={AlertTriangle}
+                    label="GPS alerts"
+                    value={String(historySummary.alerts)}
+                    warning={historySummary.alerts > 0}
+                  />
+                </div>
+
+                <div>
+                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Recent patrols
+                  </p>
+                  <ul className="space-y-2">
+                    {history.map((p) => {
+                      const hasAlert = (p.geofenceFailCount ?? 0) > 0;
+                      const checkpointComplete =
+                        p.totalCheckpoints > 0 && p.completedCheckpoints === p.totalCheckpoints;
+                      return (
+                        <li key={p.id}>
+                          <button
+                            type="button"
+                            className="w-full rounded-lg border px-4 py-3 text-sm text-left hover:bg-muted/40 transition-colors"
+                            onClick={() => setHistoryPatrolId(p.id)}
+                          >
+                            <div className="flex justify-between gap-3 items-start">
+                              <div className="min-w-0">
+                                <p className="font-medium truncate">{p.routeName}</p>
+                                <p className="mt-0.5 text-xs text-muted-foreground">
+                                  {p.startedByName}
+                                </p>
+                              </div>
+                              <span className="flex items-center gap-2 shrink-0">
+                                <span
+                                  className={cn(
+                                    "rounded-full px-2 py-0.5 text-[10px] font-medium capitalize",
+                                    p.status === "completed"
+                                      ? "bg-green-500/10 text-green-700 dark:text-green-400"
+                                      : p.status === "cancelled"
+                                        ? "bg-destructive/10 text-destructive"
+                                        : "bg-muted text-muted-foreground",
+                                  )}
+                                >
+                                  {p.status.replace("_", " ")}
+                                </span>
+                                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                              </span>
+                            </div>
+
+                            <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs sm:grid-cols-4">
+                              <HistoryDetail
+                                icon={CalendarClock}
+                                label="Started"
+                                value={`${patrolDate(p.startedAt)} · ${patrolTime(p.startedAt)}`}
+                              />
+                              <HistoryDetail
+                                icon={Clock3}
+                                label="Duration"
+                                value={patrolDuration(p.startedAt, p.endedAt)}
+                              />
+                              <HistoryDetail
+                                icon={MapPin}
+                                label="Checkpoints"
+                                value={`${p.completedCheckpoints}/${p.totalCheckpoints}`}
+                                good={checkpointComplete}
+                              />
+                              <HistoryDetail
+                                icon={Route}
+                                label="Distance"
+                                value={patrolDistance(p.distanceM)}
+                              />
+                            </div>
+
+                            {hasAlert && (
+                              <div className="mt-3 flex items-center gap-1.5 rounded-md bg-destructive/10 px-2.5 py-1.5 text-[11px] font-medium text-destructive">
+                                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                                {p.geofenceFailCount} checkpoint
+                                {p.geofenceFailCount === 1 ? "" : "s"} clocked outside the allowed radius
+                              </div>
+                            )}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              </div>
             )}
           </TabsContent>
         )}
@@ -279,5 +402,51 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
         />
       )}
     </div>
+  );
+}
+
+type IconComponent = typeof History;
+
+function HistoryStat({
+  icon: Icon,
+  label,
+  value,
+  warning = false,
+}: {
+  icon: IconComponent;
+  label: string;
+  value: string;
+  warning?: boolean;
+}) {
+  return (
+    <div className="rounded-lg border px-3 py-2.5">
+      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+        <Icon className={cn("h-3.5 w-3.5", warning && "text-destructive")} />
+        {label}
+      </div>
+      <p className={cn("mt-1 text-base font-semibold", warning && "text-destructive")}>{value}</p>
+    </div>
+  );
+}
+
+function HistoryDetail({
+  icon: Icon,
+  label,
+  value,
+  good = false,
+}: {
+  icon: IconComponent;
+  label: string;
+  value: string;
+  good?: boolean;
+}) {
+  return (
+    <span className="flex min-w-0 items-start gap-1.5">
+      <Icon className={cn("mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground", good && "text-green-600")} />
+      <span className="min-w-0">
+        <span className="block text-[10px] uppercase tracking-wide text-muted-foreground">{label}</span>
+        <span className="block truncate font-medium">{value}</span>
+      </span>
+    </span>
   );
 }
