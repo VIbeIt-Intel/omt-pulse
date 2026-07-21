@@ -2,7 +2,13 @@ import { useState, useMemo, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import type { Location } from "@shared/schema";
-import { isDispatchStaff, isFieldReporter, isAccessController, canViewAccessControlModule } from "@shared/user-roles";
+import {
+  isDispatchStaff,
+  isFieldReporter,
+  isAccessController,
+  canViewAccessControlModule,
+  canAccessPatrolModule,
+} from "@shared/user-roles";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { IncidentDialog } from "@/components/incident-dialog";
@@ -24,6 +30,7 @@ import {
   MapPin,
   Clock,
   ShieldCheck,
+  Footprints,
   type LucideIcon,
 } from "lucide-react";
 
@@ -387,7 +394,7 @@ function ActionTile({
   subtitle?: string;
   icon: LucideIcon;
   onClick: () => void;
-  variant?: "primary" | "live" | "panic" | "access";
+  variant?: "primary" | "live" | "panic" | "access" | "patrol";
   testId: string;
 }) {
   const surface =
@@ -397,9 +404,11 @@ function ActionTile({
       ? "bg-gradient-to-br from-orange-500 to-amber-600 text-white shadow-lg shadow-orange-500/25"
       : variant === "access"
       ? "bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-600/25"
+      : variant === "patrol"
+      ? "bg-gradient-to-br from-teal-600 to-emerald-700 text-white shadow-lg shadow-teal-600/25"
       : "bg-gradient-to-br from-primary to-primary/85 text-primary-foreground shadow-lg shadow-primary/20";
   const subtitleClass =
-    variant === "live" || variant === "panic" || variant === "access"
+    variant === "live" || variant === "panic" || variant === "access" || variant === "patrol"
       ? "text-white/85"
       : "text-primary-foreground/80";
   const titleClass =
@@ -503,8 +512,16 @@ export default function CommandDashboard() {
   });
   const isReporter = isFieldReporter(currentUser?.role ?? "");
   const isGateOperator = isAccessController(currentUser?.role ?? "");
+  const isPatrolUser = (currentUser?.role ?? "") === "patrol_user";
   const canAccessControl = canViewAccessControlModule(currentUser?.role ?? "");
+  const canPatrol = canAccessPatrolModule(currentUser?.role ?? "");
   const isDispatch = currentUser?.role ? isDispatchStaff(currentUser.role) : false;
+
+  const { data: activePatrol } = useQuery<{ id: number; routeName?: string | null } | null>({
+    queryKey: ["/api/patrol/patrols/active"],
+    enabled: canPatrol,
+    refetchInterval: 15_000,
+  });
 
   const { data: panicAlerts = [] } = useQuery<PanicAlert[]>({
     queryKey: ["/api/panic/recent"],
@@ -796,6 +813,20 @@ export default function CommandDashboard() {
             onClick={() => setPanicOpen(true)}
             testId="button-panic"
           />
+          {canPatrol && (
+          <ActionTile
+            title={activePatrol ? "Patrol in progress" : "Start Patrol"}
+            subtitle={
+              activePatrol
+                ? (activePatrol.routeName?.trim() || "Resume checkpoint clocking")
+                : "Follow routes and clock checkpoints"
+            }
+            icon={Footprints}
+            variant="patrol"
+            onClick={() => navigate("/patrol")}
+            testId="button-start-patrol"
+          />
+          )}
           <ActionTile
             title="Start Live Incident"
             subtitle="Share GPS and navigate in real time"
@@ -825,7 +856,7 @@ export default function CommandDashboard() {
         </div>
       </div>
 
-      {!isGateOperator && (
+      {!isGateOperator && !isPatrolUser && (
       <div className="p-4 md:p-6 pt-1 pb-28 max-w-4xl mx-auto w-full">
         <div className="space-y-3">
           <div className="flex justify-center">
