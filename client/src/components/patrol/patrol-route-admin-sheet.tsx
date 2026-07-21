@@ -93,6 +93,34 @@ function serializeCheckpoints(ready: PatrolCheckpointDraft[]) {
   }));
 }
 
+type SerializedCheckpoint = ReturnType<typeof serializeCheckpoints>[number];
+
+/**
+ * Compare the edited checkpoints against what the route was loaded with. The
+ * server refuses checkpoint edits once a route has patrol history, so we must
+ * only send the checkpoints PUT when they genuinely changed — otherwise saving
+ * an unrelated tweak (like turning scheduled prompts off) would be blocked.
+ */
+function checkpointsChanged(
+  next: SerializedCheckpoint[],
+  route: PatrolRouteWithCheckpoints | undefined,
+): boolean {
+  if (!route) return true;
+  const current = serializeCheckpoints(toDraftsFromRoute(route));
+  if (current.length !== next.length) return true;
+  return next.some((cp, i) => {
+    const prev = current[i];
+    return (
+      !prev ||
+      prev.name !== cp.name ||
+      (prev.instructions ?? null) !== (cp.instructions ?? null) ||
+      prev.photoRequired !== cp.photoRequired ||
+      (prev.latitude ?? null) !== (cp.latitude ?? null) ||
+      (prev.longitude ?? null) !== (cp.longitude ?? null)
+    );
+  });
+}
+
 export function PatrolRouteAdminSheet({
   open,
   onOpenChange,
@@ -250,9 +278,14 @@ export function PatrolRouteAdminSheet({
           description: description.trim() || null,
           commandId: commandId === "all" ? null : parseInt(commandId, 10),
         });
-        await apiRequest("PUT", `/api/patrol/routes/${editingRouteId}/checkpoints`, {
-          checkpoints: payload,
-        });
+        // Only rewrite checkpoints when they actually changed — the server blocks
+        // checkpoint edits on routes that already have patrol history, and that
+        // must not stop unrelated edits (e.g. turning off scheduled prompts).
+        if (checkpointsChanged(payload, editingRoute)) {
+          await apiRequest("PUT", `/api/patrol/routes/${editingRouteId}/checkpoints`, {
+            checkpoints: payload,
+          });
+        }
         await apiRequest("PUT", `/api/patrol/routes/${editingRouteId}/schedule`, schedulePayload);
       }
     },
