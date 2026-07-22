@@ -237,6 +237,75 @@ export type TripMapEvent = {
 export const TRIP_STOP_MIN_MS = 3 * 60 * 1000;
 const TRIP_EVENT_DEDUPE_M = 40;
 
+/** Distinct colours for daily trip legs on the fleet history map (dark basemap). */
+export const TRIP_LEG_COLORS = [
+  "#3b82f6",
+  "#a855f7",
+  "#14b8a6",
+  "#eab308",
+  "#ec4899",
+  "#22c55e",
+  "#f97316",
+  "#38bdf8",
+] as const;
+
+export type TripLeg = {
+  index: number;
+  color: string;
+  points: TripPosition[];
+  path: Array<{ lat: number; lng: number }>;
+  startAt: string;
+  endAt: string;
+  distanceKm: number | null;
+};
+
+/**
+ * Split a day's GPS trail into trip legs where offline gaps exceed TRIP_GAP_MS.
+ * Continuous days stay a single leg (one colour).
+ */
+export function segmentTripLegs(positions: TripPosition[]): TripLeg[] {
+  const sorted = [...positions]
+    .filter((p) => p.gpsValid !== false)
+    .sort((a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime());
+
+  if (sorted.length === 0) return [];
+
+  const buckets: TripPosition[][] = [];
+  let current: TripPosition[] = [sorted[0]!];
+
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = sorted[i - 1]!;
+    const point = sorted[i]!;
+    const gap =
+      new Date(point.recordedAt).getTime() - new Date(prev.recordedAt).getTime();
+    if (gap > TRIP_GAP_MS) {
+      buckets.push(current);
+      current = [point];
+    } else {
+      current.push(point);
+    }
+  }
+  buckets.push(current);
+
+  return buckets.map((points, i) => {
+    const path = points.map((p) => ({ lat: p.latitude, lng: p.longitude }));
+    const km = pathDistanceKm(path);
+    return {
+      index: i + 1,
+      color: TRIP_LEG_COLORS[i % TRIP_LEG_COLORS.length]!,
+      points,
+      path,
+      startAt: points[0]!.recordedAt,
+      endAt: points[points.length - 1]!.recordedAt,
+      distanceKm: km != null && km > 0 ? km : null,
+    };
+  });
+}
+
+export function formatTripClock(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
 function distanceM(
   a: { lat: number; lng: number },
   b: { lat: number; lng: number },

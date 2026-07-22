@@ -1,11 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Loader2, Pause, Play, RotateCcw } from "lucide-react";
 import { loadGoogleMaps } from "@/lib/google-maps-loader";
 import {
   detectTripMapEvents,
+  formatDurationMinutes,
+  formatTripClock,
   pathDistanceKm,
+  segmentTripLegs,
   type TripMapEvent,
 } from "@/lib/fleet-intelligence";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 export type FleetHistoryPoint = {
@@ -31,16 +35,21 @@ type Props = {
   testId?: string;
 };
 
+type PlaybackPoint = {
+  lat: number;
+  lng: number;
+  at: number;
+  speedKph: number | null;
+};
+
 const MAP_HEIGHT = "min(52vh, 420px)";
-/** Street / neighbourhood view for a parked or single-point vehicle. */
 const STATIONARY_ZOOM = 16;
-/** Cap after fitBounds so a tight GPS cluster doesn't zoom to building level. */
 const MAX_ROUTE_ZOOM = 17;
-/** Paths that never leave this radius are treated as stationary (GPS jitter). */
 const STATIONARY_SPAN_M = 50;
 const GEOFENCE_COLOR = "#22c55e";
 const STOP_COLOR = "#f59e0b";
 const IGNITION_OFF_COLOR = "#f97316";
+const PLAYBACK_MS_PER_POINT = 80;
 
 function pathSpanM(path: Array<{ lat: number; lng: number }>): number {
   if (path.length < 2) return 0;
@@ -112,11 +121,52 @@ function extendBoundsForGeofence(
   bounds.extend({ lat: geofence.lat - latDelta, lng: geofence.lng - lngDelta });
 }
 
-function MapLegendItem({ color, label, shape = "circle" }: { color: string; label: string; shape?: "circle" | "square" }) {
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function eventInfoHtml(event: TripMapEvent): string {
+  const title = event.kind === "stop" ? "Stop / parked" : "Ignition off";
+  const time = formatTripClock(event.at);
+  const duration =
+    event.kind === "stop" && event.durationMinutes != null
+      ? formatDurationMinutes(event.durationMinutes)
+      : null;
+  const lines = [
+    `<div style="max-width:240px;font:12px/1.45 system-ui,sans-serif;color:#111">`,
+    `<strong>${escapeHtml(title)}</strong>`,
+    `<div style="margin-top:6px">From <strong>${escapeHtml(time)}</strong></div>`,
+  ];
+  if (duration) {
+    lines.push(`<div style="margin-top:4px">Parked / idle <strong>${escapeHtml(duration)}</strong></div>`);
+  }
+  lines.push(
+    `<div style="margin-top:6px;color:#555;font-size:11px">${event.lat.toFixed(5)}, ${event.lng.toFixed(5)}</div>`,
+    `</div>`,
+  );
+  return lines.join("");
+}
+
+function MapLegendItem({
+  color,
+  label,
+  shape = "circle",
+}: {
+  color: string;
+  label: string;
+  shape?: "circle" | "square";
+}) {
   return (
     <span className="inline-flex items-center gap-1.5 text-[10px] text-muted-foreground">
       <span
-        className={cn("h-2.5 w-2.5 shrink-0 border border-white/80 shadow-sm", shape === "square" ? "rounded-[2px]" : "rounded-full")}
+        className={cn(
+          "h-2.5 w-2.5 shrink-0 border border-white/80 shadow-sm",
+          shape === "square" ? "rounded-[2px]" : "rounded-full",
+        )}
         style={{ backgroundColor: color }}
       />
       {label}
@@ -132,22 +182,49 @@ export function FleetHistoryMap({
 }: Props) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<google.maps.Map | null>(null);
-  const polylineRef = useRef<google.maps.Polyline | null>(null);
+  const polylinesRef = useRef<google.maps.Polyline[]>([]);
   const startMarkerRef = useRef<google.maps.Marker | null>(null);
   const endMarkerRef = useRef<google.maps.Marker | null>(null);
   const eventMarkersRef = useRef<google.maps.Marker[]>([]);
   const geofenceCircleRef = useRef<google.maps.Circle | null>(null);
+  const infoWindowRef = useRef<google.maps.InfoWindow | null>(null);
+  const playMarkerRef = useRef<google.maps.Marker | null>(null);
+  const playTrailRef = useRef<google.maps.Polyline | null>(null);
+  const playTimerRef = useRef<number | null>(null);
+  const playIndexRef = useRef(0);
+
   const [ready, setReady] = useState(false);
   const [error, setError] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [playIndex, setPlayIndex] = useState(0);
+  const [playSpeed, setPlaySpeed] = useState<1 | 2 | 4>(2);
 
-  const path = useMemo(() => {
+  const sortedPositions = useMemo(() => {
     return [...positions]
       .filter((p) => p.gpsValid !== false)
-      .sort((a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime())
-      .map((p) => ({ lat: p.latitude, lng: p.longitude }));
+      .sort((a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime());
   }, [positions]);
 
+  const path = useMemo(
+    () => sortedPositions.map((p) => ({ lat: p.latitude, lng: p.longitude })),
+    [sortedPositions],
+  );
+
+  const tripLegs = useMemo(() => segmentTripLegs(positions), [positions]);
   const tripEvents = useMemo(() => detectTripMapEvents(positions), [positions]);
+
+  const playbackPoints = useMemo<PlaybackPoint[]>(() => {
+    return sortedPositions
+      .map((p) => ({
+        lat: p.latitude,
+        lng: p.longitude,
+        at: new Date(p.recordedAt).getTime(),
+        speedKph: p.speedKph ?? null,
+      }))
+      .filter((p) => Number.isFinite(p.at));
+  }, [sortedPositions]);
+
+  const canPlay = playbackPoints.length >= 2;
 
   useEffect(() => {
     let cancelled = false;
@@ -162,6 +239,114 @@ export function FleetHistoryMap({
       cancelled = true;
     };
   }, []);
+
+  const clearPlaybackOverlays = useCallback(() => {
+    if (playTimerRef.current != null) {
+      window.clearTimeout(playTimerRef.current);
+      playTimerRef.current = null;
+    }
+    playMarkerRef.current?.setMap(null);
+    playMarkerRef.current = null;
+    playTrailRef.current?.setMap(null);
+    playTrailRef.current = null;
+  }, []);
+
+  const ensurePlayOverlays = useCallback(() => {
+    const map = mapInstanceRef.current;
+    if (!map || playbackPoints.length === 0) return;
+    if (!playMarkerRef.current) {
+      playMarkerRef.current = new google.maps.Marker({
+        map,
+        position: playbackPoints[0],
+        zIndex: 40,
+        icon: {
+          path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+          scale: 5,
+          fillColor: "#f8fafc",
+          fillOpacity: 1,
+          strokeColor: "#0f172a",
+          strokeWeight: 1.5,
+          rotation: 0,
+        },
+      });
+    }
+    if (!playTrailRef.current) {
+      playTrailRef.current = new google.maps.Polyline({
+        map,
+        path: [],
+        strokeColor: "#f8fafc",
+        strokeOpacity: 0.85,
+        strokeWeight: 3,
+        zIndex: 30,
+      });
+    }
+  }, [playbackPoints]);
+
+  const showPlayFrame = useCallback(
+    (index: number) => {
+      const map = mapInstanceRef.current;
+      if (!map || playbackPoints.length === 0) return;
+      ensurePlayOverlays();
+      const clamped = Math.max(0, Math.min(index, playbackPoints.length - 1));
+      const point = playbackPoints[clamped]!;
+      const next = playbackPoints[Math.min(clamped + 1, playbackPoints.length - 1)]!;
+      playMarkerRef.current?.setPosition(point);
+      const heading = google.maps.geometry?.spherical?.computeHeading
+        ? google.maps.geometry.spherical.computeHeading(point, next)
+        : 0;
+      playMarkerRef.current?.setIcon({
+        path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+        scale: 5,
+        fillColor: "#f8fafc",
+        fillOpacity: 1,
+        strokeColor: "#0f172a",
+        strokeWeight: 1.5,
+        rotation: heading,
+      });
+      playTrailRef.current?.setPath(
+        playbackPoints.slice(0, clamped + 1).map((p) => ({ lat: p.lat, lng: p.lng })),
+      );
+      playIndexRef.current = clamped;
+      setPlayIndex(clamped);
+    },
+    [ensurePlayOverlays, playbackPoints],
+  );
+
+  useEffect(() => {
+    if (!playing || !canPlay) {
+      if (playTimerRef.current != null) {
+        window.clearTimeout(playTimerRef.current);
+        playTimerRef.current = null;
+      }
+      return;
+    }
+
+    const tick = () => {
+      const from = playIndexRef.current;
+      if (from >= playbackPoints.length - 1) {
+        setPlaying(false);
+        return;
+      }
+      const next = from + 1;
+      showPlayFrame(next);
+      playTimerRef.current = window.setTimeout(tick, PLAYBACK_MS_PER_POINT / playSpeed);
+    };
+
+    playTimerRef.current = window.setTimeout(tick, PLAYBACK_MS_PER_POINT / playSpeed);
+    return () => {
+      if (playTimerRef.current != null) {
+        window.clearTimeout(playTimerRef.current);
+        playTimerRef.current = null;
+      }
+    };
+  }, [playing, canPlay, playbackPoints.length, playSpeed, showPlayFrame]);
+
+  useEffect(() => {
+    setPlaying(false);
+    setPlayIndex(0);
+    playIndexRef.current = 0;
+    clearPlaybackOverlays();
+  }, [positions, clearPlaybackOverlays]);
 
   useEffect(() => {
     if (!ready || !mapRef.current) return;
@@ -181,17 +366,21 @@ export function FleetHistoryMap({
           { featureType: "poi", stylers: [{ visibility: "off" }] },
         ],
       });
+      infoWindowRef.current = new google.maps.InfoWindow();
     }
 
     const map = mapInstanceRef.current;
+    infoWindowRef.current?.close();
 
-    polylineRef.current?.setMap(null);
+    for (const line of polylinesRef.current) line.setMap(null);
+    polylinesRef.current = [];
     startMarkerRef.current?.setMap(null);
     endMarkerRef.current?.setMap(null);
     for (const marker of eventMarkersRef.current) marker.setMap(null);
     eventMarkersRef.current = [];
     geofenceCircleRef.current?.setMap(null);
     geofenceCircleRef.current = null;
+    clearPlaybackOverlays();
 
     if (geofence) {
       geofenceCircleRef.current = new google.maps.Circle({
@@ -228,6 +417,11 @@ export function FleetHistoryMap({
           title: event.label,
           icon: eventIcon(event.kind),
           zIndex: event.kind === "ignition_off" ? 18 : 17,
+          cursor: "pointer",
+        });
+        marker.addListener("click", () => {
+          infoWindowRef.current?.setContent(eventInfoHtml(event));
+          infoWindowRef.current?.open({ map, anchor: marker });
         });
         eventMarkersRef.current.push(marker);
       }
@@ -256,14 +450,33 @@ export function FleetHistoryMap({
       return;
     }
 
-    polylineRef.current = new google.maps.Polyline({
-      path,
-      map,
-      strokeColor: "#3b82f6",
-      strokeWeight: 5,
-      strokeOpacity: 0.92,
-      zIndex: 10,
-    });
+    for (const leg of tripLegs) {
+      if (leg.path.length < 2) continue;
+      const line = new google.maps.Polyline({
+        path: leg.path,
+        map,
+        strokeColor: leg.color,
+        strokeWeight: 5,
+        strokeOpacity: 0.92,
+        zIndex: 10,
+      });
+      line.addListener("click", (e: google.maps.MapMouseEvent) => {
+        const dist =
+          leg.distanceKm != null ? `${leg.distanceKm.toFixed(1)} km` : "—";
+        infoWindowRef.current?.setContent(
+          [
+            `<div style="max-width:220px;font:12px/1.45 system-ui,sans-serif;color:#111">`,
+            `<strong>Trip ${leg.index}</strong>`,
+            `<div style="margin-top:6px">${escapeHtml(formatTripClock(leg.startAt))} → ${escapeHtml(formatTripClock(leg.endAt))}</div>`,
+            `<div style="margin-top:4px">${escapeHtml(dist)} · ${leg.points.length} GPS points</div>`,
+            `</div>`,
+          ].join(""),
+        );
+        infoWindowRef.current?.setPosition(e.latLng ?? leg.path[0]);
+        infoWindowRef.current?.open({ map });
+      });
+      polylinesRef.current.push(line);
+    }
 
     startMarkerRef.current = new google.maps.Marker({
       position: path[0],
@@ -288,11 +501,12 @@ export function FleetHistoryMap({
     if (geofence) extendBoundsForGeofence(bounds, geofence);
     map.fitBounds(bounds, { top: 48, right: 48, bottom: 48, left: 48 });
     clampZoomAfterFit(map, MAX_ROUTE_ZOOM);
-  }, [ready, path, tripEvents, geofence]);
+  }, [ready, path, tripLegs, tripEvents, geofence, clearPlaybackOverlays]);
 
   const shellStyle = { height: MAP_HEIGHT };
   const stopCount = tripEvents.filter((e) => e.kind === "stop").length;
   const ignitionOffCount = tripEvents.filter((e) => e.kind === "ignition_off").length;
+  const currentPlay = playbackPoints[playIndex];
 
   if (error) {
     return (
@@ -344,11 +558,79 @@ export function FleetHistoryMap({
         style={shellStyle}
         data-testid={`${testId}-canvas`}
       />
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant={playing ? "secondary" : "default"}
+          className="gap-1.5"
+          disabled={!canPlay}
+          onClick={() => {
+            if (!canPlay) return;
+            if (playing) {
+              setPlaying(false);
+              return;
+            }
+            if (playIndexRef.current >= playbackPoints.length - 1) {
+              showPlayFrame(0);
+            } else {
+              ensurePlayOverlays();
+              showPlayFrame(playIndexRef.current);
+            }
+            setPlaying(true);
+          }}
+          data-testid="button-fleet-playback"
+        >
+          {playing ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+          {playing ? "Pause" : "Play route"}
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="gap-1.5"
+          disabled={!canPlay}
+          onClick={() => {
+            setPlaying(false);
+            showPlayFrame(0);
+            playTrailRef.current?.setPath([]);
+          }}
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+          Reset
+        </Button>
+        <div className="flex items-center gap-1">
+          {([1, 2, 4] as const).map((s) => (
+            <Button
+              key={s}
+              type="button"
+              size="sm"
+              variant={playSpeed === s ? "secondary" : "ghost"}
+              className="h-8 px-2 text-[11px]"
+              disabled={!canPlay}
+              onClick={() => setPlaySpeed(s)}
+            >
+              {s}×
+            </Button>
+          ))}
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          {canPlay
+            ? `GPS · ${playIndex + 1}/${playbackPoints.length}`
+            : "Need at least two GPS points to play"}
+          {currentPlay && Number.isFinite(currentPlay.at)
+            ? ` · ${new Date(currentPlay.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`
+            : ""}
+          {currentPlay?.speedKph != null ? ` · ${Math.round(currentPlay.speedKph)} km/h` : ""}
+        </p>
+      </div>
+
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-0.5">
         <MapLegendItem color="#16a34a" label="Start" />
         <MapLegendItem color="#2563eb" label="Latest" />
         {stopCount > 0 && (
-          <MapLegendItem color={STOP_COLOR} label={`Stop (${stopCount})`} />
+          <MapLegendItem color={STOP_COLOR} label={`Stop (${stopCount}) — tap for duration`} />
         )}
         {ignitionOffCount > 0 && (
           <MapLegendItem
@@ -359,6 +641,20 @@ export function FleetHistoryMap({
         )}
         {geofence && <MapLegendItem color={GEOFENCE_COLOR} label="Geofence" />}
       </div>
+
+      {tripLegs.length > 1 && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-0.5">
+          {tripLegs.map((leg) => (
+            <MapLegendItem
+              key={leg.index}
+              color={leg.color}
+              label={`Trip ${leg.index} · ${formatTripClock(leg.startAt)}–${formatTripClock(leg.endAt)}${
+                leg.distanceKm != null ? ` · ${leg.distanceKm.toFixed(1)} km` : ""
+              }`}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
