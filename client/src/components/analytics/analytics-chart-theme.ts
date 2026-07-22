@@ -31,3 +31,20 @@ export function chartOpacity(selected: boolean, anySelected: boolean): number {
   if (!anySelected) return 1;
   return selected ? 1 : 0.28;
 }
+
+/** Dark control-room basemap for Analytics Map View (Rolex-green water tint). */
+export const ANALYTICS_MAP_STYLES = [
+  { elementType: "geometry", stylers: [{ color: "#121a18" }] },
+  { elementType: "labels.text.fill", stylers: [{ color: "#8fa89c" }] },
+  { elementType: "labels.text.stroke", stylers: [{ color: "#121a18" }] },
+  { featureType: "administrative", elementType: "geometry.stroke", stylers: [{ color: "#2a3d35" }] },
+  { featureType: "road", elementType: "geometry", stylers: [{ color: "#1e2c27" }] },
+  { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#2d463c" }] },
+  { featureType: "road.highway", elementType: "geometry.stroke", stylers: [{ color: "#006039" }] },
+  { featureType: "water", elementType: "geometry", stylers: [{ color: "#0a1612" }] },
+  { featureType: "poi", stylers: [{ visibility: "off" }] },
+  { featureType: "transit", stylers: [{ visibility: "off" }] },
+  { featureType: "landscape.natural", elementType: "geometry", stylers: [{ color: "#15221c" }] },
+] as google.maps.MapTypeStyle[];
+
+export const ANALYTICS_MAP_HEIGHT = "min(70vh, 720px)";
