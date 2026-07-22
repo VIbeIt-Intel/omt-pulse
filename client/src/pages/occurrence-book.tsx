@@ -354,10 +354,14 @@ export default function OccurrenceBook() {
     const cat = categories.find((c) => c.id === inc.categoryId);
     const locDisplay = getLocationDisplay(inc);
     const liveDest = liveIncidentDestination(inc);
-    const locationLabel =
+    const rawLocation =
       liveDest?.name
-      ?? (inc.locationName?.trim() === "Live Incident" ? "" : locDisplay.label !== "-" ? locDisplay.label : "")
-      || "—";
+      ?? (inc.locationName?.trim() === "Live Incident"
+        ? ""
+        : locDisplay.label !== "-"
+          ? locDisplay.label
+          : "");
+    const locationLabel = rawLocation.trim() ? rawLocation : "—";
     try {
       setDocketBusy(true);
       await downloadIncidentDocket({
