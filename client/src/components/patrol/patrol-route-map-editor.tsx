@@ -17,6 +17,8 @@ type PatrolRouteMapEditorProps = {
   onSelectCheckpoint: (index: number | null) => void;
   onUpdateCheckpoint: (index: number, patch: Partial<PatrolCheckpointDraft>) => void;
   onAddCheckpoint: (draft: PatrolCheckpointDraft) => void;
+  /** When false, tear down the map so it re-inits at the correct size when shown again. */
+  active?: boolean;
   className?: string;
 };
 
@@ -38,6 +40,7 @@ export function PatrolRouteMapEditor({
   onSelectCheckpoint,
   onUpdateCheckpoint,
   onAddCheckpoint,
+  active = true,
   className,
 }: PatrolRouteMapEditorProps) {
   const [mapsReady, setMapsReady] = useState(false);
@@ -145,9 +148,22 @@ export function PatrolRouteMapEditor({
   }
 
   useEffect(() => {
-    if (!mapsReady || !mapRef.current || mapInstanceRef.current) return;
+    if (!active) {
+      markersRef.current.forEach((m) => m.setMap(null));
+      markersRef.current = [];
+      polylineRef.current?.setMap(null);
+      polylineRef.current = null;
+      if (mapInstanceRef.current) {
+        google.maps.event.clearInstanceListeners(mapInstanceRef.current);
+        mapInstanceRef.current = null;
+      }
+    }
+  }, [active]);
 
-    const withCoords = checkpoints.filter(hasCheckpointCoords);
+  useEffect(() => {
+    if (!active || !mapsReady || !mapRef.current || mapInstanceRef.current) return;
+
+    const withCoords = checkpointsRef.current.filter(hasCheckpointCoords);
     const center =
       withCoords.length > 0
         ? { lat: withCoords[0]!.latitude!, lng: withCoords[0]!.longitude! }
@@ -177,14 +193,26 @@ export function PatrolRouteMapEditor({
       }
     });
 
+    const fitMap = () => {
+      if (!mapInstanceRef.current || !mapRef.current) return;
+      google.maps.event.trigger(mapInstanceRef.current, "resize");
+      mapInstanceRef.current.setCenter(center);
+    };
+
     const resizeObserver = new ResizeObserver(() => {
-      if (mapInstanceRef.current) {
-        google.maps.event.trigger(mapInstanceRef.current, "resize");
-      }
+      fitMap();
     });
     resizeObserver.observe(mapRef.current);
 
+    // Sheet/dialog animation often finishes after first paint — re-fit a few times.
+    const t0 = window.setTimeout(fitMap, 50);
+    const t1 = window.setTimeout(fitMap, 200);
+    const t2 = window.setTimeout(fitMap, 450);
+
     return () => {
+      window.clearTimeout(t0);
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
       resizeObserver.disconnect();
       markersRef.current.forEach((m) => m.setMap(null));
       markersRef.current = [];
@@ -195,11 +223,11 @@ export function PatrolRouteMapEditor({
         mapInstanceRef.current = null;
       }
     };
-  }, [mapsReady, applyLatLng]);
+  }, [active, mapsReady, applyLatLng]);
 
   useEffect(() => {
     const map = mapInstanceRef.current;
-    if (!map || !mapsReady) return;
+    if (!map || !mapsReady || !active) return;
 
     markersRef.current.forEach((m) => m.setMap(null));
     markersRef.current = [];
@@ -249,17 +277,17 @@ export function PatrolRouteMapEditor({
       map.setCenter(path[0]!);
       map.setZoom(15);
     }
-  }, [checkpoints, selectedIndex, mapsReady, onSelectCheckpoint]);
+  }, [checkpoints, selectedIndex, mapsReady, active, onSelectCheckpoint]);
 
   useEffect(() => {
-    if (!mapsReady || !mapInstanceRef.current) return;
+    if (!active || !mapsReady || !mapInstanceRef.current) return;
     const timer = window.setTimeout(() => {
       if (mapInstanceRef.current) {
         google.maps.event.trigger(mapInstanceRef.current, "resize");
       }
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [mapsReady, checkpoints.length, selectedIndex]);
+  }, [active, mapsReady, checkpoints.length, selectedIndex]);
 
   const selectedCp = selectedIndex != null ? checkpoints[selectedIndex] : null;
 
@@ -314,15 +342,15 @@ export function PatrolRouteMapEditor({
 
       {mapsError ? (
         <p className="text-xs text-destructive">{mapsError}</p>
-      ) : !mapsReady ? (
-        <div className="flex h-[min(55vh,520px)] items-center justify-center rounded-xl border bg-muted/30 text-sm text-muted-foreground">
+      ) : !mapsReady || !active ? (
+        <div className="flex h-[min(48vh,440px)] min-h-[280px] items-center justify-center rounded-xl border border-border/80 bg-muted/30 text-sm text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin mr-2" />
           Loading map…
         </div>
       ) : (
         <div
           ref={mapRef}
-          className="h-[min(55vh,520px)] w-full rounded-xl border bg-muted/30 shadow-sm"
+          className="h-[min(48vh,440px)] min-h-[280px] w-full overflow-hidden rounded-xl border border-border/80 bg-muted/30"
           data-testid="patrol-route-map"
         />
       )}

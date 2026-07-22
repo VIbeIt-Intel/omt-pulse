@@ -361,7 +361,7 @@ export function PatrolRouteAdminSheet({
             </SheetHeader>
 
             <div className="min-h-0 flex-1 overflow-y-auto">
-              <div className="mx-auto w-full max-w-3xl space-y-5 px-4 py-4">
+              <div className="mx-auto w-full max-w-5xl space-y-5 px-4 py-4 sm:px-6">
                 {mode === "edit" && editingLoading ? (
                   <div className="flex items-center justify-center py-12 text-muted-foreground">
                     <Loader2 className="h-5 w-5 animate-spin mr-2" />
@@ -413,6 +413,7 @@ export function PatrolRouteAdminSheet({
 
                     <section className="rounded-xl border bg-card/40 p-4">
                       <PatrolRouteMapEditor
+                        active={open && isForm}
                         checkpoints={checkpoints}
                         selectedIndex={selectedIndex}
                         onSelectCheckpoint={setSelectedIndex}
@@ -670,7 +671,7 @@ export function PatrolRouteAdminSheet({
 
             {!(mode === "edit" && editingLoading) && (
               <div className="shrink-0 border-t bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-                <div className="mx-auto max-w-3xl">
+                <div className="mx-auto max-w-5xl">
                   <Button
                     type="button"
                     className="w-full"
