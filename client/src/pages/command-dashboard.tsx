@@ -21,6 +21,8 @@ import { PanicConfirmOverlay } from "@/components/panic-confirm-overlay";
 import { usePanickerLocationSync } from "@/hooks/use-panicker-location-sync";
 import { OperationsDashboard, type DashboardUserSummary } from "@/components/operations-dashboard";
 import { useToast } from "@/hooks/use-toast";
+import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
+import { cn } from "@/lib/utils";
 import {
   ClipboardList,
   Radio,
@@ -742,7 +744,7 @@ export default function CommandDashboard() {
           className="sticky top-0 z-30 border-b border-border/80 bg-background/95 backdrop-blur-md shadow-sm"
           data-testid="banner-live-incident-priority"
         >
-          <div className="max-w-4xl mx-auto w-full px-4 md:px-6 pt-3 pb-3 space-y-3">
+          <div className={cn(OPS_PAGE_SHELL, "pt-3 pb-3 space-y-3")}>
             {pendingPanics.length > 0 && (
               <PanicJoinBanner alerts={pendingPanics} testIdSuffix="sticky" />
             )}
@@ -765,7 +767,7 @@ export default function CommandDashboard() {
         </div>
       )}
 
-      <div className={`p-4 md:p-6 space-y-4 max-w-4xl mx-auto w-full ${isGateOperator ? "pb-28" : "pb-4"}`}>
+      <div className={cn(OPS_PAGE_SHELL, "py-4 md:py-6 space-y-4", isGateOperator ? "pb-28" : "pb-4")}>
 
         <div className="flex flex-col items-center gap-2 pt-3 pb-1">
           <OmtShield variant="hero" />
@@ -872,7 +874,7 @@ export default function CommandDashboard() {
       </div>
 
       {!isGateOperator && !isPatrolUser && (
-      <div className="p-4 md:p-6 pt-1 pb-28 max-w-4xl mx-auto w-full">
+      <div className={cn(OPS_PAGE_SHELL, "pt-1 pb-28")}>
         <div className="space-y-3">
           <div className="flex justify-center">
             <div className="flex items-center rounded-lg border border-border overflow-hidden text-sm">

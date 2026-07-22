@@ -52,6 +52,8 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Plus, Pencil, Trash2, Settings, ListChecks, Eye, EyeOff, MapPin, ChevronDown, ChevronUp, Tag, Map, Upload, X, ScanSearch, Radio } from "lucide-react";
 import { PageHero } from "@/components/page-hero";
+import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
+import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { GoogleAddressPinPicker } from "@/components/google-address-pin-picker";
 import type { CustomMap } from "@shared/schema";
@@ -1325,7 +1327,7 @@ export default function AdminPage() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="p-6 space-y-6 overflow-y-auto flex-1">
+      <div className={cn(OPS_PAGE_SHELL, "py-6 space-y-6 overflow-y-auto flex-1")}>
         <PageHero
           eyebrow="Field setup"
           badge="Admin"

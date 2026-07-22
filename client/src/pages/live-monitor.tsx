@@ -38,6 +38,8 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { PageHero } from "@/components/page-hero";
+import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
+import { cn } from "@/lib/utils";
 import { GeoLocationSheet, type GeoMapView } from "@/components/incident-location-sheet";
 import { CoordinateLink } from "@/components/coordinate-link";
 import { ControlRoomMap } from "@/components/control-room-map";
@@ -246,7 +248,7 @@ export default function LiveMonitorPage() {
 
   return (
     <div className="flex flex-col h-full bg-background">
-      <div className="shrink-0 px-4 pt-3 pb-3">
+      <div className={cn(OPS_PAGE_SHELL, "shrink-0 pt-3 pb-3")}>
         <PageHero
           eyebrow="Live Monitor"
           badge={liveIncidents.length > 0 ? "Auto-refresh 5s" : "Standby"}

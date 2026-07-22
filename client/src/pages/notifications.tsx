@@ -5,6 +5,8 @@ import { Bell, ArrowLeft, Radio, CheckCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PageHero } from "@/components/page-hero";
+import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
+import { cn } from "@/lib/utils";
 
 const LAST_SEEN_KEY = "omt_notif_last_seen";
 
@@ -143,7 +145,7 @@ export default function NotificationsPage() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="shrink-0 px-4 pt-3 pb-3">
+      <div className={cn(OPS_PAGE_SHELL, "shrink-0 pt-3 pb-3")}>
         <PageHero
           eyebrow="Notifications"
           badge="Last 7 days"

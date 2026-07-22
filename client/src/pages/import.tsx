@@ -14,6 +14,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Upload, Download, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2, Undo2, FileUp, ArrowRight, ArrowLeft, FileWarning } from "lucide-react";
 import { PageHero } from "@/components/page-hero";
+import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
+import { cn } from "@/lib/utils";
 
 type ColumnMapEntry = { fieldKey: string | null; type: "system" | "custom" | "skip" };
 type CategoryResolution = { action: "link" | "create" | "other"; categoryId?: number };
@@ -234,7 +236,7 @@ export default function ImportPage() {
 
   return (
     <div className="h-full overflow-auto">
-      <div className="max-w-6xl mx-auto p-6 space-y-6">
+      <div className={cn(OPS_PAGE_SHELL, "py-6 space-y-6")}>
         <PageHero
           eyebrow="Import Data"
           badge={`Step ${step} of 4 · ${stepLabel}`}

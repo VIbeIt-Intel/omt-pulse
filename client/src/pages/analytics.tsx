@@ -70,6 +70,7 @@ import {
   chartOpacity,
   intensityFill,
 } from "@/components/analytics/analytics-chart-theme";
+import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import { cn } from "@/lib/utils";
 const severityLabels: Record<string, string> = {
   low: "Low",
@@ -1445,7 +1446,7 @@ export default function AnalyticsPage() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="p-5 sm:p-6 space-y-5 overflow-y-auto flex-1">
+      <div className={cn(OPS_PAGE_SHELL, "py-5 sm:py-6 space-y-5 overflow-y-auto flex-1")}>
         {view === "charts" && !incidentsLoading ? (
           <AnalyticsHero
             periodLabel={periodLabel}

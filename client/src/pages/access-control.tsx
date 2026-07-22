@@ -23,6 +23,8 @@ import {
 } from "@/lib/access-destinations-cache";
 import { BarChart3, DoorOpen, LogOut, Plus, ShieldCheck } from "lucide-react";
 import { PageHero } from "@/components/page-hero";
+import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
+import { cn } from "@/lib/utils";
 
 type AccessControlPageProps = {
   userRole: string;
@@ -83,7 +85,7 @@ export default function AccessControlPage({ userRole }: AccessControlPageProps) 
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="shrink-0 px-4 pt-3 pb-3">
+      <div className={cn("shrink-0 pt-3 pb-3", OPS_PAGE_SHELL)}>
         <PageHero
           eyebrow="Access Control"
           badge={pageView === "overview" ? "Overview" : "Gate desk"}
@@ -137,7 +139,7 @@ export default function AccessControlPage({ userRole }: AccessControlPageProps) 
       </div>
 
       {pageView === "overview" || isOverviewOnly ? (
-        <div className="flex-1 overflow-y-auto px-4 pt-4">
+        <div className={cn("flex-1 overflow-y-auto pt-4", OPS_PAGE_SHELL)}>
           <AccessOverview />
         </div>
       ) : (

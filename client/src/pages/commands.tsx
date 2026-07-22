@@ -16,6 +16,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { PageHero } from "@/components/page-hero";
+import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
+import { cn } from "@/lib/utils";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import {
   GroupSiteLocationPicker,
@@ -157,7 +159,7 @@ export default function CommandsPage() {
 
   return (
     <div className="h-full overflow-y-auto">
-    <div className="container max-w-6xl px-4 sm:px-6 py-4 sm:py-8 space-y-6" data-testid="page-commands">
+    <div className={cn(OPS_PAGE_SHELL, "py-4 sm:py-8 space-y-6")} data-testid="page-commands">
       <PageHero
         eyebrow="Groups"
         badge="Admin"
@@ -181,7 +183,7 @@ export default function CommandsPage() {
       />
 
       {isLoading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
           {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-40 rounded-xl" />)}
         </div>
       ) : commands.length === 0 ? (
@@ -193,7 +195,7 @@ export default function CommandsPage() {
           <p className="text-xs text-muted-foreground mt-1">Create your first Group to get started.</p>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
           {commands.map((c) => (
             <Card
               key={c.id}

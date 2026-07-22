@@ -16,6 +16,7 @@ import { requestLocationAccess } from "@/lib/request-location-access";
 import { flushPendingPatrolTracks } from "@/lib/patrol-tracking";
 import { cn } from "@/lib/utils";
 import { PageHero } from "@/components/page-hero";
+import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import {
   AlertTriangle,
   CalendarClock,
@@ -204,7 +205,7 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
   function renderRunList() {
     if (loading) {
       return (
-        <div className="p-4 space-y-3">
+        <div className={cn(OPS_PAGE_SHELL, "py-4 space-y-3")}>
           <Skeleton className="h-24 w-full" />
           <Skeleton className="h-16 w-full" />
         </div>
@@ -229,7 +230,7 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
       );
     }
     return (
-      <div className="p-4 space-y-3">
+      <div className={cn(OPS_PAGE_SHELL, "py-4 space-y-3")}>
         <div>
           <h2 className="text-sm font-semibold">Start a patrol</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
@@ -286,7 +287,7 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="shrink-0 px-4 pt-3 pb-3">
+      <div className={cn(OPS_PAGE_SHELL, "shrink-0 pt-3 pb-3")}>
         <PageHero
           eyebrow="Patrol"
           badge={isManager ? "Manager" : "Field"}
@@ -312,7 +313,7 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
           onValueChange={(v) => setTab(v as ManagerTab)}
           className="flex flex-col flex-1 min-h-0"
         >
-          <TabsList className="mx-4 mt-3 grid shrink-0 grid-cols-3 h-11">
+          <TabsList className="mx-4 sm:mx-6 lg:mx-8 xl:mx-10 mt-3 grid shrink-0 grid-cols-3 h-11">
             <TabsTrigger value="routes" className="gap-1.5 text-xs sm:text-sm">
               <Settings2 className="h-4 w-4" />
               Routes
@@ -329,13 +330,13 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
 
           <TabsContent value="routes" className="flex-1 overflow-y-auto mt-0 data-[state=inactive]:hidden">
             {routesLoading ? (
-              <div className="p-4 space-y-3">
+              <div className={cn(OPS_PAGE_SHELL, "py-4 space-y-3")}>
                 <Skeleton className="h-12 w-full" />
                 <Skeleton className="h-20 w-full" />
                 <Skeleton className="h-20 w-full" />
               </div>
             ) : (
-              <div className="p-4 space-y-4">
+              <div className={cn(OPS_PAGE_SHELL, "py-4 space-y-4")}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <h2 className="text-sm font-semibold">Your routes</h2>
@@ -430,14 +431,14 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
 
           <TabsContent value="history" className="flex-1 overflow-y-auto mt-0 data-[state=inactive]:hidden">
             {historyLoading ? (
-              <div className="p-4 space-y-2">
+              <div className={cn(OPS_PAGE_SHELL, "py-4 space-y-2")}>
                 <Skeleton className="h-14 w-full" />
                 <Skeleton className="h-14 w-full" />
               </div>
             ) : history.length === 0 ? (
               <p className="p-8 text-center text-sm text-muted-foreground">No patrol history yet.</p>
             ) : (
-              <div className="p-4 space-y-4">
+              <div className={cn(OPS_PAGE_SHELL, "py-4 space-y-4")}>
                 <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
                   <HistoryStat
                     icon={CheckCircle2}

@@ -41,6 +41,8 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { PageHero } from "@/components/page-hero";
+import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
+import { cn } from "@/lib/utils";
 import { Copy, Eye, Loader2, MonitorSmartphone, Plus, RefreshCw } from "lucide-react";
 
 type OrgCommand = { id: number; name: string; isCentral: boolean };
@@ -149,7 +151,7 @@ export default function WorkstationsAdminPage() {
   const enrolledCount = workstations.filter((ws) => ws.enrolledAt).length;
 
   return (
-    <div className="p-4 md:p-6 space-y-6 max-w-5xl mx-auto">
+    <div className={cn(OPS_PAGE_SHELL, "py-4 md:py-6 space-y-6")}>
       <PageHero
         eyebrow="Positions"
         badge="Admin"

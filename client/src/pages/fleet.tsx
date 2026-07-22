@@ -13,6 +13,8 @@ import { FleetVehicleDetail } from "@/components/fleet/fleet-vehicle-detail";
 import type { TrackerDeviceSummary } from "@/components/operations-dashboard";
 import { getVehicleMotionStatus } from "@/lib/fleet-intelligence";
 import { PageHero } from "@/components/page-hero";
+import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
+import { cn } from "@/lib/utils";
 
 type OrgUser = { id: string; firstName: string; lastName: string; role: string };
 type Command = { id: number; name: string; isCentral: boolean };
@@ -92,7 +94,7 @@ export default function FleetPage() {
 
   return (
     <div className="h-full overflow-y-auto bg-background" data-testid="fleet-page">
-      <div className="max-w-5xl mx-auto p-4 sm:p-6 space-y-5">
+      <div className={cn(OPS_PAGE_SHELL, "py-4 sm:py-6 space-y-5")}>
         <PageHero
           eyebrow="Fleet"
           badge={selected ? "Vehicle detail" : "Fleet board"}
@@ -129,13 +131,13 @@ export default function FleetPage() {
 
         {isLoading ? (
           <div className="space-y-3">
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-              {[1, 2, 3, 4].map((i) => (
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-2">
+              {[1, 2, 3, 4, 5].map((i) => (
                 <Skeleton key={i} className="h-20 rounded-xl" />
               ))}
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {[1, 2, 3].map((i) => (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+              {[1, 2, 3, 4].map((i) => (
                 <Skeleton key={i} className="h-28 rounded-xl" />
               ))}
             </div>
@@ -159,7 +161,7 @@ export default function FleetPage() {
               <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
                 Vehicles
               </h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
                 {sortedDevices.map((d) => (
                   <FleetVehicleCard
                     key={d.id}

@@ -16,6 +16,9 @@ import { CoordinateLink } from "@/components/coordinate-link";
 import { resolveEffectiveSeverity, incidentHasViewableLocation, liveIncidentDestination, type IncidentWithMeta } from "@/lib/incident-display";
 import { downloadIncidentDocket } from "@/lib/incident-docket";
 import { PanicConfirmOverlay } from "@/components/panic-confirm-overlay";
+import { PageHero } from "@/components/page-hero";
+import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
+import { cn } from "@/lib/utils";
 
 type IncidentWithCount = IncidentWithMeta;
 import { Button } from "@/components/ui/button";
@@ -33,7 +36,6 @@ import {
 import { Plus, BookOpen, Paperclip, Map as MapIcon, X, CalendarRange, Download, ArrowLeft, Radio, Siren, Loader2, FileDown } from "lucide-react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { ConnectivityBadge } from "@/components/connectivity-badge";
-import { PageHero } from "@/components/page-hero";
 import { PanicBanner, type PanicAlert } from "@/components/panic-banner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -482,7 +484,7 @@ export default function OccurrenceBook() {
 
   return (
     <div className="flex flex-col h-full bg-muted/20 md:bg-background">
-      <div className="shrink-0 px-4 md:px-6 pt-3 pb-3">
+      <div className={cn(OPS_PAGE_SHELL, "shrink-0 pt-3 pb-3")}>
         <PageHero
           eyebrow={isOwnIncidentUser ? "My Incidents" : "Occurrence Book"}
           badge={
@@ -522,7 +524,7 @@ export default function OccurrenceBook() {
           }
         />
       </div>
-      <div className="p-4 md:p-6 space-y-4 overflow-y-auto flex-1">
+      <div className={cn(OPS_PAGE_SHELL, "py-4 md:py-6 space-y-4 overflow-y-auto flex-1")}>
 
         {isDispatch && (
           <PanicBanner

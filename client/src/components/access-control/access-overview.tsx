@@ -316,7 +316,7 @@ export function AccessOverview() {
   const { totals } = overview;
 
   return (
-    <div className="space-y-5 pb-6 max-w-5xl mx-auto" data-testid="access-overview">
+    <div className="space-y-5 pb-6 w-full max-w-none" data-testid="access-overview">
       {/* Live stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
         <SummaryCard
@@ -370,7 +370,7 @@ export function AccessOverview() {
               </div>
             </div>
 
-            <div className="grid sm:grid-cols-2 gap-4">
+            <div className="grid sm:grid-cols-2 xl:grid-cols-2 gap-4 lg:gap-6">
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">
                   By category
@@ -475,7 +475,7 @@ export function AccessOverview() {
             </CardContent>
           </Card>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
             {destinations.map((d) => (
               <button
                 key={d.destinationId}

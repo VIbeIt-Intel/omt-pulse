@@ -19,6 +19,8 @@ import { apiRequest } from "@/lib/queryClient";
 import { buildOrgAdminAccessMessage } from "@/lib/onboarding-messages";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHero } from "@/components/page-hero";
+import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
+import { cn } from "@/lib/utils";
 import type { Category, Location, FormField as OrgFormField } from "@shared/schema";
 import { USER_ROLES } from "@shared/user-roles";
 import { GeoLocationSheet, type GeoMapView } from "@/components/incident-location-sheet";
@@ -1914,7 +1916,7 @@ export default function UserAdminPage() {
   }
 
   return (
-    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6 overflow-y-auto h-full min-h-0 pb-8">
+    <div className={cn(OPS_PAGE_SHELL, "py-4 sm:py-6 space-y-4 sm:space-y-6 overflow-y-auto h-full min-h-0 pb-8")}>
       <PageHero
         eyebrow="Users"
         badge="Admin"
