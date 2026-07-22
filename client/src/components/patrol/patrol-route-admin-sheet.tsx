@@ -16,11 +16,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import {
@@ -140,6 +140,7 @@ export function PatrolRouteAdminSheet({
   const [checkpoints, setCheckpoints] = useState<PatrolCheckpointDraft[]>([emptyPatrolCheckpoint()]);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(0);
   const [schedule, setSchedule] = useState<ScheduleForm>(defaultScheduleForm);
+  const [mapSettled, setMapSettled] = useState(false);
   const parentOwnsList = launchIntent != null;
 
   const { data: editingRoute, isLoading: editingLoading } = useQuery<PatrolRouteWithCheckpoints>({
@@ -245,6 +246,24 @@ export function PatrolRouteAdminSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only when sheet opens with a new intent
   }, [open, launchIntent]);
 
+  // Delay map mount until the dialog is painted — avoids Google Maps letterboxing
+  // inside animated / transformed overlays.
+  useEffect(() => {
+    if (!open || (mode !== "create" && mode !== "edit")) {
+      setMapSettled(false);
+      return;
+    }
+    if (mode === "edit" && editingLoading) {
+      setMapSettled(false);
+      return;
+    }
+    const t = window.setTimeout(() => setMapSettled(true), 400);
+    return () => {
+      window.clearTimeout(t);
+      setMapSettled(false);
+    };
+  }, [open, mode, editingLoading]);
+
   function updateCheckpoint(index: number, patch: Partial<PatrolCheckpointDraft>) {
     setCheckpoints((prev) => prev.map((c, i) => (i === index ? { ...c, ...patch } : c)));
   }
@@ -332,22 +351,23 @@ export function PatrolRouteAdminSheet({
   const isForm = mode === "create" || mode === "edit";
 
   return (
-    <Sheet open={open} onOpenChange={handleSheetOpenChange}>
-      <SheetContent
-        side="bottom"
+    <Dialog open={open} onOpenChange={handleSheetOpenChange}>
+      <DialogContent
         className={cn(
-          "rounded-t-xl gap-0 p-0",
+          "gap-0 p-0 duration-0 data-[state=open]:zoom-in-100 data-[state=closed]:zoom-out-100",
+          // Avoid translate transforms — Google Maps letterboxes inside transformed ancestors.
+          "!left-4 !right-4 !top-4 !bottom-4 !translate-x-0 !translate-y-0 sm:!left-[max(2vw,calc(50%-550px))] sm:!right-[max(2vw,calc(50%-550px))] sm:!top-[4vh] sm:!bottom-auto",
           isForm
-            ? "flex h-[min(92vh,920px)] max-h-[92vh] flex-col overflow-hidden"
-            : "max-h-[92vh] overflow-y-auto p-6",
+            ? "flex !h-auto max-h-[min(92vh,900px)] w-auto max-w-none flex-col overflow-hidden sm:!h-[min(92vh,900px)]"
+            : "max-h-[min(92vh,720px)] w-auto max-w-none overflow-y-auto p-6 sm:!h-auto",
         )}
       >
         {isForm ? (
           <>
-            <SheetHeader className="shrink-0 space-y-1 border-b px-4 py-3 pr-12 text-left">
-              <SheetTitle>
+            <DialogHeader className="shrink-0 space-y-1 border-b px-4 py-3 pr-12 text-left">
+              <DialogTitle>
                 {mode === "create" ? "Create patrol route" : "Edit patrol route"}
-              </SheetTitle>
+              </DialogTitle>
               <Button
                 type="button"
                 variant="ghost"
@@ -358,7 +378,7 @@ export function PatrolRouteAdminSheet({
                 <ArrowLeft className="h-4 w-4 mr-1" />
                 {parentOwnsList ? "Close" : "Back to routes"}
               </Button>
-            </SheetHeader>
+            </DialogHeader>
 
             <div className="min-h-0 flex-1 overflow-y-auto">
               <div className="mx-auto w-full max-w-5xl space-y-5 px-4 py-4 sm:px-6">
@@ -413,7 +433,7 @@ export function PatrolRouteAdminSheet({
 
                     <section className="rounded-xl border bg-card/40 p-4">
                       <PatrolRouteMapEditor
-                        active={open && isForm}
+                        active={open && isForm && mapSettled}
                         checkpoints={checkpoints}
                         selectedIndex={selectedIndex}
                         onSelectCheckpoint={setSelectedIndex}
@@ -692,9 +712,9 @@ export function PatrolRouteAdminSheet({
           </>
         ) : (
           <>
-            <SheetHeader className="mb-2 px-0">
-              <SheetTitle>Patrol routes</SheetTitle>
-            </SheetHeader>
+            <DialogHeader className="mb-2 px-0">
+              <DialogTitle>Patrol routes</DialogTitle>
+            </DialogHeader>
             {parentOwnsList ? (
               <div className="flex items-center justify-center py-12 text-muted-foreground">
                 <Loader2 className="h-5 w-5 animate-spin mr-2" />
@@ -747,7 +767,7 @@ export function PatrolRouteAdminSheet({
             )}
           </>
         )}
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   );
 }

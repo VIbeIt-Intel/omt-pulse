@@ -179,6 +179,12 @@ export function PatrolRouteMapEditor({
     });
     mapInstanceRef.current = map;
 
+    // Force correct tile layout after the dialog finishes laying out.
+    requestAnimationFrame(() => {
+      google.maps.event.trigger(map, "resize");
+      map.setCenter(center);
+    });
+
     map.addListener("click", (e: google.maps.MapMouseEvent) => {
       const latLng = e.latLng;
       if (!latLng) return;
@@ -343,16 +349,16 @@ export function PatrolRouteMapEditor({
       {mapsError ? (
         <p className="text-xs text-destructive">{mapsError}</p>
       ) : !mapsReady || !active ? (
-        <div className="flex h-[min(48vh,440px)] min-h-[280px] items-center justify-center rounded-xl border border-border/80 bg-muted/30 text-sm text-muted-foreground">
-          <Loader2 className="h-5 w-5 animate-spin mr-2" />
-          Loading map…
+        <div className="relative h-[min(52vh,480px)] min-h-[300px] w-full overflow-hidden rounded-xl border border-border/80 bg-muted/30">
+          <div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin mr-2" />
+            Loading map…
+          </div>
         </div>
       ) : (
-        <div
-          ref={mapRef}
-          className="h-[min(48vh,440px)] min-h-[280px] w-full overflow-hidden rounded-xl border border-border/80 bg-muted/30"
-          data-testid="patrol-route-map"
-        />
+        <div className="relative h-[min(52vh,480px)] min-h-[300px] w-full overflow-hidden rounded-xl border border-border/80 bg-muted/30">
+          <div ref={mapRef} className="absolute inset-0 h-full w-full" data-testid="patrol-route-map" />
+        </div>
       )}
 
       {selectedCp && hasCheckpointCoords(selectedCp) && (
