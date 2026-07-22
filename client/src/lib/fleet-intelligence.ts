@@ -224,6 +224,126 @@ export function preferredTodayDistanceKm(device: {
   return null;
 }
 
+export type TripMapEvent = {
+  kind: "stop" | "ignition_off";
+  lat: number;
+  lng: number;
+  at: string;
+  durationMinutes?: number;
+  label: string;
+};
+
+/** Minimum parked/idle dwell to count as a stop on the route map. */
+export const TRIP_STOP_MIN_MS = 3 * 60 * 1000;
+const TRIP_EVENT_DEDUPE_M = 40;
+
+function distanceM(
+  a: { lat: number; lng: number },
+  b: { lat: number; lng: number },
+): number {
+  return haversineKm(a, b) * 1000;
+}
+
+function formatStopClock(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+/**
+ * Derive stop (low-speed dwell) and ignition-off points for the daily route map.
+ * Uses the same moving threshold as trip analytics.
+ */
+export function detectTripMapEvents(positions: TripPosition[]): TripMapEvent[] {
+  const sorted = [...positions]
+    .filter((p) => p.gpsValid !== false)
+    .sort((a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime());
+
+  const events: TripMapEvent[] = [];
+
+  let idleStartIdx: number | null = null;
+  for (let i = 0; i < sorted.length; i++) {
+    const point = sorted[i]!;
+    const speed = point.speedKph ?? 0;
+    const isIdle = speed < MOVING_SPEED_KPH;
+
+    if (isIdle) {
+      if (idleStartIdx == null) idleStartIdx = i;
+      continue;
+    }
+
+    if (idleStartIdx != null) {
+      const start = sorted[idleStartIdx]!;
+      const end = sorted[i - 1]!;
+      const dwellMs =
+        new Date(end.recordedAt).getTime() - new Date(start.recordedAt).getTime();
+      if (dwellMs >= TRIP_STOP_MIN_MS) {
+        const mid = sorted[Math.floor((idleStartIdx + i - 1) / 2)]!;
+        const mins = Math.round(dwellMs / 60_000);
+        events.push({
+          kind: "stop",
+          lat: mid.latitude,
+          lng: mid.longitude,
+          at: start.recordedAt,
+          durationMinutes: mins,
+          label: `Stop · ${formatStopClock(start.recordedAt)} · ${formatDurationMinutes(mins)}`,
+        });
+      }
+      idleStartIdx = null;
+    }
+  }
+
+  if (idleStartIdx != null) {
+    const start = sorted[idleStartIdx]!;
+    const end = sorted[sorted.length - 1]!;
+    const dwellMs = new Date(end.recordedAt).getTime() - new Date(start.recordedAt).getTime();
+    if (dwellMs >= TRIP_STOP_MIN_MS) {
+      const mid = sorted[Math.floor((idleStartIdx + sorted.length - 1) / 2)]!;
+      const mins = Math.round(dwellMs / 60_000);
+      events.push({
+        kind: "stop",
+        lat: mid.latitude,
+        lng: mid.longitude,
+        at: start.recordedAt,
+        durationMinutes: mins,
+        label: `Stop · ${formatStopClock(start.recordedAt)} · ${formatDurationMinutes(mins)}`,
+      });
+    }
+  }
+
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = sorted[i - 1]!;
+    const curr = sorted[i]!;
+    if (prev.ignitionOn === true && curr.ignitionOn === false) {
+      events.push({
+        kind: "ignition_off",
+        lat: curr.latitude,
+        lng: curr.longitude,
+        at: curr.recordedAt,
+        label: `Ignition off · ${formatStopClock(curr.recordedAt)}`,
+      });
+    }
+  }
+
+  // Prefer ignition-off over a nearly-colocated stop marker.
+  const ignitionOffs = events.filter((e) => e.kind === "ignition_off");
+  const stops = events.filter((e) => e.kind === "stop").filter((stop) => {
+    return !ignitionOffs.some(
+      (off) => distanceM({ lat: stop.lat, lng: stop.lng }, { lat: off.lat, lng: off.lng }) < TRIP_EVENT_DEDUPE_M,
+    );
+  });
+
+  const dedupedOffs: TripMapEvent[] = [];
+  for (const off of ignitionOffs) {
+    const near = dedupedOffs.some(
+      (kept) => distanceM({ lat: kept.lat, lng: kept.lng }, { lat: off.lat, lng: off.lng }) < TRIP_EVENT_DEDUPE_M,
+    );
+    if (!near) dedupedOffs.push(off);
+  }
+
+  return [...stops, ...dedupedOffs].sort(
+    (a, b) => new Date(a.at).getTime() - new Date(b.at).getTime(),
+  );
+}
+
 /**
  * Heartbeats refresh lastSeenAt without a GPS fix. When signal is meaningfully newer than
  * lastPositionAt, the UI should surface GPS age separately so idle+ACC-on does not look like live track.

@@ -36,6 +36,7 @@ import { FleetAlertsPanel } from "@/components/fleet/fleet-alerts-panel";
 import { FleetAlertRulesForm } from "@/components/fleet/fleet-alert-rules-form";
 import { GeoLocationSheet, type GeoMapView } from "@/components/incident-location-sheet";
 import type { TrackerDeviceSummary } from "@/components/operations-dashboard";
+import type { ResolvedFleetAlertRules } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { prepareAndUploadFile } from "@/lib/upload-media";
@@ -203,6 +204,25 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
       return res.json();
     },
   });
+
+  const { data: alertRules } = useQuery<ResolvedFleetAlertRules>({
+    queryKey: [`/api/fleet-alerts/rules/${deviceId}`],
+  });
+
+  const mapGeofence = useMemo(() => {
+    if (
+      !alertRules?.geofenceEnabled
+      || alertRules.geofenceLat == null
+      || alertRules.geofenceLng == null
+    ) {
+      return null;
+    }
+    return {
+      lat: alertRules.geofenceLat,
+      lng: alertRules.geofenceLng,
+      radiusM: alertRules.geofenceRadiusM,
+    };
+  }, [alertRules]);
 
   const dayBuckets = useMemo(
     () => groupPositionsByDay(history?.positions ?? []),
@@ -544,7 +564,7 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
                   <p className="text-[11px] text-muted-foreground">
                     {tripStats.pointCount} GPS points recorded · {activeDay?.label ?? "Selected day"}
                   </p>
-                  <FleetHistoryMap positions={activePositions} />
+                  <FleetHistoryMap positions={activePositions} geofence={mapGeofence} />
                 </div>
               </>
             )}

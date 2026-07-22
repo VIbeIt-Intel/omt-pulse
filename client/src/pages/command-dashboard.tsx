@@ -929,7 +929,9 @@ export default function CommandDashboard() {
             onOpenChat={() => navigate("/chat")}
             onOpenLiveMonitor={openLiveMonitor}
             onOpenOccurrence={openOccurrenceBook}
-            onOpenFleet={() => navigate("/fleet")}
+            onOpenFleet={(deviceId) =>
+              navigate(deviceId != null ? `/fleet?device=${deviceId}` : "/fleet")
+            }
             onPanic={() => setPanicOpen(true)}
           />
         </div>

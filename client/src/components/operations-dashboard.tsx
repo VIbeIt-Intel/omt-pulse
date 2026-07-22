@@ -403,7 +403,7 @@ type Props = {
   onOpenChat: () => void;
   onOpenLiveMonitor: (incidentId?: number) => void;
   onOpenOccurrence: (incidentId?: number, bookPeriod?: Period) => void;
-  onOpenFleet?: () => void;
+  onOpenFleet?: (deviceId?: number) => void;
   onPanic: () => void;
 };
 
@@ -1171,7 +1171,7 @@ export function OperationsDashboard({
                 onOpenFleet ? (
                   <button
                     type="button"
-                    onClick={onOpenFleet}
+                    onClick={() => onOpenFleet()}
                     className="text-[10px] font-semibold uppercase tracking-wide text-cyan-400/90 hover:text-cyan-300 hover:underline"
                     data-testid="ops-fleet-view-all"
                   >
@@ -1216,101 +1216,116 @@ export function OperationsDashboard({
                     const signal = trackerSignalSummary(device);
                     const registration =
                       device.vehicleRegistration?.trim() || `IMEI …${device.imei.slice(-6)}`;
+                    const openVehicle = onOpenFleet
+                      ? () => onOpenFleet(device.id)
+                      : undefined;
                     return (
-                      <li
-                        key={device.id}
-                        className="px-3 py-2 border-l-2 border-l-transparent hover:bg-cyan-950/20 transition-colors"
-                        data-testid={`ops-fleet-row-${device.id}`}
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span
-                            className={cn("h-2 w-2 shrink-0 rounded-full", motionCfg.dot)}
-                            title={motionCfg.label}
-                          />
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <p className="text-xs font-medium text-slate-200 truncate">
-                                {vehicleDisplayName(device)}
-                              </p>
-                              <span
-                                className={cn(
-                                  "shrink-0 text-[9px] font-bold uppercase tracking-wide",
-                                  motion === "moving"
-                                    ? "text-emerald-400"
-                                    : motion === "idle"
-                                      ? "text-amber-400"
-                                      : "text-slate-500",
-                                )}
-                              >
-                                {motionCfg.label}
-                              </span>
-                            </div>
-                            <div className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[9px] text-slate-500">
-                              <span className="truncate max-w-[9rem] uppercase tracking-wide">
-                                {registration}
-                              </span>
-                              <span
-                                className={cn(
-                                  "inline-flex items-center gap-0.5 tabular-nums",
-                                  motion === "moving" ? "text-emerald-400/90" : undefined,
-                                )}
-                              >
-                                <Gauge className="h-2.5 w-2.5" />
-                                {speed == null ? "—" : `${speed} km/h`}
-                              </span>
-                              <span className="inline-flex items-center gap-0.5 tabular-nums">
-                                <RouteIcon className="h-2.5 w-2.5" />
-                                {formatMileageKm(todayKm)}
-                              </span>
-                              {device.lastIgnitionOn != null && (
+                      <li key={device.id}>
+                        <button
+                          type="button"
+                          onClick={openVehicle}
+                          disabled={!openVehicle}
+                          className={cn(
+                            "w-full text-left px-3 py-2 border-l-2 border-l-transparent transition-colors",
+                            openVehicle
+                              ? "hover:bg-cyan-950/25 cursor-pointer focus-visible:outline-none focus-visible:bg-cyan-950/30"
+                              : "cursor-default",
+                          )}
+                          data-testid={`ops-fleet-row-${device.id}`}
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span
+                              className={cn("h-2 w-2 shrink-0 rounded-full", motionCfg.dot)}
+                              title={motionCfg.label}
+                            />
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <p className="text-xs font-medium text-slate-200 truncate">
+                                  {vehicleDisplayName(device)}
+                                </p>
                                 <span
                                   className={cn(
-                                    "inline-flex items-center gap-0.5",
-                                    device.lastIgnitionOn ? "text-amber-400/80" : undefined,
+                                    "shrink-0 text-[9px] font-bold uppercase tracking-wide",
+                                    motion === "moving"
+                                      ? "text-emerald-400"
+                                      : motion === "idle"
+                                        ? "text-amber-400"
+                                        : "text-slate-500",
                                   )}
                                 >
-                                  <KeyRound className="h-2.5 w-2.5" />
-                                  {device.lastIgnitionOn ? "ACC" : "Off"}
+                                  {motionCfg.label}
                                 </span>
-                              )}
+                              </div>
+                              <div className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[9px] text-slate-500">
+                                <span className="truncate max-w-[9rem] uppercase tracking-wide">
+                                  {registration}
+                                </span>
+                                <span
+                                  className={cn(
+                                    "inline-flex items-center gap-0.5 tabular-nums",
+                                    motion === "moving" ? "text-emerald-400/90" : undefined,
+                                  )}
+                                >
+                                  <Gauge className="h-2.5 w-2.5" />
+                                  {speed == null ? "—" : `${speed} km/h`}
+                                </span>
+                                <span className="inline-flex items-center gap-0.5 tabular-nums">
+                                  <RouteIcon className="h-2.5 w-2.5" />
+                                  {formatMileageKm(todayKm)}
+                                </span>
+                                {device.lastIgnitionOn != null && (
+                                  <span
+                                    className={cn(
+                                      "inline-flex items-center gap-0.5",
+                                      device.lastIgnitionOn ? "text-amber-400/80" : undefined,
+                                    )}
+                                  >
+                                    <KeyRound className="h-2.5 w-2.5" />
+                                    {device.lastIgnitionOn ? "ACC" : "Off"}
+                                  </span>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                          <div className="shrink-0 w-[78px] text-right">
-                            {signal.heartbeatOnly ? (
-                              <>
+                            <div className="shrink-0 w-[78px] text-right">
+                              {signal.heartbeatOnly ? (
+                                <>
+                                  <p
+                                    className={cn(
+                                      "text-[10px] tabular-nums leading-tight",
+                                      signal.gpsTier
+                                        ? freshnessClassDark(signal.gpsTier)
+                                        : "text-slate-500",
+                                    )}
+                                  >
+                                    GPS {signal.gpsAgo ?? "—"}
+                                  </p>
+                                  <p className="text-[8px] text-slate-500 mt-0.5 leading-none">
+                                    Signal {signal.signalAgo}
+                                  </p>
+                                </>
+                              ) : (
                                 <p
                                   className={cn(
-                                    "text-[10px] tabular-nums leading-tight",
-                                    signal.gpsTier
-                                      ? freshnessClassDark(signal.gpsTier)
-                                      : "text-slate-500",
+                                    "text-[10px] tabular-nums leading-tight inline-flex items-center justify-end gap-1",
+                                    freshnessClassDark(signal.signalTier),
                                   )}
                                 >
-                                  GPS {signal.gpsAgo ?? "—"}
+                                  <Signal className="h-2.5 w-2.5 opacity-70" />
+                                  {signal.signalAgo}
                                 </p>
-                                <p className="text-[8px] text-slate-500 mt-0.5 leading-none">
-                                  Signal {signal.signalAgo}
+                              )}
+                              {device.assignedUserName && (
+                                <p className="mt-0.5 truncate text-[8px] text-slate-500 inline-flex items-center justify-end gap-0.5 max-w-full">
+                                  <UserRound className="h-2.5 w-2.5 shrink-0" />
+                                  <span className="truncate">{device.assignedUserName}</span>
                                 </p>
-                              </>
-                            ) : (
-                              <p
-                                className={cn(
-                                  "text-[10px] tabular-nums leading-tight inline-flex items-center justify-end gap-1",
-                                  freshnessClassDark(signal.signalTier),
-                                )}
-                              >
-                                <Signal className="h-2.5 w-2.5 opacity-70" />
-                                {signal.signalAgo}
-                              </p>
-                            )}
-                            {device.assignedUserName && (
-                              <p className="mt-0.5 truncate text-[8px] text-slate-500 inline-flex items-center justify-end gap-0.5 max-w-full">
-                                <UserRound className="h-2.5 w-2.5 shrink-0" />
-                                <span className="truncate">{device.assignedUserName}</span>
-                              </p>
+                              )}
+                            </div>
+                            {openVehicle && (
+                              <ChevronRight className="h-3.5 w-3.5 shrink-0 text-slate-600" />
                             )}
                           </div>
-                        </div>
+                        </button>
                       </li>
                     );
                   })}
