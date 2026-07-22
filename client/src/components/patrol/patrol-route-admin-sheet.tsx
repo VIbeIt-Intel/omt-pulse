@@ -65,6 +65,8 @@ type PatrolRouteAdminSheetProps = {
   onOpenChange: (open: boolean) => void;
   routes: PatrolRoute[];
   commands: OrgCommand[];
+  /** When set, open directly into create/edit (parent owns the route list). */
+  launchIntent?: { mode: "create" } | { mode: "edit"; routeId: number } | null;
 };
 
 type FormMode = "list" | "create" | "edit";
@@ -126,6 +128,7 @@ export function PatrolRouteAdminSheet({
   onOpenChange,
   routes,
   commands,
+  launchIntent = null,
 }: PatrolRouteAdminSheetProps) {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -137,6 +140,7 @@ export function PatrolRouteAdminSheet({
   const [checkpoints, setCheckpoints] = useState<PatrolCheckpointDraft[]>([emptyPatrolCheckpoint()]);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(0);
   const [schedule, setSchedule] = useState<ScheduleForm>(defaultScheduleForm);
+  const parentOwnsList = launchIntent != null;
 
   const { data: editingRoute, isLoading: editingLoading } = useQuery<PatrolRouteWithCheckpoints>({
     queryKey: ["/api/patrol/routes", editingRouteId],
@@ -211,7 +215,11 @@ export function PatrolRouteAdminSheet({
   }
 
   function startCreate() {
-    resetForm();
+    setEditingRouteId(null);
+    setName("");
+    setDescription("");
+    setCommandId("all");
+    setSchedule(defaultScheduleForm());
     setMode("create");
     setCheckpoints([emptyPatrolCheckpoint()]);
     setSelectedIndex(0);
@@ -221,6 +229,21 @@ export function PatrolRouteAdminSheet({
     setEditingRouteId(routeId);
     setMode("edit");
   }
+
+  function leaveForm() {
+    if (parentOwnsList) {
+      handleSheetOpenChange(false);
+      return;
+    }
+    resetForm();
+  }
+
+  useEffect(() => {
+    if (!open || !launchIntent) return;
+    if (launchIntent.mode === "create") startCreate();
+    else startEdit(launchIntent.routeId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only when sheet opens with a new intent
+  }, [open, launchIntent]);
 
   function updateCheckpoint(index: number, patch: Partial<PatrolCheckpointDraft>) {
     setCheckpoints((prev) => prev.map((c, i) => (i === index ? { ...c, ...patch } : c)));
@@ -295,7 +318,7 @@ export function PatrolRouteAdminSheet({
       if (editingRouteId != null) {
         void qc.invalidateQueries({ queryKey: ["/api/patrol/routes", editingRouteId] });
       }
-      resetForm();
+      handleSheetOpenChange(false);
     },
     onError: (e: Error) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
   });
@@ -321,9 +344,9 @@ export function PatrolRouteAdminSheet({
 
         {isForm ? (
           <div className="mt-4 space-y-4">
-            <Button type="button" variant="ghost" size="sm" className="-ml-2" onClick={resetForm}>
+            <Button type="button" variant="ghost" size="sm" className="-ml-2" onClick={leaveForm}>
               <ArrowLeft className="h-4 w-4 mr-1" />
-              Back to routes
+              {parentOwnsList ? "Close" : "Back to routes"}
             </Button>
 
             {mode === "edit" && editingLoading ? (
@@ -619,6 +642,11 @@ export function PatrolRouteAdminSheet({
                 </Button>
               </>
             )}
+          </div>
+        ) : parentOwnsList ? (
+          <div className="flex items-center justify-center py-12 text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin mr-2" />
+            Opening…
           </div>
         ) : (
           <div className="mt-4 space-y-4">

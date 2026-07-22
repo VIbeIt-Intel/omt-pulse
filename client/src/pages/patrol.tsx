@@ -24,8 +24,10 @@ import {
   History,
   Loader2,
   MapPin,
+  Pencil,
   Plus,
   Route,
+  Settings2,
 } from "lucide-react";
 
 type PatrolPageProps = {
@@ -41,6 +43,9 @@ type PendingDispatch = {
   startByAt: string;
   routeName: string;
 };
+
+type ManagerTab = "routes" | "run" | "history";
+type LaunchIntent = { mode: "create" } | { mode: "edit"; routeId: number } | null;
 
 function patrolDuration(startedAt: string | Date, endedAt: string | Date | null): string {
   const start = new Date(startedAt).getTime();
@@ -74,8 +79,9 @@ function patrolTime(value: string | Date): string {
 
 export default function PatrolPage({ userRole }: PatrolPageProps) {
   const isManager = canManagePatrolRoutes(userRole);
-  const [tab, setTab] = useState<"run" | "history">("run");
+  const [tab, setTab] = useState<ManagerTab>(isManager ? "routes" : "run");
   const [routeSheetOpen, setRouteSheetOpen] = useState(false);
+  const [launchIntent, setLaunchIntent] = useState<LaunchIntent>(null);
   const [historyPatrolId, setHistoryPatrolId] = useState<number | null>(null);
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -121,8 +127,6 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
 
   const startMutation = useMutation({
     mutationFn: async (routeId: number) => {
-      // Hard gate: do not start a patrol without a live GPS fix. Opens Location /
-      // app permission settings when Location is off or blocked.
       const loc = await requestLocationAccess({ probeMode: "settle" });
       if (loc.result !== "granted" || loc.lat == null || loc.lng == null) {
         const msg =
@@ -160,6 +164,7 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
       return a.name.localeCompare(b.name);
     });
   }, [routes, pendingByRoute, highlightRouteId]);
+
   const historySummary = useMemo(() => {
     const completed = history.filter((p) => p.status === "completed").length;
     const checkpoints = history.reduce((sum, p) => sum + p.completedCheckpoints, 0);
@@ -169,103 +174,227 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
     return { completed, checkpoints, totalCheckpoints, distanceM, alerts };
   }, [history]);
 
-  return (
-    <div className="flex flex-col h-full overflow-hidden">
-      <div className="shrink-0 border-b bg-background px-4 py-4">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <Footprints className="h-5 w-5" />
-            </div>
-            <div>
-              <h1 className="text-lg font-semibold leading-tight">Patrol</h1>
-              <p className="text-xs text-muted-foreground">Follow planned routes and clock checkpoints</p>
-            </div>
-          </div>
+  function openCreateRoute() {
+    setLaunchIntent({ mode: "create" });
+    setRouteSheetOpen(true);
+  }
+
+  function openEditRoute(routeId: number) {
+    setLaunchIntent({ mode: "edit", routeId });
+    setRouteSheetOpen(true);
+  }
+
+  function renderRunList() {
+    if (loading) {
+      return (
+        <div className="p-4 space-y-3">
+          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-16 w-full" />
+        </div>
+      );
+    }
+    if (activePatrol) return <PatrolActiveRun patrol={activePatrol} />;
+    if (routes.length === 0) {
+      return (
+        <div className="p-8 text-center space-y-4">
+          <p className="text-sm text-muted-foreground">
+            {isManager
+              ? "No patrol routes yet. Create a route first, then start it from Run."
+              : "No patrol routes are available for your group."}
+          </p>
           {isManager && (
-            <Button type="button" variant="outline" size="sm" onClick={() => setRouteSheetOpen(true)}>
-              <Plus className="h-4 w-4 mr-1" />
-              Routes
+            <Button type="button" onClick={() => { setTab("routes"); openCreateRoute(); }}>
+              <Plus className="h-4 w-4 mr-1.5" />
+              Add route
             </Button>
           )}
         </div>
+      );
+    }
+    return (
+      <div className="p-4 space-y-3">
+        <div>
+          <h2 className="text-sm font-semibold">Start a patrol</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Location must be on. The app will ask for GPS if needed.
+          </p>
+        </div>
+        <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2.5 text-[11px] text-amber-100/90 leading-relaxed">
+          Turn on phone Location before you start. If it’s off, we’ll open settings for you.
+        </div>
+        <ul className="space-y-2">
+          {sortedRoutes.map((route) => {
+            const pending = pendingByRoute.get(route.id);
+            const highlighted = highlightRouteId === route.id || !!pending;
+            return (
+              <li
+                key={route.id}
+                className={cn(
+                  "flex items-center justify-between gap-3 rounded-xl border bg-card/40 px-4 py-3.5",
+                  highlighted && "border-primary/60 bg-primary/5",
+                )}
+              >
+                <div className="min-w-0">
+                  <p className="font-medium text-sm">{route.name}</p>
+                  {pending ? (
+                    <p className="text-xs text-primary font-medium mt-0.5">
+                      {pending.status === "overdue" ? "Overdue — start now" : "Due now — start patrol"}
+                    </p>
+                  ) : route.description ? (
+                    <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{route.description}</p>
+                  ) : null}
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="shrink-0"
+                  disabled={startMutation.isPending || !route.isActive}
+                  onClick={() => startMutation.mutate(route.id)}
+                >
+                  {startMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Start"}
+                </Button>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col h-full overflow-hidden">
+      <div className="shrink-0 border-b bg-gradient-to-b from-emerald-950/40 to-background px-4 py-4">
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/25">
+            <Footprints className="h-5 w-5" />
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-lg font-semibold leading-tight">Patrol</h1>
+            <p className="text-xs text-muted-foreground">
+              {isManager
+                ? "Set up routes, run patrols, and review history"
+                : "Follow planned routes and clock checkpoints"}
+            </p>
+          </div>
+        </div>
       </div>
 
-      <Tabs
-        value={tab}
-        onValueChange={(v) => setTab(v as "run" | "history")}
-        className="flex flex-col flex-1 min-h-0"
-      >
-        <TabsList className={`mx-4 mt-3 grid shrink-0 ${isManager ? "grid-cols-2" : "grid-cols-1"}`}>
-          <TabsTrigger value="run" className="gap-1.5">
-            <Route className="h-4 w-4" />
-            Run
-          </TabsTrigger>
-          {isManager && (
-            <TabsTrigger value="history" className="gap-1.5">
+      {isManager ? (
+        <Tabs
+          value={tab}
+          onValueChange={(v) => setTab(v as ManagerTab)}
+          className="flex flex-col flex-1 min-h-0"
+        >
+          <TabsList className="mx-4 mt-3 grid shrink-0 grid-cols-3 h-11">
+            <TabsTrigger value="routes" className="gap-1.5 text-xs sm:text-sm">
+              <Settings2 className="h-4 w-4" />
+              Routes
+            </TabsTrigger>
+            <TabsTrigger value="run" className="gap-1.5 text-xs sm:text-sm">
+              <Route className="h-4 w-4" />
+              Run
+            </TabsTrigger>
+            <TabsTrigger value="history" className="gap-1.5 text-xs sm:text-sm">
               <History className="h-4 w-4" />
               History
             </TabsTrigger>
-          )}
-        </TabsList>
+          </TabsList>
 
-        <TabsContent value="run" className="flex-1 overflow-y-auto mt-0 data-[state=inactive]:hidden">
-          {loading ? (
-            <div className="p-4 space-y-3">
-              <Skeleton className="h-24 w-full" />
-              <Skeleton className="h-16 w-full" />
-            </div>
-          ) : activePatrol ? (
-            <PatrolActiveRun patrol={activePatrol} />
-          ) : routes.length === 0 ? (
-            <div className="p-8 text-center text-sm text-muted-foreground">
-              {isManager
-                ? "No patrol routes yet. Tap Routes to create one."
-                : "No patrol routes are available for your group."}
-            </div>
-          ) : (
-            <div className="p-4 space-y-2">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Start a route</p>
-              <p className="text-[11px] text-muted-foreground rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2">
-                Location must be on before you can start. The app will ask for GPS and open phone Location settings if needed.
-              </p>
-              {sortedRoutes.map((route) => {
-                const pending = pendingByRoute.get(route.id);
-                const highlighted = highlightRouteId === route.id || !!pending;
-                return (
-                  <div
-                    key={route.id}
-                    className={cn(
-                      "flex items-center justify-between gap-3 rounded-lg border px-4 py-3",
-                      highlighted && "border-primary/60 bg-primary/5",
-                    )}
-                  >
-                    <div className="min-w-0">
-                      <p className="font-medium text-sm">{route.name}</p>
-                      {pending ? (
-                        <p className="text-xs text-primary font-medium mt-0.5">
-                          {pending.status === "overdue" ? "Overdue — start now" : "Due now — start patrol"}
-                        </p>
-                      ) : route.description ? (
-                        <p className="text-xs text-muted-foreground line-clamp-2">{route.description}</p>
-                      ) : null}
+          <TabsContent value="routes" className="flex-1 overflow-y-auto mt-0 data-[state=inactive]:hidden">
+            {routesLoading ? (
+              <div className="p-4 space-y-3">
+                <Skeleton className="h-12 w-full" />
+                <Skeleton className="h-20 w-full" />
+                <Skeleton className="h-20 w-full" />
+              </div>
+            ) : (
+              <div className="p-4 space-y-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h2 className="text-sm font-semibold">Your routes</h2>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Create and edit checkpoint routes for the team.
+                    </p>
+                  </div>
+                  <Button type="button" size="sm" className="shrink-0 gap-1.5" onClick={openCreateRoute}>
+                    <Plus className="h-4 w-4" />
+                    Add route
+                  </Button>
+                </div>
+
+                {routes.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-emerald-500/30 bg-emerald-950/20 px-6 py-10 text-center space-y-4">
+                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-400">
+                      <MapPin className="h-6 w-6" />
                     </div>
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={startMutation.isPending}
-                      onClick={() => startMutation.mutate(route.id)}
-                    >
-                      {startMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Start"}
+                    <div className="space-y-1">
+                      <p className="font-medium text-sm">No routes yet</p>
+                      <p className="text-xs text-muted-foreground max-w-xs mx-auto">
+                        Add a route with named checkpoints on the map, then officers can start it from Run.
+                      </p>
+                    </div>
+                    <Button type="button" onClick={openCreateRoute} className="gap-1.5">
+                      <Plus className="h-4 w-4" />
+                      Add your first route
                     </Button>
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </TabsContent>
+                ) : (
+                  <ul className="space-y-2">
+                    {sortedRoutes.map((route) => {
+                      const commandName =
+                        route.commandId != null
+                          ? commands.find((c) => c.id === route.commandId)?.name
+                          : null;
+                      return (
+                        <li
+                          key={route.id}
+                          className="rounded-xl border bg-card/50 px-4 py-3.5 flex items-center gap-3"
+                        >
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">
+                            <Route className="h-4 w-4" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="font-medium text-sm truncate">{route.name}</p>
+                              <span
+                                className={cn(
+                                  "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                                  route.isActive
+                                    ? "bg-emerald-500/15 text-emerald-400"
+                                    : "bg-muted text-muted-foreground",
+                                )}
+                              >
+                                {route.isActive ? "Active" : "Off"}
+                              </span>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                              {commandName ? `${commandName} · ` : ""}
+                              {route.description?.trim() || "No description"}
+                            </p>
+                          </div>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            className="shrink-0 gap-1"
+                            onClick={() => openEditRoute(route.id)}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                            Edit
+                          </Button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            )}
+          </TabsContent>
 
-        {isManager && (
+          <TabsContent value="run" className="flex-1 overflow-y-auto mt-0 data-[state=inactive]:hidden">
+            {renderRunList()}
+          </TabsContent>
+
           <TabsContent value="history" className="flex-1 overflow-y-auto mt-0 data-[state=inactive]:hidden">
             {historyLoading ? (
               <div className="p-4 space-y-2">
@@ -301,9 +430,7 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
                 </div>
 
                 <div>
-                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    Recent patrols
-                  </p>
+                  <p className="mb-2 text-sm font-semibold">Recent patrols</p>
                   <ul className="space-y-2">
                     {history.map((p) => {
                       const hasAlert = (p.geofenceFailCount ?? 0) > 0;
@@ -313,15 +440,13 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
                         <li key={p.id}>
                           <button
                             type="button"
-                            className="w-full rounded-lg border px-4 py-3 text-sm text-left hover:bg-muted/40 transition-colors"
+                            className="w-full rounded-xl border bg-card/40 px-4 py-3 text-sm text-left hover:bg-muted/40 transition-colors"
                             onClick={() => setHistoryPatrolId(p.id)}
                           >
                             <div className="flex justify-between gap-3 items-start">
                               <div className="min-w-0">
                                 <p className="font-medium truncate">{p.routeName}</p>
-                                <p className="mt-0.5 text-xs text-muted-foreground">
-                                  {p.startedByName}
-                                </p>
+                                <p className="mt-0.5 text-xs text-muted-foreground">{p.startedByName}</p>
                               </div>
                               <span className="flex items-center gap-2 shrink-0">
                                 <span
@@ -380,15 +505,21 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
               </div>
             )}
           </TabsContent>
-        )}
-      </Tabs>
+        </Tabs>
+      ) : (
+        <div className="flex-1 min-h-0 overflow-y-auto">{renderRunList()}</div>
+      )}
 
       {isManager && (
         <PatrolRouteAdminSheet
           open={routeSheetOpen}
-          onOpenChange={setRouteSheetOpen}
+          onOpenChange={(open) => {
+            setRouteSheetOpen(open);
+            if (!open) setLaunchIntent(null);
+          }}
           routes={routes}
           commands={commands}
+          launchIntent={launchIntent}
         />
       )}
 
@@ -419,7 +550,7 @@ function HistoryStat({
   warning?: boolean;
 }) {
   return (
-    <div className="rounded-lg border px-3 py-2.5">
+    <div className="rounded-xl border bg-card/40 px-3 py-2.5">
       <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
         <Icon className={cn("h-3.5 w-3.5", warning && "text-destructive")} />
         {label}
