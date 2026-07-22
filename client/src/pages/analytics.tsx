@@ -719,9 +719,20 @@ interface ActiveFilters {
   dateKey: string | null;
   hour: number | null;
   categoryId: number | null;
+  /** When set with categoryId, narrows to a specific Other-note bar (empty string = bare Other). */
+  otherCategoryNote: string | null;
   location: string | null;
   dow: number | null;
 }
+
+const EMPTY_FILTERS: ActiveFilters = {
+  dateKey: null,
+  hour: null,
+  categoryId: null,
+  otherCategoryNote: null,
+  location: null,
+  dow: null,
+};
 
 export default function AnalyticsPage() {
   const { toast } = useToast();
@@ -743,13 +754,7 @@ export default function AnalyticsPage() {
   const chartRefTime = useRef<HTMLDivElement>(null);
   const chartRefDate = useRef<HTMLDivElement>(null);
   const chartRefDow = useRef<HTMLDivElement>(null);
-  const [activeFilters, setActiveFilters] = useState<ActiveFilters>({
-    dateKey: null,
-    hour: null,
-    categoryId: null,
-    location: null,
-    dow: null,
-  });
+  const [activeFilters, setActiveFilters] = useState<ActiveFilters>(EMPTY_FILTERS);
 
   const { data: allIncidents = [], isLoading: incidentsLoading } = useQuery<Incident[]>({
     queryKey: ["/api/incidents"],
@@ -865,8 +870,21 @@ export default function AnalyticsPage() {
     setActiveFilters((prev) => ({ ...prev, [key]: prev[key] === value ? null : value }));
   }
 
+  function toggleTypeFilter(categoryId: number | null, otherCategoryNote: string | null = null) {
+    if (categoryId == null) return;
+    setActiveFilters((prev) => {
+      const same =
+        prev.categoryId === categoryId &&
+        (prev.otherCategoryNote ?? null) === (otherCategoryNote ?? null);
+      if (same) {
+        return { ...prev, categoryId: null, otherCategoryNote: null };
+      }
+      return { ...prev, categoryId, otherCategoryNote };
+    });
+  }
+
   function clearAllFilters() {
-    setActiveFilters({ dateKey: null, hour: null, categoryId: null, location: null, dow: null });
+    setActiveFilters(EMPTY_FILTERS);
   }
 
   const dateRangeFiltered = useMemo(() => {
@@ -879,7 +897,13 @@ export default function AnalyticsPage() {
 
   const filteredIncidents = useMemo(() => {
     return dateRangeFiltered.filter((i) => {
-      if (activeFilters.categoryId !== null && i.categoryId !== activeFilters.categoryId) return false;
+      if (activeFilters.categoryId !== null) {
+        if (i.categoryId !== activeFilters.categoryId) return false;
+        if (activeFilters.otherCategoryNote !== null) {
+          const note = i.otherCategoryNote?.trim() || "";
+          if (note !== activeFilters.otherCategoryNote) return false;
+        }
+      }
       if (activeFilters.location !== null && getEffectiveLocationName(i) !== activeFilters.location) return false;
       if (activeFilters.hour !== null) {
         const h = parseInt((i.incidentTime || "00:00").split(":")[0], 10);
@@ -900,7 +924,6 @@ export default function AnalyticsPage() {
 
   const dateData = useMemo(() => {
     const map = new Map<string, number>();
-    const base = activeFilters.dateKey === null ? dateRangeFiltered : filteredIncidents;
     const pool = activeFilters.categoryId !== null || activeFilters.hour !== null || activeFilters.location !== null || activeFilters.dow !== null
       ? filteredIncidents
       : dateRangeFiltered;
@@ -943,14 +966,16 @@ export default function AnalyticsPage() {
       : (activeFilters.hour !== null || activeFilters.dateKey !== null || activeFilters.location !== null || activeFilters.dow !== null
           ? filteredIncidents
           : dateRangeFiltered);
-    const map = new Map<string, { name: string; color: string; count: number; categoryId: number | null }>();
+    const map = new Map<string, { name: string; color: string; count: number; categoryId: number | null; otherCategoryNote: string | null }>();
     categories.forEach((c) => {
       if (!c.isOther) {
-        map.set(String(c.id), { name: c.name, color: c.color || "#3B82F6", count: 0, categoryId: c.id });
+        map.set(String(c.id), { name: c.name, color: c.color || "#3B82F6", count: 0, categoryId: c.id, otherCategoryNote: null });
       }
     });
     pool.forEach((i) => {
       if (i.categoryId == null) return;
+      // Panic-origin incidents are counted only under the Panic series (no double-count).
+      if (i.panicClosedAt != null) return;
       const cat = categories.find((c) => c.id === i.categoryId);
       if (!cat) return;
       if (cat.isOther) {
@@ -961,7 +986,7 @@ export default function AnalyticsPage() {
         if (existing) {
           existing.count++;
         } else {
-          map.set(key, { name: label, color: cat.color || "#6B7280", count: 1, categoryId: cat.id });
+          map.set(key, { name: label, color: cat.color || "#6B7280", count: 1, categoryId: cat.id, otherCategoryNote: note });
         }
       } else {
         const entry = map.get(String(i.categoryId));
@@ -970,7 +995,13 @@ export default function AnalyticsPage() {
     });
     const panicOriginCount = pool.filter((i) => i.panicClosedAt != null).length;
     if (panicOriginCount > 0) {
-      map.set("__panic_origin__", { name: "Panic (origin)", color: "#ef4444", count: panicOriginCount, categoryId: null });
+      map.set("__panic_origin__", {
+        name: "Panic (origin)",
+        color: "#ef4444",
+        count: panicOriginCount,
+        categoryId: null,
+        otherCategoryNote: null,
+      });
     }
     return Array.from(map.values())
       .filter((e) => e.count > 0 || activeFilters.categoryId !== null)
@@ -980,7 +1011,11 @@ export default function AnalyticsPage() {
         incidents: e.count,
         color: e.color,
         categoryId: e.categoryId,
-        selected: activeFilters.categoryId !== null && activeFilters.categoryId === e.categoryId,
+        otherCategoryNote: e.otherCategoryNote,
+        selected:
+          activeFilters.categoryId !== null &&
+          activeFilters.categoryId === e.categoryId &&
+          (activeFilters.otherCategoryNote ?? null) === (e.otherCategoryNote ?? null),
       }));
   }, [dateRangeFiltered, filteredIncidents, activeFilters, categories]);
 
@@ -1086,7 +1121,18 @@ export default function AnalyticsPage() {
 
   async function handleExportPdf() {
     setIsPdfExporting(true);
+    const restoreView = view;
     try {
+      // Chart snapshots need mounted Recharts nodes — switch off Map if needed.
+      if (view !== "charts") {
+        setView("charts");
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => setTimeout(resolve, 450));
+          });
+        });
+      }
+
       const from = startDate || "all";
       const to = endDate || "all";
       const title = "Occurrence Report";
@@ -1096,7 +1142,10 @@ export default function AnalyticsPage() {
       if (activeFilters.dow !== null) filterParts.push(DOW_LABELS[activeFilters.dow]);
       if (activeFilters.categoryId !== null) {
         const cat = categories.find((c) => c.id === activeFilters.categoryId);
-        if (cat) filterParts.push(cat.name);
+        if (cat) {
+          const note = activeFilters.otherCategoryNote;
+          filterParts.push(note ? `${cat.name} (${note})` : cat.name);
+        }
       }
       if (activeFilters.location !== null) filterParts.push(activeFilters.location);
       if (activeFilters.hour !== null) filterParts.push(`${String(activeFilters.hour).padStart(2, "0")}:00`);
@@ -1272,6 +1321,7 @@ export default function AnalyticsPage() {
 
       doc.save(`incidents_${from}_to_${to}.pdf`);
     } finally {
+      if (restoreView !== "charts") setView(restoreView);
       setIsPdfExporting(false);
     }
   }
@@ -1355,9 +1405,13 @@ export default function AnalyticsPage() {
     }
     if (activeFilters.categoryId !== null) {
       const cat = categories.find((c) => c.id === activeFilters.categoryId);
+      const note = activeFilters.otherCategoryNote;
+      const typeLabel = note
+        ? `${cat?.name ?? activeFilters.categoryId} (${note})`
+        : (cat?.name ?? String(activeFilters.categoryId));
       chips.push({
-        label: `Type: ${cat?.name ?? activeFilters.categoryId}`,
-        onRemove: () => setActiveFilters((p) => ({ ...p, categoryId: null })),
+        label: `Type: ${typeLabel}`,
+        onRemove: () => setActiveFilters((p) => ({ ...p, categoryId: null, otherCategoryNote: null })),
       });
     }
     if (activeFilters.location) {
@@ -1764,7 +1818,7 @@ export default function AnalyticsPage() {
                     <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
                     <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={120} />
                     <Tooltip contentStyle={TOOLTIP_STYLE} />
-                    <Bar dataKey="incidents" name="Incidents" radius={[0, 6, 6, 0]} animationDuration={ANALYTICS_ANIMATION_MS} onClick={(entry) => { if (entry.categoryId !== null) toggleFilter("categoryId", entry.categoryId); }}>
+                    <Bar dataKey="incidents" name="Incidents" radius={[0, 6, 6, 0]} animationDuration={ANALYTICS_ANIMATION_MS} onClick={(entry) => { if (entry.categoryId !== null) toggleTypeFilter(entry.categoryId, entry.otherCategoryNote ?? null); }}>
                       {typeData.slice(0, 5).map((entry, index) => (
                         <Cell
                           key={`cell-type-${index}`}
@@ -1808,7 +1862,7 @@ export default function AnalyticsPage() {
                         <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12 }} />
                         <YAxis type="category" dataKey="name" tick={{ fontSize: 12 }} width={160} />
                         <Tooltip contentStyle={TOOLTIP_STYLE} />
-                        <Bar dataKey="incidents" name="Incidents" radius={[0, 6, 6, 0]} animationDuration={ANALYTICS_ANIMATION_MS} onClick={(entry) => { if (entry.categoryId !== null) toggleFilter("categoryId", entry.categoryId); }}>
+                        <Bar dataKey="incidents" name="Incidents" radius={[0, 6, 6, 0]} animationDuration={ANALYTICS_ANIMATION_MS} onClick={(entry) => { if (entry.categoryId !== null) toggleTypeFilter(entry.categoryId, entry.otherCategoryNote ?? null); }}>
                           {typeData.map((entry, index) => (
                             <Cell
                               key={`cell-type-exp-${index}`}
