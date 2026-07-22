@@ -106,6 +106,10 @@ function formatTime(ts: string | null): string {
   return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
+function escapeMapHtml(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
 function getResponderName(inc: LiveIncidentMapItem): string {
   const full = `${inc.responderFirstName ?? ""} ${inc.responderLastName ?? ""}`.trim();
   return full || `Incident #${inc.id}`;
@@ -324,7 +328,7 @@ function makeTeamMarkerIcon(firstName: string, lastName: string): google.maps.Ic
 }
 
 function buildTeamInfoHtml(name: string, gpsTime: string, darkTheme: boolean): string {
-  const safeName = name.replace(/[<>&]/g, "");
+  const safeName = escapeMapHtml(name);
   if (darkTheme) {
     return `<div class="omt-map-iw-card" style="background:#0c1220;border:1px solid #2d3a4f;border-radius:10px;padding:11px 13px;min-width:176px;box-shadow:0 10px 28px rgba(0,0,0,0.5);font-family:system-ui,-apple-system,sans-serif;">
       <p style="margin:0 0 8px;font-size:13px;font-weight:600;color:#f1f5f9;letter-spacing:-0.01em;line-height:1.3">${safeName}</p>
@@ -332,13 +336,140 @@ function buildTeamInfoHtml(name: string, gpsTime: string, darkTheme: boolean): s
         <span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:#34d399;box-shadow:0 0 6px rgba(52,211,153,0.8)"></span>
         <span style="font-size:9px;font-weight:700;color:#6ee7b7;text-transform:uppercase;letter-spacing:0.08em">On duty</span>
       </div>
-      <p style="margin:0;font-size:10px;color:#64748b;font-variant-numeric:tabular-nums">GPS · ${gpsTime}</p>
+      <p style="margin:0;font-size:10px;color:#64748b;font-variant-numeric:tabular-nums">GPS · ${escapeMapHtml(gpsTime)}</p>
     </div>`;
   }
   return `<div style="min-width:160px;font-family:system-ui,sans-serif;font-size:13px;line-height:1.5;padding:2px 0">
     <div style="font-weight:700;margin-bottom:4px;font-size:14px;color:#111827">${safeName}</div>
     <div style="color:#059669;font-size:11px;font-weight:600">On duty</div>
-    <div style="color:#6b7280;font-size:11px">GPS · ${gpsTime}</div>
+    <div style="color:#6b7280;font-size:11px">GPS · ${escapeMapHtml(gpsTime)}</div>
+  </div>`;
+}
+
+function buildIncidentInfoHtml(
+  inc: LiveIncidentMapItem,
+  opts: {
+    isPanic: boolean;
+    name: string;
+    duration: string;
+    positionSource: string;
+    severityLabel: string | null;
+    severityColor: string;
+    darkTheme: boolean;
+  },
+): string {
+  const safeName = escapeMapHtml(opts.name);
+  const location = escapeMapHtml(inc.locationName?.trim() || "Unknown location");
+  const category = inc.categoryName ? escapeMapHtml(inc.categoryName) : null;
+  const destination = inc.destinationName ? escapeMapHtml(inc.destinationName) : null;
+  const arrivalNote = inc.responderArrivedAt ? escapeMapHtml(formatTime(inc.responderArrivedAt)) : null;
+
+  if (opts.darkTheme) {
+    const banner = opts.isPanic
+      ? `<div style="display:inline-flex;align-items:center;gap:6px;margin:0 0 10px;padding:5px 9px;border-radius:6px;background:rgba(220,38,38,0.18);border:1px solid rgba(248,113,113,0.45);color:#fecaca;font-size:11px;font-weight:800;letter-spacing:0.04em;text-transform:uppercase">SOS / Panic alert</div>`
+      : "";
+    const ack = opts.isPanic
+      ? inc.panicAcknowledgedAt
+        ? `<div style="margin:0 0 8px;font-size:11px;font-weight:700;color:#4ade80">Acknowledged</div>`
+        : `<div style="margin:0 0 8px;font-size:11px;font-weight:700;color:#f87171">Not yet acknowledged</div>`
+      : "";
+    const metaRow = (label: string, value: string, valueColor = "#cbd5e1") =>
+      `<div style="display:flex;justify-content:space-between;gap:12px;margin-bottom:6px">
+        <span style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:0.06em">${label}</span>
+        <span style="font-size:11px;font-weight:600;color:${valueColor};text-align:right;line-height:1.35;max-width:150px">${value}</span>
+      </div>`;
+
+    return `<div class="omt-map-iw-card" style="background:#0c1220;border:1px solid #2d3a4f;border-radius:12px;padding:12px 34px 12px 14px;min-width:220px;max-width:280px;box-shadow:0 12px 32px rgba(0,0,0,0.55);font-family:system-ui,-apple-system,sans-serif;">
+      ${banner}
+      <p style="margin:0 0 4px;font-size:15px;font-weight:700;color:#f8fafc;letter-spacing:-0.02em;line-height:1.25">${safeName}</p>
+      ${ack}
+      ${inc.isEscalated ? `<div style="margin:0 0 8px;font-size:11px;font-weight:700;color:#f87171">Escalated</div>` : ""}
+      ${opts.severityLabel ? `<div style="margin:0 0 8px;font-size:11px;font-weight:700;color:${opts.severityColor}">Severity · ${opts.severityLabel.replace(/[🔴🟠🟡]/g, "").trim()}</div>` : ""}
+      ${arrivalNote ? `<div style="margin:0 0 8px;font-size:11px;font-weight:600;color:#60a5fa">At scene since ${arrivalNote}</div>` : ""}
+      <div style="border-top:1px solid #1e293b;padding-top:8px;margin-top:2px">
+        ${category ? metaRow("Type", category) : ""}
+        ${metaRow("Location", location)}
+        ${metaRow("Active", escapeMapHtml(opts.duration), "#e2e8f0")}
+        ${metaRow("Signal", escapeMapHtml(opts.positionSource), "#93c5fd")}
+      </div>
+      ${
+        destination && !opts.isPanic
+          ? `<div style="margin-top:10px;padding-top:8px;border-top:1px solid #1e293b">
+              <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px">Heading to</div>
+              <div style="font-size:12px;font-weight:700;color:#fca5a5;line-height:1.35">${destination}</div>
+            </div>`
+          : ""
+      }
+    </div>`;
+  }
+
+  const panicAckHtml = opts.isPanic
+    ? inc.panicAcknowledgedAt
+      ? `<div style="color:#16a34a;font-weight:600;font-size:11px;margin-bottom:4px">Acknowledged</div>`
+      : `<div style="color:#dc2626;font-weight:600;font-size:11px;margin-bottom:4px">Not yet acknowledged</div>`
+    : "";
+
+  return `<div style="min-width:190px;max-width:280px;font-family:system-ui,sans-serif;font-size:13px;line-height:1.5;padding:2px 8px 2px 0">
+    ${opts.isPanic ? `<div style="color:#dc2626;font-weight:700;font-size:12px;margin-bottom:5px;background:#fee2e2;padding:3px 7px;border-radius:4px;border:1px solid #fca5a5">SOS / Panic alert</div>` : ""}
+    <div style="font-weight:700;margin-bottom:4px;font-size:14px;color:#111827">${safeName}</div>
+    ${panicAckHtml}
+    ${inc.isEscalated ? '<div style="color:#ef4444;font-weight:600;font-size:11px;margin-bottom:4px">Escalated</div>' : ""}
+    ${opts.severityLabel ? `<div style="color:${opts.severityColor};font-weight:600;font-size:11px;margin-bottom:4px">Severity: ${opts.severityLabel}</div>` : ""}
+    ${arrivalNote ? `<div style="color:#2563eb;font-weight:600;font-size:11px;margin-bottom:4px">At scene since ${arrivalNote}</div>` : ""}
+    ${category ? `<div style="color:#374151;font-size:11px;margin-bottom:2px">${category}</div>` : ""}
+    <div style="color:#6b7280;font-size:11px">Location: ${location}</div>
+    <div style="color:#6b7280;font-size:11px">Active: ${escapeMapHtml(opts.duration)}</div>
+    <div style="color:#6b7280;font-size:11px">${escapeMapHtml(opts.positionSource)}</div>
+    ${
+      destination && !opts.isPanic
+        ? `<div style="color:#dc2626;font-size:11px;font-weight:600;margin-top:6px;padding-top:6px;border-top:1px solid #e5e7eb">Heading to: ${destination}</div>`
+        : ""
+    }
+  </div>`;
+}
+
+function buildDestinationInfoHtml(
+  destinationName: string | null | undefined,
+  responderName: string,
+  darkTheme: boolean,
+): string {
+  const dest = escapeMapHtml(destinationName?.trim() || "Unknown");
+  const responder = escapeMapHtml(responderName);
+  if (darkTheme) {
+    return `<div class="omt-map-iw-card" style="background:#0c1220;border:1px solid #2d3a4f;border-radius:10px;padding:11px 34px 11px 13px;min-width:180px;box-shadow:0 10px 28px rgba(0,0,0,0.5);font-family:system-ui,-apple-system,sans-serif;">
+      <p style="margin:0 0 4px;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.06em">Destination</p>
+      <p style="margin:0 0 8px;font-size:13px;font-weight:700;color:#fca5a5;line-height:1.3">${dest}</p>
+      <p style="margin:0;font-size:11px;color:#94a3b8">Responder · ${responder}</p>
+    </div>`;
+  }
+  return `<div style="min-width:160px;font-family:system-ui,sans-serif;font-size:13px;line-height:1.5;padding:2px 8px 2px 0">
+    <div style="font-weight:700;margin-bottom:4px;font-size:14px;color:#111827">Destination</div>
+    <div style="color:#dc2626;font-weight:600;margin-bottom:2px">${dest}</div>
+    <div style="color:#6b7280;font-size:11px">Responder: ${responder}</div>
+  </div>`;
+}
+
+function buildJoinerInfoHtml(opts: {
+  firstName: string;
+  lastName: string;
+  incidentId: number;
+  arrivedHtml: string;
+  posHtml: string;
+  noteHtml: string;
+  darkTheme: boolean;
+}): string {
+  const name = escapeMapHtml(`${opts.firstName} ${opts.lastName}`.trim() || "Joiner");
+  if (opts.darkTheme) {
+    return `<div class="omt-map-iw-card" style="background:#0c1220;border:1px solid #2d3a4f;border-radius:10px;padding:11px 34px 11px 13px;min-width:180px;box-shadow:0 10px 28px rgba(0,0,0,0.5);font-family:system-ui,-apple-system,sans-serif;">
+      <p style="margin:0 0 4px;font-size:13px;font-weight:700;color:#f8fafc">${name}</p>
+      <p style="margin:0 0 8px;font-size:11px;font-weight:600;color:#93c5fd">Joiner on Incident #${opts.incidentId}</p>
+      ${opts.arrivedHtml}${opts.posHtml}${opts.noteHtml}
+    </div>`;
+  }
+  return `<div style="min-width:160px;font-family:system-ui,sans-serif;font-size:13px;line-height:1.5;padding:2px 8px 2px 0">
+    <div style="font-weight:700;margin-bottom:4px;font-size:14px;color:#111827">${name}</div>
+    <div style="color:#2563eb;font-size:11px;font-weight:600">Joiner on Incident #${opts.incidentId}</div>
+    ${opts.arrivedHtml}${opts.posHtml}${opts.noteHtml}
   </div>`;
 }
 
@@ -437,16 +568,40 @@ function buildVehicleInfoHtml(
 
 function ensureDarkInfoWindowStyles(): void {
   const id = "omt-map-iw-dark";
-  if (document.getElementById(id)) return;
+  const styleText = `
+    .gm-style .gm-style-iw-c {
+      padding: 0 !important;
+      background: transparent !important;
+      box-shadow: none !important;
+      border-radius: 12px !important;
+    }
+    .gm-style .gm-style-iw-d {
+      overflow: visible !important;
+      max-height: none !important;
+    }
+    .gm-style .gm-style-iw-tc::after {
+      background: #0c1220 !important;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.35) !important;
+    }
+    .gm-style button.gm-ui-hover-effect {
+      opacity: 0.7 !important;
+      top: 6px !important;
+      right: 6px !important;
+      width: 24px !important;
+      height: 24px !important;
+    }
+    .gm-style button.gm-ui-hover-effect > span {
+      background: #94a3b8 !important;
+    }
+  `;
+  const existing = document.getElementById(id) as HTMLStyleElement | null;
+  if (existing) {
+    existing.textContent = styleText;
+    return;
+  }
   const style = document.createElement("style");
   style.id = id;
-  style.textContent = `
-    .gm-style .gm-style-iw-c { padding: 0 !important; background: transparent !important; box-shadow: none !important; }
-    .gm-style .gm-style-iw-d { overflow: hidden !important; max-height: none !important; }
-    .gm-style .gm-style-iw-tc::after { background: #0c1220 !important; box-shadow: 0 2px 6px rgba(0,0,0,0.35) !important; }
-    .gm-style button.gm-ui-hover-effect { opacity: 0.55 !important; top: 2px !important; right: 2px !important; }
-    .gm-style button.gm-ui-hover-effect > span { background: #94a3b8 !important; }
-  `;
+  style.textContent = styleText;
   document.head.appendChild(style);
 }
 
@@ -683,41 +838,30 @@ export function LiveIncidentsMap({
           : "Reported location";
       const severityLabel =
         inc.severity === "red"
-          ? "🔴 RED"
+          ? "RED"
           : inc.severity === "orange"
-            ? "🟠 ORANGE"
+            ? "ORANGE"
             : inc.severity === "yellow"
-              ? "🟡 YELLOW"
+              ? "YELLOW"
               : null;
       const severityColor =
         inc.severity === "red"
-          ? "#ef4444"
+          ? "#f87171"
           : inc.severity === "orange"
-            ? "#f97316"
+            ? "#fb923c"
             : inc.severity === "yellow"
-              ? "#b45309"
-              : "#374151";
-      const panicAckHtml = isPanic
-        ? inc.panicAcknowledgedAt
-          ? `<div style="color:#16a34a;font-weight:600;font-size:11px;margin-bottom:4px">✓ Acknowledged</div>`
-          : `<div style="color:#dc2626;font-weight:600;font-size:11px;margin-bottom:4px">⚠ Not yet acknowledged</div>`
-        : "";
+              ? "#fbbf24"
+              : "#94a3b8";
 
-      const infoHtml = `
-        <div style="min-width:190px;font-family:system-ui;font-size:13px;line-height:1.5;padding:2px 0">
-          ${isPanic ? `<div style="color:#dc2626;font-weight:700;font-size:12px;margin-bottom:5px;background:#fee2e2;padding:3px 7px;border-radius:4px;border:1px solid #fca5a5">🆘 SOS / PANIC ALERT</div>` : ""}
-          <div style="font-weight:700;margin-bottom:4px;font-size:14px">${name}</div>
-          ${panicAckHtml}
-          ${inc.isEscalated ? '<div style="color:#ef4444;font-weight:600;font-size:11px;margin-bottom:4px">⚠ ESCALATED</div>' : ""}
-          ${severityLabel ? `<div style="color:${severityColor};font-weight:600;font-size:11px;margin-bottom:4px">▲ Severity: ${severityLabel}</div>` : ""}
-          ${inc.responderArrivedAt ? `<div style="color:#2563eb;font-weight:600;font-size:11px;margin-bottom:4px">📍 AT SCENE since ${formatTime(inc.responderArrivedAt)}</div>` : ""}
-          ${inc.categoryName ? `<div style="color:#374151;font-size:11px;margin-bottom:2px">📋 ${inc.categoryName}</div>` : ""}
-          <div style="color:#6b7280;font-size:11px">📍 ${inc.locationName ?? "Unknown location"}</div>
-          <div style="color:#6b7280;font-size:11px">⏱ Active: ${duration}</div>
-          <div style="color:#6b7280;font-size:11px">📡 ${positionSource}</div>
-          ${inc.destinationName ? `<div style="color:#dc2626;font-size:11px;font-weight:600;margin-top:4px;padding-top:4px;border-top:1px solid #e5e7eb">🏁 Heading to: ${inc.destinationName}</div>` : ""}
-        </div>
-      `;
+      const infoHtml = buildIncidentInfoHtml(inc, {
+        isPanic,
+        name,
+        duration,
+        positionSource,
+        severityLabel,
+        severityColor,
+        darkTheme,
+      });
       infoMap.set(inc.id, infoHtml);
 
       const existing = markerMap.get(inc.id);
@@ -757,7 +901,10 @@ export function LiveIncidentsMap({
       }
     }
     for (const inc of incidents) {
-      if (inc.destinationLat == null || inc.destinationLng == null) {
+      // Panic stores the panicker's own GPS as destination so joiners can navigate.
+      // On Live Monitor that duplicates the SOS pin — skip the destination flag.
+      const isPanic = isPanicIncident(inc);
+      if (isPanic || inc.destinationLat == null || inc.destinationLng == null) {
         const ex = destMarkerMap.get(inc.id);
         if (ex) {
           ex.setMap(null);
@@ -769,7 +916,11 @@ export function LiveIncidentsMap({
       const destPos = { lat: inc.destinationLat, lng: inc.destinationLng };
       bounds.extend(destPos);
       hasBounds = true;
-      const destHtml = `<div style="min-width:160px;font-family:system-ui;font-size:13px;line-height:1.5;padding:2px 0"><div style="font-weight:700;margin-bottom:4px;font-size:14px">🏁 Destination</div><div style="color:#dc2626;font-weight:600;margin-bottom:2px">${inc.destinationName ?? "Unknown"}</div><div style="color:#6b7280;font-size:11px">Responder: ${getResponderName(inc)}</div></div>`;
+      const destHtml = buildDestinationInfoHtml(
+        inc.destinationName,
+        getResponderName(inc),
+        darkTheme,
+      );
       destInfo.set(inc.id, destHtml);
       const exDest = destMarkerMap.get(inc.id);
       if (exDest) {
@@ -815,18 +966,34 @@ export function LiveIncidentsMap({
         bounds.extend(jPos);
         hasBounds = true;
         const arrivedStr = r.arrivedAt
-          ? `<div style="color:#16a34a;font-size:11px;font-weight:600">✅ Arrived ${formatTime(r.arrivedAt)}</div>`
+          ? darkTheme
+            ? `<p style="margin:0 0 6px;font-size:11px;font-weight:600;color:#4ade80">Arrived ${escapeMapHtml(formatTime(r.arrivedAt))}</p>`
+            : `<div style="color:#16a34a;font-size:11px;font-weight:600">Arrived ${escapeMapHtml(formatTime(r.arrivedAt))}</div>`
           : "";
         const posStr =
           hasGps && r.lastPositionAt && !r.arrivedAt
-            ? `<div style="color:#6b7280;font-size:11px">GPS: ${formatTime(r.lastPositionAt)}</div>`
+            ? darkTheme
+              ? `<p style="margin:0 0 4px;font-size:11px;color:#94a3b8">GPS · ${escapeMapHtml(formatTime(r.lastPositionAt))}</p>`
+              : `<div style="color:#6b7280;font-size:11px">GPS: ${escapeMapHtml(formatTime(r.lastPositionAt))}</div>`
             : !hasGps && !r.arrivedAt
-              ? `<div style="color:#64748b;font-size:11px;font-weight:600">Awaiting GPS — shown near incident</div>`
+              ? darkTheme
+                ? `<p style="margin:0 0 4px;font-size:11px;font-weight:600;color:#94a3b8">Awaiting GPS — shown near incident</p>`
+                : `<div style="color:#64748b;font-size:11px;font-weight:600">Awaiting GPS — shown near incident</div>`
               : "";
         const noteStr = r.arrivalNote
-          ? `<div style="color:#374151;font-size:11px;margin-top:2px">${r.arrivalNote}</div>`
+          ? darkTheme
+            ? `<p style="margin:4px 0 0;font-size:11px;color:#cbd5e1;line-height:1.35">${escapeMapHtml(r.arrivalNote)}</p>`
+            : `<div style="color:#374151;font-size:11px;margin-top:2px">${escapeMapHtml(r.arrivalNote)}</div>`
           : "";
-        const jHtml = `<div style="min-width:160px;font-family:system-ui;font-size:13px;line-height:1.5;padding:2px 0"><div style="font-weight:700;margin-bottom:4px;font-size:14px">👥 ${r.firstName} ${r.lastName}</div><div style="color:#2563eb;font-size:11px;font-weight:600">Joiner on Incident #${inc.id}</div>${arrivedStr}${posStr}${noteStr}</div>`;
+        const jHtml = buildJoinerInfoHtml({
+          firstName: r.firstName,
+          lastName: r.lastName,
+          incidentId: inc.id,
+          arrivedHtml: arrivedStr,
+          posHtml: posStr,
+          noteHtml: noteStr,
+          darkTheme,
+        });
         joinerInfo.set(key, jHtml);
         const pendingGps = !hasGps;
         const labelText = r.firstName || "Joiner";

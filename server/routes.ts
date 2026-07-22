@@ -3123,6 +3123,11 @@ export async function registerRoutes(
           destinationLat: hasCoords ? lat : null,
           destinationLng: hasCoords ? lng : null,
           destinationName: hasCoords ? `🆘 ${fullName}` : null,
+          // Live Monitor "No GPS" keys off responderLat — seed it at SOS so the
+          // pin is live from the first poll, then panicker sync keeps it moving.
+          responderLat: hasCoords ? lat : null,
+          responderLng: hasCoords ? lng : null,
+          responderPositionUpdatedAt: hasCoords ? now : null,
           // Stamp with active Command so panic appears in the same scope as the
           // panicker's other incidents (Task #212 isolation).
           commandId: panicCommandId,

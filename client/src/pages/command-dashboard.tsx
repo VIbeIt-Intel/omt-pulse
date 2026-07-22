@@ -18,6 +18,7 @@ import { PanicBanner, type PanicAlert } from "@/components/panic-banner";
 import { PanicJoinBanner } from "@/components/panic-join-banner";
 import { LiveIncidentJoinBanner } from "@/components/live-incident-join-banner";
 import { PanicConfirmOverlay } from "@/components/panic-confirm-overlay";
+import { usePanickerLocationSync } from "@/hooks/use-panicker-location-sync";
 import { OperationsDashboard, type DashboardUserSummary } from "@/components/operations-dashboard";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -321,7 +322,9 @@ function LiveIncidentDashboardRow({
                           </div>
 
             {isMine ? (
-              <p className="text-sm font-medium text-primary mt-1">Your live incident</p>
+              <p className="text-sm font-medium text-primary mt-1">
+                {isPanicRow ? "Your SOS is active" : "Your live incident"}
+              </p>
             ) : alreadyJoined ? (
               <p className="text-sm font-medium text-blue-600 dark:text-blue-400 mt-1">You're responding</p>
             ) : starterName ? (
@@ -529,6 +532,18 @@ export default function CommandDashboard() {
     refetchOnWindowFocus: true,
     refetchIntervalInBackground: true,
   });
+
+  // Keep sharing GPS after SOS even if the panicker stays on the home dashboard.
+  // Without this, Live Monitor shows a frozen pin + "No GPS" until they open live-incident.
+  const ownActivePanic = useMemo(() => {
+    if (!currentUser?.id) return null;
+    return panicAlerts.find((a) => a.userId === currentUser.id && !a.panicClosedAt) ?? null;
+  }, [panicAlerts, currentUser?.id]);
+  usePanickerLocationSync(
+    ownActivePanic?.id ?? null,
+    !!ownActivePanic,
+    ownActivePanic != null && ownActivePanic.lat != null && ownActivePanic.lng != null,
+  );
 
   type ChatConversation = { recipientId: string | null; recipientFirstName: string | null; recipientLastName: string | null; unreadCount: number };
   const { data: chatConvos = [] } = useQuery<ChatConversation[]>({

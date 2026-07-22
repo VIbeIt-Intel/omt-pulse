@@ -1960,6 +1960,18 @@ export default function LiveIncidentPage() {
 
     const liveIncForJoin = liveIncidents.find((i) => i.id === id && i.isLive);
 
+    // Own panic: never enter joiner/"Responding" mode — that disables panicker GPS sync.
+    if (liveIncForJoin && liveIncForJoin.userId === me.id && isPanicCategory(liveIncForJoin.categoryName)) {
+      try {
+        localStorage.setItem(LIVE_INCIDENT_KEY, String(id));
+        localStorage.removeItem(JOINED_INCIDENT_KEY);
+      } catch { /* ignore */ }
+      setJoinedId(null);
+      setLiveId(id);
+      releaseJoinLock();
+      return;
+    }
+
     if (joinedId === id || liveId === id) {
       if (liveIncForJoin && isPanicCategory(liveIncForJoin.categoryName)) {
         reopenPanicResponse(id, liveIncForJoin);

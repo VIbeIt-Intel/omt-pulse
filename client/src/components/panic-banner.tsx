@@ -54,6 +54,10 @@ function formatAckList(acks: PanicAlert["acknowledgedBy"]) {
   return `${names[0]}, ${names[1]} +${names.length - 2} more`;
 }
 
+function responderStatusLabel(ack: PanicAlert["acknowledgedBy"][number]): string {
+  return ack.arrivedAt ? "On scene" : "Responding";
+}
+
 export function PanicBanner({ alerts, currentUserId, dismissedIds, onDismiss, testIdSuffix = "" }: PanicBannerProps) {
   const [, navigate] = useLocation();
   const { toast } = useToast();
@@ -83,7 +87,7 @@ export function PanicBanner({ alerts, currentUserId, dismissedIds, onDismiss, te
     <div className="w-full rounded-lg border-2 border-amber-500 bg-amber-500/10 overflow-hidden shadow-lg" data-testid={`banner-panic${suffix}`}>
       <div className="bg-amber-500 px-4 py-2 flex items-center gap-2">
         <Siren className="h-4 w-4 text-white animate-pulse shrink-0" />
-        <span className="text-white font-bold text-sm uppercase tracking-wide">🆘 Panic Alert</span>
+        <span className="text-white font-bold text-sm uppercase tracking-wide">SOS Panic Alert</span>
       </div>
       <div className="px-4 py-3 space-y-3">
         {visible.map((alert) => {
@@ -95,25 +99,64 @@ export function PanicBanner({ alerts, currentUserId, dismissedIds, onDismiss, te
           const onSceneText = summariseAckStatus(alert.acknowledgedBy);
           const hasPanicGps = alert.lat != null && alert.lng != null;
           const fullAckList = alert.acknowledgedBy.map((a) => `${a.firstName} ${a.lastName}`.trim()).join(", ");
+          const responderCount = alert.acknowledgedBy.length;
 
           return (
             <div key={alert.id} className="border-b border-amber-500/20 last:border-0 pb-3 last:pb-0 space-y-2">
               <div className="flex items-start justify-between gap-2">
-                <div className="flex-1 min-w-0">
+                <div className="flex-1 min-w-0 space-y-1.5">
                   {isPanicker ? (
-                    onSceneText ? (
-                      <p className="text-sm font-semibold text-green-700 dark:text-green-400">
-                        📍 {onSceneText}
+                    <>
+                      <p
+                        className="text-sm font-bold text-amber-950 dark:text-amber-100"
+                        data-testid={`text-panic-activated${suffix}-${alert.id}`}
+                      >
+                        Your SOS is active
                       </p>
-                    ) : ackText ? (
-                      <p className="text-sm font-semibold text-green-700 dark:text-green-400">
-                        ✅ {ackText} {alert.acknowledgedBy.length === 1 ? "is" : "are"} responding
-                      </p>
-                    ) : (
-                      <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
-                        🆘 Help requested — waiting for someone to acknowledge
-                      </p>
-                    )
+                      {onSceneText ? (
+                        <p className="text-sm font-semibold text-green-700 dark:text-green-400">
+                          {onSceneText}
+                        </p>
+                      ) : ackText ? (
+                        <p className="text-sm font-semibold text-green-700 dark:text-green-400">
+                          {ackText} {alert.acknowledgedBy.length === 1 ? "is" : "are"} responding
+                        </p>
+                      ) : (
+                        <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+                          Broadcast sent — waiting for someone to acknowledge
+                        </p>
+                      )}
+                      {responderCount > 0 ? (
+                        <ul
+                          className="mt-1 space-y-1 rounded-md border border-amber-500/25 bg-amber-500/5 px-2.5 py-2"
+                          data-testid={`list-panic-responders${suffix}-${alert.id}`}
+                        >
+                          {alert.acknowledgedBy.map((ack) => (
+                            <li
+                              key={ack.userId}
+                              className="flex items-center justify-between gap-2 text-xs"
+                            >
+                              <span className="font-medium text-amber-950 dark:text-amber-50 truncate">
+                                {`${ack.firstName} ${ack.lastName}`.trim()}
+                              </span>
+                              <span
+                                className={
+                                  ack.arrivedAt
+                                    ? "shrink-0 font-semibold text-green-700 dark:text-green-400"
+                                    : "shrink-0 font-semibold text-sky-700 dark:text-sky-400"
+                                }
+                              >
+                                {responderStatusLabel(ack)}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="text-xs text-amber-700/80 dark:text-amber-300/80">
+                          No responders yet. Control room and nearby team are being alerted.
+                        </p>
+                      )}
+                    </>
                   ) : (
                     <>
                       <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
@@ -124,7 +167,7 @@ export function PanicBanner({ alerts, currentUserId, dismissedIds, onDismiss, te
                           className="text-xs text-green-700 dark:text-green-400 font-medium"
                           data-testid={`text-panic-self-arrived-${alert.id}`}
                         >
-                          📍 You have arrived — {alert.firstName} knows you're here
+                          You have arrived — {alert.firstName} knows you're here
                         </p>
                       ) : onSceneText ? (
                         <p
@@ -132,7 +175,7 @@ export function PanicBanner({ alerts, currentUserId, dismissedIds, onDismiss, te
                           title={fullAckList}
                           data-testid={`text-panic-ack-list-${alert.id}`}
                         >
-                          ✓ {onSceneText}
+                          {onSceneText}
                           {alert.acknowledgedBy.some((a) => !a.arrivedAt) && !onSceneText.includes("en route") &&
                             ` · ${alert.acknowledgedBy.filter((a) => !a.arrivedAt).length} en route`}
                         </p>
@@ -142,7 +185,7 @@ export function PanicBanner({ alerts, currentUserId, dismissedIds, onDismiss, te
                           title={fullAckList}
                           data-testid={`text-panic-ack-list-${alert.id}`}
                         >
-                          ✓ {ackText} {alert.acknowledgedBy.length === 1 ? "is" : "are"} responding
+                          {ackText} {alert.acknowledgedBy.length === 1 ? "is" : "are"} responding
                         </p>
                       )}
                     </>
@@ -175,23 +218,33 @@ export function PanicBanner({ alerts, currentUserId, dismissedIds, onDismiss, te
               </div>
               <div className="flex gap-2 flex-wrap">
                 {isPanicker ? (
-                  <button
-                    onClick={() => {
-                      if (closingId === alert.id) {
-                        closePanic.mutate(alert.id);
-                        setClosingId(null);
-                      } else {
-                        setClosingId(alert.id);
-                        setTimeout(() => setClosingId((c) => (c === alert.id ? null : c)), 4000);
-                      }
-                    }}
-                    disabled={closePanic.isPending}
-                    className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded bg-amber-700 hover:bg-amber-800 text-white disabled:opacity-60 transition-colors"
-                    data-testid={`button-close-panic${suffix}-${alert.id}`}
-                  >
-                    <AlertOctagon className="h-3.5 w-3.5" />
-                    {closingId === alert.id ? "Tap again to confirm" : "Close panic"}
-                  </button>
+                  <>
+                    <button
+                      onClick={() => navigate("/live-incident")}
+                      className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded bg-red-700 hover:bg-red-800 text-white transition-colors"
+                      data-testid={`button-open-panic-live${suffix}-${alert.id}`}
+                    >
+                      <Radio className="h-3.5 w-3.5" />
+                      Open live view
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (closingId === alert.id) {
+                          closePanic.mutate(alert.id);
+                          setClosingId(null);
+                        } else {
+                          setClosingId(alert.id);
+                          setTimeout(() => setClosingId((c) => (c === alert.id ? null : c)), 4000);
+                        }
+                      }}
+                      disabled={closePanic.isPending}
+                      className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded bg-amber-700 hover:bg-amber-800 text-white disabled:opacity-60 transition-colors"
+                      data-testid={`button-close-panic${suffix}-${alert.id}`}
+                    >
+                      <AlertOctagon className="h-3.5 w-3.5" />
+                      {closingId === alert.id ? "Tap again to confirm" : "Close panic"}
+                    </button>
+                  </>
                 ) : (
                   <>
                     {!hasArrived && (
