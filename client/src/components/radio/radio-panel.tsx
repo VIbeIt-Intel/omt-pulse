@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Loader2, Radio, Users } from "lucide-react";
+import { Loader2, Radio, Users, Volume2 } from "lucide-react";
 import {
   useRadioChannel,
   useRadioChannels,
@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 export function RadioPanel({
@@ -53,11 +54,13 @@ export function RadioPanel({
       ? `${radio.remoteTalking} talking`
       : busy && radio.floor
         ? `${radio.floor.displayName} has the floor`
-        : radio.connected
-          ? "Listening — hold to talk"
-          : radio.connecting
-            ? "Connecting…"
-            : "Offline";
+        : radio.connected && !radio.speakerReady
+          ? "Connected — tap Enable speaker to hear"
+          : radio.connected
+            ? "Listening — hold to talk"
+            : radio.connecting
+              ? "Connecting…"
+              : "Offline";
 
   if (available === null) {
     return (
@@ -137,6 +140,19 @@ export function RadioPanel({
             </SelectContent>
           </Select>
 
+          {radio.connected && !radio.speakerReady ? (
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-full h-11 gap-2"
+              data-testid="button-radio-enable-speaker"
+              onClick={() => void radio.unlockSpeaker()}
+            >
+              <Volume2 className="h-4 w-4" />
+              Enable speaker
+            </Button>
+          ) : null}
+
           <RadioPttButton
             disabled={!radio.connected || radio.connecting}
             transmitting={radio.transmitting}
@@ -151,7 +167,7 @@ export function RadioPanel({
             </p>
           ) : (
             <p className="text-[10px] text-muted-foreground/80">
-              Live audio only — nothing is recorded or saved on the server.
+              Mic: allow once in Android settings (stays allowed). Speaker: tap Enable speaker once per session. Audio is never saved.
             </p>
           )}
         </>

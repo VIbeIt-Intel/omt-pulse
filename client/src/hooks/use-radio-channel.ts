@@ -73,13 +73,15 @@ function micErrorMessage(err: unknown): string {
   return raw || "Could not open microphone";
 }
 
-/** Ensure Android/iOS grants mic, then create a LiveKit local audio track. */
+/**
+ * Request mic once (Android remembers Allow). Uses native plugin when present,
+ * then WebView getUserMedia so LiveKit can capture.
+ */
 async function acquireMicTrack(): Promise<LocalAudioTrack> {
   if (isNativeAudioRecorderAvailable()) {
-    const ok = await requestNativeMicPermission();
-    if (!ok) throw new DOMException("Microphone permission denied", "NotAllowedError");
-  } else if (navigator.mediaDevices?.getUserMedia) {
-    // Primer so WebView shows the system permission dialog (needs a user gesture).
+    await requestNativeMicPermission();
+  }
+  if (navigator.mediaDevices?.getUserMedia) {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     stream.getTracks().forEach((t) => t.stop());
   }
@@ -154,6 +156,7 @@ export function useRadioChannel(commandId: number | null) {
   const [floor, setFloor] = useState<FloorHolderInfo>(null);
   const [error, setError] = useState<string | null>(null);
   const [remoteTalking, setRemoteTalking] = useState<string | null>(null);
+  const [speakerReady, setSpeakerReady] = useState(false);
 
   commandIdRef.current = commandId;
 
@@ -175,6 +178,19 @@ export function useRadioChannel(commandId: number | null) {
       setFloor(data.holder);
     } catch {
       /* ignore */
+    }
+  }, []);
+
+  const unlockSpeaker = useCallback(async () => {
+    const room = roomRef.current;
+    if (!room) return false;
+    try {
+      await room.startAudio();
+      setSpeakerReady(room.canPlaybackAudio);
+      return room.canPlaybackAudio;
+    } catch {
+      setSpeakerReady(false);
+      return false;
     }
   }, []);
 
@@ -208,6 +224,7 @@ export function useRadioChannel(commandId: number | null) {
     }
     await stopTransmitRef.current();
     setRemoteTalking(null);
+    setSpeakerReady(false);
     const mic = micRef.current;
     micRef.current = null;
     if (mic) {
@@ -263,19 +280,26 @@ export function useRadioChannel(commandId: number | null) {
         });
         roomRef.current = room;
 
-        const updateParticipants = () => setListenerCount(room.numParticipants);
+        const updateParticipants = () => {
+          // Others on the channel (exclude self).
+          setListenerCount(room.remoteParticipants.size);
+        };
         room.on(RoomEvent.ParticipantConnected, updateParticipants);
         room.on(RoomEvent.ParticipantDisconnected, updateParticipants);
         room.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
           const other = speakers.find((s) => !s.isLocal);
           setRemoteTalking(other?.name || other?.identity || null);
         });
+        room.on(RoomEvent.AudioPlaybackStatusChanged, () => {
+          setSpeakerReady(room.canPlaybackAudio);
+        });
         room.on(RoomEvent.Disconnected, () => {
           setConnected(false);
           setTransmitting(false);
+          setSpeakerReady(false);
         });
 
-        // Listen-only first — do not open the mic until Hold to talk (needs user gesture on Android).
+        // Listen-only first — mic opens only on Hold to talk (user gesture).
         await room.connect(tok.url, tok.token);
         if (cancelled) {
           await room.disconnect();
@@ -283,7 +307,15 @@ export function useRadioChannel(commandId: number | null) {
         }
 
         setConnected(true);
-        setListenerCount(room.numParticipants);
+        setSpeakerReady(room.canPlaybackAudio);
+        updateParticipants();
+        // Best-effort unlock; browsers/WebViews often still need a tap (see unlockSpeaker).
+        try {
+          await room.startAudio();
+          setSpeakerReady(room.canPlaybackAudio);
+        } catch {
+          setSpeakerReady(false);
+        }
         await refreshFloor();
         pollRef.current = setInterval(() => {
           void refreshFloor();
@@ -313,6 +345,8 @@ export function useRadioChannel(commandId: number | null) {
     await room.localParticipant.publishTrack(mic, {
       source: Track.Source.Microphone,
     });
+    // Start muted; unmute only while holding PTT.
+    await mic.mute();
     micRef.current = mic;
     return mic;
   }, []);
@@ -322,6 +356,8 @@ export function useRadioChannel(commandId: number | null) {
     if (id == null || !roomRef.current) return;
     if (holdingRef.current) return;
     setError(null);
+    // User gesture — unlock incoming audio as well as outbound mic.
+    await unlockSpeaker();
     try {
       const data = await radioFetch<{ holder: FloorHolderInfo }>("POST", "/api/radio/floor", {
         commandId: id,
@@ -350,7 +386,7 @@ export function useRadioChannel(commandId: number | null) {
       }
       await refreshFloor();
     }
-  }, [ensureMicPublished, refreshFloor, stopHeartbeat]);
+  }, [ensureMicPublished, refreshFloor, stopHeartbeat, unlockSpeaker]);
 
   return {
     connected,
@@ -359,7 +395,9 @@ export function useRadioChannel(commandId: number | null) {
     listenerCount,
     floor,
     remoteTalking,
+    speakerReady,
     error,
+    unlockSpeaker,
     startTransmit,
     stopTransmit,
   };

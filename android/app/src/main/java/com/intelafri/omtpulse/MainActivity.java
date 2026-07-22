@@ -42,6 +42,8 @@ public class MainActivity extends BridgeActivity {
         //   - API 29-32: WebSettingsCompat.setForceDark (deprecated in 33+)
         //   - API 33+  : setAlgorithmicDarkeningAllowed(false) (replaces the above)
         WebSettings settings = this.bridge.getWebView().getSettings();
+        // Allow LiveKit / WebRTC remote audio without an extra gesture every time.
+        settings.setMediaPlaybackRequiresUserGesture(false);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             settings.setAlgorithmicDarkeningAllowed(false);
         } else if (WebViewFeature.isFeatureSupported(WebViewFeature.FORCE_DARK)) {
