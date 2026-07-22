@@ -276,6 +276,7 @@ app.use((req, res, next) => {
   await safeMigrate("tracker_devices.notes", sql`ALTER TABLE tracker_devices ADD COLUMN IF NOT EXISTS notes TEXT`);
   await safeMigrate("tracker_devices.vehicle_photo_url", sql`ALTER TABLE tracker_devices ADD COLUMN IF NOT EXISTS vehicle_photo_url TEXT`);
   await safeMigrate("tracker_devices.today_odometer_distance_km", sql`ALTER TABLE tracker_devices ADD COLUMN IF NOT EXISTS today_odometer_distance_km DOUBLE PRECISION`);
+  await safeMigrate("tracker_devices.today_gps_distance_km", sql`ALTER TABLE tracker_devices ADD COLUMN IF NOT EXISTS today_gps_distance_km DOUBLE PRECISION`);
   await safeMigrate("tracker_devices.last_trip_distance_km", sql`ALTER TABLE tracker_devices ADD COLUMN IF NOT EXISTS last_trip_distance_km DOUBLE PRECISION`);
 
   await safeMigrate("incident_evidence_notes.create", sql`

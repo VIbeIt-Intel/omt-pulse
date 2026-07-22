@@ -1,10 +1,25 @@
-import { eq, sql, asc, and, gte, isNotNull } from "drizzle-orm";
+import { eq, sql, asc, and, gte, lt, inArray, isNotNull } from "drizzle-orm";
 import { db } from "../storage";
 import { commands, trackerDevices, trackerPositions } from "@shared/schema";
 import type { ParsedTrackerPosition } from "./types";
 import { KNOWN_TRACKER_DEVICES } from "./known-devices";
 
 const LOG = "vehicle-tracker:store";
+/** Ignore GPS jitter below ~15 m when accumulating path distance. */
+const MIN_GPS_SEGMENT_KM = 0.015;
+/** Gaps longer than this between fixes are not counted as continuous travel. */
+const MAX_GPS_SEGMENT_GAP_MS = 15 * 60 * 1000;
+
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const r = 6371;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2
+    + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * r * Math.asin(Math.min(1, Math.sqrt(a)));
+}
 
 async function resolveCommandLink(imei: string): Promise<{ organizationId: string; commandId: number } | null> {
   const config = KNOWN_TRACKER_DEVICES[imei];
@@ -137,6 +152,85 @@ async function computeOdometerMetrics(
   return { todayOdometerDistanceKm, lastTripDistanceKm };
 }
 
+function nextTodayGpsDistanceKm(
+  previous: {
+    lastLat: number | null;
+    lastLng: number | null;
+    lastPositionAt: Date | null;
+    todayGpsDistanceKm: number | null;
+  },
+  position: ParsedTrackerPosition,
+): number {
+  let todayGps = previous.todayGpsDistanceKm ?? 0;
+  if (previous.lastPositionAt && trackerDayKey(previous.lastPositionAt) !== trackerDayKey(position.recordedAt)) {
+    todayGps = 0;
+  }
+  if (position.gpsValid === false) return todayGps;
+  if (previous.lastLat == null || previous.lastLng == null || !previous.lastPositionAt) return todayGps;
+
+  const gapMs = position.recordedAt.getTime() - previous.lastPositionAt.getTime();
+  if (gapMs <= 0 || gapMs > MAX_GPS_SEGMENT_GAP_MS) return todayGps;
+
+  const segmentKm = haversineKm(
+    previous.lastLat,
+    previous.lastLng,
+    position.latitude,
+    position.longitude,
+  );
+  if (segmentKm < MIN_GPS_SEGMENT_KM) return todayGps;
+  return todayGps + segmentKm;
+}
+
+/** Path distance (km) for UTC today from stored GPS fixes — used when odometer packets are missing. */
+export async function computeTodayGpsPathDistances(
+  deviceIds: number[],
+  day: Date = new Date(),
+): Promise<Map<number, number>> {
+  const result = new Map<number, number>();
+  if (deviceIds.length === 0) return result;
+
+  const startOfDay = new Date(day);
+  startOfDay.setUTCHours(0, 0, 0, 0);
+  const endOfDay = new Date(startOfDay);
+  endOfDay.setUTCDate(endOfDay.getUTCDate() + 1);
+
+  const rows = await db
+    .select({
+      deviceId: trackerPositions.deviceId,
+      latitude: trackerPositions.latitude,
+      longitude: trackerPositions.longitude,
+      recordedAt: trackerPositions.recordedAt,
+      gpsValid: trackerPositions.gpsValid,
+    })
+    .from(trackerPositions)
+    .where(
+      and(
+        inArray(trackerPositions.deviceId, deviceIds),
+        gte(trackerPositions.recordedAt, startOfDay),
+        lt(trackerPositions.recordedAt, endOfDay),
+      ),
+    )
+    .orderBy(asc(trackerPositions.recordedAt));
+
+  const lastByDevice = new Map<number, { lat: number; lng: number; at: Date }>();
+  for (const row of rows) {
+    if (row.gpsValid === false) continue;
+    const prev = lastByDevice.get(row.deviceId);
+    if (prev) {
+      const gapMs = row.recordedAt.getTime() - prev.at.getTime();
+      if (gapMs > 0 && gapMs <= MAX_GPS_SEGMENT_GAP_MS) {
+        const segmentKm = haversineKm(prev.lat, prev.lng, row.latitude, row.longitude);
+        if (segmentKm >= MIN_GPS_SEGMENT_KM) {
+          result.set(row.deviceId, (result.get(row.deviceId) ?? 0) + segmentKm);
+        }
+      }
+    }
+    lastByDevice.set(row.deviceId, { lat: row.latitude, lng: row.longitude, at: row.recordedAt });
+  }
+
+  return result;
+}
+
 export async function saveTrackerPosition(
   imei: string,
   protocol: string,
@@ -148,8 +242,11 @@ export async function saveTrackerPosition(
     await db
       .select({
         organizationId: trackerDevices.organizationId,
+        lastLat: trackerDevices.lastLat,
+        lastLng: trackerDevices.lastLng,
         lastPositionAt: trackerDevices.lastPositionAt,
         todayOdometerDistanceKm: trackerDevices.todayOdometerDistanceKm,
+        todayGpsDistanceKm: trackerDevices.todayGpsDistanceKm,
       })
       .from(trackerDevices)
       .where(eq(trackerDevices.id, deviceId))
@@ -181,6 +278,7 @@ export async function saveTrackerPosition(
     lastPositionAt: Date;
     lastSeenAt: Date;
     todayOdometerDistanceKm?: number;
+    todayGpsDistanceKm?: number;
     lastTripDistanceKm?: number;
   } = {
     lastLat: position.latitude,
@@ -192,6 +290,7 @@ export async function saveTrackerPosition(
     lastGpsValid: position.gpsValid,
     lastPositionAt: position.recordedAt,
     lastSeenAt: new Date(),
+    todayGpsDistanceKm: nextTodayGpsDistanceKm(device, position),
   };
 
   if (position.mileageKm != null) {

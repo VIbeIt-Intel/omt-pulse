@@ -7,6 +7,8 @@ import {
   freshnessClassLight,
   getFreshnessTier,
   getVehicleMotionStatus,
+  preferredTodayDistanceKm,
+  trackerSignalSummary,
   MOTION_STATUS,
   vehicleDisplayName,
 } from "@/lib/fleet-intelligence";
@@ -23,6 +25,9 @@ export function FleetVehicleCard({ device, onClick, alertCount = 0 }: FleetVehic
   const motionCfg = MOTION_STATUS[motion];
   const title = vehicleDisplayName(device);
   const isMoving = motion === "moving";
+  const todayKm = preferredTodayDistanceKm(device);
+  const signal = trackerSignalSummary(device);
+  const freshnessAt = signal.heartbeatOnly && device.lastPositionAt ? device.lastPositionAt : device.lastSeenAt;
 
   return (
     <button
@@ -66,19 +71,26 @@ export function FleetVehicleCard({ device, onClick, alertCount = 0 }: FleetVehic
           </div>
 
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-            <span className={cn("tabular-nums", freshnessClassLight(getFreshnessTier(device.lastSeenAt)))}>
-              {formatFreshnessAgo(device.lastSeenAt)}
+            <span className={cn("tabular-nums", freshnessClassLight(getFreshnessTier(freshnessAt)))}>
+              {signal.heartbeatOnly
+                ? `GPS ${signal.gpsAgo ?? "—"}`
+                : formatFreshnessAgo(device.lastSeenAt)}
             </span>
+            {signal.heartbeatOnly && (
+              <span className="text-[11px] text-muted-foreground tabular-nums">
+                Signal {signal.signalAgo}
+              </span>
+            )}
             {isMoving && device.lastSpeedKph != null && (
               <span className="inline-flex items-center gap-1 text-emerald-400 font-medium tabular-nums">
                 <Gauge className="h-3.5 w-3.5" />
                 {Math.round(device.lastSpeedKph)} km/h
               </span>
             )}
-            {device.lastMileageKm != null && (
+            {todayKm != null && (
               <span className="inline-flex items-center gap-1 text-muted-foreground tabular-nums">
                 <Route className="h-3.5 w-3.5 shrink-0" />
-                {formatMileageKm(device.lastMileageKm)}
+                {formatMileageKm(todayKm)} today
               </span>
             )}
             {device.assignedUserName && (

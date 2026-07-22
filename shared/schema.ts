@@ -525,6 +525,7 @@ export const trackerDevices = pgTable("tracker_devices", {
   lastIgnitionOn: boolean("last_ignition_on"),
   lastMileageKm: doublePrecision("last_mileage_km"),
   todayOdometerDistanceKm: doublePrecision("today_odometer_distance_km"),
+  todayGpsDistanceKm: doublePrecision("today_gps_distance_km"),
   lastTripDistanceKm: doublePrecision("last_trip_distance_km"),
   lastGpsValid: boolean("last_gps_valid"),
   lastPositionAt: timestamp("last_position_at"),

@@ -929,6 +929,7 @@ export default function CommandDashboard() {
             onOpenChat={() => navigate("/chat")}
             onOpenLiveMonitor={openLiveMonitor}
             onOpenOccurrence={openOccurrenceBook}
+            onOpenFleet={() => navigate("/fleet")}
             onPanic={() => setPanicOpen(true)}
           />
         </div>

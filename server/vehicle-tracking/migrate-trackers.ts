@@ -59,4 +59,14 @@ export async function migrateTrackers(): Promise<void> {
   await safe("tracker_devices.command_idx", sql`
     CREATE INDEX IF NOT EXISTS tracker_devices_command_idx ON tracker_devices (command_id)
   `);
+
+  await safe("tracker_devices.today_odometer", sql`
+    ALTER TABLE tracker_devices ADD COLUMN IF NOT EXISTS today_odometer_distance_km DOUBLE PRECISION
+  `);
+  await safe("tracker_devices.today_gps", sql`
+    ALTER TABLE tracker_devices ADD COLUMN IF NOT EXISTS today_gps_distance_km DOUBLE PRECISION
+  `);
+  await safe("tracker_devices.last_trip", sql`
+    ALTER TABLE tracker_devices ADD COLUMN IF NOT EXISTS last_trip_distance_km DOUBLE PRECISION
+  `);
 }

@@ -50,6 +50,8 @@ import {
   getVehicleMotionStatus,
   headingLabel,
   ignitionLabel,
+  preferredTodayDistanceKm,
+  trackerSignalSummary,
   MOTION_STATUS,
   vehicleDisplayName,
 } from "@/lib/fleet-intelligence";
@@ -217,7 +219,11 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
   );
 
   const motion = getVehicleMotionStatus(device.lastSeenAt, device.lastSpeedKph);
-  const freshness = getFreshnessTier(device.lastSeenAt);
+  const signal = trackerSignalSummary(device);
+  const freshness = signal.heartbeatOnly && device.lastPositionAt
+    ? getFreshnessTier(device.lastPositionAt)
+    : getFreshnessTier(device.lastSeenAt);
+  const todayKm = preferredTodayDistanceKm(device);
 
   const exportTrip = (scope: "day" | "week", format: "xlsx" | "csv") => {
     const positions = scope === "day" ? activePositions : (history?.positions ?? []);
@@ -317,10 +323,17 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
               <p className="text-[9px] text-muted-foreground">km/h</p>
             </div>
             <div className="rounded-lg border bg-background/80 px-3 py-2 text-center min-w-[88px]">
-              <p className="text-[10px] uppercase text-muted-foreground font-semibold">Updated</p>
-              <p className={cn("text-sm font-semibold mt-1 tabular-nums", freshnessClassLight(freshness))}>
-                {formatFreshnessAgo(device.lastSeenAt)}
+              <p className="text-[10px] uppercase text-muted-foreground font-semibold">
+                {signal.heartbeatOnly ? "Last GPS" : "Updated"}
               </p>
+              <p className={cn("text-sm font-semibold mt-1 tabular-nums", freshnessClassLight(freshness))}>
+                {signal.heartbeatOnly
+                  ? (signal.gpsAgo ?? "—")
+                  : formatFreshnessAgo(device.lastSeenAt)}
+              </p>
+              {signal.heartbeatOnly && (
+                <p className="text-[9px] text-muted-foreground mt-0.5">Signal {signal.signalAgo}</p>
+              )}
             </div>
             <div className="rounded-lg border bg-background/80 px-3 py-2 text-center min-w-[72px]">
               <p className="text-[10px] uppercase text-muted-foreground font-semibold">Ignition</p>
@@ -374,8 +387,8 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
             icon={Route}
             label="Today"
             value={
-              device.todayOdometerDistanceKm != null
-                ? formatMileageKm(device.todayOdometerDistanceKm).replace(" km", "")
+              todayKm != null
+                ? formatMileageKm(todayKm).replace(" km", "")
                 : tripStats.distanceKm != null
                   ? tripStats.distanceKm.toFixed(1)
                   : "—"
@@ -383,7 +396,7 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
             sub={
               device.todayOdometerDistanceKm != null
                 ? "km (odometer)"
-                : tripStats.distanceKm != null
+                : todayKm != null || tripStats.distanceKm != null
                   ? "km (GPS)"
                   : undefined
             }

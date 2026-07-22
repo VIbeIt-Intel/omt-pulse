@@ -42,6 +42,9 @@ export type TrackerDeviceSummary = {
   lastIgnitionOn: boolean | null;
   lastMileageKm: number | null;
   todayOdometerDistanceKm: number | null;
+  todayGpsDistanceKm: number | null;
+  /** Best available today distance: odometer when present, else GPS path. */
+  todayDistanceKm: number | null;
   lastTripDistanceKm: number | null;
   lastGpsValid: boolean | null;
   lastPositionAt: string | null;
@@ -2186,6 +2189,7 @@ export class DatabaseStorage implements IStorage {
     lastIgnitionOn: boolean | null;
     lastMileageKm: number | null;
     todayOdometerDistanceKm: number | null;
+    todayGpsDistanceKm: number | null;
     lastTripDistanceKm: number | null;
     lastGpsValid: boolean | null;
     lastPositionAt: Date | null;
@@ -2195,6 +2199,16 @@ export class DatabaseStorage implements IStorage {
       r.assignedFirstName || r.assignedLastName
         ? `${r.assignedFirstName ?? ""} ${r.assignedLastName ?? ""}`.trim()
         : null;
+    const utcToday = new Date().toISOString().slice(0, 10);
+    const lastPosDay = r.lastPositionAt?.toISOString().slice(0, 10) ?? null;
+    const todayGpsDistanceKm = lastPosDay === utcToday ? r.todayGpsDistanceKm : null;
+    const todayOdometerDistanceKm = lastPosDay === utcToday ? r.todayOdometerDistanceKm : null;
+    const todayDistanceKm =
+      todayOdometerDistanceKm != null
+        ? todayOdometerDistanceKm
+        : todayGpsDistanceKm != null && todayGpsDistanceKm > 0
+          ? todayGpsDistanceKm
+          : null;
     return {
       id: r.id,
       imei: r.imei,
@@ -2214,7 +2228,9 @@ export class DatabaseStorage implements IStorage {
       lastHeading: r.lastHeading,
       lastIgnitionOn: r.lastIgnitionOn,
       lastMileageKm: r.lastMileageKm,
-      todayOdometerDistanceKm: r.todayOdometerDistanceKm,
+      todayOdometerDistanceKm,
+      todayGpsDistanceKm,
+      todayDistanceKm,
       lastTripDistanceKm: r.lastTripDistanceKm,
       lastGpsValid: r.lastGpsValid,
       lastPositionAt: r.lastPositionAt?.toISOString() ?? null,
@@ -2244,11 +2260,42 @@ export class DatabaseStorage implements IStorage {
       lastIgnitionOn: trackerDevices.lastIgnitionOn,
       lastMileageKm: trackerDevices.lastMileageKm,
       todayOdometerDistanceKm: trackerDevices.todayOdometerDistanceKm,
+      todayGpsDistanceKm: trackerDevices.todayGpsDistanceKm,
       lastTripDistanceKm: trackerDevices.lastTripDistanceKm,
       lastGpsValid: trackerDevices.lastGpsValid,
       lastPositionAt: trackerDevices.lastPositionAt,
       lastSeenAt: trackerDevices.lastSeenAt,
     };
+  }
+
+  /** When odometer is missing, backfill today GPS path distance from stored fixes (and cache on device). */
+  private async enrichTodayGpsDistances(devices: TrackerDeviceSummary[]): Promise<void> {
+    const needIds = devices
+      .filter((d) => d.todayOdometerDistanceKm == null && d.todayGpsDistanceKm == null)
+      .map((d) => d.id);
+    if (needIds.length === 0) return;
+
+    const { computeTodayGpsPathDistances } = await import("./vehicle-tracking/store");
+    const distances = await computeTodayGpsPathDistances(needIds);
+    const persist: Array<{ id: number; km: number }> = [];
+
+    for (const id of needIds) {
+      const km = distances.get(id) ?? 0;
+      persist.push({ id, km });
+      const device = devices.find((d) => d.id === id);
+      if (!device) continue;
+      device.todayGpsDistanceKm = km;
+      device.todayDistanceKm = km > 0 ? km : null;
+    }
+
+    await Promise.all(
+      persist.map(({ id, km }) =>
+        db
+          .update(trackerDevices)
+          .set({ todayGpsDistanceKm: km })
+          .where(eq(trackerDevices.id, id)),
+      ),
+    );
   }
 
   async getTrackerDevices(orgId: string, commandFilter?: number[]): Promise<TrackerDeviceSummary[]> {
@@ -2265,7 +2312,9 @@ export class DatabaseStorage implements IStorage {
       .where(and(...conditions))
       .orderBy(desc(trackerDevices.lastSeenAt));
 
-    return rows.map((r) => this.mapTrackerDeviceRow(r));
+    const devices = rows.map((r) => this.mapTrackerDeviceRow(r));
+    await this.enrichTodayGpsDistances(devices);
+    return devices;
   }
 
   async getTrackerDeviceById(id: number, orgId: string): Promise<TrackerDeviceSummary | undefined> {
@@ -2277,7 +2326,10 @@ export class DatabaseStorage implements IStorage {
       .where(and(eq(trackerDevices.id, id), eq(trackerDevices.organizationId, orgId)))
       .limit(1);
     const row = rows[0];
-    return row ? this.mapTrackerDeviceRow(row) : undefined;
+    if (!row) return undefined;
+    const device = this.mapTrackerDeviceRow(row);
+    await this.enrichTodayGpsDistances([device]);
+    return device;
   }
 
   async updateTrackerDevice(

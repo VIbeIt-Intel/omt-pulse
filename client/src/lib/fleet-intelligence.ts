@@ -202,6 +202,61 @@ export function formatMileageKm(km: number | null | undefined, opts?: { decimals
   return `${km.toLocaleString(undefined, { maximumFractionDigits: decimals, minimumFractionDigits: decimals })} km`;
 }
 
+/** Prefer device odometer; fall back to GPS path distance when extended mileage packets are missing. */
+export function preferredTodayDistanceKm(device: {
+  todayDistanceKm?: number | null;
+  todayOdometerDistanceKm?: number | null;
+  todayGpsDistanceKm?: number | null;
+}): number | null {
+  if (device.todayDistanceKm != null && !Number.isNaN(device.todayDistanceKm)) {
+    return device.todayDistanceKm;
+  }
+  if (device.todayOdometerDistanceKm != null && !Number.isNaN(device.todayOdometerDistanceKm)) {
+    return device.todayOdometerDistanceKm;
+  }
+  if (
+    device.todayGpsDistanceKm != null
+    && !Number.isNaN(device.todayGpsDistanceKm)
+    && device.todayGpsDistanceKm > 0
+  ) {
+    return device.todayGpsDistanceKm;
+  }
+  return null;
+}
+
+/**
+ * Heartbeats refresh lastSeenAt without a GPS fix. When signal is meaningfully newer than
+ * lastPositionAt, the UI should surface GPS age separately so idle+ACC-on does not look like live track.
+ */
+export function trackerSignalSummary(device: {
+  lastSeenAt: string | null | undefined;
+  lastPositionAt: string | null | undefined;
+}): {
+  signalAgo: string;
+  signalTier: FreshnessTier;
+  gpsAgo: string | null;
+  gpsTier: FreshnessTier | null;
+  heartbeatOnly: boolean;
+} {
+  const signalTier = getFreshnessTier(device.lastSeenAt);
+  const signalAgo = formatFreshnessAgo(device.lastSeenAt);
+  if (!device.lastPositionAt) {
+    return {
+      signalAgo,
+      signalTier,
+      gpsAgo: null,
+      gpsTier: null,
+      heartbeatOnly: Boolean(device.lastSeenAt),
+    };
+  }
+  const gpsTier = getFreshnessTier(device.lastPositionAt);
+  const gpsAgo = formatFreshnessAgo(device.lastPositionAt);
+  const seenMs = device.lastSeenAt ? new Date(device.lastSeenAt).getTime() : 0;
+  const posMs = new Date(device.lastPositionAt).getTime();
+  const heartbeatOnly = seenMs - posMs > 60_000;
+  return { signalAgo, signalTier, gpsAgo, gpsTier, heartbeatOnly };
+}
+
 export function vehicleDisplayName(device: {
   vehicleMake?: string | null;
   vehicleModel?: string | null;

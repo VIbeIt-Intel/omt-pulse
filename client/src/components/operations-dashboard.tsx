@@ -31,7 +31,6 @@ import {
   Car,
   Gauge,
   KeyRound,
-  Navigation,
   Network,
   Route as RouteIcon,
   Signal,
@@ -41,10 +40,9 @@ import {
 import {
   formatMileageKm,
   getVehicleMotionStatus,
-  formatFreshnessAgo,
   freshnessClassDark,
-  getFreshnessTier,
-  headingLabel,
+  preferredTodayDistanceKm,
+  trackerSignalSummary,
   MOTION_STATUS,
   vehicleDisplayName,
 } from "@/lib/fleet-intelligence";
@@ -93,6 +91,8 @@ export type TrackerDeviceSummary = {
   lastIgnitionOn: boolean | null;
   lastMileageKm: number | null;
   todayOdometerDistanceKm: number | null;
+  todayGpsDistanceKm?: number | null;
+  todayDistanceKm?: number | null;
   lastTripDistanceKm: number | null;
   lastGpsValid: boolean | null;
   lastPositionAt: string | null;
@@ -403,6 +403,7 @@ type Props = {
   onOpenChat: () => void;
   onOpenLiveMonitor: (incidentId?: number) => void;
   onOpenOccurrence: (incidentId?: number, bookPeriod?: Period) => void;
+  onOpenFleet?: () => void;
   onPanic: () => void;
 };
 
@@ -495,17 +496,19 @@ function OpsSubSectionHeader({
   icon: Icon,
   tone,
   count,
+  right,
 }: {
   title: string;
   icon: LucideIcon;
   tone: OpsSectionTone;
   count?: number;
+  right?: ReactNode;
 }) {
   const s = OPS_SECTION_TONE[tone];
   return (
     <div
       className={cn(
-        "shrink-0 px-3 py-2 border-b border-l-[3px] flex items-center justify-between",
+        "shrink-0 px-3 py-2 border-b border-l-[3px] flex items-center justify-between gap-2",
         s.bar,
         s.border,
       )}
@@ -514,33 +517,12 @@ function OpsSubSectionHeader({
         <Icon className="h-3.5 w-3.5 shrink-0 opacity-90" />
         {title}
       </p>
-      {count != null && (
-        <span className={cn("text-[11px] font-semibold tabular-nums", s.title, "opacity-80")}>{count}</span>
-      )}
-    </div>
-  );
-}
-
-function FleetMetric({
-  icon: Icon,
-  label,
-  value,
-  valueClassName,
-}: {
-  icon: LucideIcon;
-  label: string;
-  value: string;
-  valueClassName?: string;
-}) {
-  return (
-    <div className="min-w-0 rounded-md border border-slate-700/60 bg-slate-950/35 px-2.5 py-2">
-      <div className="flex items-center gap-1.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-slate-500">
-        <Icon className="h-3 w-3 shrink-0" />
-        {label}
+      <div className="flex items-center gap-2 shrink-0">
+        {right}
+        {count != null && (
+          <span className={cn("text-[11px] font-semibold tabular-nums", s.title, "opacity-80")}>{count}</span>
+        )}
       </div>
-      <p className={cn("mt-1 truncate text-xs font-semibold tabular-nums text-slate-200", valueClassName)}>
-        {value}
-      </p>
     </div>
   );
 }
@@ -619,6 +601,7 @@ export function OperationsDashboard({
   onOpenChat,
   onOpenLiveMonitor,
   onOpenOccurrence,
+  onOpenFleet,
   onPanic,
 }: Props) {
   const queryClient = useQueryClient();
@@ -1179,7 +1162,37 @@ export function OperationsDashboard({
           </div>
 
           <div className="flex flex-col min-h-0 overflow-hidden bg-[#131a22]">
-            <OpsSubSectionHeader title="Fleet" icon={Car} tone="cyan" count={siteFleet.length} />
+            <OpsSubSectionHeader
+              title="Fleet"
+              icon={Car}
+              tone="cyan"
+              count={siteFleet.length}
+              right={
+                onOpenFleet ? (
+                  <button
+                    type="button"
+                    onClick={onOpenFleet}
+                    className="text-[10px] font-semibold uppercase tracking-wide text-cyan-400/90 hover:text-cyan-300 hover:underline"
+                    data-testid="ops-fleet-view-all"
+                  >
+                    View fleet
+                  </button>
+                ) : null
+              }
+            />
+            {!siteMonitorLoading && siteFleet.length > 0 && (
+              <div className="shrink-0 border-b border-cyan-900/15 px-3 py-1.5 flex items-center gap-3 text-[9px] font-semibold uppercase tracking-wide">
+                <span className="inline-flex items-center gap-1 text-emerald-400/90">
+                  <span className="tabular-nums text-emerald-300">{fleetStatusCounts.moving}</span> Moving
+                </span>
+                <span className="inline-flex items-center gap-1 text-amber-400/90">
+                  <span className="tabular-nums text-amber-300">{fleetStatusCounts.idle}</span> Idle
+                </span>
+                <span className="inline-flex items-center gap-1 text-slate-500">
+                  <span className="tabular-nums text-slate-400">{fleetStatusCounts.offline}</span> Offline
+                </span>
+              </div>
+            )}
             <div className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain ops-scroll">
               {siteMonitorLoading ? (
                 <div className="p-2 space-y-2">
@@ -1193,111 +1206,115 @@ export function OperationsDashboard({
                     : "No vehicles linked to this site."}
                 </p>
               ) : (
-                <div className="p-3">
-                  <div className="mb-3 grid grid-cols-3 overflow-hidden rounded-lg border border-slate-700/60 bg-slate-950/35">
-                    <div className="border-r border-slate-700/60 px-3 py-2 text-center">
-                      <p className="text-base font-bold tabular-nums text-emerald-400">{fleetStatusCounts.moving}</p>
-                      <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-500">Moving</p>
-                    </div>
-                    <div className="border-r border-slate-700/60 px-3 py-2 text-center">
-                      <p className="text-base font-bold tabular-nums text-amber-400">{fleetStatusCounts.idle}</p>
-                      <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-500">Idle</p>
-                    </div>
-                    <div className="px-3 py-2 text-center">
-                      <p className="text-base font-bold tabular-nums text-slate-400">{fleetStatusCounts.offline}</p>
-                      <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-500">Offline</p>
-                    </div>
-                  </div>
-
-                  <ul className="grid gap-3 2xl:grid-cols-2">
+                <ul className="divide-y divide-cyan-900/15">
                   {siteFleet.map((device) => {
                     const motion = getVehicleMotionStatus(device.lastSeenAt, device.lastSpeedKph);
                     const motionCfg = MOTION_STATUS[motion];
                     const speed =
                       device.lastSpeedKph != null ? Math.round(device.lastSpeedKph) : null;
-                    const freshness = getFreshnessTier(device.lastSeenAt);
-                    const registration = device.vehicleRegistration?.trim() || `IMEI …${device.imei.slice(-6)}`;
-                    const heading =
-                      device.lastHeading == null
-                        ? "—"
-                        : `${headingLabel(device.lastHeading)} · ${Math.round(device.lastHeading)}°`;
+                    const todayKm = preferredTodayDistanceKm(device);
+                    const signal = trackerSignalSummary(device);
+                    const registration =
+                      device.vehicleRegistration?.trim() || `IMEI …${device.imei.slice(-6)}`;
                     return (
                       <li
                         key={device.id}
-                        className="rounded-xl border border-cyan-900/50 bg-gradient-to-br from-slate-800/75 to-slate-900/70 p-3 shadow-sm shadow-black/20"
+                        className="px-3 py-2 border-l-2 border-l-transparent hover:bg-cyan-950/20 transition-colors"
+                        data-testid={`ops-fleet-row-${device.id}`}
                       >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex min-w-0 items-start gap-2.5">
-                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-cyan-800/50 bg-cyan-950/40 text-cyan-300">
-                              <Car className="h-4 w-4" />
-                            </span>
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-bold text-slate-100">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span
+                            className={cn("h-2 w-2 shrink-0 rounded-full", motionCfg.dot)}
+                            title={motionCfg.label}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <p className="text-xs font-medium text-slate-200 truncate">
                                 {vehicleDisplayName(device)}
                               </p>
-                              <p className="mt-0.5 truncate text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                              <span
+                                className={cn(
+                                  "shrink-0 text-[9px] font-bold uppercase tracking-wide",
+                                  motion === "moving"
+                                    ? "text-emerald-400"
+                                    : motion === "idle"
+                                      ? "text-amber-400"
+                                      : "text-slate-500",
+                                )}
+                              >
+                                {motionCfg.label}
+                              </span>
+                            </div>
+                            <div className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[9px] text-slate-500">
+                              <span className="truncate max-w-[9rem] uppercase tracking-wide">
                                 {registration}
-                              </p>
+                              </span>
+                              <span
+                                className={cn(
+                                  "inline-flex items-center gap-0.5 tabular-nums",
+                                  motion === "moving" ? "text-emerald-400/90" : undefined,
+                                )}
+                              >
+                                <Gauge className="h-2.5 w-2.5" />
+                                {speed == null ? "—" : `${speed} km/h`}
+                              </span>
+                              <span className="inline-flex items-center gap-0.5 tabular-nums">
+                                <RouteIcon className="h-2.5 w-2.5" />
+                                {formatMileageKm(todayKm)}
+                              </span>
+                              {device.lastIgnitionOn != null && (
+                                <span
+                                  className={cn(
+                                    "inline-flex items-center gap-0.5",
+                                    device.lastIgnitionOn ? "text-amber-400/80" : undefined,
+                                  )}
+                                >
+                                  <KeyRound className="h-2.5 w-2.5" />
+                                  {device.lastIgnitionOn ? "ACC" : "Off"}
+                                </span>
+                              )}
                             </div>
                           </div>
-                          <span
-                            className={cn(
-                              "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-1 text-[9px] font-bold uppercase",
-                              motionCfg.pill,
+                          <div className="shrink-0 w-[78px] text-right">
+                            {signal.heartbeatOnly ? (
+                              <>
+                                <p
+                                  className={cn(
+                                    "text-[10px] tabular-nums leading-tight",
+                                    signal.gpsTier
+                                      ? freshnessClassDark(signal.gpsTier)
+                                      : "text-slate-500",
+                                  )}
+                                >
+                                  GPS {signal.gpsAgo ?? "—"}
+                                </p>
+                                <p className="text-[8px] text-slate-500 mt-0.5 leading-none">
+                                  Signal {signal.signalAgo}
+                                </p>
+                              </>
+                            ) : (
+                              <p
+                                className={cn(
+                                  "text-[10px] tabular-nums leading-tight inline-flex items-center justify-end gap-1",
+                                  freshnessClassDark(signal.signalTier),
+                                )}
+                              >
+                                <Signal className="h-2.5 w-2.5 opacity-70" />
+                                {signal.signalAgo}
+                              </p>
                             )}
-                          >
-                            <span className={cn("h-1.5 w-1.5 rounded-full", motionCfg.dot)} />
-                            {motionCfg.label}
-                          </span>
-                        </div>
-
-                        <div className="mt-3 grid grid-cols-2 gap-2 xl:grid-cols-4">
-                          <FleetMetric
-                            icon={Gauge}
-                            label="Speed"
-                            value={speed == null ? "—" : `${speed} km/h`}
-                            valueClassName={motion === "moving" ? "text-emerald-300" : undefined}
-                          />
-                          <FleetMetric
-                            icon={KeyRound}
-                            label="Ignition"
-                            value={
-                              device.lastIgnitionOn == null
-                                ? "Unknown"
-                                : device.lastIgnitionOn
-                                  ? "On"
-                                  : "Off"
-                            }
-                            valueClassName={device.lastIgnitionOn ? "text-amber-300" : undefined}
-                          />
-                          <FleetMetric
-                            icon={RouteIcon}
-                            label="Today"
-                            value={formatMileageKm(device.todayOdometerDistanceKm)}
-                          />
-                          <FleetMetric icon={Navigation} label="Heading" value={heading} />
-                        </div>
-
-                        <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-slate-700/50 pt-2">
-                          <span className="inline-flex items-center gap-1.5 text-[10px] text-slate-500">
-                            <Signal className="h-3 w-3" />
-                            Last signal
-                            <strong className={cn("font-semibold tabular-nums", freshnessClassDark(freshness))}>
-                              {formatFreshnessAgo(device.lastSeenAt)}
-                            </strong>
-                          </span>
-                          {device.assignedUserName && (
-                            <span className="inline-flex max-w-full items-center gap-1.5 truncate text-[10px] text-slate-400">
-                              <UserRound className="h-3 w-3 shrink-0" />
-                              {device.assignedUserName}
-                            </span>
-                          )}
+                            {device.assignedUserName && (
+                              <p className="mt-0.5 truncate text-[8px] text-slate-500 inline-flex items-center justify-end gap-0.5 max-w-full">
+                                <UserRound className="h-2.5 w-2.5 shrink-0" />
+                                <span className="truncate">{device.assignedUserName}</span>
+                              </p>
+                            )}
+                          </div>
                         </div>
                       </li>
                     );
                   })}
-                  </ul>
-                </div>
+                </ul>
               )}
             </div>
           </div>
