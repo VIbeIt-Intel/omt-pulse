@@ -16,6 +16,7 @@ import {
   completePatrol,
   createPatrolRoute,
   findPatrolByTrackToken,
+  canAcceptPatrolTrackUpload,
   getActivePatrolForUser,
   getPatrolDetail,
   getPatrolReport,
@@ -392,7 +393,7 @@ export function registerPatrolRoutes(app: Express) {
 
     if (token) {
       const byToken = await findPatrolByTrackToken(patrolId, token);
-      if (byToken && byToken.status === "in_progress") {
+      if (byToken && canAcceptPatrolTrackUpload(byToken)) {
         orgId = byToken.organizationId;
         authorized = true;
       }

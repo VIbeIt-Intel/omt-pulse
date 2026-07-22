@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import type { Location, PatrolRoute } from "@shared/schema";
@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { requestLocationAccess } from "@/lib/request-location-access";
+import { flushPendingPatrolTracks } from "@/lib/patrol-tracking";
 import { cn } from "@/lib/utils";
 import {
   AlertTriangle,
@@ -86,6 +87,11 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [location] = useLocation();
+
+  useEffect(() => {
+    void flushPendingPatrolTracks();
+  }, []);
+
   const highlightRouteId = useMemo(() => {
     const raw = new URLSearchParams(window.location.search).get("routeId");
     if (!raw) return null;

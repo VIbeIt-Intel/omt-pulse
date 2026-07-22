@@ -19,12 +19,20 @@ type StartPatrolTrackingOpts = {
   onPoint?: (point: PatrolTrackPointLocal) => void;
 };
 
+type BufferMeta = {
+  token: string | null;
+  updatedAt: number;
+};
+
 const MIN_MOVE_M = 10;
 const MIN_INTERVAL_MS = 20_000;
 const MAX_ACCURACY_M = 75;
 const FLUSH_EVERY = 12;
 const FLUSH_MS = 25_000;
+const STOP_FLUSH_ATTEMPTS = 5;
+const STOP_FLUSH_GAP_MS = 400;
 const STORAGE_PREFIX = "omt_patrol_track_buf_";
+const META_PREFIX = "omt_patrol_track_meta_";
 
 type Session = {
   patrolId: number;
@@ -44,6 +52,10 @@ function bufferKey(patrolId: number): string {
   return `${STORAGE_PREFIX}${patrolId}`;
 }
 
+function metaKey(patrolId: number): string {
+  return `${META_PREFIX}${patrolId}`;
+}
+
 function loadBuffer(patrolId: number): PatrolTrackPointLocal[] {
   try {
     const raw = localStorage.getItem(bufferKey(patrolId));
@@ -55,9 +67,29 @@ function loadBuffer(patrolId: number): PatrolTrackPointLocal[] {
   }
 }
 
-function saveBuffer(patrolId: number, buffer: PatrolTrackPointLocal[]): void {
+function loadMeta(patrolId: number): BufferMeta | null {
   try {
+    const raw = localStorage.getItem(metaKey(patrolId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as BufferMeta;
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveBuffer(patrolId: number, buffer: PatrolTrackPointLocal[], token: string | null): void {
+  try {
+    if (buffer.length === 0) {
+      localStorage.removeItem(bufferKey(patrolId));
+      localStorage.removeItem(metaKey(patrolId));
+      return;
+    }
     localStorage.setItem(bufferKey(patrolId), JSON.stringify(buffer.slice(-200)));
+    localStorage.setItem(
+      metaKey(patrolId),
+      JSON.stringify({ token, updatedAt: Date.now() } satisfies BufferMeta),
+    );
   } catch {
     /* ignore quota */
   }
@@ -66,9 +98,25 @@ function saveBuffer(patrolId: number, buffer: PatrolTrackPointLocal[]): void {
 function clearBuffer(patrolId: number): void {
   try {
     localStorage.removeItem(bufferKey(patrolId));
+    localStorage.removeItem(metaKey(patrolId));
   } catch {
     /* ignore */
   }
+}
+
+function listPendingPatrolIds(): number[] {
+  const ids: number[] = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key?.startsWith(STORAGE_PREFIX)) continue;
+      const id = parseInt(key.slice(STORAGE_PREFIX.length), 10);
+      if (Number.isFinite(id)) ids.push(id);
+    }
+  } catch {
+    /* ignore */
+  }
+  return ids;
 }
 
 function shouldAccept(point: PatrolTrackPointLocal, last: PatrolTrackPointLocal | null): boolean {
@@ -85,10 +133,17 @@ function shouldAccept(point: PatrolTrackPointLocal, last: PatrolTrackPointLocal 
   return dist >= MIN_MOVE_M;
 }
 
-async function flushBuffer(): Promise<void> {
-  if (!session || session.buffer.length === 0) return;
-  const { patrolId, token, buffer } = session;
-  const batch = buffer.slice(0, 100);
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+/** Upload one batch. Returns false on network/HTTP failure (buffer kept). */
+async function uploadBatch(
+  patrolId: number,
+  token: string | null,
+  batch: PatrolTrackPointLocal[],
+): Promise<boolean> {
+  if (batch.length === 0) return true;
   try {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (token) headers["x-patrol-track-token"] = token;
@@ -109,11 +164,70 @@ async function flushBuffer(): Promise<void> {
         })),
       }),
     });
-    if (!res.ok) throw new Error(`track upload ${res.status}`);
-    session.buffer = session.buffer.slice(batch.length);
-    saveBuffer(patrolId, session.buffer);
+    return res.ok;
   } catch {
-    // Keep buffer for retry on next flush / reconnect.
+    return false;
+  }
+}
+
+async function flushBuffer(): Promise<boolean> {
+  if (!session || session.buffer.length === 0) return true;
+  const { patrolId, token } = session;
+  const batch = session.buffer.slice(0, 100);
+  const ok = await uploadBatch(patrolId, token, batch);
+  if (!ok) return false;
+  session.buffer = session.buffer.slice(batch.length);
+  saveBuffer(patrolId, session.buffer, token);
+  return true;
+}
+
+/** Drain the live session buffer with retries. */
+async function flushUntilEmpty(attempts = STOP_FLUSH_ATTEMPTS): Promise<boolean> {
+  if (!session) return true;
+  for (let i = 0; i < attempts; i++) {
+    if (session.buffer.length === 0) return true;
+    const ok = await flushBuffer();
+    if (!ok) {
+      await sleep(STOP_FLUSH_GAP_MS * (i + 1));
+      continue;
+    }
+    // Keep draining while batches remain.
+    while (session.buffer.length > 0) {
+      const more = await flushBuffer();
+      if (!more) break;
+    }
+    if (session.buffer.length === 0) return true;
+    await sleep(STOP_FLUSH_GAP_MS * (i + 1));
+  }
+  return session.buffer.length === 0;
+}
+
+/**
+ * Retry any leftover local track buffers (e.g. upload failed at complete).
+ * Safe to call on Patrol page mount; server accepts a short post-end grace window.
+ */
+export async function flushPendingPatrolTracks(): Promise<void> {
+  const ids = listPendingPatrolIds().filter((id) => !session || session.patrolId !== id);
+  for (const patrolId of ids) {
+    let buffer = loadBuffer(patrolId);
+    if (buffer.length === 0) {
+      clearBuffer(patrolId);
+      continue;
+    }
+    const meta = loadMeta(patrolId);
+    const token = meta?.token ?? null;
+    let failed = false;
+    while (buffer.length > 0) {
+      const batch = buffer.slice(0, 100);
+      const ok = await uploadBatch(patrolId, token, batch);
+      if (!ok) {
+        failed = true;
+        break;
+      }
+      buffer = buffer.slice(batch.length);
+      saveBuffer(patrolId, buffer, token);
+    }
+    if (!failed && buffer.length === 0) clearBuffer(patrolId);
   }
 }
 
@@ -136,7 +250,7 @@ function acceptPoint(raw: {
   session.seq = candidate.seq;
   session.lastAccepted = candidate;
   session.buffer.push(candidate);
-  saveBuffer(session.patrolId, session.buffer);
+  saveBuffer(session.patrolId, session.buffer, session.token);
   session.onPoint?.(candidate);
   if (session.buffer.length >= FLUSH_EVERY) {
     void flushBuffer();
@@ -194,7 +308,10 @@ function startWebFallback(): void {
 }
 
 export async function startPatrolTracking(opts: StartPatrolTrackingOpts): Promise<void> {
+  // Tear down prior session without wiping its unsynced buffer.
   await stopPatrolTracking({ flush: false });
+  // Best-effort: push any leftover buffers from earlier runs.
+  void flushPendingPatrolTracks();
 
   const restored = loadBuffer(opts.patrolId);
   const lastSeq = restored.reduce((m, p) => Math.max(m, p.seq), 0);
@@ -209,6 +326,7 @@ export async function startPatrolTracking(opts: StartPatrolTrackingOpts): Promis
     webWatchId: null,
     nativeActive: false,
   };
+  saveBuffer(opts.patrolId, restored, session.token);
 
   session.flushTimer = window.setInterval(() => {
     void flushBuffer();
@@ -220,10 +338,15 @@ export async function startPatrolTracking(opts: StartPatrolTrackingOpts): Promis
 
   window.addEventListener("online", onOnline);
   document.addEventListener("visibilitychange", onVisibility);
+
+  if (session.buffer.length > 0) {
+    void flushUntilEmpty(3);
+  }
 }
 
 function onOnline(): void {
   void flushBuffer();
+  void flushPendingPatrolTracks();
 }
 
 function onVisibility(): void {
@@ -251,14 +374,22 @@ export async function stopPatrolTracking(opts: { flush?: boolean } = {}): Promis
 
   if (flush) {
     session = current;
-    await flushBuffer();
+    await flushUntilEmpty();
   }
 
-  clearBuffer(current.patrolId);
+  // Only drop local points after a successful full drain. Otherwise keep them
+  // for flushPendingPatrolTracks / next session restore.
+  if (current.buffer.length === 0) {
+    clearBuffer(current.patrolId);
+  } else {
+    saveBuffer(current.patrolId, current.buffer, current.token);
+  }
   session = null;
 }
 
 export function getLocalPatrolTrackPreview(): PatrolTrackPointLocal[] {
   if (!session) return [];
-  return session.lastAccepted ? [...(session.buffer.length ? session.buffer : []), session.lastAccepted].slice(-200) : session.buffer.slice();
+  return session.lastAccepted
+    ? [...(session.buffer.length ? session.buffer : []), session.lastAccepted].slice(-200)
+    : session.buffer.slice();
 }

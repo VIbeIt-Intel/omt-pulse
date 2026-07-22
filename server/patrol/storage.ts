@@ -583,7 +583,13 @@ export async function cancelPatrol(patrolId: number, orgId: string, userId: stri
 export async function findPatrolByTrackToken(
   patrolId: number,
   token: string,
-): Promise<{ id: number; organizationId: string; startedByUserId: string; status: string } | undefined> {
+): Promise<{
+  id: number;
+  organizationId: string;
+  startedByUserId: string;
+  status: string;
+  endedAt: Date | null;
+} | undefined> {
   if (!token) return undefined;
   const [row] = await db
     .select({
@@ -591,11 +597,29 @@ export async function findPatrolByTrackToken(
       organizationId: patrols.organizationId,
       startedByUserId: patrols.startedByUserId,
       status: patrols.status,
+      endedAt: patrols.endedAt,
     })
     .from(patrols)
     .where(and(eq(patrols.id, patrolId), eq(patrols.trackUploadToken, token)))
     .limit(1);
   return row;
+}
+
+/** Allow late GPS batches for a short window after complete/cancel. */
+export const TRACK_UPLOAD_GRACE_MS = 30 * 60_000;
+
+export function canAcceptPatrolTrackUpload(patrol: {
+  status: string;
+  endedAt: Date | null;
+}): boolean {
+  if (patrol.status === "in_progress") return true;
+  if (
+    (patrol.status === "completed" || patrol.status === "cancelled") &&
+    patrol.endedAt != null
+  ) {
+    return Date.now() - patrol.endedAt.getTime() <= TRACK_UPLOAD_GRACE_MS;
+  }
+  return false;
 }
 
 export async function appendPatrolTrackPoints(
@@ -612,7 +636,9 @@ export async function appendPatrolTrackPoints(
     .where(and(eq(patrols.id, patrolId), eq(patrols.organizationId, orgId)))
     .limit(1);
   if (!patrol) throw new Error("Patrol not found");
-  if (patrol.status !== "in_progress") throw new Error("Patrol is not in progress");
+  if (!canAcceptPatrolTrackUpload(patrol)) {
+    throw new Error("Patrol is not accepting track points");
+  }
 
   if ((patrol.trackPointCount ?? 0) >= MAX_POINTS_PER_PATROL) {
     throw new Error("Track point limit reached for this patrol");
