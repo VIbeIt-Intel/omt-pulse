@@ -199,12 +199,14 @@ export function FleetHistoryMap({
   const playTrailRef = useRef<google.maps.Polyline | null>(null);
   const playTimerRef = useRef<number | null>(null);
   const playIndexRef = useRef(0);
+  const playRangeRef = useRef<{ from: number; to: number } | null>(null);
 
   const [ready, setReady] = useState(false);
   const [error, setError] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [playIndex, setPlayIndex] = useState(0);
   const [playSpeed, setPlaySpeed] = useState<1 | 2 | 4>(2);
+  const [activeTripIndex, setActiveTripIndex] = useState<number | null>(null);
 
   const sortedPositions = useMemo(() => {
     return [...positions]
@@ -294,9 +296,12 @@ export function FleetHistoryMap({
       const map = mapInstanceRef.current;
       if (!map || playbackPoints.length === 0) return;
       ensurePlayOverlays();
-      const clamped = Math.max(0, Math.min(index, playbackPoints.length - 1));
+      const range = playRangeRef.current;
+      const min = range?.from ?? 0;
+      const max = range?.to ?? playbackPoints.length - 1;
+      const clamped = Math.max(min, Math.min(index, max));
       const point = playbackPoints[clamped]!;
-      const next = playbackPoints[Math.min(clamped + 1, playbackPoints.length - 1)]!;
+      const next = playbackPoints[Math.min(clamped + 1, max)]!;
       playMarkerRef.current?.setPosition(point);
       const heading = google.maps.geometry?.spherical?.computeHeading
         ? google.maps.geometry.spherical.computeHeading(point, next)
@@ -311,13 +316,52 @@ export function FleetHistoryMap({
         rotation: heading,
       });
       playTrailRef.current?.setPath(
-        playbackPoints.slice(0, clamped + 1).map((p) => ({ lat: p.lat, lng: p.lng })),
+        playbackPoints.slice(min, clamped + 1).map((p) => ({ lat: p.lat, lng: p.lng })),
       );
       playIndexRef.current = clamped;
       setPlayIndex(clamped);
     },
     [ensurePlayOverlays, playbackPoints],
   );
+
+  const playFullDay = useCallback(() => {
+    playRangeRef.current = null;
+    setActiveTripIndex(null);
+    if (playbackPoints.length < 2) return;
+    showPlayFrame(0);
+    playTrailRef.current?.setPath([]);
+    setPlaying(true);
+  }, [playbackPoints.length, showPlayFrame]);
+
+  const playTripLeg = useCallback(
+    (legIndex: number) => {
+      const leg = tripLegs.find((l) => l.index === legIndex);
+      if (!leg || playbackPoints.length < 2) return;
+      const startMs = new Date(leg.startAt).getTime();
+      const endMs = new Date(leg.endAt).getTime();
+      let from = playbackPoints.findIndex((p) => p.at >= startMs);
+      if (from < 0) from = 0;
+      let to = from;
+      for (let i = playbackPoints.length - 1; i >= from; i--) {
+        if (playbackPoints[i]!.at <= endMs) {
+          to = i;
+          break;
+        }
+      }
+      if (to <= from) to = Math.min(from + 1, playbackPoints.length - 1);
+      playRangeRef.current = { from, to };
+      setActiveTripIndex(leg.index);
+      infoWindowRef.current?.close();
+      ensurePlayOverlays();
+      playTrailRef.current?.setOptions({ strokeColor: leg.color });
+      showPlayFrame(from);
+      setPlaying(true);
+    },
+    [ensurePlayOverlays, playbackPoints, showPlayFrame, tripLegs],
+  );
+
+  const playTripLegRef = useRef(playTripLeg);
+  playTripLegRef.current = playTripLeg;
 
   useEffect(() => {
     if (!playing || !canPlay) {
@@ -330,7 +374,8 @@ export function FleetHistoryMap({
 
     const tick = () => {
       const from = playIndexRef.current;
-      if (from >= playbackPoints.length - 1) {
+      const max = playRangeRef.current?.to ?? playbackPoints.length - 1;
+      if (from >= max) {
         setPlaying(false);
         return;
       }
@@ -352,6 +397,8 @@ export function FleetHistoryMap({
     setPlaying(false);
     setPlayIndex(0);
     playIndexRef.current = 0;
+    playRangeRef.current = null;
+    setActiveTripIndex(null);
     clearPlaybackOverlays();
   }, [positions, clearPlaybackOverlays]);
 
@@ -466,21 +513,10 @@ export function FleetHistoryMap({
         strokeWeight: 5,
         strokeOpacity: 0.92,
         zIndex: 10,
+        clickable: true,
       });
-      line.addListener("click", (e: google.maps.MapMouseEvent) => {
-        const dist =
-          leg.distanceKm != null ? `${leg.distanceKm.toFixed(1)} km` : "—";
-        infoWindowRef.current?.setContent(
-          [
-            `<div style="max-width:220px;font:12px/1.45 system-ui,sans-serif;color:#111">`,
-            `<strong>Trip ${leg.index}</strong>`,
-            `<div style="margin-top:6px">${escapeHtml(formatTripClock(leg.startAt))} → ${escapeHtml(formatTripClock(leg.endAt))}</div>`,
-            `<div style="margin-top:4px">${escapeHtml(dist)} · ${leg.points.length} GPS points</div>`,
-            `</div>`,
-          ].join(""),
-        );
-        infoWindowRef.current?.setPosition(e.latLng ?? leg.path[0]);
-        infoWindowRef.current?.open({ map });
+      line.addListener("click", () => {
+        playTripLegRef.current(leg.index);
       });
       polylinesRef.current.push(line);
     }
@@ -579,12 +615,15 @@ export function FleetHistoryMap({
               setPlaying(false);
               return;
             }
-            if (playIndexRef.current >= playbackPoints.length - 1) {
-              showPlayFrame(0);
-            } else {
-              ensurePlayOverlays();
-              showPlayFrame(playIndexRef.current);
+            const range = playRangeRef.current;
+            const max = range?.to ?? playbackPoints.length - 1;
+            if (playIndexRef.current >= max) {
+              if (activeTripIndex != null) playTripLeg(activeTripIndex);
+              else playFullDay();
+              return;
             }
+            ensurePlayOverlays();
+            showPlayFrame(playIndexRef.current);
             setPlaying(true);
           }}
           data-testid="button-fleet-playback"
@@ -600,6 +639,9 @@ export function FleetHistoryMap({
           disabled={!canPlay}
           onClick={() => {
             setPlaying(false);
+            playRangeRef.current = null;
+            setActiveTripIndex(null);
+            playTrailRef.current?.setOptions({ strokeColor: "#f8fafc" });
             showPlayFrame(0);
             playTrailRef.current?.setPath([]);
           }}
@@ -624,7 +666,9 @@ export function FleetHistoryMap({
         </div>
         <p className="text-[11px] text-muted-foreground">
           {canPlay
-            ? `GPS · ${playIndex + 1}/${playbackPoints.length}`
+            ? activeTripIndex != null
+              ? `Trip ${activeTripIndex} · ${playIndex + 1}/${playbackPoints.length}`
+              : `GPS · ${playIndex + 1}/${playbackPoints.length}`
             : "Need at least two GPS points to play"}
           {currentPlay && Number.isFinite(currentPlay.at)
             ? ` · ${new Date(currentPlay.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`
@@ -649,17 +693,42 @@ export function FleetHistoryMap({
         {geofence && <MapLegendItem color={GEOFENCE_COLOR} label="Geofence" />}
       </div>
 
-      {tripLegs.length > 1 && (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-0.5">
-          {tripLegs.map((leg) => (
-            <MapLegendItem
-              key={leg.index}
-              color={leg.color}
-              label={`Trip ${leg.index} · ${formatTripClock(leg.startAt)}–${formatTripClock(leg.endAt)}${
-                leg.distanceKm != null ? ` · ${leg.distanceKm.toFixed(1)} km` : ""
-              }`}
-            />
-          ))}
+      {tripLegs.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-[10px] text-muted-foreground px-0.5">
+            Trips (movement only — tap to play)
+          </p>
+          <div className="flex flex-wrap items-center gap-2 px-0.5">
+            {tripLegs.map((leg) => (
+              <button
+                key={leg.index}
+                type="button"
+                onClick={() => playTripLeg(leg.index)}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] transition-colors",
+                  activeTripIndex === leg.index
+                    ? "border-primary bg-primary/15 text-foreground"
+                    : "border-border bg-muted/30 text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+                )}
+              >
+                <span
+                  className="h-2.5 w-2.5 shrink-0 rounded-full border border-white/80"
+                  style={{ backgroundColor: leg.color }}
+                />
+                Trip {leg.index} · {formatTripClock(leg.startAt)}–{formatTripClock(leg.endAt)}
+                {leg.distanceKm != null ? ` · ${leg.distanceKm.toFixed(1)} km` : ""}
+              </button>
+            ))}
+            {tripLegs.length > 0 && (
+              <button
+                type="button"
+                onClick={playFullDay}
+                className="inline-flex items-center rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+              >
+                Play full day
+              </button>
+            )}
+          </div>
         </div>
       )}
     </div>

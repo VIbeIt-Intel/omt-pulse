@@ -262,9 +262,14 @@ export type TripLeg = {
   distanceKm: number | null;
 };
 
+/** Parked this long ends a trip; shorter stops (traffic, etc.) stay in the same trip. */
+export const TRIP_LEG_END_IDLE_MS = 10 * 60 * 1000;
+/** Ignore GPS-jitter “trips” with almost no movement. */
+export const TRIP_LEG_MIN_DISTANCE_KM = 0.25;
+
 /**
- * Split a day's GPS trail into trip legs where offline gaps exceed TRIP_GAP_MS.
- * Continuous days stay a single leg (one colour).
+ * Split a day's GPS into real trips: skip overnight/parked dwell, start when the
+ * vehicle moves, end after a long park or an offline gap.
  */
 export function segmentTripLegs(positions: TripPosition[]): TripLeg[] {
   const sorted = [...positions]
@@ -274,35 +279,86 @@ export function segmentTripLegs(positions: TripPosition[]): TripLeg[] {
   if (sorted.length === 0) return [];
 
   const buckets: TripPosition[][] = [];
-  let current: TripPosition[] = [sorted[0]!];
+  let current: TripPosition[] = [];
+  let idleSinceMs: number | null = null;
 
-  for (let i = 1; i < sorted.length; i++) {
-    const prev = sorted[i - 1]!;
+  const flush = () => {
+    if (current.length === 0) return;
+    buckets.push(current);
+    current = [];
+    idleSinceMs = null;
+  };
+
+  for (let i = 0; i < sorted.length; i++) {
     const point = sorted[i]!;
-    const gap =
-      new Date(point.recordedAt).getTime() - new Date(prev.recordedAt).getTime();
-    if (gap > TRIP_GAP_MS) {
-      buckets.push(current);
-      current = [point];
-    } else {
+    const speed = point.speedKph ?? 0;
+    const moving = speed >= MOVING_SPEED_KPH;
+    const at = new Date(point.recordedAt).getTime();
+
+    if (current.length > 0) {
+      const prev = current[current.length - 1]!;
+      const gap = at - new Date(prev.recordedAt).getTime();
+      if (gap > TRIP_GAP_MS) {
+        flush();
+      }
+    }
+
+    if (moving) {
+      idleSinceMs = null;
       current.push(point);
+      continue;
+    }
+
+    // Idle — ignore until the vehicle has actually started a trip today.
+    if (current.length === 0) continue;
+
+    if (idleSinceMs == null) idleSinceMs = at;
+    current.push(point);
+
+    const idleMs = at - idleSinceMs;
+    if (idleMs >= TRIP_LEG_END_IDLE_MS) {
+      flush();
     }
   }
-  buckets.push(current);
+  flush();
 
-  return buckets.map((points, i) => {
-    const path = points.map((p) => ({ lat: p.latitude, lng: p.longitude }));
+  const legs: TripLeg[] = [];
+  for (const points of buckets) {
+    const hadMoving = points.some((p) => (p.speedKph ?? 0) >= MOVING_SPEED_KPH);
+    if (!hadMoving) continue;
+
+    const firstMovingIdx = points.findIndex((p) => (p.speedKph ?? 0) >= MOVING_SPEED_KPH);
+    let lastMovingIdx = firstMovingIdx;
+    for (let i = points.length - 1; i >= firstMovingIdx; i--) {
+      if ((points[i]!.speedKph ?? 0) >= MOVING_SPEED_KPH) {
+        lastMovingIdx = i;
+        break;
+      }
+    }
+    // Keep a short arrival tail so the coloured line reaches the park spot.
+    const endIdx = Math.min(points.length - 1, lastMovingIdx + 2);
+    const trimmed = points.slice(firstMovingIdx, endIdx + 1);
+    if (trimmed.length < 2) continue;
+
+    const path = trimmed.map((p) => ({ lat: p.latitude, lng: p.longitude }));
     const km = pathDistanceKm(path);
-    return {
-      index: i + 1,
-      color: TRIP_LEG_COLORS[i % TRIP_LEG_COLORS.length]!,
-      points,
+    if (km == null || km < TRIP_LEG_MIN_DISTANCE_KM) continue;
+
+    const firstMoving = points[firstMovingIdx]!;
+    const lastMoving = points[lastMovingIdx]!;
+
+    legs.push({
+      index: legs.length + 1,
+      color: TRIP_LEG_COLORS[legs.length % TRIP_LEG_COLORS.length]!,
+      points: trimmed,
       path,
-      startAt: points[0]!.recordedAt,
-      endAt: points[points.length - 1]!.recordedAt,
-      distanceKm: km != null && km > 0 ? km : null,
-    };
-  });
+      startAt: firstMoving.recordedAt,
+      endAt: lastMoving.recordedAt,
+      distanceKm: km,
+    });
+  }
+
+  return legs;
 }
 
 export function formatTripClock(iso: string): string {
