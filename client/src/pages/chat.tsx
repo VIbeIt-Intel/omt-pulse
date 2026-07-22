@@ -20,7 +20,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { MessageSquare, Send, Plus, Search, Users, ArrowLeft, ImageIcon, Camera, Mic, Trash2, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { MAX_VOICE_SECONDS, uploadFile, UploadValidationError } from "@/lib/upload-media";
+import { MAX_VOICE_SECONDS, prepareAndUploadFile, uploadFile, UploadValidationError } from "@/lib/upload-media";
+import { apiUrl } from "@/lib/api-base";
 import { nativeMicDeniedHint, nativeVoiceApkUpdateHint } from "@/lib/native-mic-hint";
 import {
   createAudioMediaRecorder,
@@ -78,13 +79,116 @@ type AuthUser = {
   avatarUrl?: string | null;
 };
 
+/** Pathname for /objects/… so fetch rewrite + session cookies work on Capacitor APK. */
 function mediaSrc(url: string): string {
-  if (url.startsWith("data:")) return url;
+  if (url.startsWith("data:") || url.startsWith("blob:")) return url;
   try {
-    return new URL(url).pathname;
+    if (/^https?:\/\//i.test(url)) return new URL(url).pathname;
   } catch {
-    return url;
+    /* fall through */
   }
+  return url.startsWith("/") ? url : `/${url}`;
+}
+
+/**
+ * Chat media lives behind session-auth /objects/. Bare &lt;img&gt;/&lt;audio&gt; src
+ * breaks on the local Capacitor shell — fetch with credentials, then blob URL.
+ */
+function useAuthedMediaUrl(rawUrl: string): { src: string | null; loading: boolean; error: boolean } {
+  const [src, setSrc] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let objectUrl: string | null = null;
+    let cancelled = false;
+
+    async function load() {
+      const path = mediaSrc(rawUrl);
+      if (path.startsWith("data:") || path.startsWith("blob:")) {
+        setSrc(path);
+        setError(false);
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      setError(false);
+      try {
+        const res = await fetch(apiUrl(path), { credentials: "include" });
+        if (!res.ok) throw new Error(`media ${res.status}`);
+        const blob = await res.blob();
+        objectUrl = URL.createObjectURL(blob);
+        if (!cancelled) setSrc(objectUrl);
+      } catch {
+        if (!cancelled) {
+          setError(true);
+          setSrc(null);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void load();
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [rawUrl]);
+
+  return { src, loading, error };
+}
+
+function ChatImageMessage({ url }: { url: string }) {
+  const { src, loading, error } = useAuthedMediaUrl(url);
+
+  if (loading) {
+    return (
+      <div className="max-w-[220px] h-[140px] rounded-xl border border-white/10 bg-muted/40 flex items-center justify-center text-xs text-muted-foreground">
+        Loading…
+      </div>
+    );
+  }
+  if (error || !src) {
+    return (
+      <div className="max-w-[220px] rounded-xl border border-white/10 bg-muted/40 px-3 py-6 text-xs text-muted-foreground text-center">
+        Image unavailable
+      </div>
+    );
+  }
+
+  return (
+    <a href={src} target="_blank" rel="noopener noreferrer" data-testid="msg-image-link">
+      <img
+        src={src}
+        alt="Shared image"
+        className="max-w-[220px] rounded-xl border border-white/10 object-cover cursor-pointer"
+      />
+    </a>
+  );
+}
+
+function ChatAudioMessage({ url, isMe }: { url: string; isMe: boolean }) {
+  const { src, loading, error } = useAuthedMediaUrl(url);
+
+  return (
+    <div
+      className={cn(
+        "px-2 py-1.5 rounded-2xl min-w-[200px] max-w-[260px]",
+        isMe ? "bg-primary/90" : "bg-muted",
+      )}
+      data-testid="msg-audio"
+    >
+      {loading ? (
+        <p className="text-xs text-muted-foreground px-1 py-2">Loading voice note…</p>
+      ) : error || !src ? (
+        <p className="text-xs text-muted-foreground px-1 py-2">Voice note unavailable</p>
+      ) : (
+        <audio controls src={src} className="w-full h-8" preload="metadata" />
+      )}
+    </div>
+  );
 }
 
 function previewMessage(content: string | null): string | null {
@@ -415,17 +519,13 @@ export default function ChatPage() {
     setUploadingImage(true);
     setShowAttachMenu(false);
     try {
-      const uploadResp = await fetch("/api/uploads", {
-        method: "POST",
-        headers: { "Content-Type": file.type || "application/octet-stream" },
-        credentials: "include",
-        body: file,
-      });
-      if (!uploadResp.ok) throw new Error(`Upload failed: ${uploadResp.status}`);
-      const { objectUrl } = await uploadResp.json();
+      const { objectUrl } = await prepareAndUploadFile(file, { preset: "chat" });
       await sendMediaMessage(`[img]${objectUrl}`);
-    } catch {
-      toast({ title: "Image upload failed", variant: "destructive" });
+    } catch (err) {
+      toast({
+        title: err instanceof UploadValidationError ? err.message : "Image upload failed",
+        variant: "destructive",
+      });
     } finally {
       setUploadingImage(false);
       if (galleryInputRef.current) galleryInputRef.current.value = "";
@@ -659,31 +759,10 @@ export default function ChatPage() {
 
   function renderMessageContent(content: string, isMe: boolean) {
     if (content.startsWith("[img]")) {
-      const imgSrc = mediaSrc(content.slice(5));
-      return (
-        <a href={imgSrc} target="_blank" rel="noopener noreferrer" data-testid="msg-image-link">
-          <img
-            src={imgSrc}
-            alt="Shared image"
-            className="max-w-[220px] rounded-xl border border-white/10 object-cover cursor-pointer"
-            onError={(e) => { (e.currentTarget as HTMLImageElement).alt = "Image unavailable"; }}
-          />
-        </a>
-      );
+      return <ChatImageMessage url={content.slice(5)} />;
     }
     if (content.startsWith("[audio]")) {
-      const audioSrc = mediaSrc(content.slice(7));
-      return (
-        <div
-          className={cn(
-            "px-2 py-1.5 rounded-2xl min-w-[200px] max-w-[260px]",
-            isMe ? "bg-primary/90" : "bg-muted",
-          )}
-          data-testid="msg-audio"
-        >
-          <audio controls src={audioSrc} className="w-full h-8" preload="metadata" />
-        </div>
-      );
+      return <ChatAudioMessage url={content.slice(7)} isMe={isMe} />;
     }
     return (
       <div
