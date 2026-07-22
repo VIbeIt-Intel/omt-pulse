@@ -20,6 +20,7 @@ import { LiveIncidentJoinBanner } from "@/components/live-incident-join-banner";
 import { PanicConfirmOverlay } from "@/components/panic-confirm-overlay";
 import { usePanickerLocationSync } from "@/hooks/use-panicker-location-sync";
 import { OperationsDashboard, type DashboardUserSummary } from "@/components/operations-dashboard";
+import { RadioSheet } from "@/components/radio/radio-sheet";
 import { useToast } from "@/hooks/use-toast";
 import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import { cn } from "@/lib/utils";
@@ -399,7 +400,7 @@ function ActionTile({
   subtitle?: string;
   icon: LucideIcon;
   onClick: () => void;
-  variant?: "primary" | "live" | "panic" | "access" | "patrol";
+  variant?: "primary" | "live" | "panic" | "access" | "patrol" | "radio";
   testId: string;
 }) {
   const surface =
@@ -411,9 +412,11 @@ function ActionTile({
       ? "bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-600/25"
       : variant === "patrol"
       ? "bg-gradient-to-br from-teal-600 to-emerald-700 text-white shadow-lg shadow-teal-600/25"
+      : variant === "radio"
+      ? "bg-gradient-to-br from-violet-600 to-indigo-700 text-white shadow-lg shadow-violet-600/25"
       : "bg-gradient-to-br from-primary to-primary/85 text-primary-foreground shadow-lg shadow-primary/20";
   const subtitleClass =
-    variant === "live" || variant === "panic" || variant === "access" || variant === "patrol"
+    variant === "live" || variant === "panic" || variant === "access" || variant === "patrol" || variant === "radio"
       ? "text-white/85"
       : "text-primary-foreground/80";
   const titleClass =
@@ -497,6 +500,7 @@ export default function CommandDashboard() {
   const [period, setPeriod] = useState<Period>("day");
   const [logIncidentOpen, setLogIncidentOpen] = useState(false);
   const [panicOpen, setPanicOpen] = useState(false);
+  const [radioOpen, setRadioOpen] = useState(false);
   const { toast } = useToast();
 
   const DISMISSED_KEY = "dismissedPanicIds";
@@ -830,6 +834,14 @@ export default function CommandDashboard() {
             onClick={() => setPanicOpen(true)}
             testId="button-panic"
           />
+          <ActionTile
+            title="Group radio"
+            subtitle="Hold to talk — live to your group"
+            icon={Radio}
+            variant="radio"
+            onClick={() => setRadioOpen(true)}
+            testId="button-group-radio"
+          />
           {canPatrol && (
           <ActionTile
             title={activePatrol ? "Patrol in progress" : "Start Patrol"}
@@ -963,6 +975,8 @@ export default function CommandDashboard() {
         onOpenChange={setPanicOpen}
         confirmTestId="button-confirm-panic-dashboard"
       />
+
+      <RadioSheet open={radioOpen} onOpenChange={setRadioOpen} />
     </>
   );
 }

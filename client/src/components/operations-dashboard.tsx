@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/select";
 import { PanicBanner, type PanicAlert } from "@/components/panic-banner";
 import { type LiveIncidentMapItem } from "@/components/live-incidents-map";
+import { RadioPanel } from "@/components/radio/radio-panel";
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
 import {
@@ -987,6 +988,14 @@ export function OperationsDashboard({
             Panic / SOS
           </button>
         </div>
+      </div>
+
+      <div className="shrink-0 px-4 py-2.5 border-b border-slate-800/80 bg-[#111820]">
+        <RadioPanel
+          compact
+          defaultCommandId={typeof activeCommandId === "number" ? activeCommandId : null}
+          className="max-w-xl"
+        />
       </div>
 
       {visiblePanics.length > 0 && (
