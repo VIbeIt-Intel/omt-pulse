@@ -286,14 +286,15 @@ export async function saveTrackerPosition(
     lastSpeedKph: position.speedKph,
     lastHeading: position.heading,
     lastIgnitionOn: position.ignitionOn,
-    lastMileageKm: position.mileageKm,
     lastGpsValid: position.gpsValid,
     lastPositionAt: position.recordedAt,
     lastSeenAt: new Date(),
     todayGpsDistanceKm: nextTodayGpsDistanceKm(device, position),
   };
 
+  // Only overwrite odometer when the tracker actually sent mileage — keep manual entries.
   if (position.mileageKm != null) {
+    devicePatch.lastMileageKm = position.mileageKm;
     const odometerMetrics = await computeOdometerMetrics(deviceId, position.mileageKm, position.recordedAt, {
       lastPositionAt: device.lastPositionAt,
       todayOdometerDistanceKm: device.todayOdometerDistanceKm,

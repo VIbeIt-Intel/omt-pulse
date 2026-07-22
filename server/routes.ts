@@ -4320,6 +4320,17 @@ export async function registerRoutes(
       patch.assignedUserId = typeof body.assignedUserId === "string" ? body.assignedUserId || null : null;
     }
     if ("notes" in body) patch.notes = typeof body.notes === "string" ? body.notes.trim() || null : null;
+    if ("lastMileageKm" in body) {
+      if (body.lastMileageKm === null || body.lastMileageKm === "") {
+        patch.lastMileageKm = null;
+      } else {
+        const km = typeof body.lastMileageKm === "number" ? body.lastMileageKm : Number(body.lastMileageKm);
+        if (!Number.isFinite(km) || km < 0 || km > 10_000_000) {
+          return res.status(400).json({ message: "Odometer must be a number from 0 to 10 000 000 km" });
+        }
+        patch.lastMileageKm = Math.round(km * 10) / 10;
+      }
+    }
     if ("commandId" in body) {
       const cmdId = body.commandId === null ? null : Number(body.commandId);
       if (cmdId !== null && !Number.isFinite(cmdId)) {

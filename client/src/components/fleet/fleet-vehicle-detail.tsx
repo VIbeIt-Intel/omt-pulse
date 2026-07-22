@@ -176,6 +176,7 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
     assignedUserId: "",
     commandId: "",
     notes: "",
+    odometerKm: "",
   });
 
   useEffect(() => {
@@ -188,6 +189,7 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
       assignedUserId: device.assignedUserId ?? "",
       commandId: device.commandId != null ? String(device.commandId) : "",
       notes: device.notes ?? "",
+      odometerKm: device.lastMileageKm != null ? String(device.lastMileageKm) : "",
     });
     setSelectedDayKey(null);
     setLogOpen(false);
@@ -267,6 +269,15 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
 
   const saveMutation = useMutation({
     mutationFn: async () => {
+      const odoRaw = form.odometerKm.trim().replace(",", ".");
+      let lastMileageKm: number | null = null;
+      if (odoRaw !== "") {
+        const km = Number(odoRaw);
+        if (!Number.isFinite(km) || km < 0) {
+          throw new Error("Odometer must be a valid number of kilometres");
+        }
+        lastMileageKm = Math.round(km * 10) / 10;
+      }
       await apiRequest("PATCH", `/api/trackers/${deviceId}`, {
         label: form.label || null,
         vehicleMake: form.vehicleMake || null,
@@ -276,6 +287,7 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
         assignedUserId: form.assignedUserId || null,
         commandId: form.commandId ? Number(form.commandId) : null,
         notes: form.notes || null,
+        lastMileageKm,
       });
     },
     onSuccess: () => {
@@ -438,12 +450,11 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
             sub={device.lastHeading != null ? `${Math.round(device.lastHeading)}°` : undefined}
           />
         </div>
-        {device.lastMileageKm == null && (
-          <p className="text-[11px] text-muted-foreground mt-3">
-            Odometer readings require extended GPS packets (0x22) from the tracker. Fuel level and
-            engine hours are not reported by the current GT06 integration.
-          </p>
-        )}
+        <p className="text-[11px] text-muted-foreground mt-3">
+          {device.lastMileageKm == null
+            ? "No odometer yet — enter the dash reading under Vehicle details, or wait for tracker mileage packets. Today distance uses GPS when odometer packets are missing."
+            : "Odometer can be set manually under Vehicle details. Tracker mileage packets will update it when available. Fuel level and engine hours are not reported by the current GT06 integration."}
+        </p>
       </Card>
 
       <Tabs defaultValue="travel" className="space-y-4">
@@ -721,6 +732,19 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
                   onChange={(e) => setForm((f) => ({ ...f, vehicleRegistration: e.target.value }))}
                   placeholder="Number plate"
                 />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="fleet-odometer">Odometer (km)</Label>
+                <Input
+                  id="fleet-odometer"
+                  inputMode="decimal"
+                  value={form.odometerKm}
+                  onChange={(e) => setForm((f) => ({ ...f, odometerKm: e.target.value }))}
+                  placeholder="e.g. 125430"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Enter the vehicle’s current dash reading. Leave blank to clear.
+                </p>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="fleet-make">Make</Label>

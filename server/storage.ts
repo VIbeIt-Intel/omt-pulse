@@ -291,6 +291,7 @@ export interface IStorage {
       assignedUserId?: string | null;
       commandId?: number | null;
       notes?: string | null;
+      lastMileageKm?: number | null;
     },
   ): Promise<TrackerDeviceSummary | undefined>;
   getTrackerPositionHistory(
@@ -2344,6 +2345,7 @@ export class DatabaseStorage implements IStorage {
       assignedUserId?: string | null;
       commandId?: number | null;
       notes?: string | null;
+      lastMileageKm?: number | null;
     },
   ): Promise<TrackerDeviceSummary | undefined> {
     const existing = await this.getTrackerDeviceById(id, orgId);
