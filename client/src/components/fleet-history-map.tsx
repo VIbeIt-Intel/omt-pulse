@@ -696,7 +696,7 @@ export function FleetHistoryMap({
       {tripLegs.length > 0 && (
         <div className="space-y-1.5">
           <p className="text-[10px] text-muted-foreground px-0.5">
-            Trips (movement only — tap to play)
+            Trips (start → park — tap to play)
           </p>
           <div className="flex flex-wrap items-center gap-2 px-0.5">
             {tripLegs.map((leg) => (

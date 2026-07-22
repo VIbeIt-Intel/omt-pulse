@@ -238,6 +238,8 @@ export type TripMapEvent = {
 
 /** Minimum parked/idle dwell to count as a stop on the route map. */
 export const TRIP_STOP_MIN_MS = 3 * 60 * 1000;
+/** A trip ends when the vehicle parks (same dwell as orange stop markers). */
+export const TRIP_LEG_END_IDLE_MS = TRIP_STOP_MIN_MS;
 const TRIP_EVENT_DEDUPE_M = 40;
 
 /** Distinct colours for daily trip legs on the fleet history map (dark basemap). */
@@ -262,14 +264,12 @@ export type TripLeg = {
   distanceKm: number | null;
 };
 
-/** Parked this long ends a trip; shorter stops (traffic, etc.) stay in the same trip. */
-export const TRIP_LEG_END_IDLE_MS = 10 * 60 * 1000;
 /** Ignore GPS-jitter “trips” with almost no movement. */
 export const TRIP_LEG_MIN_DISTANCE_KM = 0.25;
 
 /**
- * Split a day's GPS into real trips: skip overnight/parked dwell, start when the
- * vehicle moves, end after a long park or an offline gap.
+ * Split a day's GPS into real trips: start when the vehicle moves, end when it
+ * parks (same dwell as orange stop markers) or after an offline gap.
  */
 export function segmentTripLegs(positions: TripPosition[]): TripLeg[] {
   const sorted = [...positions]

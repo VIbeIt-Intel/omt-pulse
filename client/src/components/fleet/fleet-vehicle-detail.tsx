@@ -7,6 +7,8 @@ import {
   Download,
   Gauge,
   MapPin,
+  Navigation,
+  ParkingCircle,
   Radio,
   Route,
   Save,
@@ -43,6 +45,7 @@ import { prepareAndUploadFile } from "@/lib/upload-media";
 import { downloadFleetTripCsv, downloadFleetTripExcel } from "@/lib/fleet-trip-export";
 import {
   computeTripDayStats,
+  detectTripMapEvents,
   formatDurationMinutes,
   formatFreshnessAgo,
   formatMileageKm,
@@ -52,6 +55,7 @@ import {
   headingLabel,
   ignitionLabel,
   preferredTodayDistanceKm,
+  segmentTripLegs,
   trackerSignalSummary,
   MOTION_STATUS,
   vehicleDisplayName,
@@ -231,6 +235,33 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
     [history?.positions],
   );
 
+  const todayKey = dayKeyFromDate(new Date());
+  const yesterdayKey = dayKeyFromDate(new Date(Date.now() - 86_400_000));
+
+  const todayMetrics = useMemo(() => {
+    const pts = dayBuckets.find((d) => d.key === todayKey)?.positions ?? [];
+    const stats = computeTripDayStats(pts);
+    const trips = segmentTripLegs(pts);
+    const stops = detectTripMapEvents(pts).filter((e) => e.kind === "stop");
+    const parkedMinutes = stops.reduce((sum, s) => sum + (s.durationMinutes ?? 0), 0);
+    return {
+      stats,
+      tripCount: trips.length,
+      stopCount: stops.length,
+      parkedMinutes,
+    };
+  }, [dayBuckets, todayKey]);
+
+  const yesterdayKm = useMemo(() => {
+    const pts = dayBuckets.find((d) => d.key === yesterdayKey)?.positions ?? [];
+    if (device.lastTripDistanceKm != null) return { km: device.lastTripDistanceKm, source: "odometer" as const };
+    const stats = computeTripDayStats(pts);
+    return {
+      km: stats.distanceKm,
+      source: "gps" as const,
+    };
+  }, [dayBuckets, yesterdayKey, device.lastTripDistanceKm]);
+
   const activeDayKey = selectedDayKey ?? dayBuckets[0]?.key ?? null;
   const activeDay = dayBuckets.find((d) => d.key === activeDayKey) ?? null;
   const activePositions = activeDay?.positions ?? [];
@@ -404,7 +435,7 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
 
       <Card className="p-4 sm:p-5">
         <p className="text-sm font-semibold mb-3">Vehicle metrics</p>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
           <FleetStatCard
             icon={Route}
             label="Odometer"
@@ -421,39 +452,59 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
             value={
               todayKm != null
                 ? formatMileageKm(todayKm).replace(" km", "")
-                : tripStats.distanceKm != null
-                  ? tripStats.distanceKm.toFixed(1)
+                : todayMetrics.stats.distanceKm != null
+                  ? todayMetrics.stats.distanceKm.toFixed(1)
                   : "—"
             }
             sub={
               device.todayOdometerDistanceKm != null
                 ? "km (odometer)"
-                : todayKm != null || tripStats.distanceKm != null
-                  ? "km (GPS)"
-                  : undefined
+                : "km (GPS)"
             }
           />
           <FleetStatCard
             icon={Route}
-            label="Last day"
+            label="Yesterday"
             value={
-              device.lastTripDistanceKm != null
-                ? formatMileageKm(device.lastTripDistanceKm).replace(" km", "")
+              yesterdayKm.km != null
+                ? yesterdayKm.source === "odometer"
+                  ? formatMileageKm(yesterdayKm.km).replace(" km", "")
+                  : yesterdayKm.km.toFixed(1)
                 : "—"
             }
-            sub="km (odometer)"
+            sub={yesterdayKm.km != null ? `km (${yesterdayKm.source === "odometer" ? "odometer" : "GPS"})` : "km"}
           />
           <FleetStatCard
-            icon={Gauge}
-            label="Heading"
-            value={headingLabel(device.lastHeading)}
-            sub={device.lastHeading != null ? `${Math.round(device.lastHeading)}°` : undefined}
+            icon={Navigation}
+            label="Trips"
+            value={String(todayMetrics.tripCount)}
+            sub="today"
+          />
+          <FleetStatCard
+            icon={ParkingCircle}
+            label="Stops"
+            value={String(todayMetrics.stopCount)}
+            sub={
+              todayMetrics.parkedMinutes > 0
+                ? `${formatDurationMinutes(todayMetrics.parkedMinutes)} parked`
+                : "today"
+            }
+          />
+          <FleetStatCard
+            icon={Timer}
+            label="Driving"
+            value={formatDurationMinutes(todayMetrics.stats.drivingMinutes)}
+            sub={
+              todayMetrics.stats.maxSpeedKph != null
+                ? `max ${Math.round(todayMetrics.stats.maxSpeedKph)} km/h`
+                : "today"
+            }
           />
         </div>
         <p className="text-[11px] text-muted-foreground mt-3">
           {device.lastMileageKm == null
-            ? "No odometer yet — enter the dash reading under Vehicle details, or wait for tracker mileage packets. Today distance uses GPS when odometer packets are missing."
-            : "Odometer can be set manually under Vehicle details. Tracker mileage packets will update it when available. Fuel level and engine hours are not reported by the current GT06 integration."}
+            ? "Set odometer under Vehicle details if needed. Distances use GPS when the tracker does not send mileage packets."
+            : "Odometer can be edited under Vehicle details. Distances use GPS when mileage packets are missing."}
         </p>
       </Card>
 
