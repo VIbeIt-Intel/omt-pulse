@@ -1453,35 +1453,19 @@ export default function AnalyticsPage() {
             topLoc={kpiData.topLoc}
             topCat={kpiData.topCat}
             peakHour={kpiData.peakHour}
-            insightKey={`${startDate}|${endDate}|${kpiData.total}`}
+            insightKey={`${startDate}|${endDate}|${kpiData.total}|charts`}
           />
         ) : view === "map" ? (
-          <div
-            className="analytics-hero relative overflow-hidden rounded-xl border border-primary/25 px-5 py-5 sm:px-7"
-            data-testid="analytics-map-hero"
-          >
-            <div
-              className="pointer-events-none absolute inset-0"
-              style={{
-                background:
-                  "radial-gradient(100% 80% at 100% 0%, hsl(155 100% 28% / 0.22), transparent 55%), hsl(var(--card))",
-              }}
+          <div data-testid="analytics-map-hero">
+            <AnalyticsHero
+              eyebrow="Analytics · Map"
+              periodLabel={periodLabel}
+              total={kpiData.total}
+              topLoc={kpiData.topLoc}
+              topCat={kpiData.topCat}
+              peakHour={kpiData.peakHour}
+              insightKey={`${startDate}|${endDate}|${kpiData.total}|map`}
             />
-            <div className="relative">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary" data-testid="text-analytics-title">
-                Analytics · Map · {periodLabel}
-              </p>
-              <p className="mt-1.5 text-lg sm:text-xl font-semibold tracking-tight text-muted-foreground">
-                <strong className="text-foreground tabular-nums">{kpiData.total}</strong>
-                {kpiData.total === 1 ? " incident" : " incidents"} in period
-                {kpiData.topLoc ? (
-                  <>
-                    <span className="text-muted-foreground/50"> · </span>
-                    hotspot <strong className="text-foreground">{kpiData.topLoc}</strong>
-                  </>
-                ) : null}
-              </p>
-            </div>
           </div>
         ) : (
           <div className="flex items-start justify-between gap-4">

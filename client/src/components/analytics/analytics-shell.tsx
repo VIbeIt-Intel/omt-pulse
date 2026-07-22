@@ -8,6 +8,7 @@ export function AnalyticsHero({
   topCat,
   peakHour,
   insightKey,
+  eyebrow = "Analytics",
 }: {
   periodLabel: string;
   total: number;
@@ -16,73 +17,76 @@ export function AnalyticsHero({
   peakHour: string | null;
   /** Remount key when date range changes — drives fade animation. */
   insightKey: string;
+  eyebrow?: string;
 }) {
-  const parts: ReactNode[] = [
-    <span key="n">
-      <strong className="text-foreground tabular-nums">{total}</strong>
-      {total === 1 ? " incident" : " incidents"}
-    </span>,
-  ];
-  if (topLoc) {
-    parts.push(
-      <span key="loc">
-        hottest at <strong className="text-foreground">{topLoc}</strong>
-      </span>,
-    );
-  }
-  if (topCat) {
-    parts.push(
-      <span key="cat">
-        mostly <strong className="text-foreground">{topCat}</strong>
-      </span>,
-    );
-  }
-  if (peakHour) {
-    parts.push(
-      <span key="peak">
-        peak <strong className="text-foreground">{peakHour}</strong>
-      </span>,
-    );
-  }
+  const insights: Array<{ label: string; value: string }> = [];
+  if (topLoc) insights.push({ label: "Hotspot", value: topLoc });
+  if (topCat) insights.push({ label: "Lead type", value: topCat });
+  if (peakHour) insights.push({ label: "Peak hour", value: peakHour });
 
   return (
     <div
       key={insightKey}
-      className="analytics-hero relative overflow-hidden rounded-xl border border-primary/25 px-5 py-6 sm:px-7 sm:py-7"
+      className="analytics-hero relative overflow-hidden rounded-xl border border-primary/30"
       data-testid="analytics-hero"
     >
       <div
         className="pointer-events-none absolute inset-0"
         style={{
           background:
-            "radial-gradient(120% 80% at 0% 0%, hsl(155 100% 28% / 0.28), transparent 55%), radial-gradient(90% 70% at 100% 100%, hsl(155 60% 20% / 0.18), transparent 50%), hsl(var(--card))",
+            "linear-gradient(105deg, hsl(155 100% 19% / 0.35) 0%, hsl(var(--card)) 42%, hsl(155 40% 12% / 0.45) 100%)",
         }}
       />
       <div
-        className="pointer-events-none absolute inset-0 opacity-[0.07]"
-        style={{
-          backgroundImage:
-            "linear-gradient(hsl(var(--foreground) / 0.5) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--foreground) / 0.5) 1px, transparent 1px)",
-          backgroundSize: "24px 24px",
-        }}
+        className="pointer-events-none absolute left-0 top-0 bottom-0 w-[3px] bg-primary"
+        aria-hidden
       />
-      <div className="relative space-y-2">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary" data-testid="text-analytics-title">
-          Analytics · {periodLabel}
-        </p>
+      <div className="relative px-5 py-5 sm:px-7 sm:py-6">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 mb-4">
+          <p
+            className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary"
+            data-testid="text-analytics-title"
+          >
+            {eyebrow}
+          </p>
+          <span className="inline-flex items-center rounded-md border border-primary/25 bg-background/40 px-2.5 py-1 text-[11px] font-medium text-muted-foreground tabular-nums">
+            {periodLabel}
+          </span>
+        </div>
+
         {total === 0 ? (
-          <p className="text-lg sm:text-xl text-muted-foreground max-w-2xl leading-snug">
+          <p className="text-base sm:text-lg text-muted-foreground max-w-2xl leading-relaxed">
             No incidents in this period — adjust the date range or clear filters.
           </p>
         ) : (
-          <p className="text-lg sm:text-2xl font-semibold tracking-tight text-muted-foreground max-w-3xl leading-snug">
-            {parts.map((part, i) => (
-              <span key={i}>
-                {i > 0 ? <span className="text-muted-foreground/50"> · </span> : null}
-                {part}
-              </span>
-            ))}
-          </p>
+          <div className="flex flex-col lg:flex-row lg:items-end gap-5 lg:gap-10">
+            <div className="shrink-0 min-w-[7.5rem]">
+              <p
+                className="text-4xl sm:text-5xl font-bold tracking-tight tabular-nums text-foreground leading-none"
+                data-testid="analytics-hero-total"
+              >
+                {total}
+              </p>
+              <p className="mt-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                {total === 1 ? "Incident" : "Incidents"}
+              </p>
+            </div>
+
+            {insights.length > 0 ? (
+              <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 lg:border-l lg:border-border/70 lg:pl-10">
+                {insights.map((item) => (
+                  <div key={item.label} className="min-w-0">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-1">
+                      {item.label}
+                    </p>
+                    <p className="text-base sm:text-lg font-semibold tracking-tight text-foreground truncate" title={item.value}>
+                      {item.value}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
         )}
       </div>
     </div>
