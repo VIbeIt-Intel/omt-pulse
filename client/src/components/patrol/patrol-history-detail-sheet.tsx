@@ -2,6 +2,7 @@ import { useEffect, useState, type ComponentType } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { PatrolReport } from "@/lib/patrol-types";
 import { PatrolHistoryMap } from "@/components/patrol/patrol-history-map";
+import { downloadPatrolReportPdf } from "@/lib/patrol-report-pdf";
 import { apiUrl } from "@/lib/api-base";
 import {
   Dialog,
@@ -10,13 +11,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
   AlertTriangle,
   CheckCircle2,
   Clock3,
+  Download,
   Footprints,
+  Loader2,
   MapPin,
   Route,
   SkipForward,
@@ -52,6 +57,8 @@ export function PatrolHistoryDetailSheet({
 }: PatrolHistoryDetailSheetProps) {
   const [mapSettled, setMapSettled] = useState(false);
   const [photoPreview, setPhotoPreview] = useState<{ url: string; title: string } | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const { toast } = useToast();
 
   const { data: report, isLoading, error } = useQuery<PatrolReport>({
     queryKey: ["/api/patrol/patrols", patrolId, "report"],
@@ -75,6 +82,23 @@ export function PatrolHistoryDetailSheet({
     };
   }, [open, report]);
 
+  async function handleDownload() {
+    if (!report) return;
+    setDownloading(true);
+    try {
+      await downloadPatrolReportPdf(report);
+      toast({ title: "Report downloaded" });
+    } catch (e) {
+      toast({
+        title: "Download failed",
+        description: e instanceof Error ? e.message : "Could not generate PDF",
+        variant: "destructive",
+      });
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -87,17 +111,39 @@ export function PatrolHistoryDetailSheet({
           )}
         >
           <DialogHeader className="shrink-0 space-y-1 border-b px-4 py-3 pr-12 text-left">
-            <DialogTitle className="flex items-center gap-2">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/25">
-                <Footprints className="h-4 w-4" />
-              </span>
-              <span className="truncate">{report?.routeName ?? "Patrol report"}</span>
-            </DialogTitle>
-            <DialogDescription>
-              {report
-                ? `${report.startedByName} · ${report.status.replace("_", " ")}`
-                : "Evidence of checkpoints and the path taken"}
-            </DialogDescription>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 space-y-1">
+                <DialogTitle className="flex items-center gap-2">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/25">
+                    <Footprints className="h-4 w-4" />
+                  </span>
+                  <span className="truncate">{report?.routeName ?? "Patrol report"}</span>
+                </DialogTitle>
+                <DialogDescription>
+                  {report
+                    ? `${report.startedByName} · ${report.status.replace("_", " ")}`
+                    : "Evidence of checkpoints and the path taken"}
+                </DialogDescription>
+              </div>
+              {report && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="shrink-0 gap-1.5 mr-6"
+                  disabled={downloading}
+                  onClick={() => void handleDownload()}
+                  data-testid="button-download-patrol-report"
+                >
+                  {downloading ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Download className="h-3.5 w-3.5" />
+                  )}
+                  PDF
+                </Button>
+              )}
+            </div>
           </DialogHeader>
 
           <div className="min-h-0 flex-1 overflow-y-auto">
@@ -149,11 +195,13 @@ export function PatrolHistoryDetailSheet({
                   )}
 
                   <section className="rounded-xl border bg-card/40 p-4 space-y-3">
-                    <div>
-                      <p className="text-sm font-semibold">Route map</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        Planned pins, clocked GPS, and the recorded path when available.
-                      </p>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold">Route map</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Click pins for clock times. Play to replay the walk (or checkpoint hops if no GPS track).
+                        </p>
+                      </div>
                     </div>
                     <PatrolHistoryMap
                       active={open && mapSettled}
