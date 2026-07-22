@@ -20,7 +20,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { MessageSquare, Send, Plus, Search, Users, ArrowLeft, ImageIcon, Camera, Mic, Trash2, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { PageHero } from "@/components/page-hero";
 import { MAX_VOICE_SECONDS, prepareAndUploadFile, uploadFile, UploadValidationError } from "@/lib/upload-media";
 import { apiUrl } from "@/lib/api-base";
 import { nativeMicDeniedHint, nativeVoiceApkUpdateHint } from "@/lib/native-mic-hint";
@@ -827,43 +826,51 @@ export default function ChatPage() {
         "w-full md:w-72",
         showThread ? "hidden md:flex" : "flex"
       )}>
-        <div className="p-3 border-b">
-          <PageHero
-            compact
-            eyebrow="Chat"
-            badge={conversations.length === 1 ? "1 thread" : `${conversations.length} threads`}
-            total={totalUnread}
-            totalLabel="Unread"
-            totalTestId="badge-total-unread"
-            leading={
+        <div className="px-3 py-3 border-b border-primary/20 bg-gradient-to-r from-primary/10 via-transparent to-transparent">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 min-w-0">
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7"
+                className="h-8 w-8 shrink-0"
                 onClick={() => window.history.back()}
                 data-testid="button-chat-back"
               >
                 <ArrowLeft className="h-4 w-4" />
               </Button>
-            }
-            actions={
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 px-2 text-xs gap-1"
-                onClick={() => setNewDmOpen(true)}
-                data-testid="button-new-dm"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                New
-              </Button>
-            }
-            insights={[{ label: "Channels", value: "Group + DMs" }]}
-          />
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary leading-none">
+                  Chat
+                </p>
+                <p className="text-xs text-muted-foreground mt-1 truncate">
+                  {conversations.length} thread{conversations.length === 1 ? "" : "s"}
+                  {totalUnread > 0 ? ` · ${totalUnread} unread` : ""}
+                </p>
+              </div>
+              {totalUnread > 0 && (
+                <Badge className="h-5 min-w-5 px-1.5 text-xs shrink-0" data-testid="badge-total-unread">
+                  {totalUnread}
+                </Badge>
+              )}
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 px-2.5 text-xs gap-1 shrink-0 border-primary/25"
+              onClick={() => setNewDmOpen(true)}
+              data-testid="button-new-dm"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              New
+            </Button>
+          </div>
         </div>
 
         <ScrollArea className="flex-1">
           <div className="px-2 py-1 space-y-0.5">
+            <div className="px-2 pt-2 pb-1">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Channels</p>
+            </div>
             <button
               className={cn(
                 "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-left",
@@ -961,9 +968,9 @@ export default function ChatPage() {
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button
-                  variant="ghost"
+                  variant="outline"
                   size="sm"
-                  className="h-8 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                  className="h-8 px-2.5 text-xs text-muted-foreground border-border/80 hover:text-destructive hover:border-destructive/40 hover:bg-destructive/5"
                   disabled={clearGroupMutation.isPending || messages.length === 0}
                   data-testid="button-clear-general-chat"
                 >
