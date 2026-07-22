@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Loader2, MapPin } from "lucide-react";
 import { loadGoogleMaps } from "@/lib/google-maps-loader";
 import { SA_MAP_DEFAULT } from "@/components/live-incidents-map";
@@ -265,19 +264,21 @@ export function PatrolRouteMapEditor({
   const selectedCp = selectedIndex != null ? checkpoints[selectedIndex] : null;
 
   return (
-    <div className={cn("space-y-2", className)}>
+    <div className={cn("space-y-3", className)}>
       <div className="flex items-center justify-between gap-2">
-        <Label className="text-xs">Checkpoint locations</Label>
+        <div>
+          <p className="text-sm font-semibold">Map</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Select a checkpoint, then click the map to set its pin — or click empty map to add one.
+          </p>
+        </div>
         {geocoding && (
-          <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+          <span className="text-[11px] text-muted-foreground flex items-center gap-1 shrink-0">
             <Loader2 className="h-3 w-3 animate-spin" />
             Updating…
           </span>
         )}
       </div>
-      <p className="text-[11px] text-muted-foreground -mt-1">
-        Select a checkpoint below, then click the map to set its pin. Or click the map to add a new checkpoint.
-      </p>
 
       <div className="relative">
         <Input
@@ -314,20 +315,20 @@ export function PatrolRouteMapEditor({
       {mapsError ? (
         <p className="text-xs text-destructive">{mapsError}</p>
       ) : !mapsReady ? (
-        <div className="flex h-[min(42vh,360px)] items-center justify-center rounded-md border bg-muted/30 text-sm text-muted-foreground">
+        <div className="flex h-[min(55vh,520px)] items-center justify-center rounded-xl border bg-muted/30 text-sm text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin mr-2" />
           Loading map…
         </div>
       ) : (
         <div
           ref={mapRef}
-          className="h-[min(42vh,360px)] w-full rounded-md border bg-muted/30"
+          className="h-[min(55vh,520px)] w-full rounded-xl border bg-muted/30 shadow-sm"
           data-testid="patrol-route-map"
         />
       )}
 
       {selectedCp && hasCheckpointCoords(selectedCp) && (
-        <div className="rounded-md border bg-card/60 px-3 py-2 text-xs flex items-start gap-2">
+        <div className="rounded-lg border bg-card/60 px-3 py-2 text-xs flex items-start gap-2">
           <MapPin className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" />
           <div className="min-w-0">
             <p className="font-medium truncate">

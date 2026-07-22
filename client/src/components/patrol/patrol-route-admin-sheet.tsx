@@ -333,365 +333,418 @@ export function PatrolRouteAdminSheet({
 
   return (
     <Sheet open={open} onOpenChange={handleSheetOpenChange}>
-      <SheetContent side="bottom" className="max-h-[92vh] overflow-y-auto rounded-t-xl">
-        <SheetHeader>
-          <SheetTitle>
-            {mode === "list" && "Patrol routes"}
-            {mode === "create" && "Create patrol route"}
-            {mode === "edit" && "Edit patrol route"}
-          </SheetTitle>
-        </SheetHeader>
-
+      <SheetContent
+        side="bottom"
+        className={cn(
+          "rounded-t-xl gap-0 p-0",
+          isForm
+            ? "flex h-[min(92vh,920px)] max-h-[92vh] flex-col overflow-hidden"
+            : "max-h-[92vh] overflow-y-auto p-6",
+        )}
+      >
         {isForm ? (
-          <div className="mt-4 space-y-4">
-            <Button type="button" variant="ghost" size="sm" className="-ml-2" onClick={leaveForm}>
-              <ArrowLeft className="h-4 w-4 mr-1" />
-              {parentOwnsList ? "Close" : "Back to routes"}
-            </Button>
+          <>
+            <SheetHeader className="shrink-0 space-y-1 border-b px-4 py-3 pr-12 text-left">
+              <SheetTitle>
+                {mode === "create" ? "Create patrol route" : "Edit patrol route"}
+              </SheetTitle>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="-ml-2 h-8 w-fit px-2 text-muted-foreground"
+                onClick={leaveForm}
+              >
+                <ArrowLeft className="h-4 w-4 mr-1" />
+                {parentOwnsList ? "Close" : "Back to routes"}
+              </Button>
+            </SheetHeader>
 
-            {mode === "edit" && editingLoading ? (
-              <div className="flex items-center justify-center py-12 text-muted-foreground">
-                <Loader2 className="h-5 w-5 animate-spin mr-2" />
-                Loading route…
-              </div>
-            ) : (
-              <>
-                <div className="space-y-3 rounded-lg border p-4">
-                  <Input
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="Route name, e.g. Perimeter round"
-                  />
-                  <Textarea
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Optional description"
-                    rows={2}
-                  />
-                  <Select value={commandId} onValueChange={setCommandId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Group scope" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All groups</SelectItem>
-                      {commands.map((c) => (
-                        <SelectItem key={c.id} value={String(c.id)}>
-                          {c.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <div className="mx-auto w-full max-w-3xl space-y-5 px-4 py-4">
+                {mode === "edit" && editingLoading ? (
+                  <div className="flex items-center justify-center py-12 text-muted-foreground">
+                    <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                    Loading route…
+                  </div>
+                ) : (
+                  <>
+                    <section className="space-y-3 rounded-xl border bg-card/40 p-4">
+                      <div>
+                        <p className="text-sm font-semibold">Route details</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Name, notes, and which group can run this route.
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-xs text-muted-foreground">Name</Label>
+                        <Input
+                          value={name}
+                          onChange={(e) => setName(e.target.value)}
+                          placeholder="Route name, e.g. Perimeter round"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-xs text-muted-foreground">Description</Label>
+                        <Textarea
+                          value={description}
+                          onChange={(e) => setDescription(e.target.value)}
+                          placeholder="Optional description"
+                          rows={2}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-xs text-muted-foreground">Group</Label>
+                        <Select value={commandId} onValueChange={setCommandId}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Group scope" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All groups</SelectItem>
+                            {commands.map((c) => (
+                              <SelectItem key={c.id} value={String(c.id)}>
+                                {c.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </section>
 
-                <PatrolRouteMapEditor
-                  checkpoints={checkpoints}
-                  selectedIndex={selectedIndex}
-                  onSelectCheckpoint={setSelectedIndex}
-                  onUpdateCheckpoint={updateCheckpoint}
-                  onAddCheckpoint={addCheckpoint}
-                />
+                    <section className="rounded-xl border bg-card/40 p-4">
+                      <PatrolRouteMapEditor
+                        checkpoints={checkpoints}
+                        selectedIndex={selectedIndex}
+                        onSelectCheckpoint={setSelectedIndex}
+                        onUpdateCheckpoint={updateCheckpoint}
+                        onAddCheckpoint={addCheckpoint}
+                      />
+                    </section>
 
-                <div className="space-y-2">
-                  <Label>Checkpoints (in order)</Label>
-                  {checkpoints.map((cp, i) => (
-                    <div
-                      key={i}
-                      className={cn(
-                        "rounded-md border p-3 space-y-2 transition-colors",
-                        selectedIndex === i && "border-primary/60 bg-primary/5",
-                      )}
-                    >
-                      <button
-                        type="button"
-                        className="w-full text-left"
-                        onClick={() => setSelectedIndex(i)}
-                      >
-                        <div className="flex items-center justify-between gap-2 mb-2">
-                          <span className="text-xs font-medium text-muted-foreground">
-                            #{i + 1}
-                            {hasCheckpointCoords(cp) && (
-                              <span className="ml-2 inline-flex items-center gap-0.5 text-primary">
-                                <MapPin className="h-3 w-3" />
-                                Pinned
+                    <section className="space-y-3 rounded-xl border bg-card/40 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold">Checkpoints</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            Ordered stops officers must clock on the run.
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          className="shrink-0"
+                          onClick={() => {
+                            const next = emptyPatrolCheckpoint();
+                            addCheckpoint(next);
+                            setSelectedIndex(checkpoints.length);
+                          }}
+                        >
+                          <Plus className="h-4 w-4 mr-1" />
+                          Add
+                        </Button>
+                      </div>
+                      {checkpoints.map((cp, i) => (
+                        <div
+                          key={i}
+                          className={cn(
+                            "rounded-lg border bg-background/50 p-3 space-y-2 transition-colors",
+                            selectedIndex === i && "border-primary/60 bg-primary/5",
+                          )}
+                        >
+                          <button
+                            type="button"
+                            className="w-full text-left"
+                            onClick={() => setSelectedIndex(i)}
+                          >
+                            <div className="flex items-center justify-between gap-2 mb-2">
+                              <span className="text-xs font-medium text-muted-foreground">
+                                #{i + 1}
+                                {hasCheckpointCoords(cp) && (
+                                  <span className="ml-2 inline-flex items-center gap-0.5 text-primary">
+                                    <MapPin className="h-3 w-3" />
+                                    Pinned
+                                  </span>
+                                )}
                               </span>
-                            )}
-                          </span>
-                          {checkpoints.length > 1 && (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 shrink-0"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                removeCheckpoint(i);
-                              }}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                              {checkpoints.length > 1 && (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 shrink-0"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    removeCheckpoint(i);
+                                  }}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              )}
+                            </div>
+                          </button>
+                          <Input
+                            value={cp.name}
+                            onChange={(e) => updateCheckpoint(i, { name: e.target.value })}
+                            onFocus={() => setSelectedIndex(i)}
+                            placeholder={`Checkpoint ${i + 1}`}
+                          />
+                          <Input
+                            value={cp.instructions}
+                            onChange={(e) => updateCheckpoint(i, { instructions: e.target.value })}
+                            onFocus={() => setSelectedIndex(i)}
+                            placeholder="Instructions (optional)"
+                          />
+                          <div className="flex items-center gap-2">
+                            <Switch
+                              checked={cp.photoRequired}
+                              onCheckedChange={(v) => updateCheckpoint(i, { photoRequired: v })}
+                            />
+                            <span className="text-xs text-muted-foreground">Photo required</span>
+                          </div>
+                          {hasCheckpointCoords(cp) && (
+                            <p className="text-[11px] text-muted-foreground tabular-nums">
+                              {cp.latitude!.toFixed(5)}, {cp.longitude!.toFixed(5)}
+                            </p>
                           )}
                         </div>
-                      </button>
-                      <Input
-                        value={cp.name}
-                        onChange={(e) => updateCheckpoint(i, { name: e.target.value })}
-                        onFocus={() => setSelectedIndex(i)}
-                        placeholder={`Checkpoint ${i + 1}`}
-                      />
-                      <Input
-                        value={cp.instructions}
-                        onChange={(e) => updateCheckpoint(i, { instructions: e.target.value })}
-                        onFocus={() => setSelectedIndex(i)}
-                        placeholder="Instructions (optional)"
-                      />
-                      <div className="flex items-center gap-2">
+                      ))}
+                    </section>
+
+                    <section className="space-y-3 rounded-xl border bg-card/40 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold">Scheduled prompts</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            Push to a patroller about every hour (±jitter)
+                          </p>
+                        </div>
                         <Switch
-                          checked={cp.photoRequired}
-                          onCheckedChange={(v) => updateCheckpoint(i, { photoRequired: v })}
+                          checked={schedule.isEnabled}
+                          onCheckedChange={(v) => setSchedule((s) => ({ ...s, isEnabled: v }))}
                         />
-                        <span className="text-xs text-muted-foreground">Photo required</span>
                       </div>
-                      {hasCheckpointCoords(cp) && (
-                        <p className="text-[11px] text-muted-foreground tabular-nums">
-                          {cp.latitude!.toFixed(5)}, {cp.longitude!.toFixed(5)}
-                        </p>
+
+                      {schedule.isEnabled && (
+                        <div className="space-y-3 pt-1">
+                          <div className="grid grid-cols-3 gap-2">
+                            <div className="space-y-1">
+                              <Label className="text-xs">Interval (min)</Label>
+                              <Input
+                                type="number"
+                                min={30}
+                                max={180}
+                                value={schedule.intervalMinutes}
+                                onChange={(e) =>
+                                  setSchedule((s) => ({
+                                    ...s,
+                                    intervalMinutes: parseInt(e.target.value, 10) || 60,
+                                  }))
+                                }
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Jitter ±</Label>
+                              <Input
+                                type="number"
+                                min={0}
+                                max={30}
+                                value={schedule.jitterMinutes}
+                                onChange={(e) =>
+                                  setSchedule((s) => ({
+                                    ...s,
+                                    jitterMinutes: parseInt(e.target.value, 10) || 0,
+                                  }))
+                                }
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Start within</Label>
+                              <Input
+                                type="number"
+                                min={5}
+                                max={60}
+                                value={schedule.startWithinMinutes}
+                                onChange={(e) =>
+                                  setSchedule((s) => ({
+                                    ...s,
+                                    startWithinMinutes: parseInt(e.target.value, 10) || 15,
+                                  }))
+                                }
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="space-y-1">
+                              <Label className="text-xs">Quiet from (SA)</Label>
+                              <Select
+                                value={schedule.quietStartHour}
+                                onValueChange={(v) => setSchedule((s) => ({ ...s, quietStartHour: v }))}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder="None" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="none">None</SelectItem>
+                                  {Array.from({ length: 24 }, (_, h) => (
+                                    <SelectItem key={h} value={String(h)}>
+                                      {String(h).padStart(2, "0")}:00
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Quiet until (SA)</Label>
+                              <Select
+                                value={schedule.quietEndHour}
+                                onValueChange={(v) => setSchedule((s) => ({ ...s, quietEndHour: v }))}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder="None" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="none">None</SelectItem>
+                                  {Array.from({ length: 24 }, (_, h) => (
+                                    <SelectItem key={h} value={String(h)}>
+                                      {String(h).padStart(2, "0")}:00
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label className="text-xs">Assignees (optional)</Label>
+                            <p className="text-[11px] text-muted-foreground">
+                              Leave empty to use the route group / all patrol-capable users. One person is
+                              prompted per cycle (round-robin).
+                            </p>
+                            <div className="max-h-36 overflow-y-auto space-y-1.5 rounded-md border p-2">
+                              {assigneeCandidates.length === 0 ? (
+                                <p className="text-xs text-muted-foreground px-1 py-2">
+                                  No patrol-capable users found
+                                </p>
+                              ) : (
+                                assigneeCandidates.map((u) => {
+                                  const checked = schedule.assigneeUserIds.includes(u.id);
+                                  return (
+                                    <label
+                                      key={u.id}
+                                      className="flex items-center gap-2 text-sm px-1 py-0.5 cursor-pointer"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        className="rounded border-input"
+                                        checked={checked}
+                                        onChange={() =>
+                                          setSchedule((s) => ({
+                                            ...s,
+                                            assigneeUserIds: checked
+                                              ? s.assigneeUserIds.filter((id) => id !== u.id)
+                                              : [...s.assigneeUserIds, u.id],
+                                          }))
+                                        }
+                                      />
+                                      <span className="truncate">
+                                        {u.firstName} {u.lastName}
+                                      </span>
+                                      <span className="text-[10px] text-muted-foreground ml-auto shrink-0">
+                                        {u.role.replace("_", " ")}
+                                      </span>
+                                    </label>
+                                  );
+                                })
+                              )}
+                            </div>
+                          </div>
+                        </div>
                       )}
-                    </div>
-                  ))}
+                    </section>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {!(mode === "edit" && editingLoading) && (
+              <div className="shrink-0 border-t bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+                <div className="mx-auto max-w-3xl">
                   <Button
                     type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      const next = emptyPatrolCheckpoint();
-                      addCheckpoint(next);
-                      setSelectedIndex(checkpoints.length);
-                    }}
+                    className="w-full"
+                    disabled={saveMutation.isPending}
+                    onClick={() => saveMutation.mutate()}
                   >
-                    <Plus className="h-4 w-4 mr-1" />
-                    Add checkpoint
+                    {saveMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : mode === "create" ? (
+                      "Create route"
+                    ) : (
+                      "Save changes"
+                    )}
                   </Button>
                 </div>
-
-                <div className="space-y-3 rounded-lg border p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium">Scheduled prompts</p>
-                      <p className="text-xs text-muted-foreground">
-                        Push to a patroller about every hour (±jitter)
-                      </p>
-                    </div>
-                    <Switch
-                      checked={schedule.isEnabled}
-                      onCheckedChange={(v) => setSchedule((s) => ({ ...s, isEnabled: v }))}
-                    />
-                  </div>
-
-                  {schedule.isEnabled && (
-                    <div className="space-y-3 pt-1">
-                      <div className="grid grid-cols-3 gap-2">
-                        <div className="space-y-1">
-                          <Label className="text-xs">Interval (min)</Label>
-                          <Input
-                            type="number"
-                            min={30}
-                            max={180}
-                            value={schedule.intervalMinutes}
-                            onChange={(e) =>
-                              setSchedule((s) => ({
-                                ...s,
-                                intervalMinutes: parseInt(e.target.value, 10) || 60,
-                              }))
-                            }
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs">Jitter ±</Label>
-                          <Input
-                            type="number"
-                            min={0}
-                            max={30}
-                            value={schedule.jitterMinutes}
-                            onChange={(e) =>
-                              setSchedule((s) => ({
-                                ...s,
-                                jitterMinutes: parseInt(e.target.value, 10) || 0,
-                              }))
-                            }
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs">Start within</Label>
-                          <Input
-                            type="number"
-                            min={5}
-                            max={60}
-                            value={schedule.startWithinMinutes}
-                            onChange={(e) =>
-                              setSchedule((s) => ({
-                                ...s,
-                                startWithinMinutes: parseInt(e.target.value, 10) || 15,
-                              }))
-                            }
-                          />
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="space-y-1">
-                          <Label className="text-xs">Quiet from (SA)</Label>
-                          <Select
-                            value={schedule.quietStartHour}
-                            onValueChange={(v) => setSchedule((s) => ({ ...s, quietStartHour: v }))}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="None" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="none">None</SelectItem>
-                              {Array.from({ length: 24 }, (_, h) => (
-                                <SelectItem key={h} value={String(h)}>
-                                  {String(h).padStart(2, "0")}:00
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs">Quiet until (SA)</Label>
-                          <Select
-                            value={schedule.quietEndHour}
-                            onValueChange={(v) => setSchedule((s) => ({ ...s, quietEndHour: v }))}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="None" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="none">None</SelectItem>
-                              {Array.from({ length: 24 }, (_, h) => (
-                                <SelectItem key={h} value={String(h)}>
-                                  {String(h).padStart(2, "0")}:00
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label className="text-xs">Assignees (optional)</Label>
-                        <p className="text-[11px] text-muted-foreground">
-                          Leave empty to use the route group / all patrol-capable users. One person is
-                          prompted per cycle (round-robin).
-                        </p>
-                        <div className="max-h-36 overflow-y-auto space-y-1.5 rounded-md border p-2">
-                          {assigneeCandidates.length === 0 ? (
-                            <p className="text-xs text-muted-foreground px-1 py-2">
-                              No patrol-capable users found
-                            </p>
-                          ) : (
-                            assigneeCandidates.map((u) => {
-                              const checked = schedule.assigneeUserIds.includes(u.id);
-                              return (
-                                <label
-                                  key={u.id}
-                                  className="flex items-center gap-2 text-sm px-1 py-0.5 cursor-pointer"
-                                >
-                                  <input
-                                    type="checkbox"
-                                    className="rounded border-input"
-                                    checked={checked}
-                                    onChange={() =>
-                                      setSchedule((s) => ({
-                                        ...s,
-                                        assigneeUserIds: checked
-                                          ? s.assigneeUserIds.filter((id) => id !== u.id)
-                                          : [...s.assigneeUserIds, u.id],
-                                      }))
-                                    }
-                                  />
-                                  <span className="truncate">
-                                    {u.firstName} {u.lastName}
-                                  </span>
-                                  <span className="text-[10px] text-muted-foreground ml-auto shrink-0">
-                                    {u.role.replace("_", " ")}
-                                  </span>
-                                </label>
-                              );
-                            })
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <Button
-                  type="button"
-                  className="w-full"
-                  disabled={saveMutation.isPending}
-                  onClick={() => saveMutation.mutate()}
-                >
-                  {saveMutation.isPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : mode === "create" ? (
-                    "Create route"
-                  ) : (
-                    "Save changes"
-                  )}
-                </Button>
-              </>
+              </div>
             )}
-          </div>
-        ) : parentOwnsList ? (
-          <div className="flex items-center justify-center py-12 text-muted-foreground">
-            <Loader2 className="h-5 w-5 animate-spin mr-2" />
-            Opening…
-          </div>
+          </>
         ) : (
-          <div className="mt-4 space-y-4">
-            <Button type="button" className="w-full" onClick={startCreate}>
-              <Plus className="h-4 w-4 mr-1" />
-              Create new route
-            </Button>
-
-            {routes.length > 0 ? (
-              <ul className="space-y-2">
-                {routes.map((r) => (
-                  <li
-                    key={r.id}
-                    className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm"
-                  >
-                    <div className="min-w-0">
-                      <p className="font-medium truncate">{r.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {r.isActive ? "Active" : "Inactive"}
-                      </p>
-                    </div>
-                    <div className="flex gap-1.5 shrink-0">
-                      <Button type="button" variant="outline" size="sm" onClick={() => startEdit(r.id)}>
-                        <Pencil className="h-3.5 w-3.5 mr-1" />
-                        Edit
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={toggleMutation.isPending}
-                        onClick={() => toggleMutation.mutate({ id: r.id, isActive: !r.isActive })}
-                      >
-                        {r.isActive ? "Deactivate" : "Activate"}
-                      </Button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
+          <>
+            <SheetHeader className="mb-2 px-0">
+              <SheetTitle>Patrol routes</SheetTitle>
+            </SheetHeader>
+            {parentOwnsList ? (
+              <div className="flex items-center justify-center py-12 text-muted-foreground">
+                <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                Opening…
+              </div>
             ) : (
-              <p className="text-sm text-muted-foreground text-center py-6">
-                No routes yet. Create your first patrol route above.
-              </p>
+              <div className="mt-4 space-y-4">
+                <Button type="button" className="w-full" onClick={startCreate}>
+                  <Plus className="h-4 w-4 mr-1" />
+                  Create new route
+                </Button>
+
+                {routes.length > 0 ? (
+                  <ul className="space-y-2">
+                    {routes.map((r) => (
+                      <li
+                        key={r.id}
+                        className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm"
+                      >
+                        <div className="min-w-0">
+                          <p className="font-medium truncate">{r.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {r.isActive ? "Active" : "Inactive"}
+                          </p>
+                        </div>
+                        <div className="flex gap-1.5 shrink-0">
+                          <Button type="button" variant="outline" size="sm" onClick={() => startEdit(r.id)}>
+                            <Pencil className="h-3.5 w-3.5 mr-1" />
+                            Edit
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={toggleMutation.isPending}
+                            onClick={() => toggleMutation.mutate({ id: r.id, isActive: !r.isActive })}
+                          >
+                            {r.isActive ? "Deactivate" : "Activate"}
+                          </Button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-muted-foreground text-center py-6">
+                    No routes yet. Create your first patrol route above.
+                  </p>
+                )}
+              </div>
             )}
-          </div>
+          </>
         )}
       </SheetContent>
     </Sheet>
