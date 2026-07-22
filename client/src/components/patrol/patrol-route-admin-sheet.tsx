@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { PatrolRoute } from "@shared/schema";
+import type { Location, PatrolRoute } from "@shared/schema";
 import type { PatrolRouteWithCheckpoints } from "@/lib/patrol-types";
 import { PatrolRouteMapEditor } from "@/components/patrol/patrol-route-map-editor";
 import { Button } from "@/components/ui/button";
@@ -137,6 +137,7 @@ export function PatrolRouteAdminSheet({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [commandId, setCommandId] = useState<string>("all");
+  const [locationId, setLocationId] = useState<string>("none");
   const [checkpoints, setCheckpoints] = useState<PatrolCheckpointDraft[]>([emptyPatrolCheckpoint()]);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(0);
   const [schedule, setSchedule] = useState<ScheduleForm>(defaultScheduleForm);
@@ -176,11 +177,29 @@ export function PatrolRouteAdminSheet({
     enabled: open && (mode === "create" || mode === "edit"),
   });
 
+  const { data: locations = [] } = useQuery<Location[]>({
+    queryKey: ["/api/locations"],
+    enabled: open && (mode === "create" || mode === "edit" || parentOwnsList),
+  });
+
+  const premisesOptions = (() => {
+    if (commandId === "all") return locations;
+    const cmd = parseInt(commandId, 10);
+    return locations.filter((l) => l.commandId == null || l.commandId === cmd);
+  })();
+
+  const selectedPremises = locations.find((l) => String(l.id) === locationId) ?? null;
+  const mapInitialCenter =
+    selectedPremises?.latitude != null && selectedPremises.longitude != null
+      ? { lat: selectedPremises.latitude, lng: selectedPremises.longitude }
+      : null;
+
   useEffect(() => {
     if (mode !== "edit" || !editingRoute) return;
     setName(editingRoute.name);
     setDescription(editingRoute.description ?? "");
     setCommandId(editingRoute.commandId != null ? String(editingRoute.commandId) : "all");
+    setLocationId(editingRoute.locationId != null ? String(editingRoute.locationId) : "none");
     const drafts = toDraftsFromRoute(editingRoute);
     setCheckpoints(drafts);
     setSelectedIndex(drafts.length > 0 ? 0 : null);
@@ -205,6 +224,7 @@ export function PatrolRouteAdminSheet({
     setName("");
     setDescription("");
     setCommandId("all");
+    setLocationId("none");
     setCheckpoints([emptyPatrolCheckpoint()]);
     setSelectedIndex(0);
     setSchedule(defaultScheduleForm());
@@ -220,6 +240,7 @@ export function PatrolRouteAdminSheet({
     setName("");
     setDescription("");
     setCommandId("all");
+    setLocationId("none");
     setSchedule(defaultScheduleForm());
     setMode("create");
     setCheckpoints([emptyPatrolCheckpoint()]);
@@ -306,6 +327,7 @@ export function PatrolRouteAdminSheet({
           name: name.trim(),
           description: description.trim() || null,
           commandId: commandId === "all" ? null : parseInt(commandId, 10),
+          locationId: locationId === "none" ? null : parseInt(locationId, 10),
           isActive: true,
           checkpoints: payload,
         });
@@ -319,6 +341,7 @@ export function PatrolRouteAdminSheet({
           name: name.trim(),
           description: description.trim() || null,
           commandId: commandId === "all" ? null : parseInt(commandId, 10),
+          locationId: locationId === "none" ? null : parseInt(locationId, 10),
         });
         // Only rewrite checkpoints when they actually changed — the server blocks
         // checkpoint edits on routes that already have patrol history, and that
@@ -393,7 +416,7 @@ export function PatrolRouteAdminSheet({
                       <div>
                         <p className="text-sm font-semibold">Route details</p>
                         <p className="text-xs text-muted-foreground mt-0.5">
-                          Name, notes, and which group can run this route.
+                          Name, premises, notes, and which group can run this route.
                         </p>
                       </div>
                       <div className="space-y-2">
@@ -403,6 +426,37 @@ export function PatrolRouteAdminSheet({
                           onChange={(e) => setName(e.target.value)}
                           placeholder="Route name, e.g. Perimeter round"
                         />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-xs text-muted-foreground">Premises</Label>
+                        <Select
+                          value={locationId}
+                          onValueChange={(v) => {
+                            setLocationId(v);
+                            if (v === "none") return;
+                            const loc = locations.find((l) => String(l.id) === v);
+                            if (loc?.commandId != null && commandId === "all") {
+                              setCommandId(String(loc.commandId));
+                            }
+                          }}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select premises" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">Not set</SelectItem>
+                            {premisesOptions.map((loc) => (
+                              <SelectItem key={loc.id} value={String(loc.id)}>
+                                {loc.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {locations.length === 0 && (
+                          <p className="text-[11px] text-muted-foreground">
+                            No premises configured yet — add sites under Groups / Locations.
+                          </p>
+                        )}
                       </div>
                       <div className="space-y-2">
                         <Label className="text-xs text-muted-foreground">Description</Label>
@@ -415,7 +469,17 @@ export function PatrolRouteAdminSheet({
                       </div>
                       <div className="space-y-2">
                         <Label className="text-xs text-muted-foreground">Group</Label>
-                        <Select value={commandId} onValueChange={setCommandId}>
+                        <Select
+                          value={commandId}
+                          onValueChange={(v) => {
+                            setCommandId(v);
+                            if (v === "all" || locationId === "none") return;
+                            const loc = locations.find((l) => String(l.id) === locationId);
+                            if (loc?.commandId != null && String(loc.commandId) !== v) {
+                              setLocationId("none");
+                            }
+                          }}
+                        >
                           <SelectTrigger>
                             <SelectValue placeholder="Group scope" />
                           </SelectTrigger>
@@ -434,6 +498,7 @@ export function PatrolRouteAdminSheet({
                     <section className="rounded-xl border bg-card/40 p-4">
                       <PatrolRouteMapEditor
                         active={open && isForm && mapSettled}
+                        initialCenter={mapInitialCenter}
                         checkpoints={checkpoints}
                         selectedIndex={selectedIndex}
                         onSelectCheckpoint={setSelectedIndex}

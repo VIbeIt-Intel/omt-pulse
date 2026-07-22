@@ -32,6 +32,14 @@ export async function migratePatrol() {
     CREATE INDEX IF NOT EXISTS patrol_routes_command_idx ON patrol_routes (command_id)
       WHERE command_id IS NOT NULL
   `);
+  await safe("patrol_routes.location_id", sql`
+    ALTER TABLE patrol_routes
+      ADD COLUMN IF NOT EXISTS location_id INTEGER REFERENCES locations(id) ON DELETE SET NULL
+  `);
+  await safe("patrol_routes.location_idx", sql`
+    CREATE INDEX IF NOT EXISTS patrol_routes_location_idx ON patrol_routes (location_id)
+      WHERE location_id IS NOT NULL
+  `);
 
   await safe("patrol_checkpoints.create", sql`
     CREATE TABLE IF NOT EXISTS patrol_checkpoints (

@@ -737,6 +737,8 @@ export const patrolRoutes = pgTable("patrol_routes", {
   organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
   /** Optional Group scope — routes can be limited to a Command. */
   commandId: integer("command_id").references(() => commands.id, { onDelete: "set null" }),
+  /** Optional premises / site this route belongs to (same entity as access workstations). */
+  locationId: integer("location_id").references(() => locations.id, { onDelete: "set null" }),
   name: text("name").notNull(),
   description: text("description"),
   createdByUserId: varchar("created_by_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),

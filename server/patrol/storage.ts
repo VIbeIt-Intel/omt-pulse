@@ -84,9 +84,22 @@ function routeCommandFilter(commandIds: number[] | null | undefined) {
   return or(isNull(patrolRoutes.commandId), inArray(patrolRoutes.commandId, commandIds));
 }
 
+/** When locationIds is null, no premises filter. Empty array = only unscoped routes. */
+function routeLocationFilter(locationIds: number[] | null | undefined) {
+  if (locationIds == null) return undefined;
+  if (locationIds.length === 0) {
+    return isNull(patrolRoutes.locationId);
+  }
+  return or(isNull(patrolRoutes.locationId), inArray(patrolRoutes.locationId, locationIds));
+}
+
 export async function listPatrolRoutes(
   orgId: string,
-  opts: { activeOnly?: boolean; commandIds?: number[] | null } = {},
+  opts: {
+    activeOnly?: boolean;
+    commandIds?: number[] | null;
+    locationIds?: number[] | null;
+  } = {},
 ): Promise<PatrolRoute[]> {
   const conditions = [eq(patrolRoutes.organizationId, orgId)];
   if (opts.activeOnly !== false) {
@@ -94,6 +107,8 @@ export async function listPatrolRoutes(
   }
   const cmdFilter = routeCommandFilter(opts.commandIds);
   if (cmdFilter) conditions.push(cmdFilter);
+  const locFilter = routeLocationFilter(opts.locationIds);
+  if (locFilter) conditions.push(locFilter);
 
   return db
     .select()

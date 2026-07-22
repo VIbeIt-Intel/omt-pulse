@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import type { PatrolRoute } from "@shared/schema";
+import type { Location, PatrolRoute } from "@shared/schema";
 import { canManagePatrolRoutes } from "@/lib/user-roles";
 import type { PatrolDetail, PatrolHistoryItem } from "@/lib/patrol-types";
 import { PatrolActiveRun } from "@/components/patrol/patrol-active-run";
@@ -125,6 +125,16 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
     enabled: isManager,
   });
 
+  const { data: locations = [] } = useQuery<Location[]>({
+    queryKey: ["/api/locations"],
+  });
+
+  const locationNameById = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const loc of locations) map.set(loc.id, loc.name);
+    return map;
+  }, [locations]);
+
   const startMutation = useMutation({
     mutationFn: async (routeId: number) => {
       const loc = await requestLocationAccess({ probeMode: "settle" });
@@ -226,6 +236,8 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
           {sortedRoutes.map((route) => {
             const pending = pendingByRoute.get(route.id);
             const highlighted = highlightRouteId === route.id || !!pending;
+            const premisesName =
+              route.locationId != null ? locationNameById.get(route.locationId) : null;
             return (
               <li
                 key={route.id}
@@ -240,9 +252,13 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
                     <p className="text-xs text-primary font-medium mt-0.5">
                       {pending.status === "overdue" ? "Overdue — start now" : "Due now — start patrol"}
                     </p>
-                  ) : route.description ? (
-                    <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{route.description}</p>
-                  ) : null}
+                  ) : (
+                    <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
+                      {premisesName ? `${premisesName}` : ""}
+                      {premisesName && route.description ? " · " : ""}
+                      {route.description || (!premisesName ? "No description" : "")}
+                    </p>
+                  )}
                 </div>
                 <Button
                   type="button"
@@ -345,6 +361,8 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
                         route.commandId != null
                           ? commands.find((c) => c.id === route.commandId)?.name
                           : null;
+                      const premisesName =
+                        route.locationId != null ? locationNameById.get(route.locationId) : null;
                       return (
                         <li
                           key={route.id}
@@ -368,8 +386,12 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
                               </span>
                             </div>
                             <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                              {commandName ? `${commandName} · ` : ""}
-                              {route.description?.trim() || "No description"}
+                              {[premisesName, commandName].filter(Boolean).join(" · ")}
+                              {[premisesName, commandName].some(Boolean) && route.description?.trim()
+                                ? " · "
+                                : ""}
+                              {route.description?.trim() ||
+                                (![premisesName, commandName].some(Boolean) ? "No description" : "")}
                             </p>
                           </div>
                           <Button

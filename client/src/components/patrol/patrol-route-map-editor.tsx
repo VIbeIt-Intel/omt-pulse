@@ -19,6 +19,8 @@ type PatrolRouteMapEditorProps = {
   onAddCheckpoint: (draft: PatrolCheckpointDraft) => void;
   /** When false, tear down the map so it re-inits at the correct size when shown again. */
   active?: boolean;
+  /** Optional premises center used when the route has no checkpoint pins yet. */
+  initialCenter?: { lat: number; lng: number } | null;
   className?: string;
 };
 
@@ -41,6 +43,7 @@ export function PatrolRouteMapEditor({
   onUpdateCheckpoint,
   onAddCheckpoint,
   active = true,
+  initialCenter = null,
   className,
 }: PatrolRouteMapEditorProps) {
   const [mapsReady, setMapsReady] = useState(false);
@@ -167,11 +170,15 @@ export function PatrolRouteMapEditor({
     const center =
       withCoords.length > 0
         ? { lat: withCoords[0]!.latitude!, lng: withCoords[0]!.longitude! }
-        : { lat: SA_MAP_DEFAULT.lat, lng: SA_MAP_DEFAULT.lng };
+        : initialCenter
+          ? { lat: initialCenter.lat, lng: initialCenter.lng }
+          : { lat: SA_MAP_DEFAULT.lat, lng: SA_MAP_DEFAULT.lng };
+    const zoom =
+      withCoords.length > 0 ? 14 : initialCenter ? 16 : SA_MAP_DEFAULT.zoom;
 
     const map = new google.maps.Map(mapRef.current, {
       center,
-      zoom: withCoords.length > 0 ? 14 : SA_MAP_DEFAULT.zoom,
+      zoom,
       mapTypeControl: true,
       streetViewControl: false,
       fullscreenControl: true,
@@ -229,7 +236,15 @@ export function PatrolRouteMapEditor({
         mapInstanceRef.current = null;
       }
     };
-  }, [active, mapsReady, applyLatLng]);
+  }, [active, mapsReady, applyLatLng, initialCenter?.lat, initialCenter?.lng]);
+
+  useEffect(() => {
+    if (!active || !mapsReady || !mapInstanceRef.current || !initialCenter) return;
+    const withCoords = checkpoints.some(hasCheckpointCoords);
+    if (withCoords) return;
+    mapInstanceRef.current.panTo(initialCenter);
+    mapInstanceRef.current.setZoom(16);
+  }, [active, mapsReady, initialCenter?.lat, initialCenter?.lng, checkpoints]);
 
   useEffect(() => {
     const map = mapInstanceRef.current;

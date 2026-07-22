@@ -38,6 +38,30 @@ function canManagePatrolRoutes(role: string): boolean {
   return role === "administrator" || role === "supervisor";
 }
 
+/** Explicit premises assignments; empty = no restriction (same pattern as incidents). */
+async function getExecutorLocationScope(
+  userId: string,
+  orgId: string,
+): Promise<number[] | null> {
+  const assigned = await storage.getUserLocationAssignments(userId, orgId);
+  return assigned.length > 0 ? assigned : null;
+}
+
+function assertRouteLocationAccess(
+  routeLocationId: number | null | undefined,
+  locationIds: number[] | null,
+): boolean {
+  if (locationIds == null) return true;
+  if (routeLocationId == null) return true;
+  return locationIds.includes(routeLocationId);
+}
+
+async function assertLocationInOrg(locationId: number | null | undefined, orgId: string): Promise<void> {
+  if (locationId == null) return;
+  const loc = await storage.getLocation(locationId, orgId);
+  if (!loc) throw new Error("Premises not found");
+}
+
 function requirePatrolManager(req: Request, res: Response, next: NextFunction) {
   if (!req.currentUser || !canManagePatrolRoutes(req.currentUser.role)) {
     return res.status(403).json({ message: "Administrator or supervisor only" });
@@ -126,7 +150,14 @@ export function registerPatrolRoutes(app: Express) {
     if (!isManager && !canExecute) return res.status(403).json({ message: "Forbidden" });
 
     const commandIds = isManager ? null : await getUserCommandIds(req);
-    const routes = await listPatrolRoutes(orgId, { activeOnly: !isManager, commandIds });
+    const locationIds = isManager
+      ? null
+      : await getExecutorLocationScope(req.currentUser!.id, orgId);
+    const routes = await listPatrolRoutes(orgId, {
+      activeOnly: !isManager,
+      commandIds,
+      locationIds,
+    });
     res.json(routes);
   });
 
@@ -150,6 +181,10 @@ export function registerPatrolRoutes(app: Express) {
           return res.status(403).json({ message: "Route not available for your group" });
         }
       }
+      const locationIds = await getExecutorLocationScope(req.currentUser!.id, req.currentUser!.organizationId);
+      if (!assertRouteLocationAccess(route.locationId, locationIds)) {
+        return res.status(403).json({ message: "Route not available for your premises" });
+      }
     }
 
     res.json(route);
@@ -164,6 +199,7 @@ export function registerPatrolRoutes(app: Express) {
     const { checkpoints, ...routeData } = parsed.data;
 
     try {
+      await assertLocationInOrg(routeData.locationId ?? null, orgId);
       const route = await createPatrolRoute(routeData, orgId, userId);
       if (checkpoints?.length) {
         await replaceRouteCheckpoints(
@@ -190,9 +226,14 @@ export function registerPatrolRoutes(app: Express) {
     if (!partial.success) return res.status(400).json({ message: partial.error.message });
 
     const orgId = req.currentUser!.organizationId;
-    const updated = await updatePatrolRoute(id, partial.data, orgId);
-    if (!updated) return res.status(404).json({ message: "Route not found" });
-    res.json(updated);
+    try {
+      await assertLocationInOrg(partial.data.locationId, orgId);
+      const updated = await updatePatrolRoute(id, partial.data, orgId);
+      if (!updated) return res.status(404).json({ message: "Route not found" });
+      res.json(updated);
+    } catch (err) {
+      res.status(400).json({ message: err instanceof Error ? err.message : "Failed to update route" });
+    }
   });
 
   app.put("/api/patrol/routes/:id/checkpoints", requirePatrolManager, async (req, res) => {
@@ -403,6 +444,10 @@ export function registerPatrolRoutes(app: Express) {
       if (!commandIds.includes(route.commandId)) {
         return res.status(403).json({ message: "Route not available for your group" });
       }
+    }
+    const locationIds = await getExecutorLocationScope(userId, orgId);
+    if (!assertRouteLocationAccess(route.locationId, locationIds)) {
+      return res.status(403).json({ message: "Route not available for your premises" });
     }
 
     try {
