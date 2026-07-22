@@ -7,6 +7,11 @@ import {
 } from "livekit-client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiRequest } from "@/lib/queryClient";
+import {
+  isNativeAudioRecorderAvailable,
+  requestNativeMicPermission,
+} from "@/lib/native-audio-recorder";
+import { nativeMicDeniedHint } from "@/lib/native-mic-hint";
 
 export type RadioChannel = {
   id: number;
@@ -51,6 +56,38 @@ async function radioFetch<T>(method: string, path: string, body?: unknown): Prom
     }
     throw err instanceof Error ? err : new Error(raw);
   }
+}
+
+function micErrorMessage(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  const lower = raw.toLowerCase();
+  if (
+    lower.includes("permission") ||
+    lower.includes("notallowed") ||
+    lower.includes("denied") ||
+    lower.includes("could not start audio") ||
+    lower.includes("audio source")
+  ) {
+    return `Microphone blocked. ${nativeMicDeniedHint()}`;
+  }
+  return raw || "Could not open microphone";
+}
+
+/** Ensure Android/iOS grants mic, then create a LiveKit local audio track. */
+async function acquireMicTrack(): Promise<LocalAudioTrack> {
+  if (isNativeAudioRecorderAvailable()) {
+    const ok = await requestNativeMicPermission();
+    if (!ok) throw new DOMException("Microphone permission denied", "NotAllowedError");
+  } else if (navigator.mediaDevices?.getUserMedia) {
+    // Primer so WebView shows the system permission dialog (needs a user gesture).
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach((t) => t.stop());
+  }
+  return createLocalAudioTrack({
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+  });
 }
 
 export function useRadioStatus() {
@@ -175,6 +212,11 @@ export function useRadioChannel(commandId: number | null) {
     micRef.current = null;
     if (mic) {
       try {
+        await roomRef.current?.localParticipant.unpublishTrack(mic);
+      } catch {
+        /* ignore */
+      }
+      try {
         mic.stop();
       } catch {
         /* ignore */
@@ -233,18 +275,13 @@ export function useRadioChannel(commandId: number | null) {
           setTransmitting(false);
         });
 
+        // Listen-only first — do not open the mic until Hold to talk (needs user gesture on Android).
         await room.connect(tok.url, tok.token);
         if (cancelled) {
           await room.disconnect();
           return;
         }
 
-        const mic = await createLocalAudioTrack();
-        await mic.mute();
-        await room.localParticipant.publishTrack(mic, {
-          source: Track.Source.Microphone,
-        });
-        micRef.current = mic;
         setConnected(true);
         setListenerCount(room.numParticipants);
         await refreshFloor();
@@ -268,9 +305,21 @@ export function useRadioChannel(commandId: number | null) {
     };
   }, [commandId, refreshFloor, teardown]);
 
+  const ensureMicPublished = useCallback(async () => {
+    const room = roomRef.current;
+    if (!room) throw new Error("Radio is not connected");
+    if (micRef.current) return micRef.current;
+    const mic = await acquireMicTrack();
+    await room.localParticipant.publishTrack(mic, {
+      source: Track.Source.Microphone,
+    });
+    micRef.current = mic;
+    return mic;
+  }, []);
+
   const startTransmit = useCallback(async () => {
     const id = commandIdRef.current;
-    if (id == null || !roomRef.current || !micRef.current) return;
+    if (id == null || !roomRef.current) return;
     if (holdingRef.current) return;
     setError(null);
     try {
@@ -278,8 +327,9 @@ export function useRadioChannel(commandId: number | null) {
         commandId: id,
       });
       setFloor(data.holder);
+      const mic = await ensureMicPublished();
       holdingRef.current = true;
-      await micRef.current.unmute();
+      await mic.unmute();
       setTransmitting(true);
       stopHeartbeat();
       heartbeatRef.current = setInterval(() => {
@@ -288,12 +338,19 @@ export function useRadioChannel(commandId: number | null) {
         });
       }, 4000);
     } catch (err) {
+      holdingRef.current = false;
+      setTransmitting(false);
       const withHolder = err as Error & { holder?: FloorHolderInfo };
       if (withHolder.holder) setFloor(withHolder.holder);
-      setError(err instanceof Error ? err.message : "Channel busy");
+      setError(micErrorMessage(err));
+      try {
+        await radioFetch("POST", "/api/radio/floor/release", { commandId: id });
+      } catch {
+        /* ignore */
+      }
       await refreshFloor();
     }
-  }, [refreshFloor, stopHeartbeat]);
+  }, [ensureMicPublished, refreshFloor, stopHeartbeat]);
 
   return {
     connected,
