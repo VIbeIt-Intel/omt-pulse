@@ -90,6 +90,7 @@ export function parseSaIdentityScan(raw: string): ParsedSaId {
           documentType: "temporary_drivers_licence",
           personFullName: tdl.personFullName,
           personSurname: tdl.personSurname,
+          personGivenNames: tdl.personGivenNames,
           personIdNumber: tdl.personIdNumber,
           personDateOfBirth: tdl.personDateOfBirth,
           driversLicenceNumber: tdl.driversLicenceNumber,
