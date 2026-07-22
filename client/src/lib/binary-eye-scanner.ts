@@ -15,11 +15,17 @@ export const BINARY_EYE_PACKAGE = "de.markusfisch.android.binaryeye";
 export const BINARY_EYE_PLAY_URL =
   "https://play.google.com/store/apps/details?id=de.markusfisch.android.binaryeye";
 
-export type BinaryEyeScanKind = "national_id" | "drivers_licence" | "disc";
+export type BinaryEyeScanKind =
+  | "national_id"
+  | "temporary_drivers_licence"
+  | "drivers_licence"
+  | "disc";
 
 /** ZXing SCAN_FORMATS values for Binary Eye intent fallback. */
 export const BINARY_EYE_FORMATS: Record<BinaryEyeScanKind, string> = {
   national_id: "PDF_417,CODE_39,CODE_128",
+  // Paper TDL uses the same readable percent-text PDF417 family as Smart ID / ID book.
+  temporary_drivers_licence: "PDF_417,CODE_39,CODE_128",
   drivers_licence: "PDF_417",
   disc: "PDF_417,CODE_128,CODE_39",
 };
@@ -330,10 +336,14 @@ export function describeBinaryEyeFailure(
     if (d?.bytesLength != null && d.bytesLength > 0 && d.bytesLength < 400) {
       return (
         `That barcode is not a plastic driver's licence (got ${d.bytesLength} bytes; card needs ~720). ` +
-        `Temporary / paper licences cannot be read via barcode — scan the person's ID, or use Photo of front / type on the form.`
+        `Use Scan temp licence for paper temporary licences, or Photo of front / type on the form.`
       );
     }
     return `No licence barcode in scan${detail}. Point at the PDF417 on the back-right of the plastic card (not a temporary paper licence).`;
+  }
+
+  if (kind === "temporary_drivers_licence") {
+    return `Could not read temporary licence barcode${detail}. Centre the PDF417 on the paper temporary driving licence.`;
   }
 
   if (kind === "national_id") {
@@ -346,6 +356,9 @@ export function describeBinaryEyeFailure(
 export function binaryEyeScanHint(kind: BinaryEyeScanKind): string {
   if (kind === "drivers_licence") {
     return "Point Binary Eye at the PDF417 on the back-right of the card.";
+  }
+  if (kind === "temporary_drivers_licence") {
+    return "Centre Binary Eye on the PDF417 barcode on the paper temporary driving licence.";
   }
   if (kind === "national_id") {
     return "Smart ID: large square PDF417 on the back. Green book: line barcode on the front.";

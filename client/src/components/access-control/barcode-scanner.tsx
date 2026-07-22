@@ -36,7 +36,7 @@ type BarcodeScannerProps = {
   onOpenChange: (open: boolean) => void;
   title: string;
   scanKind?: "id" | "disc";
-  identityMode?: "national_id" | "drivers_licence";
+  identityMode?: "national_id" | "temporary_drivers_licence" | "drivers_licence";
   onScan: (result: string | AccessIdentityScanResult) => void;
 };
 
@@ -107,7 +107,7 @@ function cleanupNativeScanOverlay(): void {
 
 function zxingMode(
   scanKind: "id" | "disc",
-  identityMode: "national_id" | "drivers_licence",
+  identityMode: "national_id" | "temporary_drivers_licence" | "drivers_licence",
 ): ZxingScanMode {
   if (scanKind === "disc") return "disc";
   return identityMode === "drivers_licence" ? "drivers_licence" : "national_id";
@@ -428,6 +428,8 @@ export function BarcodeScanner({
 
     if (isLicenceMode) {
       setHint(`Centre the large PDF417 on the back of the card (${APP_CACHE_VERSION}).`);
+    } else if (scanKind === "id" && identityMode === "temporary_drivers_licence") {
+      setHint(`Centre the PDF417 on the paper temporary driving licence (${APP_CACHE_VERSION}).`);
     } else if (scanKind === "id") {
       setHint(`Hold Smart ID or ID book in the green frame (${APP_CACHE_VERSION}).`);
     } else {
@@ -461,6 +463,7 @@ export function BarcodeScanner({
       cleanupNativeScanOverlay();
     };
   }, [
+    identityMode,
     isLicenceMode,
     open,
     scanKind,

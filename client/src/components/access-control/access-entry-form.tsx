@@ -143,7 +143,9 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
   const [vehicleManual, setVehicleManual] = useState(false);
   const [vehiclePhotoUrl, setVehiclePhotoUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [scanTarget, setScanTarget] = useState<"national_id" | "drivers_licence" | "disc" | null>(null);
+  const [scanTarget, setScanTarget] = useState<
+    "national_id" | "temporary_drivers_licence" | "drivers_licence" | "disc" | null
+  >(null);
   const [scanPersonKey, setScanPersonKey] = useState<string | null>(null);
   const [discScanNote, setDiscScanNote] = useState<string | null>(null);
   const [discPhotoBusy, setDiscPhotoBusy] = useState(false);
@@ -307,7 +309,10 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
     },
   });
 
-  function openPersonScan(personKey: string, kind: "national_id" | "drivers_licence") {
+  function openPersonScan(
+    personKey: string,
+    kind: "national_id" | "temporary_drivers_licence" | "drivers_licence",
+  ) {
     setScanPersonKey(personKey);
     setScanTarget(kind);
   }
@@ -554,6 +559,7 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
               personPhotoRefs.current[person.key] = el;
             }}
             onScanId={() => openPersonScan(person.key, "national_id")}
+            onScanTempLicence={() => openPersonScan(person.key, "temporary_drivers_licence")}
             onScanLicence={() => openPersonScan(person.key, "drivers_licence")}
             onShowManual={() => updatePerson(person.key, { showManual: true })}
             onChange={(patch) => updatePerson(person.key, patch)}
@@ -667,6 +673,7 @@ function PersonCard({
   uploading,
   photoRef,
   onScanId,
+  onScanTempLicence,
   onScanLicence,
   onShowManual,
   onChange,
@@ -681,6 +688,7 @@ function PersonCard({
   uploading: boolean;
   photoRef: (el: HTMLInputElement | null) => void;
   onScanId: () => void;
+  onScanTempLicence: () => void;
   onScanLicence: () => void;
   onShowManual: () => void;
   onChange: (patch: Partial<PersonDraft>) => void;
@@ -692,6 +700,25 @@ function PersonCard({
   const roleLabel = index === 0 ? "Driver" : `Passenger ${index}`;
   const hasIdentity = !!(person.fullName.trim() || person.idNumber.trim());
   const showRoleHeader = mode === "vehicle";
+
+  const scanButtons = (variant: "default" | "outline") => (
+    <div className="space-y-2">
+      <div className="flex gap-2">
+        <Button type="button" variant={variant} className="h-11 flex-1" onClick={onScanId}>
+          <ScanLine className="h-4 w-4 mr-1" />
+          Scan ID
+        </Button>
+        <Button type="button" variant={variant} className="h-11 flex-1" onClick={onScanLicence}>
+          <ScanLine className="h-4 w-4 mr-1" />
+          Scan licence
+        </Button>
+      </div>
+      <Button type="button" variant={variant} className="h-11 w-full" onClick={onScanTempLicence}>
+        <ScanLine className="h-4 w-4 mr-1" />
+        Scan temp licence
+      </Button>
+    </div>
+  );
 
   return (
     <div className="space-y-3 rounded-lg border p-4">
@@ -709,17 +736,10 @@ function PersonCard({
 
       {!person.showManual && !hasIdentity ? (
         <div className="space-y-2">
-          <div className="flex gap-2">
-            <Button type="button" className="h-11 flex-1" onClick={onScanId}>
-              <ScanLine className="h-4 w-4 mr-1" />
-              Scan ID
-            </Button>
-            <Button type="button" className="h-11 flex-1" onClick={onScanLicence}>
-              <ScanLine className="h-4 w-4 mr-1" />
-              Scan licence
-            </Button>
-          </div>
-          <p className="text-xs text-muted-foreground">Smart ID / ID book, or licence barcode.</p>
+          {scanButtons("default")}
+          <p className="text-xs text-muted-foreground">
+            Smart ID / ID book, plastic licence, or paper temporary licence.
+          </p>
           <Button
             type="button"
             variant="ghost"
@@ -732,16 +752,7 @@ function PersonCard({
         </div>
       ) : (
         <div className="space-y-3">
-          <div className="flex gap-2">
-            <Button type="button" variant="outline" className="h-11 flex-1" onClick={onScanId}>
-              <ScanLine className="h-4 w-4 mr-1" />
-              Scan ID
-            </Button>
-            <Button type="button" variant="outline" className="h-11 flex-1" onClick={onScanLicence}>
-              <ScanLine className="h-4 w-4 mr-1" />
-              Scan licence
-            </Button>
-          </div>
+          {scanButtons("outline")}
           {person.licenceNote && (
             <p className="text-xs text-muted-foreground rounded-md border bg-muted/40 px-3 py-2">
               {person.licenceNote}

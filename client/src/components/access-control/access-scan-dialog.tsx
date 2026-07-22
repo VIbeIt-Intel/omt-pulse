@@ -46,6 +46,7 @@ const FILE_INPUT_CLASS =
 
 const TITLES: Record<BinaryEyeScanKind, string> = {
   national_id: "Scan ID",
+  temporary_drivers_licence: "Scan temporary licence",
   drivers_licence: "Scan driver's licence",
   disc: "Scan licence disc",
 };
@@ -141,8 +142,17 @@ export function AccessScanDialog({
           });
         } else if (outcome.kind === "national_id") {
           onIdScan(outcome.parsed, { scanMethod: "barcode", rawBarcode: outcome.raw });
+          const isTemp =
+            kind === "temporary_drivers_licence" ||
+            outcome.parsed.documentType === "temporary_drivers_licence";
           toast({
-            title: outcome.parsed.personFullName ? "ID captured" : "ID number captured",
+            title: isTemp
+              ? outcome.parsed.personFullName
+                ? "Temporary licence captured"
+                : "Temporary licence — ID captured"
+              : outcome.parsed.personFullName
+                ? "ID captured"
+                : "ID number captured",
             description:
               outcome.parsed.hint ??
               outcome.parsed.personFullName ??
@@ -307,7 +317,7 @@ export function AccessScanDialog({
         }}
         title={TITLES[kind]}
         scanKind={kind === "disc" ? "disc" : "id"}
-        identityMode="national_id"
+        identityMode={kind === "temporary_drivers_licence" ? "temporary_drivers_licence" : "national_id"}
         onScan={(result) => {
           if (kind === "disc") {
             const value = typeof result === "string" ? result : result.kind === "raw" ? result.value : "";
