@@ -1,5 +1,6 @@
 import type { ReactNode, Ref } from "react";
 import { cn } from "@/lib/utils";
+import { PageHero } from "@/components/page-hero";
 
 export function AnalyticsHero({
   periodLabel,
@@ -19,77 +20,25 @@ export function AnalyticsHero({
   insightKey: string;
   eyebrow?: string;
 }) {
-  const insights: Array<{ label: string; value: string }> = [];
-  if (topLoc) insights.push({ label: "Hotspot", value: topLoc });
-  if (topCat) insights.push({ label: "Lead type", value: topCat });
-  if (peakHour) insights.push({ label: "Peak hour", value: peakHour });
+  const insights = [
+    topLoc ? { label: "Hotspot", value: topLoc } : null,
+    topCat ? { label: "Lead type", value: topCat } : null,
+    peakHour ? { label: "Peak hour", value: peakHour } : null,
+  ].filter(Boolean) as Array<{ label: string; value: string }>;
 
   return (
-    <div
-      key={insightKey}
-      className="analytics-hero relative overflow-hidden rounded-xl border border-primary/30"
-      data-testid="analytics-hero"
-    >
-      <div
-        className="pointer-events-none absolute inset-0"
-        style={{
-          background:
-            "linear-gradient(105deg, hsl(155 100% 19% / 0.35) 0%, hsl(var(--card)) 42%, hsl(155 40% 12% / 0.45) 100%)",
-        }}
-      />
-      <div
-        className="pointer-events-none absolute left-0 top-0 bottom-0 w-[3px] bg-primary"
-        aria-hidden
-      />
-      <div className="relative px-5 py-5 sm:px-7 sm:py-6">
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 mb-4">
-          <p
-            className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary"
-            data-testid="text-analytics-title"
-          >
-            {eyebrow}
-          </p>
-          <span className="inline-flex items-center rounded-md border border-primary/25 bg-background/40 px-2.5 py-1 text-[11px] font-medium text-muted-foreground tabular-nums">
-            {periodLabel}
-          </span>
-        </div>
-
-        {total === 0 ? (
-          <p className="text-base sm:text-lg text-muted-foreground max-w-2xl leading-relaxed">
-            No incidents in this period — adjust the date range or clear filters.
-          </p>
-        ) : (
-          <div className="flex flex-col lg:flex-row lg:items-end gap-5 lg:gap-10">
-            <div className="shrink-0 min-w-[7.5rem]">
-              <p
-                className="text-4xl sm:text-5xl font-bold tracking-tight tabular-nums text-foreground leading-none"
-                data-testid="analytics-hero-total"
-              >
-                {total}
-              </p>
-              <p className="mt-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                {total === 1 ? "Incident" : "Incidents"}
-              </p>
-            </div>
-
-            {insights.length > 0 ? (
-              <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 lg:border-l lg:border-border/70 lg:pl-10">
-                {insights.map((item) => (
-                  <div key={item.label} className="min-w-0">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-1">
-                      {item.label}
-                    </p>
-                    <p className="text-base sm:text-lg font-semibold tracking-tight text-foreground truncate" title={item.value}>
-                      {item.value}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-          </div>
-        )}
-      </div>
-    </div>
+    <PageHero
+      eyebrow={eyebrow}
+      badge={periodLabel}
+      total={total}
+      totalLabel={total === 1 ? "Incident" : "Incidents"}
+      emptyMessage="No incidents in this period — adjust the date range or clear filters."
+      insights={insights}
+      insightKey={insightKey}
+      testId="analytics-hero"
+      titleTestId="text-analytics-title"
+      totalTestId="analytics-hero-total"
+    />
   );
 }
 

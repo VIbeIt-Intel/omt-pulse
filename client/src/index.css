@@ -395,6 +395,7 @@ body.barcode-scanner-active .barcode-scanner-chrome {
   }
 }
 
+.page-hero,
 .analytics-hero {
   animation: analytics-rise 0.45s ease-out both;
 }

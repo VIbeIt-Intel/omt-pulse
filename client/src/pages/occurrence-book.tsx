@@ -33,6 +33,7 @@ import {
 import { Plus, BookOpen, Paperclip, Map as MapIcon, X, CalendarRange, Download, ArrowLeft, Radio, Siren, Loader2, FileDown } from "lucide-react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { ConnectivityBadge } from "@/components/connectivity-badge";
+import { PageHero } from "@/components/page-hero";
 import { PanicBanner, type PanicAlert } from "@/components/panic-banner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -481,27 +482,45 @@ export default function OccurrenceBook() {
 
   return (
     <div className="flex flex-col h-full bg-muted/20 md:bg-background">
-      <div className="flex items-center gap-2 px-4 md:px-6 py-3 border-b shrink-0 bg-card">
-        <SidebarTrigger />
-        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => setLocation("/dashboard")} data-testid="button-back">
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
-        <div className="flex-1 min-w-0">
-          <h1 className="text-base md:text-lg font-semibold truncate" data-testid="text-page-title">
-            {isOwnIncidentUser
-              ? periodParam === "week" ? "My Incidents — This Week" : periodParam === "day" ? "My Incidents — Today" : "My Incidents"
-              : periodParam === "week" ? "Occurrence Book — This Week" : periodParam === "day" ? "Occurrence Book — Today" : "Occurrence Book"}
-          </h1>
-          <p className="hidden md:block text-xs text-muted-foreground">
-            {filteredIncidents.length} incident{filteredIncidents.length !== 1 ? "s" : ""} in view
-          </p>
-        </div>
-        {!isOwnIncidentUser && (
-          <Button size="sm" className="shrink-0" onClick={() => { setEditingIncident(null); setDialogOpen(true); }} data-testid="button-new-incident">
-            <Plus className="h-4 w-4 mr-1.5" /> Report incident
-          </Button>
-        )}
-        {isFieldReporter(currentUser?.role ?? "") && <ConnectivityBadge className="shrink-0" />}
+      <div className="shrink-0 px-4 md:px-6 pt-3 pb-3">
+        <PageHero
+          eyebrow={isOwnIncidentUser ? "My Incidents" : "Occurrence Book"}
+          badge={
+            periodParam === "week"
+              ? "This week"
+              : periodParam === "day"
+                ? "Today"
+                : "All records"
+          }
+          total={filteredIncidents.length}
+          totalLabel={filteredIncidents.length === 1 ? "In view" : "In view"}
+          emptyMessage="No incidents in this view — adjust filters or report a new incident."
+          titleTestId="text-page-title"
+          totalTestId="text-ob-count"
+          leading={
+            <>
+              <SidebarTrigger />
+              <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => setLocation("/dashboard")} data-testid="button-back">
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+            </>
+          }
+          actions={
+            <>
+              {!isOwnIncidentUser && (
+                <Button size="sm" className="shrink-0 h-8" onClick={() => { setEditingIncident(null); setDialogOpen(true); }} data-testid="button-new-incident">
+                  <Plus className="h-4 w-4 mr-1.5" /> Report incident
+                </Button>
+              )}
+              {isFieldReporter(currentUser?.role ?? "") && <ConnectivityBadge className="shrink-0" />}
+            </>
+          }
+          insights={
+            liveIncidents.length > 0
+              ? [{ label: "Live now", value: String(liveIncidents.length) }]
+              : undefined
+          }
+        />
       </div>
       <div className="p-4 md:p-6 space-y-4 overflow-y-auto flex-1">
 

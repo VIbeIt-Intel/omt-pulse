@@ -37,6 +37,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { PageHero } from "@/components/page-hero";
 import { GeoLocationSheet, type GeoMapView } from "@/components/incident-location-sheet";
 import { CoordinateLink } from "@/components/coordinate-link";
 import { ControlRoomMap } from "@/components/control-room-map";
@@ -245,22 +246,25 @@ export default function LiveMonitorPage() {
 
   return (
     <div className="flex flex-col h-full bg-background">
-      <div className="flex items-center gap-3 px-4 py-3 border-b shrink-0 bg-background">
-        <Button variant="ghost" size="icon" onClick={() => navigate("/")} data-testid="button-back-live-monitor">
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-        <div className="flex items-center gap-2 flex-1 min-w-0">
-          <Radio className="h-5 w-5 text-red-500 animate-pulse shrink-0" />
-          <span className="font-semibold text-lg">Live Monitor</span>
-          {liveIncidents.length > 0 && (
-            <Badge className="bg-red-500 text-white ml-1 shrink-0" data-testid="badge-live-count">
-              {liveIncidents.length} Active
-            </Badge>
-          )}
-        </div>
-        {liveIncidents.length > 0 && (
-          <span className="text-xs text-muted-foreground hidden sm:block">Auto-refreshes every 5s</span>
-        )}
+      <div className="shrink-0 px-4 pt-3 pb-3">
+        <PageHero
+          eyebrow="Live Monitor"
+          badge={liveIncidents.length > 0 ? "Auto-refresh 5s" : "Standby"}
+          total={liveIncidents.length}
+          totalLabel="Active"
+          totalTestId="badge-live-count"
+          leading={
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigate("/")} data-testid="button-back-live-monitor">
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+          }
+          insights={[
+            {
+              label: "Status",
+              value: liveIncidents.length > 0 ? "Live response in progress" : "All clear",
+            },
+          ]}
+        />
       </div>
 
       <div className="flex flex-col md:flex-row flex-1 min-h-0 overflow-hidden">

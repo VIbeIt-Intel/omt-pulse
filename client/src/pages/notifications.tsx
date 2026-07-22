@@ -1,8 +1,10 @@
+import { useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Bell, ArrowLeft, Radio, CheckCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { PageHero } from "@/components/page-hero";
 
 const LAST_SEEN_KEY = "omt_notif_last_seen";
 
@@ -124,6 +126,16 @@ export default function NotificationsPage() {
     refetchInterval: 30000,
   });
 
+  const unreadCount = useMemo(() => {
+    let lastSeen = 0;
+    try {
+      lastSeen = Number(localStorage.getItem(LAST_SEEN_KEY) || 0);
+    } catch {
+      lastSeen = 0;
+    }
+    return notifications.filter((n) => new Date(n.createdAt).getTime() > lastSeen).length;
+  }, [notifications]);
+
   function handleMarkAllRead() {
     markAllRead();
     queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
@@ -131,37 +143,48 @@ export default function NotificationsPage() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center gap-3 px-5 py-4 border-b border-primary/15 bg-gradient-to-r from-primary/8 via-primary/5 to-transparent shrink-0">
-        <Link href="/occurrence-book">
-          <Button variant="ghost" size="icon" aria-label="Back" className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-primary/10 rounded-full" data-testid="button-notifications-back">
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-        </Link>
-        <div className="flex items-center gap-3">
-          <span className="relative flex items-center justify-center">
-            <span className="absolute inset-0 rounded-full bg-primary/20 blur-sm" />
-            <span className="relative flex items-center justify-center w-8 h-8 rounded-full bg-primary/15 border border-primary/25">
-              <Bell className="h-4 w-4 text-primary" />
-            </span>
-          </span>
-          <div>
-            <h1 className="text-base font-semibold tracking-tight leading-none">Notifications</h1>
-            <p className="text-[10px] text-muted-foreground/60 mt-0.5 tracking-wide">Last 7 days</p>
-          </div>
-        </div>
-        <div className="ml-auto">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-xs gap-1.5 h-7 text-primary/70 hover:text-primary hover:bg-primary/10 border border-transparent hover:border-primary/20 rounded-full px-3 transition-all"
-            onClick={handleMarkAllRead}
-            disabled={notifications.length === 0}
-            data-testid="button-mark-all-read"
-          >
-            <CheckCheck className="h-3.5 w-3.5" />
-            Mark all as read
-          </Button>
-        </div>
+      <div className="shrink-0 px-4 pt-3 pb-3">
+        <PageHero
+          eyebrow="Notifications"
+          badge="Last 7 days"
+          total={unreadCount}
+          totalLabel="Unread"
+          emptyMessage={
+            notifications.length === 0
+              ? "No notifications in the last 7 days."
+              : undefined
+          }
+          leading={
+            <Link href="/occurrence-book">
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Back"
+                className="h-8 w-8"
+                data-testid="button-notifications-back"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+            </Link>
+          }
+          actions={
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs gap-1.5 h-8"
+              onClick={handleMarkAllRead}
+              disabled={notifications.length === 0}
+              data-testid="button-mark-all-read"
+            >
+              <CheckCheck className="h-3.5 w-3.5" />
+              Mark all as read
+            </Button>
+          }
+          insights={[
+            { label: "In feed", value: String(notifications.length) },
+            { label: "Window", value: "7 days" },
+          ]}
+        />
       </div>
 
       <div className="flex-1 overflow-y-auto">

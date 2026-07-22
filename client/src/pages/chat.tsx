@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { MessageSquare, Send, Plus, Search, Users, ArrowLeft, ImageIcon, Camera, Mic, Trash2, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PageHero } from "@/components/page-hero";
 import { MAX_VOICE_SECONDS, prepareAndUploadFile, uploadFile, UploadValidationError } from "@/lib/upload-media";
 import { apiUrl } from "@/lib/api-base";
 import { nativeMicDeniedHint, nativeVoiceApkUpdateHint } from "@/lib/native-mic-hint";
@@ -826,37 +827,39 @@ export default function ChatPage() {
         "w-full md:w-72",
         showThread ? "hidden md:flex" : "flex"
       )}>
-        <div className="p-4 border-b">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="font-semibold text-sm flex items-center gap-2">
+        <div className="p-3 border-b">
+          <PageHero
+            compact
+            eyebrow="Chat"
+            badge={conversations.length === 1 ? "1 thread" : `${conversations.length} threads`}
+            total={totalUnread}
+            totalLabel="Unread"
+            totalTestId="badge-total-unread"
+            leading={
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7 -ml-1 mr-0.5"
+                className="h-7 w-7"
                 onClick={() => window.history.back()}
                 data-testid="button-chat-back"
               >
                 <ArrowLeft className="h-4 w-4" />
               </Button>
-              <MessageSquare className="h-4 w-4 text-primary" />
-              Chat
-              {totalUnread > 0 && (
-                <Badge className="h-5 min-w-5 px-1.5 text-xs" data-testid="badge-total-unread">
-                  {totalUnread}
-                </Badge>
-              )}
-            </h2>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 px-2 text-xs gap-1"
-              onClick={() => setNewDmOpen(true)}
-              data-testid="button-new-dm"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              New
-            </Button>
-          </div>
+            }
+            actions={
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-xs gap-1"
+                onClick={() => setNewDmOpen(true)}
+                data-testid="button-new-dm"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                New
+              </Button>
+            }
+            insights={[{ label: "Channels", value: "Group + DMs" }]}
+          />
         </div>
 
         <ScrollArea className="flex-1">

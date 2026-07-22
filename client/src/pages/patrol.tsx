@@ -15,6 +15,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { requestLocationAccess } from "@/lib/request-location-access";
 import { flushPendingPatrolTracks } from "@/lib/patrol-tracking";
 import { cn } from "@/lib/utils";
+import { PageHero } from "@/components/page-hero";
 import {
   AlertTriangle,
   CalendarClock,
@@ -285,20 +286,24 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="shrink-0 border-b bg-gradient-to-b from-emerald-950/40 to-background px-4 py-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/25">
-            <Footprints className="h-5 w-5" />
-          </div>
-          <div className="min-w-0">
-            <h1 className="text-lg font-semibold leading-tight">Patrol</h1>
-            <p className="text-xs text-muted-foreground">
-              {isManager
-                ? "Set up routes, run patrols, and review history"
-                : "Follow planned routes and clock checkpoints"}
-            </p>
-          </div>
-        </div>
+      <div className="shrink-0 px-4 pt-3 pb-3">
+        <PageHero
+          eyebrow="Patrol"
+          badge={isManager ? "Manager" : "Field"}
+          total={routes.length}
+          totalLabel={routes.length === 1 ? "Route" : "Routes"}
+          emptyMessage={
+            isManager
+              ? "No routes yet — add a route to get started."
+              : "No patrol routes assigned yet."
+          }
+          insights={[
+            {
+              label: "Focus",
+              value: isManager ? "Routes · Run · History" : "Follow & clock",
+            },
+          ]}
+        />
       </div>
 
       {isManager ? (

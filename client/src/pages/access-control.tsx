@@ -22,6 +22,7 @@ import {
   readCachedAccessDestinations,
 } from "@/lib/access-destinations-cache";
 import { BarChart3, DoorOpen, LogOut, Plus, ShieldCheck } from "lucide-react";
+import { PageHero } from "@/components/page-hero";
 
 type AccessControlPageProps = {
   userRole: string;
@@ -82,48 +83,57 @@ export default function AccessControlPage({ userRole }: AccessControlPageProps) 
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="shrink-0 border-b bg-background px-4 py-4">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary shrink-0">
-              <ShieldCheck className="h-5 w-5" />
-            </div>
-            <div className="min-w-0">
-              <h1 className="text-lg font-semibold leading-tight">Access Control</h1>
-              <p className="text-xs text-muted-foreground truncate hidden sm:block">{subtitle}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            {showOverview && canUseDesk && (
-              <Button
-                type="button"
-                variant={pageView === "overview" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setPageView("overview")}
-              >
-                <BarChart3 className="h-4 w-4 mr-1" />
-                Overview
-              </Button>
-            )}
-            {canUseDesk && !isDeskOnly && (
-              <Button
-                type="button"
-                variant={pageView === "desk" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setPageView("desk")}
-              >
-                <DoorOpen className="h-4 w-4 mr-1" />
-                Gate desk
-              </Button>
-            )}
-            {isAdmin && (
-              <Button type="button" variant="outline" size="sm" onClick={() => setDestSheetOpen(true)}>
-                <Plus className="h-4 w-4 mr-1" />
-                Destinations
-              </Button>
-            )}
-          </div>
-        </div>
+      <div className="shrink-0 px-4 pt-3 pb-3">
+        <PageHero
+          eyebrow="Access Control"
+          badge={pageView === "overview" ? "Overview" : "Gate desk"}
+          total={canUseDesk ? inside.length : activeDestinations.length}
+          totalLabel={canUseDesk ? "On site" : "Destinations"}
+          emptyMessage={
+            !canUseDesk && activeDestinations.length === 0
+              ? "No active destinations configured yet."
+              : undefined
+          }
+          description={subtitle}
+          actions={
+            <>
+              {showOverview && canUseDesk && (
+                <Button
+                  type="button"
+                  variant={pageView === "overview" ? "default" : "outline"}
+                  size="sm"
+                  className="h-8"
+                  onClick={() => setPageView("overview")}
+                >
+                  <BarChart3 className="h-4 w-4 mr-1" />
+                  Overview
+                </Button>
+              )}
+              {canUseDesk && !isDeskOnly && (
+                <Button
+                  type="button"
+                  variant={pageView === "desk" ? "default" : "outline"}
+                  size="sm"
+                  className="h-8"
+                  onClick={() => setPageView("desk")}
+                >
+                  <DoorOpen className="h-4 w-4 mr-1" />
+                  Gate desk
+                </Button>
+              )}
+              {isAdmin && (
+                <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => setDestSheetOpen(true)}>
+                  <Plus className="h-4 w-4 mr-1" />
+                  Destinations
+                </Button>
+              )}
+            </>
+          }
+          insights={[
+            { label: "Mode", value: pageView === "overview" ? "Analytics" : "Operations" },
+            { label: "Destinations", value: String(activeDestinations.length) },
+          ]}
+        />
       </div>
 
       {pageView === "overview" || isOverviewOnly ? (

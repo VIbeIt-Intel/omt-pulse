@@ -12,6 +12,7 @@ import { FleetVehicleCard } from "@/components/fleet/fleet-vehicle-card";
 import { FleetVehicleDetail } from "@/components/fleet/fleet-vehicle-detail";
 import type { TrackerDeviceSummary } from "@/components/operations-dashboard";
 import { getVehicleMotionStatus } from "@/lib/fleet-intelligence";
+import { PageHero } from "@/components/page-hero";
 
 type OrgUser = { id: string; firstName: string; lastName: string; role: string };
 type Command = { id: number; name: string; isCentral: boolean };
@@ -81,35 +82,50 @@ export default function FleetPage() {
     setLocation("/fleet");
   }
 
+  const motionCounts = useMemo(() => {
+    const counts = { moving: 0, idle: 0, offline: 0 };
+    for (const d of devices) {
+      counts[getVehicleMotionStatus(d.lastSeenAt, d.lastSpeedKph)] += 1;
+    }
+    return counts;
+  }, [devices]);
+
   return (
     <div className="h-full overflow-y-auto bg-background" data-testid="fleet-page">
       <div className="max-w-5xl mx-auto p-4 sm:p-6 space-y-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tight flex items-center gap-2">
-              <Car className="h-6 w-6 text-primary" />
-              Fleet
-            </h1>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              {selected
-                ? "Vehicle detail — routes, stats, and exports."
-                : "Fleet intelligence — live status across all vehicles."}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {!selected && isAdmin && (
-              <Button variant="outline" size="sm" onClick={() => setDefaultsOpen(true)}>
-                <Settings2 className="h-4 w-4 mr-1" />
-                Alert defaults
-              </Button>
-            )}
-            <Link href="/dashboard">
-              <Button variant="outline" size="sm">
-                Control Room <ChevronRight className="h-4 w-4 ml-1" />
-              </Button>
-            </Link>
-          </div>
-        </div>
+        <PageHero
+          eyebrow="Fleet"
+          badge={selected ? "Vehicle detail" : "Fleet board"}
+          total={devices.length}
+          totalLabel={devices.length === 1 ? "Vehicle" : "Vehicles"}
+          actions={
+            <>
+              {!selected && isAdmin && (
+                <Button variant="outline" size="sm" className="h-8" onClick={() => setDefaultsOpen(true)}>
+                  <Settings2 className="h-4 w-4 mr-1" />
+                  Alert defaults
+                </Button>
+              )}
+              <Link href="/dashboard">
+                <Button variant="outline" size="sm" className="h-8">
+                  Control Room <ChevronRight className="h-4 w-4 ml-1" />
+                </Button>
+              </Link>
+            </>
+          }
+          insights={
+            selected
+              ? [
+                  { label: "Selected", value: selected.vehicleRegistration?.trim() || `IMEI …${selected.imei.slice(-6)}` },
+                  { label: "Alerts 24h", value: String(alertCountForDevice(selected.id)) },
+                ]
+              : [
+                  { label: "Moving", value: String(motionCounts.moving) },
+                  { label: "Idle", value: String(motionCounts.idle) },
+                  { label: "Offline", value: String(motionCounts.offline) },
+                ]
+          }
+        />
 
         {isLoading ? (
           <div className="space-y-3">
