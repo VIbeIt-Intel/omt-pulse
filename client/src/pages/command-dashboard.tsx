@@ -859,7 +859,7 @@ export default function CommandDashboard() {
           <ActionTile
             title="Start Live Incident"
             subtitle="Share GPS and navigate in real time"
-            icon={Radio}
+            icon={Navigation}
             variant="live"
             onClick={() => navigate("/live-severity")}
             testId="button-start-live-incident"
