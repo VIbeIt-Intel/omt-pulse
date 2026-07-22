@@ -382,3 +382,28 @@ body.barcode-scanner-active .barcode-scanner-chrome {
 .barcode-scanner-modal {
   background: transparent !important;
 }
+
+/* Analytics page — intentional entrance motion */
+@keyframes analytics-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.analytics-hero {
+  animation: analytics-rise 0.45s ease-out both;
+}
+
+.analytics-kpi-strip {
+  animation: analytics-rise 0.5s ease-out 0.06s both;
+}
+
+.analytics-filter-chip {
+  animation: analytics-rise 0.28s ease-out both;
+}
+

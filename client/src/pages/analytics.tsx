@@ -56,6 +56,20 @@ import {
 import { getIconSvg, buildMarkerSvgUrl } from "@/lib/incident-icons";
 import { CustomMapLayerView } from "@/components/custom-map-layer-view";
 import { loadGoogleMaps } from "@/lib/google-maps-loader";
+import {
+  AnalyticsChartEmpty,
+  AnalyticsChartPanel,
+  AnalyticsHero,
+  AnalyticsKpiStrip,
+  AnalyticsSegmented,
+} from "@/components/analytics/analytics-shell";
+import {
+  ANALYTICS_ANIMATION_MS,
+  ANALYTICS_GRID,
+  ANALYTICS_TOOLTIP_STYLE,
+  chartOpacity,
+  intensityFill,
+} from "@/components/analytics/analytics-chart-theme";
 
 const severityLabels: Record<string, string> = {
   low: "Low",
@@ -757,12 +771,7 @@ function MapPanel({ incidents, categories, locations, customMaps }: {
   );
 }
 
-const TOOLTIP_STYLE = {
-  backgroundColor: "hsl(var(--popover))",
-  border: "1px solid hsl(var(--border))",
-  borderRadius: "6px",
-  fontSize: "12px",
-};
+const TOOLTIP_STYLE = ANALYTICS_TOOLTIP_STYLE;
 
 type DateGrouping = "daily" | "weekly" | "monthly" | "yearly";
 
@@ -1459,92 +1468,92 @@ export default function AnalyticsPage() {
     return chips;
   }, [activeFilters, categories, dateGrouping]);
 
+  const periodLabel =
+    startDate && endDate
+      ? `${startDate} → ${endDate}`
+      : startDate
+        ? `From ${startDate}`
+        : endDate
+          ? `Until ${endDate}`
+          : "All dates";
+
+  const locMax = Math.max(0, ...locationData.map((d) => d.incidents));
+  const timeMax = Math.max(0, ...timeData.map((d) => d.incidents));
+  const dateMax = Math.max(0, ...dateData.map((d) => d.incidents));
+  const dowMax = Math.max(0, ...dowData.map((d) => d.incidents));
+
   return (
     <div className="flex flex-col h-full">
-      <div className="p-6 space-y-6 overflow-y-auto flex-1">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight" data-testid="text-analytics-title">
-              <BarChart3 className="inline h-6 w-6 mr-2 -mt-0.5" />
-              Analytics & Reports
-            </h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Incident statistics and trend analysis
-            </p>
+      <div className="p-5 sm:p-6 space-y-5 overflow-y-auto flex-1">
+        {view === "charts" && !incidentsLoading ? (
+          <AnalyticsHero
+            periodLabel={periodLabel}
+            total={kpiData.total}
+            topLoc={kpiData.topLoc}
+            topCat={kpiData.topCat}
+            peakHour={kpiData.peakHour}
+            insightKey={`${startDate}|${endDate}|${kpiData.total}`}
+          />
+        ) : (
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight" data-testid="text-analytics-title">
+                <BarChart3 className="inline h-6 w-6 mr-2 -mt-0.5" />
+                Analytics & Reports
+              </h1>
+              <p className="text-sm text-muted-foreground mt-1">
+                Incident statistics and trend analysis
+              </p>
+            </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <Button
-              variant={view === "charts" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setView("charts")}
-              data-testid="button-view-charts"
-            >
-              <BarChart3 className="h-4 w-4 mr-1.5" />
-              Charts
-            </Button>
-            <Button
-              variant={view === "map" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setView("map")}
-              data-testid="button-view-map"
-            >
-              <MapPin className="h-4 w-4 mr-1.5" />
-              Map View
-            </Button>
-          </div>
-        </div>
+        )}
 
-        <div className="flex items-center gap-3 flex-wrap">
-          <span className="text-sm font-medium text-muted-foreground">Between</span>
-          <div className="flex items-center gap-2">
-            <label className="text-sm text-muted-foreground">From</label>
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="h-8 rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-              data-testid="input-start-date"
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <label className="text-sm text-muted-foreground">To</label>
-            <input
-              type="date"
-              value={endDate}
-              min={startDate || undefined}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="h-8 rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-              data-testid="input-end-date"
-            />
-          </div>
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/80 bg-card/50 px-3 py-2.5">
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            className="h-8 rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            data-testid="input-start-date"
+            aria-label="From date"
+          />
+          <span className="text-xs text-muted-foreground">to</span>
+          <input
+            type="date"
+            value={endDate}
+            min={startDate || undefined}
+            onChange={(e) => setEndDate(e.target.value)}
+            className="h-8 rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            data-testid="input-end-date"
+            aria-label="To date"
+          />
           {(startDate || endDate) && (
             <Button
               variant="ghost"
               size="sm"
+              className="h-8 px-2"
               onClick={() => { setStartDate(""); setEndDate(""); }}
               data-testid="button-clear-dates"
             >
               Clear
             </Button>
           )}
-          {(startDate || endDate) && (
-            <span className="text-xs text-muted-foreground">
-              {startDate && endDate ? `${startDate} → ${endDate}` : startDate ? `From ${startDate}` : `Until ${endDate}`}
-            </span>
-          )}
+          <div className="flex-1 min-w-[8px]" />
           <Button
             variant="outline"
             size="sm"
+            className="h-8"
             onClick={handleExport}
             disabled={dateRangeFiltered.length === 0}
             data-testid="button-export-excel"
           >
             <Download className="h-4 w-4 mr-1.5" />
-            Download Excel
+            Excel
           </Button>
           <Button
             variant="outline"
             size="sm"
+            className="h-8"
             onClick={handleExportPdf}
             disabled={dateRangeFiltered.length === 0 || isPdfExporting}
             data-testid="button-export-pdf"
@@ -1554,7 +1563,7 @@ export default function AnalyticsPage() {
             ) : (
               <FileText className="h-4 w-4 mr-1.5" />
             )}
-            {isPdfExporting ? "Generating PDF..." : "Download PDF"}
+            {isPdfExporting ? "PDF…" : "PDF"}
           </Button>
           {meData?.role === "administrator" && (() => {
             const unmappedCount = allIncidents.filter((i) => {
@@ -1570,6 +1579,7 @@ export default function AnalyticsPage() {
               <Button
                 variant="outline"
                 size="sm"
+                className="h-8"
                 onClick={handleGeocodeAll}
                 disabled={isGeocoding}
                 data-testid="button-geocode-missing"
@@ -1581,11 +1591,38 @@ export default function AnalyticsPage() {
                   <ScanSearch className="h-4 w-4 mr-1.5" />
                 )}
                 {isGeocoding
-                  ? `Geocoding ${geocodeProgress}/${geocodeTotal}…`
-                  : `Geocode ${unmappedCount} missing`}
+                  ? `${geocodeProgress}/${geocodeTotal}`
+                  : `Geocode ${unmappedCount}`}
               </Button>
             ) : null;
           })()}
+          <AnalyticsSegmented
+            value={view}
+            onChange={(v) => setView(v as "charts" | "map")}
+            testId="analytics-view-toggle"
+            options={[
+              {
+                value: "charts",
+                label: (
+                  <>
+                    <BarChart3 className="h-3.5 w-3.5" />
+                    Charts
+                  </>
+                ),
+                testId: "button-view-charts",
+              },
+              {
+                value: "map",
+                label: (
+                  <>
+                    <MapPin className="h-3.5 w-3.5" />
+                    Map
+                  </>
+                ),
+                testId: "button-view-map",
+              },
+            ]}
+          />
         </div>
 
         {activeFilterChips.length > 0 && (
@@ -1595,7 +1632,7 @@ export default function AnalyticsPage() {
               <Badge
                 key={chip.label}
                 variant="secondary"
-                className="gap-1 pl-2 pr-1 py-0.5 text-xs cursor-default"
+                className="analytics-filter-chip gap-1 pl-2 pr-1 py-0.5 text-xs cursor-default border-primary/20 bg-primary/10"
                 data-testid={`chip-filter-${chip.label}`}
               >
                 {chip.label}
@@ -1621,58 +1658,54 @@ export default function AnalyticsPage() {
         )}
 
         {view === "charts" && !incidentsLoading && (
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4" data-testid="kpi-cards">
-            <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                  <BarChart3 className="h-4 w-4" />
-                  <span className="text-xs font-medium">Total Incidents</span>
-                </div>
-                <p className="text-xl font-bold" data-testid="kpi-total">{kpiData.total}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                  <MapPin className="h-4 w-4" />
-                  <span className="text-xs font-medium">Most Affected Location</span>
-                </div>
-                <p className="text-xl font-bold truncate" data-testid="kpi-location">{kpiData.topLoc || "TBD"}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                  <Tag className="h-4 w-4" />
-                  <span className="text-xs font-medium">Most Common Type</span>
-                </div>
-                <p className="text-xl font-bold truncate" data-testid="kpi-type">{kpiData.topCat || "TBD"}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                  <Clock className="h-4 w-4" />
-                  <span className="text-xs font-medium">Peak Hour</span>
-                </div>
-                <p className="text-xl font-bold" data-testid="kpi-peak-hour">{kpiData.peakHour || "TBD"}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                  <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse shrink-0" />
-                  <span className="text-xs font-medium">Live Incidents</span>
-                </div>
-                <p className="text-xl font-bold" data-testid="kpi-live-count">{statsData?.liveCount ?? 0}</p>
-                {statsData?.avgResponseTimeMinutes != null && (
-                  <p className="text-xs text-muted-foreground mt-0.5" data-testid="kpi-avg-response">
-                    {statsData.avgResponseTimeMinutes < 1 ? "< 1 min avg" : `${statsData.avgResponseTimeMinutes} min avg`} response
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          </div>
+          <AnalyticsKpiStrip
+            items={[
+              {
+                id: "total",
+                label: "Total",
+                value: kpiData.total,
+                icon: <BarChart3 className="h-3 w-3" />,
+                testId: "kpi-total",
+              },
+              {
+                id: "loc",
+                label: "Top location",
+                value: kpiData.topLoc || "TBD",
+                icon: <MapPin className="h-3 w-3" />,
+                testId: "kpi-location",
+              },
+              {
+                id: "type",
+                label: "Top type",
+                value: kpiData.topCat || "TBD",
+                icon: <Tag className="h-3 w-3" />,
+                testId: "kpi-type",
+              },
+              {
+                id: "peak",
+                label: "Peak hour",
+                value: kpiData.peakHour || "TBD",
+                icon: <Clock className="h-3 w-3" />,
+                testId: "kpi-peak-hour",
+              },
+              {
+                id: "live",
+                label: "Live",
+                value: statsData?.liveCount ?? 0,
+                live: true,
+                testId: "kpi-live-count",
+                sub:
+                  statsData?.avgResponseTimeMinutes != null ? (
+                    <span data-testid="kpi-avg-response">
+                      {statsData.avgResponseTimeMinutes < 1
+                        ? "< 1 min avg"
+                        : `${statsData.avgResponseTimeMinutes} min avg`}{" "}
+                      response
+                    </span>
+                  ) : undefined,
+              },
+            ]}
+          />
         )}
 
         {view === "map" ? (
@@ -1686,52 +1719,53 @@ export default function AnalyticsPage() {
             {[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-64" />)}
           </div>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <Card className={activeFilters.location !== null ? "ring-2 ring-primary/40" : ""}>
-              <CardHeader>
-                <div className="flex items-center justify-between gap-2">
-                  <CardTitle className="text-base">
-                    <MapPin className="h-4 w-4 inline-block align-middle mr-2" />
-                    <span className="align-middle">Location</span>
-                    {activeFilters.location !== null && <span className="text-xs font-normal text-primary align-middle ml-1">(filtered)</span>}
-                  </CardTitle>
-                  {locationData.length > 0 && (
-                    <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => setExpandLocation(true)} data-testid="btn-expand-location" title="Show all locations">
-                      <Maximize2 className="h-4 w-4" />
-                    </Button>
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent ref={chartRefLocation}>
-                {locationData.length === 0 ? (
-                  <div className="h-[250px] flex items-center justify-center text-sm text-muted-foreground">No data available</div>
-                ) : (
-                  <ResponsiveContainer width="100%" height={Math.max(160, locationData.slice(0, 8).length * 44)}>
-                    <BarChart data={locationData.slice(0, 8)} layout="vertical" style={{ cursor: "pointer" }}>
-                      <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                      <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12 }} />
-                      <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={140} tickFormatter={(v) => truncateLocLabel(v)} />
-                      <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(value) => [value, "Incidents"]} labelFormatter={(label) => label} />
-                      <Bar dataKey="incidents" name="Incidents" radius={[0, 4, 4, 0]} onClick={(entry) => toggleFilter("location", entry.name)}>
-                        {locationData.slice(0, 8).map((entry, index) => (
-                          <Cell key={`cell-loc-${index}`} fill={entry.color} opacity={activeFilters.location === null || entry.selected ? 1 : 0.35} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-                {locationData.length > 8 && (
-                  <p className="text-xs text-center text-muted-foreground mt-1">
-                    Showing top 8 of {locationData.length} — <button className="underline" onClick={() => setExpandLocation(true)}>see all</button>
-                  </p>
-                )}
-                {activeFilters.location !== null && (
-                  <p className="text-xs text-center text-muted-foreground mt-1">
-                    Click the same bar to deselect
-                  </p>
-                )}
-              </CardContent>
-            </Card>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <AnalyticsChartPanel
+              title="Location"
+              icon={<MapPin className="h-4 w-4" />}
+              filtered={activeFilters.location !== null}
+              highlighted={activeFilters.location !== null}
+              contentRef={chartRefLocation}
+              actions={
+                locationData.length > 0 ? (
+                  <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => setExpandLocation(true)} data-testid="btn-expand-location" title="Show all locations">
+                    <Maximize2 className="h-4 w-4" />
+                  </Button>
+                ) : undefined
+              }
+            >
+              {locationData.length === 0 ? (
+                <AnalyticsChartEmpty />
+              ) : (
+                <ResponsiveContainer width="100%" height={Math.max(160, locationData.slice(0, 8).length * 40)}>
+                  <BarChart data={locationData.slice(0, 8)} layout="vertical" style={{ cursor: "pointer" }}>
+                    <CartesianGrid {...ANALYTICS_GRID} horizontal={false} />
+                    <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
+                    <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={140} tickFormatter={(v) => truncateLocLabel(v)} />
+                    <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(value) => [value, "Incidents"]} labelFormatter={(label) => label} />
+                    <Bar dataKey="incidents" name="Incidents" radius={[0, 6, 6, 0]} animationDuration={ANALYTICS_ANIMATION_MS} onClick={(entry) => toggleFilter("location", entry.name)}>
+                      {locationData.slice(0, 8).map((entry, index) => (
+                        <Cell
+                          key={`cell-loc-${index}`}
+                          fill={intensityFill(entry.incidents, locMax)}
+                          opacity={chartOpacity(entry.selected, activeFilters.location !== null)}
+                        />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+              {locationData.length > 8 && (
+                <p className="text-xs text-center text-muted-foreground mt-1">
+                  Showing top 8 of {locationData.length} — <button className="underline" onClick={() => setExpandLocation(true)}>see all</button>
+                </p>
+              )}
+              {activeFilters.location !== null && (
+                <p className="text-xs text-center text-muted-foreground mt-1">
+                  Click the same bar to deselect
+                </p>
+              )}
+            </AnalyticsChartPanel>
 
             {/* Location expand dialog */}
             <Dialog open={expandLocation} onOpenChange={setExpandLocation}>
@@ -1749,13 +1783,17 @@ export default function AnalyticsPage() {
                   <div className="overflow-y-auto" style={{ height: "70vh" }}>
                     <ResponsiveContainer width="100%" height={Math.max(locationData.length * 48, 400)}>
                       <BarChart data={locationData} layout="vertical" style={{ cursor: "pointer" }}>
-                        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                        <CartesianGrid {...ANALYTICS_GRID} horizontal={false} />
                         <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12 }} />
                         <YAxis type="category" dataKey="name" tick={{ fontSize: 12 }} width={160} tickFormatter={(v) => truncateLocLabel(v, 28)} />
                         <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(value) => [value, "Incidents"]} labelFormatter={(label) => label} />
-                        <Bar dataKey="incidents" name="Incidents" radius={[0, 4, 4, 0]} onClick={(entry) => toggleFilter("location", entry.name)}>
+                        <Bar dataKey="incidents" name="Incidents" radius={[0, 6, 6, 0]} animationDuration={ANALYTICS_ANIMATION_MS} onClick={(entry) => toggleFilter("location", entry.name)}>
                           {locationData.map((entry, index) => (
-                            <Cell key={`cell-loc-exp-${index}`} fill={entry.color} opacity={activeFilters.location === null || entry.selected ? 1 : 0.35} />
+                            <Cell
+                              key={`cell-loc-exp-${index}`}
+                              fill={intensityFill(entry.incidents, locMax)}
+                              opacity={chartOpacity(entry.selected, activeFilters.location !== null)}
+                            />
                           ))}
                         </Bar>
                       </BarChart>
@@ -1768,51 +1806,52 @@ export default function AnalyticsPage() {
               </DialogContent>
             </Dialog>
 
-            <Card className={activeFilters.categoryId !== null ? "ring-2 ring-primary/40" : ""}>
-              <CardHeader>
-                <div className="flex items-center justify-between gap-2">
-                  <CardTitle className="text-base">
-                    <Tag className="h-4 w-4 inline-block align-middle mr-2" />
-                    <span className="align-middle">Type</span>
-                    {activeFilters.categoryId !== null && <span className="text-xs font-normal text-primary align-middle ml-1">(filtered)</span>}
-                  </CardTitle>
-                  {typeData.length > 0 && (
-                    <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => setExpandType(true)} data-testid="btn-expand-type" title="Show all types">
-                      <Maximize2 className="h-4 w-4" />
-                    </Button>
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent ref={chartRefType}>
-                {typeData.length === 0 ? (
-                  <div className="h-[250px] flex items-center justify-center text-sm text-muted-foreground">No data available</div>
-                ) : (
-                  <ResponsiveContainer width="100%" height={Math.max(160, typeData.slice(0, 5).length * 44)}>
-                    <BarChart data={typeData.slice(0, 5)} layout="vertical" style={{ cursor: "pointer" }}>
-                      <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                      <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12 }} />
-                      <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={120} />
-                      <Tooltip contentStyle={TOOLTIP_STYLE} />
-                      <Bar dataKey="incidents" name="Incidents" radius={[0, 4, 4, 0]} onClick={(entry) => { if (entry.categoryId !== null) toggleFilter("categoryId", entry.categoryId); }}>
-                        {typeData.slice(0, 5).map((entry, index) => (
-                          <Cell key={`cell-type-${index}`} fill={entry.color} opacity={activeFilters.categoryId === null || entry.selected ? 1 : 0.35} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-                {typeData.length > 5 && (
-                  <p className="text-xs text-center text-muted-foreground mt-1">
-                    Showing top 5 of {typeData.length} — <button className="underline" onClick={() => setExpandType(true)}>see all</button>
-                  </p>
-                )}
-                {activeFilters.categoryId !== null && (
-                  <p className="text-xs text-center text-muted-foreground mt-1">
-                    Click the same bar to deselect
-                  </p>
-                )}
-              </CardContent>
-            </Card>
+            <AnalyticsChartPanel
+              title="Type"
+              icon={<Tag className="h-4 w-4" />}
+              filtered={activeFilters.categoryId !== null}
+              highlighted={activeFilters.categoryId !== null}
+              contentRef={chartRefType}
+              actions={
+                typeData.length > 0 ? (
+                  <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => setExpandType(true)} data-testid="btn-expand-type" title="Show all types">
+                    <Maximize2 className="h-4 w-4" />
+                  </Button>
+                ) : undefined
+              }
+            >
+              {typeData.length === 0 ? (
+                <AnalyticsChartEmpty />
+              ) : (
+                <ResponsiveContainer width="100%" height={Math.max(160, typeData.slice(0, 5).length * 40)}>
+                  <BarChart data={typeData.slice(0, 5)} layout="vertical" style={{ cursor: "pointer" }}>
+                    <CartesianGrid {...ANALYTICS_GRID} horizontal={false} />
+                    <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
+                    <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={120} />
+                    <Tooltip contentStyle={TOOLTIP_STYLE} />
+                    <Bar dataKey="incidents" name="Incidents" radius={[0, 6, 6, 0]} animationDuration={ANALYTICS_ANIMATION_MS} onClick={(entry) => { if (entry.categoryId !== null) toggleFilter("categoryId", entry.categoryId); }}>
+                      {typeData.slice(0, 5).map((entry, index) => (
+                        <Cell
+                          key={`cell-type-${index}`}
+                          fill={entry.color}
+                          opacity={chartOpacity(entry.selected, activeFilters.categoryId !== null)}
+                        />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+              {typeData.length > 5 && (
+                <p className="text-xs text-center text-muted-foreground mt-1">
+                  Showing top 5 of {typeData.length} — <button className="underline" onClick={() => setExpandType(true)}>see all</button>
+                </p>
+              )}
+              {activeFilters.categoryId !== null && (
+                <p className="text-xs text-center text-muted-foreground mt-1">
+                  Click the same bar to deselect
+                </p>
+              )}
+            </AnalyticsChartPanel>
 
             {/* Type expand dialog */}
             <Dialog open={expandType} onOpenChange={setExpandType}>
@@ -1830,13 +1869,17 @@ export default function AnalyticsPage() {
                   <div className="overflow-y-auto" style={{ height: "70vh" }}>
                     <ResponsiveContainer width="100%" height={Math.max(typeData.length * 48, 400)}>
                       <BarChart data={typeData} layout="vertical" style={{ cursor: "pointer" }}>
-                        <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                        <CartesianGrid {...ANALYTICS_GRID} horizontal={false} />
                         <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12 }} />
                         <YAxis type="category" dataKey="name" tick={{ fontSize: 12 }} width={160} />
                         <Tooltip contentStyle={TOOLTIP_STYLE} />
-                        <Bar dataKey="incidents" name="Incidents" radius={[0, 4, 4, 0]} onClick={(entry) => { if (entry.categoryId !== null) toggleFilter("categoryId", entry.categoryId); }}>
+                        <Bar dataKey="incidents" name="Incidents" radius={[0, 6, 6, 0]} animationDuration={ANALYTICS_ANIMATION_MS} onClick={(entry) => { if (entry.categoryId !== null) toggleFilter("categoryId", entry.categoryId); }}>
                           {typeData.map((entry, index) => (
-                            <Cell key={`cell-type-exp-${index}`} fill={entry.color} opacity={activeFilters.categoryId === null || entry.selected ? 1 : 0.35} />
+                            <Cell
+                              key={`cell-type-exp-${index}`}
+                              fill={entry.color}
+                              opacity={chartOpacity(entry.selected, activeFilters.categoryId !== null)}
+                            />
                           ))}
                         </Bar>
                       </BarChart>
@@ -1849,293 +1892,267 @@ export default function AnalyticsPage() {
               </DialogContent>
             </Dialog>
 
-            <Card className={activeFilters.hour !== null ? "ring-2 ring-primary/40" : ""}>
-              <CardHeader>
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <CardTitle className="text-base">
-                    <Clock className="h-4 w-4 inline-block align-middle mr-2" />
-                    <span className="align-middle">Incident Time</span>
-                    {activeFilters.hour !== null && <span className="text-xs font-normal text-primary align-middle ml-1">(filtered)</span>}
-                  </CardTitle>
-                  <div className="flex items-center rounded-md border overflow-hidden text-xs" data-testid="time-chart-type-toggle">
-                    <button
-                      onClick={() => setTimeChartType("bar")}
-                      className={`px-2.5 py-1 transition-colors flex items-center gap-1 ${timeChartType === "bar" ? "bg-primary text-primary-foreground font-medium" : "text-muted-foreground hover:bg-muted"}`}
-                      data-testid="button-time-chart-bar"
+            <AnalyticsChartPanel
+              title="Incident Time"
+              icon={<Clock className="h-4 w-4" />}
+              filtered={activeFilters.hour !== null}
+              highlighted={activeFilters.hour !== null}
+              contentRef={chartRefTime}
+              actions={
+                <AnalyticsSegmented
+                  value={timeChartType}
+                  onChange={(v) => setTimeChartType(v as "bar" | "line")}
+                  testId="time-chart-type-toggle"
+                  options={[
+                    { value: "bar", label: (<><BarChart3 className="h-3 w-3" /> Bar</>), testId: "button-time-chart-bar" },
+                    { value: "line", label: (<><TrendingUp className="h-3 w-3" /> Line</>), testId: "button-time-chart-line" },
+                  ]}
+                />
+              }
+            >
+              {timeData.every((d) => d.incidents === 0) ? (
+                <AnalyticsChartEmpty />
+              ) : timeChartType === "line" ? (
+                <ResponsiveContainer width="100%" height={220}>
+                  <LineChart data={timeData} style={{ cursor: "pointer" }}>
+                    <CartesianGrid {...ANALYTICS_GRID} />
+                    <XAxis dataKey="hour" tick={{ fontSize: 10 }} interval={3} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                    <Tooltip contentStyle={TOOLTIP_STYLE} labelFormatter={(v) => `Hour: ${v}`} />
+                    <Line
+                      type="monotone"
+                      dataKey="incidents"
+                      name="Incidents"
+                      stroke="hsl(var(--primary))"
+                      strokeWidth={2}
+                      animationDuration={ANALYTICS_ANIMATION_MS}
+                      dot={{ r: 3, fill: "hsl(var(--primary))", strokeWidth: 0 }}
+                      activeDot={(props: { cx?: number; cy?: number; payload?: { hourNum: number; incidents: number } }) => (
+                        <Dot
+                          cx={props.cx ?? 0}
+                          cy={props.cy ?? 0}
+                          r={7}
+                          fill="hsl(var(--primary))"
+                          stroke="hsl(var(--foreground))"
+                          strokeWidth={1}
+                          style={{ cursor: "pointer" }}
+                          onClick={() => props.payload && props.payload.incidents > 0 && toggleFilter("hour", props.payload.hourNum)}
+                        />
+                      )}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={timeData} style={{ cursor: "pointer" }}>
+                    <CartesianGrid {...ANALYTICS_GRID} />
+                    <XAxis dataKey="hour" tick={{ fontSize: 10 }} interval={3} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                    <Tooltip contentStyle={TOOLTIP_STYLE} labelFormatter={(v) => `Hour: ${v}`} />
+                    <Bar
+                      dataKey="incidents"
+                      name="Incidents"
+                      radius={[6, 6, 0, 0]}
+                      animationDuration={ANALYTICS_ANIMATION_MS}
+                      onClick={(entry) => { if (entry.incidents > 0) toggleFilter("hour", entry.hourNum); }}
                     >
-                      <BarChart3 className="h-3 w-3" /> Bar
-                    </button>
-                    <button
-                      onClick={() => setTimeChartType("line")}
-                      className={`px-2.5 py-1 transition-colors border-l border-border flex items-center gap-1 ${timeChartType === "line" ? "bg-primary text-primary-foreground font-medium" : "text-muted-foreground hover:bg-muted"}`}
-                      data-testid="button-time-chart-line"
-                    >
-                      <TrendingUp className="h-3 w-3" /> Line
-                    </button>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent ref={chartRefTime}>
-                {timeData.every(d => d.incidents === 0) ? (
-                  <div className="h-[250px] flex items-center justify-center text-sm text-muted-foreground">No data available</div>
-                ) : timeChartType === "line" ? (
-                  <ResponsiveContainer width="100%" height={250}>
-                    <LineChart data={timeData} style={{ cursor: "pointer" }}>
-                      <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                      <XAxis dataKey="hour" tick={{ fontSize: 10 }} interval={3} />
-                      <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
-                      <Tooltip contentStyle={TOOLTIP_STYLE} labelFormatter={(v) => `Hour: ${v}`} />
-                      <Line
-                        type="monotone"
-                        dataKey="incidents"
-                        name="Incidents"
-                        stroke="hsl(var(--primary))"
-                        strokeWidth={2}
-                        dot={{ r: 4, fill: "hsl(var(--primary))", strokeWidth: 0 }}
-                        activeDot={(props: { cx?: number; cy?: number; payload?: { hourNum: number; incidents: number } }) => (
-                          <Dot
-                            cx={props.cx ?? 0}
-                            cy={props.cy ?? 0}
-                            r={7}
-                            fill="hsl(var(--primary))"
-                            stroke="hsl(var(--foreground))"
-                            strokeWidth={1}
-                            style={{ cursor: "pointer" }}
-                            onClick={() => props.payload && props.payload.incidents > 0 && toggleFilter("hour", props.payload.hourNum)}
-                          />
-                        )}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <ResponsiveContainer width="100%" height={250}>
-                    <BarChart data={timeData} style={{ cursor: "pointer" }}>
-                      <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                      <XAxis dataKey="hour" tick={{ fontSize: 10 }} interval={3} />
-                      <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
-                      <Tooltip contentStyle={TOOLTIP_STYLE} labelFormatter={(v) => `Hour: ${v}`} />
-                      <Bar
-                        dataKey="incidents"
-                        name="Incidents"
-                        radius={[4, 4, 0, 0]}
-                        onClick={(entry) => { if (entry.incidents > 0) toggleFilter("hour", entry.hourNum); }}
-                      >
-                        {timeData.map((entry, index) => (
-                          <Cell
-                            key={`cell-time-${index}`}
-                            fill="hsl(var(--primary))"
-                            opacity={activeFilters.hour === null || entry.selected ? 1 : 0.35}
-                          />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-                {activeFilters.hour !== null && (
-                  <p className="text-xs text-center text-muted-foreground mt-1">
-                    Click the same bar to deselect
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card className={activeFilters.dateKey ? "ring-2 ring-primary/40" : ""}>
-              <CardHeader>
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <CardTitle className="text-base">
-                    <Calendar className="h-4 w-4 inline-block align-middle mr-2" />
-                    <span className="align-middle">Incident Date</span>
-                    {activeFilters.dateKey && <span className="text-xs font-normal text-primary align-middle ml-1">(filtered)</span>}
-                  </CardTitle>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <div className="flex items-center rounded-md border overflow-hidden text-xs" data-testid="date-chart-type-toggle">
-                      <button
-                        onClick={() => setDateChartType("bar")}
-                        className={`px-2.5 py-1 transition-colors flex items-center gap-1 ${dateChartType === "bar" ? "bg-primary text-primary-foreground font-medium" : "text-muted-foreground hover:bg-muted"}`}
-                        data-testid="button-chart-bar"
-                      >
-                        <BarChart3 className="h-3 w-3" /> Bar
-                      </button>
-                      <button
-                        onClick={() => setDateChartType("line")}
-                        className={`px-2.5 py-1 transition-colors border-l border-border flex items-center gap-1 ${dateChartType === "line" ? "bg-primary text-primary-foreground font-medium" : "text-muted-foreground hover:bg-muted"}`}
-                        data-testid="button-chart-line"
-                      >
-                        <TrendingUp className="h-3 w-3" /> Line
-                      </button>
-                    </div>
-                    <div className="flex items-center rounded-md border overflow-hidden text-xs" data-testid="date-grouping-toggle">
-                      {(["daily", "weekly", "monthly", "yearly"] as DateGrouping[]).map((g, idx) => (
-                        <button
-                          key={g}
-                          onClick={() => { setDateGrouping(g); setActiveFilters((p) => ({ ...p, dateKey: null })); }}
-                          className={`px-2.5 py-1 capitalize transition-colors ${idx > 0 ? "border-l border-border" : ""} ${
-                            dateGrouping === g
-                              ? "bg-primary text-primary-foreground font-medium"
-                              : "text-muted-foreground hover:bg-muted"
-                          }`}
-                          data-testid={`button-grouping-${g}`}
-                        >
-                          {g.charAt(0).toUpperCase() + g.slice(1)}
-                        </button>
+                      {timeData.map((entry, index) => (
+                        <Cell
+                          key={`cell-time-${index}`}
+                          fill={intensityFill(entry.incidents, timeMax)}
+                          opacity={chartOpacity(entry.selected, activeFilters.hour !== null)}
+                        />
                       ))}
-                    </div>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent ref={chartRefDate}>
-                {dateData.length === 0 ? (
-                  <div className="h-[250px] flex items-center justify-center text-sm text-muted-foreground">No data available</div>
-                ) : dateChartType === "line" ? (
-                  <ResponsiveContainer width="100%" height={250}>
-                    <LineChart data={dateData} style={{ cursor: "pointer" }}>
-                      <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                      <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-                      <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
-                      <Tooltip contentStyle={TOOLTIP_STYLE} />
-                      <Line
-                        type="monotone"
-                        dataKey="incidents"
-                        name="Incidents"
-                        stroke="hsl(var(--primary))"
-                        strokeWidth={2}
-                        dot={{ r: 4, fill: "hsl(var(--primary))", strokeWidth: 0 }}
-                        activeDot={(props: { cx?: number; cy?: number; payload?: { key: string } }) => (
-                          <Dot
-                            cx={props.cx ?? 0}
-                            cy={props.cy ?? 0}
-                            r={7}
-                            fill="hsl(var(--primary))"
-                            stroke="hsl(var(--foreground))"
-                            strokeWidth={1}
-                            style={{ cursor: "pointer" }}
-                            onClick={() => props.payload && toggleFilter("dateKey", props.payload.key)}
-                          />
-                        )}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <ResponsiveContainer width="100%" height={250}>
-                    <BarChart data={dateData} style={{ cursor: "pointer" }}>
-                      <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                      <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-                      <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
-                      <Tooltip contentStyle={TOOLTIP_STYLE} labelFormatter={(v) => `${v}`} />
-                      <Bar
-                        dataKey="incidents"
-                        name="Incidents"
-                        radius={[4, 4, 0, 0]}
-                        onClick={(entry) => toggleFilter("dateKey", entry.key)}
-                      >
-                        {dateData.map((entry, index) => (
-                          <Cell
-                            key={`cell-date-${index}`}
-                            fill="hsl(var(--primary))"
-                            opacity={activeFilters.dateKey === null || entry.selected ? 1 : 0.35}
-                          />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-                {activeFilters.dateKey && (
-                  <p className="text-xs text-center text-muted-foreground mt-1">
-                    Click the same bar to deselect
-                  </p>
-                )}
-              </CardContent>
-            </Card>
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+              {activeFilters.hour !== null && (
+                <p className="text-xs text-center text-muted-foreground mt-1">
+                  Click the same bar to deselect
+                </p>
+              )}
+            </AnalyticsChartPanel>
 
-            <Card className={`lg:col-span-2 ${activeFilters.dow !== null ? "ring-2 ring-primary/40" : ""}`}>
-              <CardHeader>
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <CardTitle className="text-base">
-                    <CalendarDays className="h-4 w-4 inline-block align-middle mr-2" />
-                    <span className="align-middle">Day of Week</span>
-                    {activeFilters.dow !== null && <span className="text-xs font-normal text-primary align-middle ml-1">(filtered)</span>}
-                  </CardTitle>
-                  <div className="flex items-center rounded-md border overflow-hidden text-xs" data-testid="dow-chart-type-toggle">
-                    <button
-                      onClick={() => setDowChartType("bar")}
-                      className={`px-2.5 py-1 transition-colors flex items-center gap-1 ${dowChartType === "bar" ? "bg-primary text-primary-foreground font-medium" : "text-muted-foreground hover:bg-muted"}`}
-                      data-testid="button-dow-chart-bar"
-                    >
-                      <BarChart3 className="h-3 w-3" /> Bar
-                    </button>
-                    <button
-                      onClick={() => setDowChartType("line")}
-                      className={`px-2.5 py-1 transition-colors border-l border-border flex items-center gap-1 ${dowChartType === "line" ? "bg-primary text-primary-foreground font-medium" : "text-muted-foreground hover:bg-muted"}`}
-                      data-testid="button-dow-chart-line"
-                    >
-                      <TrendingUp className="h-3 w-3" /> Line
-                    </button>
-                  </div>
+            <AnalyticsChartPanel
+              title="Incident Date"
+              icon={<Calendar className="h-4 w-4" />}
+              filtered={!!activeFilters.dateKey}
+              highlighted={!!activeFilters.dateKey}
+              contentRef={chartRefDate}
+              actions={
+                <div className="flex items-center gap-2 flex-wrap justify-end">
+                  <AnalyticsSegmented
+                    value={dateChartType}
+                    onChange={(v) => setDateChartType(v as "bar" | "line")}
+                    testId="date-chart-type-toggle"
+                    options={[
+                      { value: "bar", label: (<><BarChart3 className="h-3 w-3" /> Bar</>), testId: "button-chart-bar" },
+                      { value: "line", label: (<><TrendingUp className="h-3 w-3" /> Line</>), testId: "button-chart-line" },
+                    ]}
+                  />
+                  <AnalyticsSegmented
+                    value={dateGrouping}
+                    onChange={(g) => {
+                      setDateGrouping(g as DateGrouping);
+                      setActiveFilters((p) => ({ ...p, dateKey: null }));
+                    }}
+                    testId="date-grouping-toggle"
+                    options={(["daily", "weekly", "monthly", "yearly"] as DateGrouping[]).map((g) => ({
+                      value: g,
+                      label: g.charAt(0).toUpperCase() + g.slice(1),
+                      testId: `button-grouping-${g}`,
+                    }))}
+                  />
                 </div>
-              </CardHeader>
-              <CardContent ref={chartRefDow}>
-                {dowData.every((d) => d.incidents === 0) ? (
-                  <div className="h-[250px] flex items-center justify-center text-sm text-muted-foreground">No data available</div>
-                ) : dowChartType === "line" ? (
-                  <ResponsiveContainer width="100%" height={250}>
-                    <LineChart data={dowData} style={{ cursor: "pointer" }}>
-                      <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                      <XAxis dataKey="day" tick={{ fontSize: 12 }} />
-                      <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
-                      <Tooltip contentStyle={TOOLTIP_STYLE} />
-                      <Line
-                        type="monotone"
-                        dataKey="incidents"
-                        name="Incidents"
-                        stroke="hsl(var(--primary))"
-                        strokeWidth={2}
-                        dot={{ r: 4, fill: "hsl(var(--primary))", strokeWidth: 0 }}
-                        activeDot={(props: { cx?: number; cy?: number; payload?: { dayIdx: number; incidents: number } }) => (
-                          <Dot
-                            cx={props.cx ?? 0}
-                            cy={props.cy ?? 0}
-                            r={7}
-                            fill="hsl(var(--primary))"
-                            stroke="hsl(var(--foreground))"
-                            strokeWidth={1}
-                            style={{ cursor: "pointer" }}
-                            onClick={() => props.payload && props.payload.incidents > 0 && toggleFilter("dow", props.payload.dayIdx)}
-                          />
-                        )}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <ResponsiveContainer width="100%" height={250}>
-                    <BarChart data={dowData} style={{ cursor: "pointer" }}>
-                      <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                      <XAxis dataKey="day" tick={{ fontSize: 12 }} />
-                      <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
-                      <Tooltip contentStyle={TOOLTIP_STYLE} />
-                      <Bar
-                        dataKey="incidents"
-                        name="Incidents"
-                        radius={[4, 4, 0, 0]}
-                        onClick={(entry) => { if (entry.incidents > 0) toggleFilter("dow", entry.dayIdx); }}
-                      >
-                        {dowData.map((entry, index) => (
-                          <Cell
-                            key={`cell-dow-${index}`}
-                            fill="hsl(var(--primary))"
-                            opacity={activeFilters.dow === null || entry.selected ? 1 : 0.35}
-                          />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-                {activeFilters.dow !== null && (
-                  <p className="text-xs text-center text-muted-foreground mt-1">
-                    Click the same bar to deselect
-                  </p>
-                )}
-              </CardContent>
-            </Card>
+              }
+            >
+              {dateData.length === 0 ? (
+                <AnalyticsChartEmpty />
+              ) : dateChartType === "line" ? (
+                <ResponsiveContainer width="100%" height={220}>
+                  <LineChart data={dateData} style={{ cursor: "pointer" }}>
+                    <CartesianGrid {...ANALYTICS_GRID} />
+                    <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                    <Tooltip contentStyle={TOOLTIP_STYLE} />
+                    <Line
+                      type="monotone"
+                      dataKey="incidents"
+                      name="Incidents"
+                      stroke="hsl(var(--primary))"
+                      strokeWidth={2}
+                      animationDuration={ANALYTICS_ANIMATION_MS}
+                      dot={{ r: 3, fill: "hsl(var(--primary))", strokeWidth: 0 }}
+                      activeDot={(props: { cx?: number; cy?: number; payload?: { key: string } }) => (
+                        <Dot
+                          cx={props.cx ?? 0}
+                          cy={props.cy ?? 0}
+                          r={7}
+                          fill="hsl(var(--primary))"
+                          stroke="hsl(var(--foreground))"
+                          strokeWidth={1}
+                          style={{ cursor: "pointer" }}
+                          onClick={() => props.payload && toggleFilter("dateKey", props.payload.key)}
+                        />
+                      )}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={dateData} style={{ cursor: "pointer" }}>
+                    <CartesianGrid {...ANALYTICS_GRID} />
+                    <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                    <Tooltip contentStyle={TOOLTIP_STYLE} labelFormatter={(v) => `${v}`} />
+                    <Bar
+                      dataKey="incidents"
+                      name="Incidents"
+                      radius={[6, 6, 0, 0]}
+                      animationDuration={ANALYTICS_ANIMATION_MS}
+                      onClick={(entry) => toggleFilter("dateKey", entry.key)}
+                    >
+                      {dateData.map((entry, index) => (
+                        <Cell
+                          key={`cell-date-${index}`}
+                          fill={intensityFill(entry.incidents, dateMax)}
+                          opacity={chartOpacity(entry.selected, activeFilters.dateKey !== null)}
+                        />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+              {activeFilters.dateKey && (
+                <p className="text-xs text-center text-muted-foreground mt-1">
+                  Click the same bar to deselect
+                </p>
+              )}
+            </AnalyticsChartPanel>
+
+            <AnalyticsChartPanel
+              className="lg:col-span-2"
+              title="Day of Week"
+              icon={<CalendarDays className="h-4 w-4" />}
+              filtered={activeFilters.dow !== null}
+              highlighted={activeFilters.dow !== null}
+              contentRef={chartRefDow}
+              actions={
+                <AnalyticsSegmented
+                  value={dowChartType}
+                  onChange={(v) => setDowChartType(v as "bar" | "line")}
+                  testId="dow-chart-type-toggle"
+                  options={[
+                    { value: "bar", label: (<><BarChart3 className="h-3 w-3" /> Bar</>), testId: "button-dow-chart-bar" },
+                    { value: "line", label: (<><TrendingUp className="h-3 w-3" /> Line</>), testId: "button-dow-chart-line" },
+                  ]}
+                />
+              }
+            >
+              {dowData.every((d) => d.incidents === 0) ? (
+                <AnalyticsChartEmpty />
+              ) : dowChartType === "line" ? (
+                <ResponsiveContainer width="100%" height={220}>
+                  <LineChart data={dowData} style={{ cursor: "pointer" }}>
+                    <CartesianGrid {...ANALYTICS_GRID} />
+                    <XAxis dataKey="day" tick={{ fontSize: 12 }} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                    <Tooltip contentStyle={TOOLTIP_STYLE} />
+                    <Line
+                      type="monotone"
+                      dataKey="incidents"
+                      name="Incidents"
+                      stroke="hsl(var(--primary))"
+                      strokeWidth={2}
+                      animationDuration={ANALYTICS_ANIMATION_MS}
+                      dot={{ r: 3, fill: "hsl(var(--primary))", strokeWidth: 0 }}
+                      activeDot={(props: { cx?: number; cy?: number; payload?: { dayIdx: number; incidents: number } }) => (
+                        <Dot
+                          cx={props.cx ?? 0}
+                          cy={props.cy ?? 0}
+                          r={7}
+                          fill="hsl(var(--primary))"
+                          stroke="hsl(var(--foreground))"
+                          strokeWidth={1}
+                          style={{ cursor: "pointer" }}
+                          onClick={() => props.payload && props.payload.incidents > 0 && toggleFilter("dow", props.payload.dayIdx)}
+                        />
+                      )}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={dowData} style={{ cursor: "pointer" }}>
+                    <CartesianGrid {...ANALYTICS_GRID} />
+                    <XAxis dataKey="day" tick={{ fontSize: 12 }} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                    <Tooltip contentStyle={TOOLTIP_STYLE} />
+                    <Bar
+                      dataKey="incidents"
+                      name="Incidents"
+                      radius={[6, 6, 0, 0]}
+                      animationDuration={ANALYTICS_ANIMATION_MS}
+                      onClick={(entry) => { if (entry.incidents > 0) toggleFilter("dow", entry.dayIdx); }}
+                    >
+                      {dowData.map((entry, index) => (
+                        <Cell
+                          key={`cell-dow-${index}`}
+                          fill={intensityFill(entry.incidents, dowMax)}
+                          opacity={chartOpacity(entry.selected, activeFilters.dow !== null)}
+                        />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+              {activeFilters.dow !== null && (
+                <p className="text-xs text-center text-muted-foreground mt-1">
+                  Click the same bar to deselect
+                </p>
+              )}
+            </AnalyticsChartPanel>
           </div>
         )}
       </div>
