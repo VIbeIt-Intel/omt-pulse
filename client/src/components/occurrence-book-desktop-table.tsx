@@ -51,7 +51,7 @@ function EvidenceBadge({ hasEvidence, incidentId }: { hasEvidence: boolean; inci
   }
   return (
     <span
-      className="inline-flex items-center rounded-full border border-red-500/30 bg-red-500/15 px-2.5 py-0.5 text-xs font-semibold text-red-700 dark:text-red-400"
+      className="inline-flex items-center rounded-full border border-border bg-muted/50 px-2.5 py-0.5 text-xs font-semibold text-muted-foreground"
       data-testid={`badge-evidence-${incidentId}`}
     >
       No

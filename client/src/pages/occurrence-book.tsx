@@ -919,7 +919,7 @@ export default function OccurrenceBook() {
                       {hasEvidence ? (
                         <span className="inline-flex items-center rounded-full border border-green-500/30 bg-green-500/15 px-2 py-0.5 text-xs font-semibold text-green-700 dark:text-green-400">Yes</span>
                       ) : (
-                        <span className="inline-flex items-center rounded-full border border-red-500/30 bg-red-500/15 px-2 py-0.5 text-xs font-semibold text-red-700 dark:text-red-400">No</span>
+                        <span className="inline-flex items-center rounded-full border border-border bg-muted/50 px-2 py-0.5 text-xs font-semibold text-muted-foreground">No</span>
                       )}
                     </div>
                   </div>

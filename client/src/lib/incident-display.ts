@@ -110,15 +110,18 @@ export function liveIncidentDestination(
 
 export type EffectiveSeverity = "red" | "orange" | "yellow" | null;
 
-/** Incident severity when set; otherwise falls back to the category's configured severity. */
+/** Incident severity when set; otherwise falls back to the category's configured severity.
+ *  Panic SOS is always treated as red when no severity was stamped on the row. */
 export function resolveEffectiveSeverity(
-  incident: Pick<Incident, "severity">,
-  category?: Pick<Category, "severity"> | null,
+  incident: Pick<Incident, "severity"> & { panicClosedAt?: string | Date | null },
+  category?: Pick<Category, "severity" | "name"> | null,
 ): EffectiveSeverity {
   const direct = incident.severity;
   if (direct && direct !== "none") return direct as EffectiveSeverity;
   const fromCat = category?.severity;
   if (fromCat && fromCat !== "none") return fromCat as EffectiveSeverity;
+  const catName = category?.name?.toLowerCase() ?? "";
+  if (catName === "panic" || incident.panicClosedAt) return "red";
   return null;
 }
 
