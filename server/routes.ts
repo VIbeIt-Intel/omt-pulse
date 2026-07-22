@@ -1055,14 +1055,6 @@ async function assertWriteCommandAccess(req: Request, rowCommandId: number | nul
 // remaining caller). New code should prefer the explicit helpers above.
 const assertCommandAccess = assertWriteCommandAccess;
 
-function rejectLiveWorkflowRole(role: string, res: Response): boolean {
-  if (isAccessController(role)) {
-    res.status(403).json({ message: "Access controllers cannot use the live incident workflow" });
-    return true;
-  }
-  return false;
-}
-
 const AUTH_WHITELIST = [
   "/auth/login",
   "/auth/register",
@@ -2740,7 +2732,6 @@ export async function registerRoutes(
 
   app.post("/api/live-incidents/notify-severity", async (req, res) => {
     if (!req.currentUser) return res.status(401).json({ message: "Unauthorized" });
-    if (rejectLiveWorkflowRole(req.currentUser.role, res)) return;
     // Severity info is now baked into dispatchLiveIncidentPush (fired when the
     // live incident record is created). Returning 0 here prevents a duplicate push.
     return res.json({ sent: 0 });
@@ -3269,16 +3260,15 @@ export async function registerRoutes(
   // End a live incident — any authenticated org member can call this (reporters included)
   app.post("/api/incidents/:id/end-live", async (req, res) => {
     const { organizationId: orgId, id: userId, role } = req.currentUser!;
-    if (rejectLiveWorkflowRole(role, res)) return;
     const id = parseInt(req.params.id as string);
     const incident = await storage.getIncident(id, orgId);
     if (!incident) return res.status(404).json({ message: "Incident not found" });
     if (!(await assertCommandAccess(req, (incident as any).commandId))) {
       return res.status(404).json({ message: "Incident not found" });
     }
-    // Only the original creator, administrators, or supervisors may end a live incident.
-    // Joiners (reporters who joined) must use leave-live instead.
-    if (incident.userId !== userId && role === "reporter") {
+    // Only the original creator or dispatch staff may end a live incident.
+    // Field joiners (reporter / access controller / patrol) must use leave-live instead.
+    if (incident.userId !== userId && !isDispatchStaff(role)) {
       return res.status(403).json({ message: "Only the incident creator or an admin/supervisor can end this incident" });
     }
     // Panic incidents: the panicker can always close their own alert.
@@ -3494,7 +3484,6 @@ export async function registerRoutes(
   // Join a live incident as an additional responder
   app.post("/api/incidents/:id/join-live", async (req, res) => {
     const { organizationId: orgId, id: userId, role } = req.currentUser!;
-    if (rejectLiveWorkflowRole(role, res)) return;
     const id = parseInt(req.params.id as string);
     const incident = await storage.getIncident(id, orgId);
     if (!incident) return res.status(404).json({ message: "Incident not found" });
@@ -3592,7 +3581,6 @@ export async function registerRoutes(
   // Leave a joined live incident
   app.post("/api/incidents/:id/leave-live", async (req, res) => {
     const { organizationId: orgId, id: userId, role } = req.currentUser!;
-    if (rejectLiveWorkflowRole(role, res)) return;
     const id = parseInt(req.params.id as string);
     const incident = await storage.getIncident(id, orgId);
     if (!incident) return res.status(404).json({ message: "Incident not found" });
@@ -3607,7 +3595,6 @@ export async function registerRoutes(
   // Record joiner arrival — saves arrival time + note on the live_responders row
   app.post("/api/incidents/:id/joiner-arrival", async (req, res) => {
     const { organizationId: orgId, id: userId, role } = req.currentUser!;
-    if (rejectLiveWorkflowRole(role, res)) return;
     const id = parseInt(req.params.id as string);
     const incident = await storage.getIncident(id, orgId);
     if (!incident || !incident.isLive) return res.status(404).json({ message: "Live incident not found" });
@@ -3899,7 +3886,6 @@ export async function registerRoutes(
   // Reporter taps "I've Arrived" — immediately set responderArrivedAt and push-notify admin/supervisor
   app.patch("/api/incidents/:id/mark-arrived", async (req, res) => {
     const { organizationId: orgId, id: userId, role } = req.currentUser!;
-    if (rejectLiveWorkflowRole(role, res)) return;
     const id = parseInt(req.params.id as string);
     const incident = await storage.getIncident(id, orgId);
     if (!incident || !incident.isLive) return res.status(404).json({ message: "Live incident not found" });
@@ -3977,9 +3963,6 @@ export async function registerRoutes(
       if (assigned.length > 0 && parsed.data.locationId != null && !assigned.includes(parsed.data.locationId)) {
         return res.status(403).json({ message: "You are not assigned to this location" });
       }
-    }
-    if (isAccessController(role) && parsed.data.isLive) {
-      return res.status(403).json({ message: "Access controllers can only file manual occurrence book entries" });
     }
     // Fetch existing incident first so we can validate against effective resulting state
     const oldIncident = await storage.getIncident(id, orgId);

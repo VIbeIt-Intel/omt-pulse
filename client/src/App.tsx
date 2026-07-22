@@ -599,7 +599,6 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
   });
   useEffect(() => {
     if (!liveLoaded || liveRedirectFiredRef.current) return;
-    if (user.role === "access_controller") return;
     if (!canUseLiveIncidentWorkflow(user.role)) return;
     if (location === "/live-monitor") return;
     if (location === "/live-incident") return;
@@ -969,12 +968,12 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
                 </RoleGuard>
               </Route>
               <Route path="/live-incident">
-                <RoleGuard role={user.role} allowed={["administrator", "supervisor", "reporter", "access_controller"]}>
+                <RoleGuard role={user.role} allowed={["administrator", "supervisor", "reporter", "access_controller", "patrol_user"]}>
                   <LiveIncidentPage />
                 </RoleGuard>
               </Route>
               <Route path="/live-severity">
-                <RoleGuard role={user.role} allowed={["administrator", "supervisor", "reporter", "access_controller"]}>
+                <RoleGuard role={user.role} allowed={["administrator", "supervisor", "reporter", "access_controller", "patrol_user"]}>
                   <LiveSeverityPage />
                 </RoleGuard>
               </Route>

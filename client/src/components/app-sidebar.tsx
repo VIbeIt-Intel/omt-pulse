@@ -5,7 +5,7 @@ import { HeartbeatLine } from "@/components/heartbeat-line";
 import { OmtShield } from "@/components/omt-shield";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { canViewAccessControlModule, isDispatchStaff, isFieldReporter, isAccessController, canAccessPatrolModule } from "@shared/user-roles";
+import { canViewAccessControlModule, isDispatchStaff, canUseLiveIncidentWorkflow, canAccessPatrolModule } from "@shared/user-roles";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Collapsible,
@@ -227,7 +227,7 @@ function getNavItems(role: string, isSuperadmin: boolean): {
     primary.push({ title: "Live Monitor", url: "/live-monitor", icon: Radio });
     primary.push({ title: "Fleet", url: "/fleet", icon: Car });
   }
-  if (isFieldReporter(role) || isAccessController(role)) {
+  if (canUseLiveIncidentWorkflow(role) && !isDispatchStaff(role)) {
     primary.push({ title: "Live Incident", url: "/live-incident", icon: Radio });
   }
 

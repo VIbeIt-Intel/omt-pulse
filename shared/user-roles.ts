@@ -4,7 +4,8 @@ import { hasPermission } from "./permissions";
 export const USER_ROLES = ["administrator", "control_room", "supervisor", "reporter", "access_controller", "patrol_user"] as const;
 export type UserRole = (typeof USER_ROLES)[number];
 
-/** Live Monitor, Fleet, Analytics, dispatch dashboard — not gate access. */export const DISPATCH_STAFF_ROLES = ["administrator", "supervisor", "control_room"] as const;
+/** Live Monitor, Fleet, Analytics, dispatch dashboard — not gate access. */
+export const DISPATCH_STAFF_ROLES = ["administrator", "supervisor", "control_room"] as const;
 
 /** Gate check-in / check-out module. */
 export const ACCESS_CONTROL_ROLES = ["administrator", "supervisor", "reporter", "access_controller"] as const;
@@ -60,7 +61,12 @@ export function isOwnIncidentScopedRole(role: string): boolean {
 
 /** Live Incident page, join-live, live-severity start flow. */
 export function canUseLiveIncidentWorkflow(role: string): boolean {
-  return isFieldReporter(role) || isDispatchStaff(role) || isAccessController(role);
+  return (
+    isFieldReporter(role)
+    || isDispatchStaff(role)
+    || isAccessController(role)
+    || role === "patrol_user"
+  );
 }
 
 export function usesLocationAssignmentScope(role: string): boolean {
