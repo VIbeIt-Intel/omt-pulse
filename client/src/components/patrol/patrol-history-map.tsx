@@ -5,14 +5,24 @@ import { loadGoogleMaps } from "@/lib/google-maps-loader";
 import { SA_MAP_DEFAULT } from "@/components/live-incidents-map";
 import { hasCheckpointCoords } from "@/lib/patrol-route-draft";
 import { Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 type PatrolHistoryMapProps = {
   checkpoints: PatrolCheckpoint[];
   logs: PatrolCheckpointLogWithCheckpoint[];
   trackPoints: PatrolReportTrackPoint[];
+  /** When false, tear down the map so it re-inits at the correct size when shown again. */
+  active?: boolean;
+  className?: string;
 };
 
-export function PatrolHistoryMap({ checkpoints, logs, trackPoints }: PatrolHistoryMapProps) {
+export function PatrolHistoryMap({
+  checkpoints,
+  logs,
+  trackPoints,
+  active = true,
+  className,
+}: PatrolHistoryMapProps) {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const mapRef = useRef<HTMLDivElement>(null);
@@ -33,12 +43,21 @@ export function PatrolHistoryMap({ checkpoints, logs, trackPoints }: PatrolHisto
   }, []);
 
   useEffect(() => {
-    if (!ready || !mapRef.current) return;
+    if (!active) {
+      if (mapInstanceRef.current) {
+        google.maps.event.clearInstanceListeners(mapInstanceRef.current);
+        mapInstanceRef.current = null;
+      }
+    }
+  }, [active]);
+
+  useEffect(() => {
+    if (!active || !ready || !mapRef.current || mapInstanceRef.current) return;
 
     const map = new google.maps.Map(mapRef.current, {
       center: { lat: SA_MAP_DEFAULT.lat, lng: SA_MAP_DEFAULT.lng },
       zoom: SA_MAP_DEFAULT.zoom,
-      mapTypeControl: false,
+      mapTypeControl: true,
       streetViewControl: false,
       fullscreenControl: true,
       gestureHandling: "greedy",
@@ -158,41 +177,68 @@ export function PatrolHistoryMap({ checkpoints, logs, trackPoints }: PatrolHisto
       });
     }
 
-    if (hasBounds) {
-      map.fitBounds(bounds, { top: 40, right: 40, bottom: 40, left: 40 });
-    }
+    const fitMap = () => {
+      if (!mapInstanceRef.current) return;
+      google.maps.event.trigger(mapInstanceRef.current, "resize");
+      if (hasBounds) {
+        mapInstanceRef.current.fitBounds(bounds, { top: 48, right: 48, bottom: 48, left: 48 });
+      }
+    };
+
+    requestAnimationFrame(fitMap);
+    const resizeObserver = new ResizeObserver(() => fitMap());
+    resizeObserver.observe(mapRef.current);
+    const t0 = window.setTimeout(fitMap, 50);
+    const t1 = window.setTimeout(fitMap, 200);
+    const t2 = window.setTimeout(fitMap, 450);
 
     return () => {
-      mapInstanceRef.current = null;
+      window.clearTimeout(t0);
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+      resizeObserver.disconnect();
+      if (mapInstanceRef.current) {
+        google.maps.event.clearInstanceListeners(mapInstanceRef.current);
+        mapInstanceRef.current = null;
+      }
     };
-  }, [ready, checkpoints, logs, trackPoints]);
+  }, [active, ready, checkpoints, logs, trackPoints]);
 
   if (error) {
     return <p className="p-3 text-xs text-destructive">{error}</p>;
   }
-  if (!ready) {
+
+  const mapShell = "relative h-[min(48vh,440px)] min-h-[300px] w-full overflow-hidden rounded-xl border border-border/80 bg-muted/30";
+
+  if (!ready || !active) {
     return (
-      <div className="flex h-56 items-center justify-center text-sm text-muted-foreground">
-        <Loader2 className="h-5 w-5 animate-spin mr-2" />
-        Loading map…
+      <div className={cn("space-y-3", className)}>
+        <div className={mapShell}>
+          <div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin mr-2" />
+            Loading map…
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-2">
-      <div ref={mapRef} className="h-56 w-full rounded-md border" data-testid="patrol-history-map" />
-      <div className="flex flex-wrap gap-3 px-1 text-[10px] text-muted-foreground">
-        <span className="flex items-center gap-1">
+    <div className={cn("space-y-3", className)}>
+      <div className={mapShell}>
+        <div ref={mapRef} className="absolute inset-0 h-full w-full" data-testid="patrol-history-map" />
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-2 text-[11px] text-muted-foreground">
+        <span className="flex items-center gap-1.5">
           <span className="h-2.5 w-2.5 rounded-full bg-blue-600" /> Planned
         </span>
-        <span className="flex items-center gap-1">
+        <span className="flex items-center gap-1.5">
           <span className="h-2.5 w-2.5 rounded-full bg-green-600" /> Actual track
         </span>
-        <span className="flex items-center gap-1">
+        <span className="flex items-center gap-1.5">
           <span className="h-2.5 w-2.5 rounded-full bg-amber-500" /> Clocked GPS
         </span>
-        <span className="flex items-center gap-1">
+        <span className="flex items-center gap-1.5">
           <span className="h-2.5 w-2.5 rounded-full bg-red-600" /> Outside radius
         </span>
       </div>
