@@ -13,6 +13,7 @@ import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Upload, Download, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2, Undo2, FileUp, ArrowRight, ArrowLeft, FileWarning } from "lucide-react";
+import { PageHero } from "@/components/page-hero";
 
 type ColumnMapEntry = { fieldKey: string | null; type: "system" | "custom" | "skip" };
 type CategoryResolution = { action: "link" | "create" | "other"; categoryId?: number };
@@ -228,13 +229,32 @@ export default function ImportPage() {
     if (file) handleFile(file);
   };
 
+  const stepLabel =
+    step === 1 ? "Upload" : step === 2 ? "Map columns" : step === 3 ? "Resolve refs" : "Validate";
+
   return (
     <div className="h-full overflow-auto">
       <div className="max-w-6xl mx-auto p-6 space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold" data-testid="text-page-title">Import Occurrences</h1>
-          <p className="text-muted-foreground">Bulk-import historical or ongoing occurrence data from Excel or CSV files.</p>
-        </div>
+        <PageHero
+          eyebrow="Import Data"
+          badge={`Step ${step} of 4 · ${stepLabel}`}
+          total={validation?.totalRows ?? upload?.totalRows ?? null}
+          totalLabel={validation || upload ? "Rows" : undefined}
+          title={!validation && !upload ? "Occurrence import" : undefined}
+          description={!validation && !upload ? "Bulk-import historical or ongoing occurrence data from Excel or CSV." : undefined}
+          titleTestId="text-page-title"
+          insights={
+            validation
+              ? [
+                  { label: "Valid", value: String(validation.validRows) },
+                  { label: "Errors", value: String(validation.errorRows) },
+                ]
+              : [
+                  { label: "Format", value: "Excel / CSV" },
+                  { label: "Flow", value: "Upload → map → import" },
+                ]
+          }
+        />
 
         {/* Stepper */}
         <div className="flex items-center gap-2">

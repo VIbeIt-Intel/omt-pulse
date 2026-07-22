@@ -18,6 +18,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { buildOrgAdminAccessMessage } from "@/lib/onboarding-messages";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PageHero } from "@/components/page-hero";
 import type { Category, Location, FormField as OrgFormField } from "@shared/schema";
 import { USER_ROLES } from "@shared/user-roles";
 import { GeoLocationSheet, type GeoMapView } from "@/components/incident-location-sheet";
@@ -1914,21 +1915,29 @@ export default function UserAdminPage() {
 
   return (
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-6 overflow-y-auto h-full min-h-0 pb-8">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0">
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight" data-testid="text-user-admin-title">
-            <Users className="inline h-6 w-6 mr-2 -mt-0.5" />
-            User Admin
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Manage users within your organization
-          </p>
-        </div>
-        <Button onClick={openAdd} className="w-full sm:w-auto shrink-0 min-h-[44px] touch-manipulation" data-testid="button-add-user">
-          <Plus className="h-4 w-4 mr-2" />
-          Add User
-        </Button>
-      </div>
+      <PageHero
+        eyebrow="Users"
+        badge="Admin"
+        total={users.length}
+        totalLabel={users.length === 1 ? "User" : "Users"}
+        titleTestId="text-user-admin-title"
+        actions={
+          <Button onClick={openAdd} className="w-full sm:w-auto shrink-0 min-h-[36px] h-8 touch-manipulation" data-testid="button-add-user">
+            <Plus className="h-4 w-4 mr-2" />
+            Add User
+          </Button>
+        }
+        insights={[
+          {
+            label: "Unassigned",
+            value: String(usersWithoutCommand.length),
+          },
+          {
+            label: "Scope",
+            value: "Organisation",
+          },
+        ]}
+      />
 
       {usersWithoutCommand.length > 0 && (
         <div

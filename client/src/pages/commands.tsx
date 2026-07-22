@@ -15,6 +15,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { PageHero } from "@/components/page-hero";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import {
   GroupSiteLocationPicker,
@@ -157,39 +158,27 @@ export default function CommandsPage() {
   return (
     <div className="h-full overflow-y-auto">
     <div className="container max-w-6xl px-4 sm:px-6 py-4 sm:py-8 space-y-6" data-testid="page-commands">
-      {/* Hero header */}
-      <div className="rounded-xl border bg-gradient-to-br from-primary/10 via-card to-card p-5 sm:p-7">
-        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-          <div className="flex items-start gap-3 sm:gap-4 min-w-0">
-            <div className="shrink-0 h-11 w-11 sm:h-12 sm:w-12 rounded-lg bg-primary/15 text-primary flex items-center justify-center">
-              <Shield className="h-5 w-5 sm:h-6 sm:w-6" />
-            </div>
-            <div className="min-w-0">
-              <h1 className="text-xl sm:text-2xl font-bold tracking-tight" data-testid="heading-commands">
-                Groups
-              </h1>
-              <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-                Sub-organisations within your organisation. Each Group can hold its own users,
-                incidents, categories and locations.
-              </p>
-            </div>
-          </div>
+      <PageHero
+        eyebrow="Groups"
+        badge="Admin"
+        total={commands.length}
+        totalLabel={commands.length === 1 ? "Group" : "Groups"}
+        titleTestId="heading-commands"
+        actions={
           <Button
             onClick={() => setCreateOpen(true)}
-            className="w-full sm:w-auto sm:shrink-0"
+            size="sm"
+            className="w-full sm:w-auto sm:shrink-0 h-8"
             data-testid="button-create-command"
           >
             <Plus className="h-4 w-4 mr-2" /> New Group
           </Button>
-        </div>
-
-        {/* Stat strip */}
-        <div className="mt-5 grid grid-cols-3 gap-2 sm:gap-4">
-          <StatPill label="Total" value={commands.length} icon={Shield} />
-          <StatPill label="Custom" value={customCount} icon={Star} />
-          <StatPill label="Members" value={totalMembers} icon={UsersIcon} />
-        </div>
-      </div>
+        }
+        insights={[
+          { label: "Custom", value: String(customCount) },
+          { label: "Members", value: String(totalMembers) },
+        ]}
+      />
 
       {isLoading ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
@@ -530,30 +519,6 @@ function VisibilityGrantsSection({ commands }: { commands: Command[] }) {
         )}
       </div>
     </Card>
-  );
-}
-
-function StatPill({
-  label,
-  value,
-  icon: Icon,
-}: {
-  label: string;
-  value: number;
-  icon: typeof Shield;
-}) {
-  return (
-    <div className="rounded-lg border bg-card/60 backdrop-blur-sm px-3 py-2 sm:px-4 sm:py-2.5">
-      <div className="flex items-center gap-1.5 text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wide">
-        <Icon className="h-3 w-3" /> {label}
-      </div>
-      <div
-        className="mt-0.5 text-lg sm:text-xl font-bold tabular-nums"
-        data-testid={`stat-${label.toLowerCase()}`}
-      >
-        {value}
-      </div>
-    </div>
   );
 }
 

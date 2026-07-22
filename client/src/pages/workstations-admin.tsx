@@ -40,6 +40,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { PageHero } from "@/components/page-hero";
 import { Copy, Eye, Loader2, MonitorSmartphone, Plus, RefreshCw } from "lucide-react";
 
 type OrgCommand = { id: number; name: string; isCentral: boolean };
@@ -145,23 +146,26 @@ export default function WorkstationsAdminPage() {
 
   const actionPending = showCodeMutation.isPending || regenerateMutation.isPending;
 
+  const enrolledCount = workstations.filter((ws) => ws.enrolledAt).length;
+
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-5xl mx-auto">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold flex items-center gap-2">
-            <MonitorSmartphone className="h-7 w-7" />
-            Positions
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Dedicated company phones bound to a post (East Gate, Romeo 1, …). Create a position, then enrol the device with the code — no shift PIN.
-          </p>
-        </div>
-        <Button type="button" onClick={() => setDialogOpen(true)}>
-          <Plus className="h-4 w-4 mr-1" />
-          Add position
-        </Button>
-      </div>
+      <PageHero
+        eyebrow="Positions"
+        badge="Admin"
+        total={workstations.length}
+        totalLabel={workstations.length === 1 ? "Position" : "Positions"}
+        actions={
+          <Button type="button" size="sm" className="h-8" onClick={() => setDialogOpen(true)}>
+            <Plus className="h-4 w-4 mr-1" />
+            Add position
+          </Button>
+        }
+        insights={[
+          { label: "Enrolled", value: String(enrolledCount) },
+          { label: "Pending", value: String(workstations.length - enrolledCount) },
+        ]}
+      />
 
       {isLoading ? (
         <div className="flex justify-center py-12">

@@ -51,6 +51,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Plus, Pencil, Trash2, Settings, ListChecks, Eye, EyeOff, MapPin, ChevronDown, ChevronUp, Tag, Map, Upload, X, ScanSearch, Radio } from "lucide-react";
+import { PageHero } from "@/components/page-hero";
 import { Skeleton } from "@/components/ui/skeleton";
 import { GoogleAddressPinPicker } from "@/components/google-address-pin-picker";
 import type { CustomMap } from "@shared/schema";
@@ -1317,18 +1318,26 @@ function CustomMapsManager() {
 }
 
 export default function AdminPage() {
+  const { data: formFields = [] } = useQuery<FormField[]>({ queryKey: ["/api/form-fields"] });
+  const { data: categories = [] } = useQuery<Category[]>({ queryKey: ["/api/categories"] });
+  const { data: locations = [] } = useQuery<Location[]>({ queryKey: ["/api/locations"] });
+  const { data: customMaps = [] } = useQuery<CustomMap[]>({ queryKey: ["/api/custom-maps"] });
+
   return (
     <div className="flex flex-col h-full">
       <div className="p-6 space-y-6 overflow-y-auto flex-1">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight" data-testid="text-admin-title">
-            <Settings className="inline h-6 w-6 mr-2 -mt-0.5" />
-            Field Admin
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Configure form fields, incident types, and locations for reporting
-          </p>
-        </div>
+        <PageHero
+          eyebrow="Field setup"
+          badge="Admin"
+          total={formFields.length + categories.length + locations.length}
+          totalLabel="Configured"
+          titleTestId="text-admin-title"
+          insights={[
+            { label: "Form fields", value: String(formFields.length) },
+            { label: "Types", value: String(categories.length) },
+            { label: "Locations", value: String(locations.length + customMaps.length) },
+          ]}
+        />
 
         <FormFieldManager />
         <PredefinedTypesManager />
