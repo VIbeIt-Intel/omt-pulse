@@ -228,7 +228,10 @@ export type TripMapEvent = {
   kind: "stop" | "ignition_off";
   lat: number;
   lng: number;
+  /** Start of stop / ignition-off time. */
   at: string;
+  /** End of stop dwell (when movement resumed). */
+  until?: string;
   durationMinutes?: number;
   label: string;
 };
@@ -352,8 +355,9 @@ export function detectTripMapEvents(positions: TripPosition[]): TripMapEvent[] {
           lat: mid.latitude,
           lng: mid.longitude,
           at: start.recordedAt,
+          until: end.recordedAt,
           durationMinutes: mins,
-          label: `Stop · ${formatStopClock(start.recordedAt)} · ${formatDurationMinutes(mins)}`,
+          label: `Stop · ${formatStopClock(start.recordedAt)}–${formatStopClock(end.recordedAt)} · ${formatDurationMinutes(mins)}`,
         });
       }
       idleStartIdx = null;
@@ -372,8 +376,9 @@ export function detectTripMapEvents(positions: TripPosition[]): TripMapEvent[] {
         lat: mid.latitude,
         lng: mid.longitude,
         at: start.recordedAt,
+        until: end.recordedAt,
         durationMinutes: mins,
-        label: `Stop · ${formatStopClock(start.recordedAt)} · ${formatDurationMinutes(mins)}`,
+        label: `Stop · ${formatStopClock(start.recordedAt)}–${formatStopClock(end.recordedAt)} · ${formatDurationMinutes(mins)}`,
       });
     }
   }

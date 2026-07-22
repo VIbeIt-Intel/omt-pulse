@@ -131,7 +131,8 @@ function escapeHtml(s: string): string {
 
 function eventInfoHtml(event: TripMapEvent): string {
   const title = event.kind === "stop" ? "Stop / parked" : "Ignition off";
-  const time = formatTripClock(event.at);
+  const from = formatTripClock(event.at);
+  const until = event.until ? formatTripClock(event.until) : null;
   const duration =
     event.kind === "stop" && event.durationMinutes != null
       ? formatDurationMinutes(event.durationMinutes)
@@ -139,10 +140,16 @@ function eventInfoHtml(event: TripMapEvent): string {
   const lines = [
     `<div style="max-width:240px;font:12px/1.45 system-ui,sans-serif;color:#111">`,
     `<strong>${escapeHtml(title)}</strong>`,
-    `<div style="margin-top:6px">From <strong>${escapeHtml(time)}</strong></div>`,
   ];
+  if (event.kind === "stop" && until) {
+    lines.push(
+      `<div style="margin-top:6px">From <strong>${escapeHtml(from)}</strong> to <strong>${escapeHtml(until)}</strong></div>`,
+    );
+  } else {
+    lines.push(`<div style="margin-top:6px">At <strong>${escapeHtml(from)}</strong></div>`);
+  }
   if (duration) {
-    lines.push(`<div style="margin-top:4px">Parked / idle <strong>${escapeHtml(duration)}</strong></div>`);
+    lines.push(`<div style="margin-top:4px">Total duration <strong>${escapeHtml(duration)}</strong></div>`);
   }
   lines.push(
     `<div style="margin-top:6px;color:#555;font-size:11px">${event.lat.toFixed(5)}, ${event.lng.toFixed(5)}</div>`,
