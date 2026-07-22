@@ -273,7 +273,7 @@ export async function saveTrackerPosition(
     lastSpeedKph: number | null;
     lastHeading: number | null;
     lastIgnitionOn: boolean | null;
-    lastMileageKm: number | null;
+    lastMileageKm?: number | null;
     lastGpsValid: boolean;
     lastPositionAt: Date;
     lastSeenAt: Date;
