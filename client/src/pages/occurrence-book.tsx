@@ -14,6 +14,7 @@ import { IncidentLogMobileList } from "@/components/incident-log-mobile";
 import { GeoLocationSheet, IncidentLocationSheet, type GeoMapView } from "@/components/incident-location-sheet";
 import { CoordinateLink } from "@/components/coordinate-link";
 import { resolveEffectiveSeverity, incidentHasViewableLocation, liveIncidentDestination, type IncidentWithMeta } from "@/lib/incident-display";
+import { downloadIncidentDocket } from "@/lib/incident-docket";
 import { PanicConfirmOverlay } from "@/components/panic-confirm-overlay";
 
 type IncidentWithCount = IncidentWithMeta;
@@ -29,7 +30,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, BookOpen, Paperclip, Map as MapIcon, X, CalendarRange, Download, ArrowLeft, Radio, Siren } from "lucide-react";
+import { Plus, BookOpen, Paperclip, Map as MapIcon, X, CalendarRange, Download, ArrowLeft, Radio, Siren, Loader2, FileDown } from "lucide-react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { ConnectivityBadge } from "@/components/connectivity-badge";
 import { PanicBanner, type PanicAlert } from "@/components/panic-banner";
@@ -54,6 +55,7 @@ export default function OccurrenceBook() {
   const [viewingIncident, setViewingIncident] = useState<IncidentWithCount | null>(null);
   const [locationViewIncident, setLocationViewIncident] = useState<IncidentWithCount | null>(null);
   const [geoMapView, setGeoMapView] = useState<GeoMapView | null>(null);
+  const [docketBusy, setDocketBusy] = useState(false);
   const [selectedMapId, setSelectedMapId] = useState<number | null>(null);
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
@@ -346,6 +348,36 @@ export default function OccurrenceBook() {
     if (!incidentHasViewableLocation(incident, locations)) return;
     setLocationViewIncident(incident);
   };
+
+  async function handleDownloadDocket(inc: IncidentWithCount) {
+    if (docketBusy) return;
+    const cat = categories.find((c) => c.id === inc.categoryId);
+    const locDisplay = getLocationDisplay(inc);
+    const liveDest = liveIncidentDestination(inc);
+    const locationLabel =
+      liveDest?.name
+      ?? (inc.locationName?.trim() === "Live Incident" ? "" : locDisplay.label !== "-" ? locDisplay.label : "")
+      || "—";
+    try {
+      setDocketBusy(true);
+      await downloadIncidentDocket({
+        incident: inc,
+        incidentNumber: incidentNumberMap.get(inc.id) ?? String(inc.id),
+        category: cat ?? null,
+        locationLabel,
+        locations,
+      });
+      toast({ title: "Docket downloaded", description: "PDF saved with incident details and evidence." });
+    } catch (e: unknown) {
+      toast({
+        title: "Docket failed",
+        description: e instanceof Error ? e.message : "Could not generate the docket PDF.",
+        variant: "destructive",
+      });
+    } finally {
+      setDocketBusy(false);
+    }
+  }
 
   const showDateTime = isFieldVisible(formFields, "incidentDate", fieldsLoaded) || isFieldVisible(formFields, "incidentTime", fieldsLoaded);
   const showCategory = isFieldVisible(formFields, "categoryId", fieldsLoaded);
@@ -805,10 +837,28 @@ export default function OccurrenceBook() {
             const hasEvidence = inc.attachmentCount > 0;
             return (
               <>
-                <SheetHeader className="mb-4">
-                  <SheetTitle className="text-base font-semibold">
-                    Incident {incidentNumberMap.get(inc.id) ?? String(inc.id)}
-                  </SheetTitle>
+                <SheetHeader className="mb-4 pr-8">
+                  <div className="flex items-start justify-between gap-3">
+                    <SheetTitle className="text-base font-semibold">
+                      Incident {incidentNumberMap.get(inc.id) ?? String(inc.id)}
+                    </SheetTitle>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-8 shrink-0 gap-1.5"
+                      disabled={docketBusy}
+                      onClick={() => void handleDownloadDocket(inc)}
+                      data-testid="button-download-docket"
+                    >
+                      {docketBusy ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <FileDown className="h-3.5 w-3.5" />
+                      )}
+                      Docket
+                    </Button>
+                  </div>
                 </SheetHeader>
 
                 <div className="space-y-4">

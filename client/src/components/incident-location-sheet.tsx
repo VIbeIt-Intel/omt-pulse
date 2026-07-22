@@ -1,6 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Incident, Category, CustomMap, Location } from "@shared/schema";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { CustomMapLayerView } from "@/components/custom-map-layer-view";
 import { loadGoogleMaps } from "@/lib/google-maps-loader";
 import { resolveIncidentCoords } from "@/lib/incident-display";
@@ -16,8 +21,6 @@ type Props = {
   locations: Location[];
 };
 
-const MAP_HEIGHT = "min(58vh, 420px)";
-
 function GeoMapPreview({
   lat,
   lng,
@@ -31,6 +34,7 @@ function GeoMapPreview({
 }) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<google.maps.Map | null>(null);
+  const markerRef = useRef<google.maps.Marker | null>(null);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState(false);
 
@@ -49,37 +53,50 @@ function GeoMapPreview({
   }, []);
 
   useEffect(() => {
-    if (!ready || !mapRef.current || mapInstanceRef.current) return;
-    const map = new google.maps.Map(mapRef.current, {
-      center: { lat, lng },
-      zoom: 15,
-      mapTypeControl: true,
-      streetViewControl: false,
-      fullscreenControl: true,
-    });
-    new google.maps.Marker({ position: { lat, lng }, map, title: label });
-    mapInstanceRef.current = map;
-  }, [ready, lat, lng, label]);
+    if (!open) {
+      mapInstanceRef.current = null;
+      markerRef.current = null;
+    }
+  }, [open]);
 
-  // Re-fit after the sheet animation so the map fills the larger panel.
+  useEffect(() => {
+    if (!open || !ready || !mapRef.current) return;
+    if (!mapInstanceRef.current) {
+      const map = new google.maps.Map(mapRef.current, {
+        center: { lat, lng },
+        zoom: 16,
+        mapTypeControl: true,
+        streetViewControl: true,
+        fullscreenControl: true,
+        zoomControl: true,
+      });
+      markerRef.current = new google.maps.Marker({
+        position: { lat, lng },
+        map,
+        title: label,
+      });
+      mapInstanceRef.current = map;
+    } else {
+      mapInstanceRef.current.setCenter({ lat, lng });
+      markerRef.current?.setPosition({ lat, lng });
+      markerRef.current?.setTitle(label);
+    }
+  }, [open, ready, lat, lng, label]);
+
+  // Re-fit after the dialog opens so tiles fill the large panel.
   useEffect(() => {
     if (!open || !ready || !mapInstanceRef.current) return;
     const map = mapInstanceRef.current;
     const timer = window.setTimeout(() => {
       google.maps.event.trigger(map, "resize");
       map.setCenter({ lat, lng });
-    }, 350);
+    }, 280);
     return () => window.clearTimeout(timer);
   }, [open, ready, lat, lng]);
 
-  const shellStyle = { height: MAP_HEIGHT };
-
   if (error) {
     return (
-      <div
-        className="flex items-center justify-center rounded-lg border bg-muted/30 text-sm text-muted-foreground px-4 text-center"
-        style={shellStyle}
-      >
+      <div className="flex h-full min-h-[280px] items-center justify-center rounded-lg border bg-muted/30 px-4 text-center text-sm text-muted-foreground">
         Map unavailable — {lat.toFixed(5)}, {lng.toFixed(5)}
       </div>
     );
@@ -87,10 +104,7 @@ function GeoMapPreview({
 
   if (!ready) {
     return (
-      <div
-        className="flex items-center justify-center rounded-lg border bg-muted/30"
-        style={shellStyle}
-      >
+      <div className="flex h-full min-h-[280px] items-center justify-center rounded-lg border bg-muted/30">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     );
@@ -99,8 +113,7 @@ function GeoMapPreview({
   return (
     <div
       ref={mapRef}
-      className="w-full rounded-lg border shadow-sm"
-      style={shellStyle}
+      className="h-full min-h-[280px] w-full rounded-lg border shadow-sm"
       data-testid="incident-location-geo-map"
     />
   );
@@ -110,6 +123,40 @@ export type GeoMapView = { lat: number; lng: number; title: string };
 
 export function formatCoordLabel(lat: number, lng: number, decimals = 5): string {
   return `${Number(lat).toFixed(decimals)}, ${Number(lng).toFixed(decimals)}`;
+}
+
+function LocationMapDialogShell({
+  open,
+  onOpenChange,
+  title,
+  coordsLine,
+  children,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: string;
+  coordsLine?: string | null;
+  children: ReactNode;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className="flex h-[min(92vh,900px)] w-[min(96vw,1100px)] max-w-[min(96vw,1100px)] flex-col gap-0 overflow-hidden p-0"
+        data-testid="incident-location-map-dialog"
+      >
+        <DialogHeader className="shrink-0 border-b px-4 py-3 pr-12 text-left">
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <MapPin className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <span className="truncate">{title}</span>
+          </DialogTitle>
+          {coordsLine ? (
+            <p className="font-mono text-xs text-muted-foreground">{coordsLine}</p>
+          ) : null}
+        </DialogHeader>
+        <div className="min-h-0 flex-1 p-3">{children}</div>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 /** In-app map for any lat/lng (live timeline, responder GPS, etc.). */
@@ -122,29 +169,18 @@ export function GeoLocationSheet({
 }) {
   const open = view != null;
   return (
-    <Sheet
+    <LocationMapDialogShell
       open={open}
       onOpenChange={(next) => {
         if (!next) onClose();
       }}
+      title={view?.title ?? "Location"}
+      coordsLine={view ? formatCoordLabel(view.lat, view.lng) : null}
     >
-      <SheetContent className="w-full sm:max-w-xl overflow-y-auto">
-        {view && (
-          <>
-            <SheetHeader className="mb-4">
-              <SheetTitle className="flex items-center gap-2 text-base">
-                <MapPin className="h-4 w-4 shrink-0 text-muted-foreground" />
-                {view.title}
-              </SheetTitle>
-            </SheetHeader>
-            <GeoMapPreview lat={view.lat} lng={view.lng} label={view.title} open={open} />
-            <p className="mt-3 text-xs text-muted-foreground font-mono">
-              {formatCoordLabel(view.lat, view.lng)}
-            </p>
-          </>
-        )}
-      </SheetContent>
-    </Sheet>
+      {view && (
+        <GeoMapPreview lat={view.lat} lng={view.lng} label={view.title} open={open} />
+      )}
+    </LocationMapDialogShell>
   );
 }
 
@@ -166,36 +202,28 @@ export function IncidentLocationSheet({
   const coords = resolveIncidentCoords(incident, locations);
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-xl overflow-y-auto">
-        <SheetHeader className="mb-4">
-          <SheetTitle className="flex items-center gap-2 text-base">
-            <MapPin className="h-4 w-4 shrink-0 text-muted-foreground" />
-            {locationLabel}
-          </SheetTitle>
-        </SheetHeader>
-
-        {hasCustomPin && customMap ? (
+    <LocationMapDialogShell
+      open={open}
+      onOpenChange={onOpenChange}
+      title={locationLabel}
+      coordsLine={coords && !hasCustomPin ? formatCoordLabel(coords.lat, coords.lng) : null}
+    >
+      {hasCustomPin && customMap ? (
+        <div className="h-full min-h-[280px]">
           <CustomMapLayerView
             customMap={customMap}
             incidents={[incident]}
             categories={categories}
-            height={MAP_HEIGHT}
+            height="100%"
           />
-        ) : coords ? (
-          <GeoMapPreview lat={coords.lat} lng={coords.lng} label={locationLabel} open={open} />
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            No map coordinates recorded for this location.
-          </p>
-        )}
-
-        {coords && !hasCustomPin && (
-          <p className="mt-3 text-xs text-muted-foreground font-mono">
-            {coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}
-          </p>
-        )}
-      </SheetContent>
-    </Sheet>
+        </div>
+      ) : coords ? (
+        <GeoMapPreview lat={coords.lat} lng={coords.lng} label={locationLabel} open={open} />
+      ) : (
+        <p className="flex h-full items-center justify-center text-sm text-muted-foreground">
+          No map coordinates recorded for this location.
+        </p>
+      )}
+    </LocationMapDialogShell>
   );
 }
