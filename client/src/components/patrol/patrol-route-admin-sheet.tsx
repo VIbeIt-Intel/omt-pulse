@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Location, PatrolRoute } from "@shared/schema";
+import { DEFAULT_PATROL_CHECKPOINT_RADIUS_M } from "@shared/schema";
 import type { PatrolRouteWithCheckpoints } from "@/lib/patrol-types";
 import { PatrolRouteMapEditor } from "@/components/patrol/patrol-route-map-editor";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import {
+  clampCheckpointRadiusM,
   emptyPatrolCheckpoint,
   hasCheckpointCoords,
   type PatrolCheckpointDraft,
@@ -79,6 +81,9 @@ function toDraftsFromRoute(route: PatrolRouteWithCheckpoints): PatrolCheckpointD
       name: cp.name,
       instructions: cp.instructions ?? "",
       photoRequired: cp.photoRequired,
+      geofenceRadiusM: clampCheckpointRadiusM(
+        cp.geofenceRadiusM ?? DEFAULT_PATROL_CHECKPOINT_RADIUS_M,
+      ),
       latitude: cp.latitude,
       longitude: cp.longitude,
     }));
@@ -90,6 +95,7 @@ function serializeCheckpoints(ready: PatrolCheckpointDraft[]) {
     orderIndex: i,
     instructions: c.instructions.trim() || null,
     photoRequired: c.photoRequired,
+    geofenceRadiusM: clampCheckpointRadiusM(c.geofenceRadiusM),
     latitude: c.latitude,
     longitude: c.longitude,
   }));
@@ -117,6 +123,7 @@ function checkpointsChanged(
       prev.name !== cp.name ||
       (prev.instructions ?? null) !== (cp.instructions ?? null) ||
       prev.photoRequired !== cp.photoRequired ||
+      prev.geofenceRadiusM !== cp.geofenceRadiusM ||
       (prev.latitude ?? null) !== (cp.latitude ?? null) ||
       (prev.longitude ?? null) !== (cp.longitude ?? null)
     );
@@ -581,6 +588,37 @@ export function PatrolRouteAdminSheet({
                             onFocus={() => setSelectedIndex(i)}
                             placeholder="Instructions (optional)"
                           />
+                          <div className="grid grid-cols-[1fr_auto] gap-3 items-end">
+                            <div className="space-y-1">
+                              <Label className="text-xs text-muted-foreground">
+                                Radius (m)
+                              </Label>
+                              <Input
+                                type="number"
+                                min={15}
+                                max={500}
+                                step={5}
+                                value={cp.geofenceRadiusM}
+                                onFocus={() => setSelectedIndex(i)}
+                                onChange={(e) => {
+                                  const n = parseInt(e.target.value, 10);
+                                  updateCheckpoint(i, {
+                                    geofenceRadiusM: Number.isFinite(n)
+                                      ? n
+                                      : DEFAULT_PATROL_CHECKPOINT_RADIUS_M,
+                                  });
+                                }}
+                                onBlur={() =>
+                                  updateCheckpoint(i, {
+                                    geofenceRadiusM: clampCheckpointRadiusM(cp.geofenceRadiusM),
+                                  })
+                                }
+                              />
+                            </div>
+                            <p className="pb-2 text-[11px] text-muted-foreground whitespace-nowrap">
+                              15–500 m · default {DEFAULT_PATROL_CHECKPOINT_RADIUS_M}
+                            </p>
+                          </div>
                           <div className="flex items-center gap-2">
                             <Switch
                               checked={cp.photoRequired}
