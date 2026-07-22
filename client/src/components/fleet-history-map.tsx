@@ -328,10 +328,12 @@ export function FleetHistoryMap({
     playRangeRef.current = null;
     setActiveTripIndex(null);
     if (playbackPoints.length < 2) return;
+    ensurePlayOverlays();
+    playTrailRef.current?.setOptions({ strokeColor: "#f8fafc" });
     showPlayFrame(0);
     playTrailRef.current?.setPath([]);
     setPlaying(true);
-  }, [playbackPoints.length, showPlayFrame]);
+  }, [ensurePlayOverlays, playbackPoints.length, showPlayFrame]);
 
   const playTripLeg = useCallback(
     (legIndex: number) => {
@@ -665,11 +667,16 @@ export function FleetHistoryMap({
           ))}
         </div>
         <p className="text-[11px] text-muted-foreground">
-          {canPlay
-            ? activeTripIndex != null
-              ? `Trip ${activeTripIndex} · ${playIndex + 1}/${playbackPoints.length}`
-              : `GPS · ${playIndex + 1}/${playbackPoints.length}`
-            : "Need at least two GPS points to play"}
+          {(() => {
+            if (!canPlay) return "Need at least two GPS points to play";
+            const range = playRangeRef.current;
+            if (activeTripIndex != null && range) {
+              const total = range.to - range.from + 1;
+              const cur = playIndex - range.from + 1;
+              return `Trip ${activeTripIndex} · ${Math.max(1, cur)}/${total}`;
+            }
+            return `GPS · ${playIndex + 1}/${playbackPoints.length}`;
+          })()}
           {currentPlay && Number.isFinite(currentPlay.at)
             ? ` · ${new Date(currentPlay.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`
             : ""}

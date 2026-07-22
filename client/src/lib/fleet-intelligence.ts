@@ -388,15 +388,20 @@ export function detectTripMapEvents(positions: TripPosition[]): TripMapEvent[] {
   const events: TripMapEvent[] = [];
 
   let idleStartIdx: number | null = null;
+  let hasMoved = false;
   for (let i = 0; i < sorted.length; i++) {
     const point = sorted[i]!;
     const speed = point.speedKph ?? 0;
     const isIdle = speed < MOVING_SPEED_KPH;
 
     if (isIdle) {
+      // Ignore overnight / pre-departure park before the first movement of the day.
+      if (!hasMoved) continue;
       if (idleStartIdx == null) idleStartIdx = i;
       continue;
     }
+
+    hasMoved = true;
 
     if (idleStartIdx != null) {
       const start = sorted[idleStartIdx]!;

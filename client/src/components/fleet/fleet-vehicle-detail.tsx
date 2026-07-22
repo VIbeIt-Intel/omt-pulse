@@ -254,13 +254,21 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
 
   const yesterdayKm = useMemo(() => {
     const pts = dayBuckets.find((d) => d.key === yesterdayKey)?.positions ?? [];
-    if (device.lastTripDistanceKm != null) return { km: device.lastTripDistanceKm, source: "odometer" as const };
     const stats = computeTripDayStats(pts);
-    return {
-      km: stats.distanceKm,
-      source: "gps" as const,
-    };
-  }, [dayBuckets, yesterdayKey, device.lastTripDistanceKm]);
+    if (stats.distanceKm != null && stats.distanceKm > 0) {
+      return { km: stats.distanceKm, source: "gps" as const };
+    }
+    // Odometer "last day" only if we have no GPS for yesterday and device was active today.
+    const lastPosDay =
+      device.lastPositionAt != null ? dayKeyFromDate(new Date(device.lastPositionAt)) : null;
+    if (
+      device.lastTripDistanceKm != null
+      && lastPosDay === todayKey
+    ) {
+      return { km: device.lastTripDistanceKm, source: "odometer" as const };
+    }
+    return { km: null, source: "gps" as const };
+  }, [dayBuckets, yesterdayKey, todayKey, device.lastTripDistanceKm, device.lastPositionAt]);
 
   const activeDayKey = selectedDayKey ?? dayBuckets[0]?.key ?? null;
   const activeDay = dayBuckets.find((d) => d.key === activeDayKey) ?? null;
@@ -477,27 +485,31 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
           <FleetStatCard
             icon={Navigation}
             label="Trips"
-            value={String(todayMetrics.tripCount)}
+            value={historyLoading ? "…" : String(todayMetrics.tripCount)}
             sub="today"
           />
           <FleetStatCard
             icon={ParkingCircle}
             label="Stops"
-            value={String(todayMetrics.stopCount)}
+            value={historyLoading ? "…" : String(todayMetrics.stopCount)}
             sub={
-              todayMetrics.parkedMinutes > 0
-                ? `${formatDurationMinutes(todayMetrics.parkedMinutes)} parked`
-                : "today"
+              historyLoading
+                ? "today"
+                : todayMetrics.parkedMinutes > 0
+                  ? `${formatDurationMinutes(todayMetrics.parkedMinutes)} parked`
+                  : "today"
             }
           />
           <FleetStatCard
             icon={Timer}
             label="Driving"
-            value={formatDurationMinutes(todayMetrics.stats.drivingMinutes)}
+            value={historyLoading ? "…" : formatDurationMinutes(todayMetrics.stats.drivingMinutes)}
             sub={
-              todayMetrics.stats.maxSpeedKph != null
-                ? `max ${Math.round(todayMetrics.stats.maxSpeedKph)} km/h`
-                : "today"
+              historyLoading
+                ? "today"
+                : todayMetrics.stats.maxSpeedKph != null
+                  ? `max ${Math.round(todayMetrics.stats.maxSpeedKph)} km/h`
+                  : "today"
             }
           />
         </div>
