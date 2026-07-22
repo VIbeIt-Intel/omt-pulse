@@ -4126,7 +4126,7 @@ export async function registerRoutes(
   app.post("/api/incidents/:id/attachments", async (req, res) => {
     const orgId = req.currentUser!.organizationId;
     const { role, id: userId } = req.currentUser!;
-    if (!["administrator", "supervisor", "control_room", "reporter", "access_controller"].includes(role)) {
+    if (!["administrator", "supervisor", "control_room", "reporter", "access_controller", "patrol_user"].includes(role)) {
       return res.status(403).json({ message: "You do not have permission to add evidence" });
     }
     const incidentId = parseInt(req.params.id as string);
@@ -4184,7 +4184,7 @@ export async function registerRoutes(
   app.post("/api/incidents/:id/evidence-notes", async (req, res) => {
     const orgId = req.currentUser!.organizationId;
     const { role, id: userId } = req.currentUser!;
-    if (!["administrator", "supervisor", "control_room", "reporter", "access_controller"].includes(role)) {
+    if (!["administrator", "supervisor", "control_room", "reporter", "access_controller", "patrol_user"].includes(role)) {
       return res.status(403).json({ message: "You do not have permission to add evidence" });
     }
     const incidentId = parseInt(req.params.id as string);
