@@ -2529,16 +2529,41 @@ export class DatabaseStorage implements IStorage {
       and(eq(users.organizationId, orgId), eq(users.isActive, true))
     );
 
-    const liveIncidentsList = await db.select({ userId: incidents.userId, id: incidents.id })
+    const liveIncidentsList = await db
+      .select({
+        userId: incidents.userId,
+        id: incidents.id,
+        categoryName: incidentCategories.name,
+      })
       .from(incidents)
+      .leftJoin(incidentCategories, eq(incidents.categoryId, incidentCategories.id))
       .where(liveFilter);
-    const liveByUser = new Map(liveIncidentsList.map(i => [i.userId, i.id]));
-    // Also include active joiners (who have joined but not yet left)
-    const activeJoiners = await db.select({ userId: liveResponders.userId, incidentId: liveResponders.incidentId })
+
+    // "Responding" = people actively handling an incident.
+    // Panic creators are in distress, not responders — exclude them here.
+    const liveByUser = new Map<string, number>();
+    for (const i of liveIncidentsList) {
+      if (!i.userId) continue;
+      const cat = (i.categoryName ?? "").toLowerCase();
+      if (cat === "panic" || cat.includes("panic")) continue;
+      liveByUser.set(i.userId, i.id);
+    }
+
+    // Active joiners (joined but not left) always count as responding.
+    const activeJoiners = await db
+      .select({ userId: liveResponders.userId, incidentId: liveResponders.incidentId })
       .from(liveResponders)
       .where(and(eq(liveResponders.organizationId, orgId), isNull(liveResponders.leftAt)));
     for (const j of activeJoiners) {
-      if (!liveByUser.has(j.userId)) liveByUser.set(j.userId, j.incidentId);
+      // Never mark the panic creator as a responder even if a stale join row exists.
+      const owned = liveIncidentsList.find((i) => i.id === j.incidentId);
+      const cat = (owned?.categoryName ?? "").toLowerCase();
+      const isPanicOwner =
+        !!owned?.userId
+        && owned.userId === j.userId
+        && (cat === "panic" || cat.includes("panic"));
+      if (isPanicOwner) continue;
+      liveByUser.set(j.userId, j.incidentId);
     }
 
     const userCounts = await db.select({ userId: incidents.userId, count: sql<number>`count(*)` })

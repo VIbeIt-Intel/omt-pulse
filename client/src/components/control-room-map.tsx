@@ -65,8 +65,27 @@ function hasTrackerCoordinates(device: TrackerDeviceSummary): boolean {
   return device.lastLat != null && device.lastLng != null;
 }
 
-function responderStatus(user: DashboardUserSummary): "responding" | "available" | "off-duty" {
-  if (user.isLive) return "responding";
+function isPanicCategory(name: string | null | undefined): boolean {
+  const n = (name ?? "").toLowerCase();
+  return n === "panic" || n.includes("panic");
+}
+
+/** Panicker owns the live SOS — they are not a responder on their own alert. */
+function isPanickerOnOwnSos(
+  user: DashboardUserSummary,
+  incidents: LiveIncidentMapItem[],
+): boolean {
+  if (!user.liveIncidentId) return false;
+  const inc = incidents.find((i) => i.id === user.liveIncidentId);
+  if (!inc || !isPanicCategory(inc.categoryName)) return false;
+  return inc.userId != null && inc.userId === user.id;
+}
+
+function responderStatus(
+  user: DashboardUserSummary,
+  incidents: LiveIncidentMapItem[] = [],
+): "responding" | "available" | "off-duty" {
+  if (user.isLive && !isPanickerOnOwnSos(user, incidents)) return "responding";
   if (isUserOnline(user.lastSeenAt)) return "available";
   return "off-duty";
 }
@@ -81,12 +100,20 @@ function getUserPresenceHint(
   user: DashboardUserSummary,
   incidents: LiveIncidentMapItem[],
 ): string {
+  const ownPanic = incidents.find(
+    (i) => i.userId != null && i.userId === user.id && isPanicCategory(i.categoryName),
+  );
+  if (ownPanic || isPanickerOnOwnSos(user, incidents)) {
+    return "SOS active — awaiting responders";
+  }
   if (user.isLive && user.liveIncidentId) {
     const inc = incidents.find((i) => i.id === user.liveIncidentId);
     if (inc) {
-      const loc = inc.destinationName || inc.locationName;
+      const loc = isPanicCategory(inc.categoryName)
+        ? null
+        : (inc.destinationName || inc.locationName);
       if (loc) return `On scene · ${loc}`;
-      return "On active incident";
+      return "Responding now";
     }
     return "Responding now";
   }
@@ -425,12 +452,12 @@ export function ControlRoomMap({
 
   const filteredTeam = useMemo(() => {
     return teamUsers.filter((u) => {
-      const status = responderStatus(u);
+      const status = responderStatus(u, incidents);
       if (responderFilter === "responding") return status === "responding";
       if (responderFilter === "available") return status === "available";
       return true;
     });
-  }, [teamUsers, responderFilter]);
+  }, [teamUsers, responderFilter, incidents]);
 
   const onlineMapUsers = useMemo((): OnlineUserMapMarker[] => {
     if (layerMode === "incidents") return [];
@@ -798,9 +825,14 @@ export function ControlRoomMap({
               ) : (
                 <ul className="divide-y divide-emerald-900/15">
                   {filteredTeam.map((user) => {
-                    const status = responderStatus(user);
+                    const status = responderStatus(user, incidents);
                     const statusLabel =
                       status === "responding" ? "Responding" : status === "available" ? "Available" : "Off duty";
+                    const showIncidentLink =
+                      user.isLive
+                      && !!user.liveIncidentId
+                      && !!onOpenLiveMonitor
+                      && !isPanickerOnOwnSos(user, incidents);
 
                     return (
                       <li key={user.id} className="px-3 py-2.5 hover:bg-emerald-950/20">
@@ -820,7 +852,7 @@ export function ControlRoomMap({
                             <p className="text-[10px] text-slate-500 mt-1.5 leading-snug truncate">
                               {getUserPresenceHint(user, incidents)}
                             </p>
-                            {user.isLive && user.liveIncidentId && onOpenLiveMonitor && (
+                            {showIncidentLink && (
                               <button
                                 type="button"
                                 className="block mt-1 text-[10px] text-emerald-500 hover:underline"
