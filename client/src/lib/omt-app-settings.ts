@@ -6,6 +6,7 @@ export interface OmtAppSettingsPlugin {
   isLocationEnabled(): Promise<{ enabled: boolean }>;
   checkMicrophone(): Promise<{ recordAudio: string }>;
   requestMicrophone(): Promise<{ recordAudio: string }>;
+  setRadioAudioSession(options: { enabled: boolean }): Promise<{ enabled: boolean }>;
 }
 
 const OmtAppSettings = registerPlugin<OmtAppSettingsPlugin>("OmtAppSettings");
@@ -78,5 +79,19 @@ export async function requestOmtMicrophonePermission(): Promise<OmtMicPermission
     return "prompt";
   } catch {
     return "denied";
+  }
+}
+
+/**
+ * Force WebRTC radio audio through the phone loudspeaker (not earpiece).
+ * No-op on web / older APKs missing the method.
+ */
+export async function setOmtRadioAudioSession(enabled: boolean): Promise<boolean> {
+  if (!hasOmtAppSettingsPlugin()) return false;
+  try {
+    await OmtAppSettings.setRadioAudioSession({ enabled });
+    return true;
+  } catch {
+    return false;
   }
 }

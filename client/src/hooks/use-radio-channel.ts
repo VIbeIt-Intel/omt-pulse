@@ -15,6 +15,7 @@ import { nativeMicDeniedHint } from "@/lib/native-mic-hint";
 import {
   checkOmtMicrophonePermission,
   requestOmtMicrophonePermission,
+  setOmtRadioAudioSession,
   type OmtMicPermission,
 } from "@/lib/omt-app-settings";
 
@@ -73,6 +74,9 @@ function micErrorMessage(err: unknown): string {
   ) {
     return `Microphone blocked. ${nativeMicDeniedHint()}`;
   }
+  if (lower.includes("could not start audio") || lower.includes("audio source")) {
+    return "Microphone busy or blocked by Android. Close other apps using the mic, then hold to talk again.";
+  }
   return raw || "Could not open microphone";
 }
 
@@ -98,21 +102,37 @@ async function ensureOsMicPermission(): Promise<void> {
  */
 async function acquireMicTrack(): Promise<LocalAudioTrack> {
   await ensureOsMicPermission();
+  // Put Android into communication + speaker mode before opening the mic —
+  // without this, WebView often throws "Could not start audio source".
+  await setOmtRadioAudioSession(true);
   if (!navigator.mediaDevices?.getUserMedia) {
     throw new Error("This device cannot open the microphone for live radio");
   }
-  // Keep constraints minimal on Android WebView — heavy AGC/NS often throws
-  // "Could not start audio source" even when RECORD_AUDIO is already granted.
-  const audio: boolean | MediaTrackConstraints =
-    Capacitor.getPlatform() === "android"
-      ? true
-      : { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
-  const stream = await navigator.mediaDevices.getUserMedia({ audio });
-  const mediaTrack = stream.getAudioTracks()[0];
-  if (!mediaTrack) throw new Error("No microphone track available");
-  const mic = new LocalAudioTrack(mediaTrack, mediaTrack.getConstraints(), true);
-  mic.stopOnMute = false;
-  return mic;
+  const attempts: Array<boolean | MediaTrackConstraints> = [
+    true,
+    { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+  ];
+  if (Capacitor.getPlatform() !== "android") {
+    attempts.unshift({
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+    });
+  }
+  let lastErr: unknown;
+  for (const audio of attempts) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio });
+      const mediaTrack = stream.getAudioTracks()[0];
+      if (!mediaTrack) throw new Error("No microphone track available");
+      const mic = new LocalAudioTrack(mediaTrack, mediaTrack.getConstraints(), true);
+      mic.stopOnMute = false;
+      return mic;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error("Could not open microphone");
 }
 
 export function useRadioStatus() {
@@ -257,7 +277,27 @@ export function useRadioChannel(commandId: number | null) {
     const room = roomRef.current;
     if (!room) return false;
     try {
+      await setOmtRadioAudioSession(true);
       await room.startAudio();
+      for (const participant of room.remoteParticipants.values()) {
+        for (const pub of participant.audioTrackPublications.values()) {
+          const track = pub.track;
+          if (!track || track.kind !== Track.Kind.Audio) continue;
+          if ("setVolume" in track && typeof track.setVolume === "function") {
+            track.setVolume(1);
+          }
+          const els =
+            track.attachedElements.length > 0
+              ? track.attachedElements
+              : [track.attach()];
+          for (const el of els) {
+            el.autoplay = true;
+            el.muted = false;
+            el.volume = 1;
+            void el.play().catch(() => undefined);
+          }
+        }
+      }
       setSpeakerReady(room.canPlaybackAudio);
       return room.canPlaybackAudio;
     } catch {
@@ -320,6 +360,7 @@ export function useRadioChannel(commandId: number | null) {
         /* ignore */
       }
     }
+    await setOmtRadioAudioSession(false);
     setConnected(false);
     setConnecting(false);
     setListenerCount(0);
@@ -364,6 +405,29 @@ export function useRadioChannel(commandId: number | null) {
         room.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
           const other = speakers.find((s) => !s.isLocal);
           setRemoteTalking(other?.name || other?.identity || null);
+          if (other) {
+            // Someone is talking — force speaker path + playback (Android earpiece trap).
+            void setOmtRadioAudioSession(true);
+            void room.startAudio().catch(() => undefined);
+          }
+        });
+        room.on(RoomEvent.TrackSubscribed, (track) => {
+          if (track.kind !== Track.Kind.Audio) return;
+          void setOmtRadioAudioSession(true);
+          if ("setVolume" in track && typeof track.setVolume === "function") {
+            track.setVolume(1);
+          }
+          const els =
+            track.attachedElements.length > 0
+              ? track.attachedElements
+              : [track.attach()];
+          for (const el of els) {
+            el.autoplay = true;
+            el.muted = false;
+            el.volume = 1;
+            void el.play().catch(() => undefined);
+          }
+          void room.startAudio().catch(() => undefined);
         });
         room.on(RoomEvent.AudioPlaybackStatusChanged, () => {
           setSpeakerReady(room.canPlaybackAudio);
@@ -374,6 +438,7 @@ export function useRadioChannel(commandId: number | null) {
           setSpeakerReady(false);
         });
 
+        await setOmtRadioAudioSession(true);
         await room.connect(tok.url, tok.token);
         if (cancelled) {
           await room.disconnect();

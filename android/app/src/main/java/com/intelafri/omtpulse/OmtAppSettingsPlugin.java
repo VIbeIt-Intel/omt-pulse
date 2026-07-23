@@ -2,8 +2,11 @@ package com.intelafri.omtpulse;
 
 import android.Manifest;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.media.AudioDeviceInfo;
+import android.media.AudioManager;
 import android.location.LocationManager;
 import android.net.Uri;
 import android.os.Build;
@@ -18,8 +21,8 @@ import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
 
 /**
- * Opens Android system settings from the WebView, and requests RECORD_AUDIO via
- * Capacitor's permission API (shows the system Allow/Deny dialog).
+ * Opens Android system settings from the WebView, requests RECORD_AUDIO, and
+ * routes WebRTC / LiveKit radio audio through the loudspeaker.
  */
 @CapacitorPlugin(
     name = "OmtAppSettings",
@@ -104,6 +107,68 @@ public class OmtAppSettingsPlugin extends Plugin {
         if (state == PermissionState.GRANTED) return "granted";
         if (state == PermissionState.DENIED) return "denied";
         return "prompt";
+    }
+
+    /**
+     * Route LiveKit / WebRTC audio to the loudspeaker (not the earpiece).
+     * Call with enabled=true while radio is connected; false on teardown.
+     */
+    @PluginMethod
+    public void setRadioAudioSession(PluginCall call) {
+        Boolean enabled = call.getBoolean("enabled", false);
+        getActivity().runOnUiThread(() -> {
+            try {
+                applyRadioAudioSession(Boolean.TRUE.equals(enabled));
+                JSObject ret = new JSObject();
+                ret.put("enabled", Boolean.TRUE.equals(enabled));
+                call.resolve(ret);
+            } catch (Exception e) {
+                call.reject("Failed to configure radio audio session", e);
+            }
+        });
+    }
+
+    private void applyRadioAudioSession(boolean enabled) {
+        Context ctx = getContext();
+        AudioManager am = (AudioManager) ctx.getSystemService(Context.AUDIO_SERVICE);
+        if (am == null) return;
+
+        if (enabled) {
+            am.requestAudioFocus(
+                    null,
+                    AudioManager.STREAM_VOICE_CALL,
+                    AudioManager.AUDIOFOCUS_GAIN_TRANSIENT);
+            am.setMode(AudioManager.MODE_IN_COMMUNICATION);
+            routeToBuiltinSpeaker(am);
+        } else {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                am.clearCommunicationDevice();
+            } else {
+                //noinspection deprecation
+                am.setSpeakerphoneOn(false);
+            }
+            am.setMode(AudioManager.MODE_NORMAL);
+            am.abandonAudioFocus(null);
+        }
+    }
+
+    private static void routeToBuiltinSpeaker(AudioManager am) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            AudioDeviceInfo[] devices = am.getDevices(AudioManager.GET_DEVICES_OUTPUTS);
+            AudioDeviceInfo speaker = null;
+            for (AudioDeviceInfo device : devices) {
+                if (device.getType() == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER) {
+                    speaker = device;
+                    break;
+                }
+            }
+            if (speaker != null) {
+                am.setCommunicationDevice(speaker);
+                return;
+            }
+        }
+        //noinspection deprecation
+        am.setSpeakerphoneOn(true);
     }
 
     @PluginMethod
