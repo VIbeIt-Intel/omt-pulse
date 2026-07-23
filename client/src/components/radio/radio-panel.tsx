@@ -68,7 +68,7 @@ export function RadioPanel({
   }, [radio.connected, radio.speakerReady, radio.unlockSpeaker]);
 
   const statusLine = radio.transmitting
-    ? "You are on air"
+    ? "You are on air — tap again to stop"
     : radio.remoteTalking
       ? `${radio.remoteTalking} talking`
       : busy && radio.floor
@@ -77,8 +77,8 @@ export function RadioPanel({
           ? "Connecting radio…"
           : radio.connected
             ? radio.speakerReady
-              ? "Live — hold to talk"
-              : "Live — tap once, then hold to talk"
+              ? "Live — tap to talk"
+              : "Live — tap once, then tap to talk"
             : "Radio offline";
 
   if (available === null) {
@@ -212,6 +212,7 @@ export function RadioPanel({
             transmitting={radio.transmitting}
             busy={busy}
             className={dock ? "min-h-[4.25rem] py-3" : undefined}
+            label="Tap to talk"
             onPressStart={() => void radio.startTransmit()}
             onPressEnd={() => void radio.stopTransmit()}
           />
@@ -222,7 +223,8 @@ export function RadioPanel({
             </p>
           ) : dock ? (
             <p className="text-[10px] text-muted-foreground/80">
-              Always on while you are on this screen — audio is never saved.
+              Tap to talk, tap again to stop. Always on while you are on this screen — audio is never
+              saved.
             </p>
           ) : (
             <p className="text-[10px] text-muted-foreground/80">

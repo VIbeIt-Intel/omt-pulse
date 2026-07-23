@@ -1,7 +1,10 @@
-import { useCallback, useRef } from "react";
+import { useCallback } from "react";
 import { Radio } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+/**
+ * Toggle PTT: first tap locks the floor / goes on air; second tap releases.
+ */
 export function RadioPttButton({
   disabled,
   transmitting,
@@ -9,7 +12,7 @@ export function RadioPttButton({
   onPressStart,
   onPressEnd,
   className,
-  label = "Hold to talk",
+  label = "Tap to talk",
 }: {
   disabled?: boolean;
   transmitting: boolean;
@@ -19,31 +22,27 @@ export function RadioPttButton({
   className?: string;
   label?: string;
 }) {
-  const activeRef = useRef(false);
-
-  const end = useCallback(() => {
-    if (!activeRef.current) return;
-    activeRef.current = false;
-    onPressEnd();
-  }, [onPressEnd]);
-
-  const start = useCallback(() => {
-    if (disabled || busy || activeRef.current) return;
-    activeRef.current = true;
+  const toggle = useCallback(() => {
+    if (disabled) return;
+    if (transmitting) {
+      onPressEnd();
+      return;
+    }
+    if (busy) return;
     onPressStart();
-  }, [busy, disabled, onPressStart]);
+  }, [busy, disabled, onPressEnd, onPressStart, transmitting]);
 
   return (
     <button
       type="button"
-      disabled={disabled}
+      disabled={disabled || (busy && !transmitting)}
       data-testid="button-radio-ptt"
       aria-pressed={transmitting}
       className={cn(
-        "select-none touch-none rounded-2xl px-6 py-5 font-bold text-base transition-colors",
+        "select-none touch-manipulation rounded-2xl px-6 py-5 font-bold text-base transition-colors",
         "flex flex-col items-center justify-center gap-1.5 min-h-[5.5rem] w-full",
         transmitting
-          ? "bg-emerald-500 text-white shadow-lg shadow-emerald-900/40 scale-[0.99]"
+          ? "bg-emerald-500 text-white shadow-lg shadow-emerald-900/40"
           : busy
             ? "bg-amber-600/80 text-white cursor-not-allowed"
             : disabled
@@ -51,21 +50,19 @@ export function RadioPttButton({
               : "bg-slate-800 text-slate-100 hover:bg-slate-700 border border-emerald-500/40",
         className,
       )}
-      onPointerDown={(e) => {
+      onClick={(e) => {
         e.preventDefault();
-        (e.currentTarget as HTMLButtonElement).setPointerCapture(e.pointerId);
-        start();
-      }}
-      onPointerUp={end}
-      onPointerCancel={end}
-      onPointerLeave={() => {
-        if (activeRef.current) end();
+        toggle();
       }}
       onContextMenu={(e) => e.preventDefault()}
     >
       <Radio className={cn("h-7 w-7", transmitting && "animate-pulse")} />
       <span>
-        {transmitting ? "Transmitting…" : busy ? "Channel busy" : label}
+        {transmitting
+          ? "On air — tap to stop"
+          : busy
+            ? "Channel busy"
+            : label}
       </span>
     </button>
   );
