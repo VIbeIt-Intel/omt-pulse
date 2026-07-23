@@ -21,10 +21,13 @@ import { cn } from "@/lib/utils";
 export function RadioPanel({
   className,
   compact = false,
+  /** Sticky dock for field home — always listening, big PTT, minimal chrome. */
+  dock = false,
   defaultCommandId,
 }: {
   className?: string;
   compact?: boolean;
+  dock?: boolean;
   /** Prefer this group when present in the channel list. */
   defaultCommandId?: number | null;
 }) {
@@ -52,22 +55,31 @@ export function RadioPanel({
   const radio = useRadioChannel(enabled ? commandId : null);
   const busy = !!(radio.floor && !radio.floor.isMe);
   const needsMicAllow =
-    Capacitor.isNativePlatform() && radio.micPermission !== "granted";
+    Capacitor.isNativePlatform() && radio.micPermission === "denied";
+
+  // First interaction on the dock unlocks speaker (Android/WebView autoplay).
+  useEffect(() => {
+    if (!radio.connected || radio.speakerReady) return;
+    const unlock = () => {
+      void radio.unlockSpeaker();
+    };
+    window.addEventListener("pointerdown", unlock, { once: true, capture: true });
+    return () => window.removeEventListener("pointerdown", unlock, true);
+  }, [radio.connected, radio.speakerReady, radio.unlockSpeaker]);
+
   const statusLine = radio.transmitting
     ? "You are on air"
     : radio.remoteTalking
       ? `${radio.remoteTalking} talking`
       : busy && radio.floor
         ? `${radio.floor.displayName} has the floor`
-        : needsMicAllow
-          ? "Tap Allow microphone — Android will ask once"
-          : radio.connected && !radio.speakerReady
-            ? "Connected — tap Enable speaker to hear"
-            : radio.connected
-              ? "Listening — hold to talk"
-              : radio.connecting
-                ? "Connecting…"
-                : "Offline";
+        : radio.connecting
+          ? "Connecting radio…"
+          : radio.connected
+            ? radio.speakerReady
+              ? "Live — hold to talk"
+              : "Live — tap once, then hold to talk"
+            : "Radio offline";
 
   if (available === null) {
     return (
@@ -79,6 +91,7 @@ export function RadioPanel({
   }
 
   if (!available) {
+    if (dock) return null;
     return (
       <div
         className={cn(
@@ -92,8 +105,7 @@ export function RadioPanel({
           Radio
         </div>
         <p className="mt-1 text-xs leading-relaxed">
-          Live radio is not configured on this server yet. Ask an admin to set LiveKit keys —
-          audio is never stored.
+          Live radio is not configured on this server yet.
         </p>
       </div>
     );
@@ -103,16 +115,16 @@ export function RadioPanel({
     <div
       className={cn(
         "rounded-xl border border-emerald-500/30 bg-emerald-950/20",
-        compact ? "p-3 space-y-2.5" : "p-4 space-y-3",
+        dock ? "p-3 space-y-2 shadow-lg shadow-black/20" : compact ? "p-3 space-y-2.5" : "p-4 space-y-3",
         className,
       )}
-      data-testid="radio-panel"
+      data-testid={dock ? "radio-dock" : "radio-panel"}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-semibold text-emerald-400">
             <Radio className="h-4 w-4 shrink-0" />
-            Group radio
+            {dock ? "Radio" : "Group radio"}
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">{statusLine}</p>
         </div>
@@ -134,7 +146,10 @@ export function RadioPanel({
             value={commandId != null ? String(commandId) : undefined}
             onValueChange={(v) => setCommandId(Number(v))}
           >
-            <SelectTrigger className="h-9 bg-background/50" data-testid="select-radio-channel">
+            <SelectTrigger
+              className={cn("bg-background/50", dock ? "h-8 text-xs" : "h-9")}
+              data-testid="select-radio-channel"
+            >
               <SelectValue placeholder="Select channel" />
             </SelectTrigger>
             <SelectContent>
@@ -151,7 +166,7 @@ export function RadioPanel({
             <div className="space-y-2">
               <Button
                 type="button"
-                className="w-full h-12 gap-2 bg-emerald-600 hover:bg-emerald-500 text-white"
+                className="w-full h-11 gap-2 bg-emerald-600 hover:bg-emerald-500 text-white"
                 data-testid="button-radio-allow-mic"
                 disabled={requestingMic}
                 onClick={() => {
@@ -166,22 +181,20 @@ export function RadioPanel({
                 )}
                 Allow microphone
               </Button>
-              {radio.micPermission === "denied" ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full h-10 gap-2"
-                  data-testid="button-radio-open-mic-settings"
-                  onClick={() => void openOmtAppDetailsSettings()}
-                >
-                  <Settings className="h-4 w-4" />
-                  Open app permission settings
-                </Button>
-              ) : null}
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full h-9 gap-2"
+                data-testid="button-radio-open-mic-settings"
+                onClick={() => void openOmtAppDetailsSettings()}
+              >
+                <Settings className="h-4 w-4" />
+                Open app permission settings
+              </Button>
             </div>
           ) : null}
 
-          {radio.connected && !radio.speakerReady ? (
+          {radio.connected && !radio.speakerReady && !dock ? (
             <Button
               type="button"
               variant="secondary"
@@ -198,6 +211,7 @@ export function RadioPanel({
             disabled={!radio.connected || radio.connecting || needsMicAllow}
             transmitting={radio.transmitting}
             busy={busy}
+            className={dock ? "min-h-[4.25rem] py-3" : undefined}
             onPressStart={() => void radio.startTransmit()}
             onPressEnd={() => void radio.stopTransmit()}
           />
@@ -206,10 +220,13 @@ export function RadioPanel({
             <p className="text-xs text-amber-400" data-testid="text-radio-error">
               {radio.error}
             </p>
+          ) : dock ? (
+            <p className="text-[10px] text-muted-foreground/80">
+              Always on while you are on this screen — audio is never saved.
+            </p>
           ) : (
             <p className="text-[10px] text-muted-foreground/80">
-              Android does not ask for mic during APK install — tap Allow microphone once in this
-              screen. Speaker needs no permission. Audio is never saved.
+              Mic stays allowed after the first Android Allow (same as voice notes). Audio is never saved.
             </p>
           )}
         </>

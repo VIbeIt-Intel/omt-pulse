@@ -2,10 +2,10 @@ import {
   Room,
   RoomEvent,
   Track,
-  type LocalAudioTrack,
-  createLocalAudioTrack,
+  LocalAudioTrack,
 } from "livekit-client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Capacitor } from "@capacitor/core";
 import { apiRequest } from "@/lib/queryClient";
 import {
   isNativeAudioRecorderAvailable,
@@ -17,7 +17,6 @@ import {
   requestOmtMicrophonePermission,
   type OmtMicPermission,
 } from "@/lib/omt-app-settings";
-import { Capacitor } from "@capacitor/core";
 
 export type RadioChannel = {
   id: number;
@@ -70,35 +69,50 @@ function micErrorMessage(err: unknown): string {
   if (
     lower.includes("permission") ||
     lower.includes("notallowed") ||
-    lower.includes("denied") ||
-    lower.includes("could not start audio") ||
-    lower.includes("audio source")
+    lower.includes("denied")
   ) {
-    return `Microphone not allowed yet. Tap Allow microphone — if no dialog appears, ${nativeMicDeniedHint()}`;
+    return `Microphone blocked. ${nativeMicDeniedHint()}`;
   }
   return raw || "Could not open microphone";
 }
 
-/** Ensure OS mic permission, then create a LiveKit local audio track. */
-async function acquireMicTrack(): Promise<LocalAudioTrack> {
-  // Prefer our Capacitor permission bridge (shows system Allow dialog).
-  const omt = await requestOmtMicrophonePermission();
-  if (omt === "denied") {
+/** Ensure OS mic is allowed (no-op if voice notes already granted it). */
+async function ensureOsMicPermission(): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return;
+  const current = await checkOmtMicrophonePermission();
+  if (current === "granted") return;
+  const requested = await requestOmtMicrophonePermission();
+  if (requested === "granted") return;
+  if (requested === "unavailable" && isNativeAudioRecorderAvailable()) {
+    const ok = await requestNativeMicPermission();
+    if (ok) return;
+  }
+  if (requested === "denied" || current === "denied") {
     throw new DOMException("Microphone permission denied", "NotAllowedError");
   }
-  if (omt === "unavailable" && isNativeAudioRecorderAvailable()) {
-    const ok = await requestNativeMicPermission();
-    if (!ok) throw new DOMException("Microphone permission denied", "NotAllowedError");
+}
+
+/**
+ * Open mic for LiveKit. Reuses the MediaStreamTrack (no stop/restart) and keeps
+ * stopOnMute=false so PTT mute does not kill Android capture.
+ */
+async function acquireMicTrack(): Promise<LocalAudioTrack> {
+  await ensureOsMicPermission();
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error("This device cannot open the microphone for live radio");
   }
-  if (navigator.mediaDevices?.getUserMedia) {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    stream.getTracks().forEach((t) => t.stop());
-  }
-  return createLocalAudioTrack({
-    echoCancellation: true,
-    noiseSuppression: true,
-    autoGainControl: true,
-  });
+  // Keep constraints minimal on Android WebView — heavy AGC/NS often throws
+  // "Could not start audio source" even when RECORD_AUDIO is already granted.
+  const audio: boolean | MediaTrackConstraints =
+    Capacitor.getPlatform() === "android"
+      ? true
+      : { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+  const stream = await navigator.mediaDevices.getUserMedia({ audio });
+  const mediaTrack = stream.getAudioTracks()[0];
+  if (!mediaTrack) throw new Error("No microphone track available");
+  const mic = new LocalAudioTrack(mediaTrack, mediaTrack.getConstraints(), true);
+  mic.stopOnMute = false;
+  return mic;
 }
 
 export function useRadioStatus() {
@@ -201,43 +215,21 @@ export function useRadioChannel(commandId: number | null) {
 
   const requestMicAccess = useCallback(async () => {
     setError(null);
-    if (!Capacitor.isNativePlatform()) {
-      setMicPermission("granted");
-      try {
-        if (navigator.mediaDevices?.getUserMedia) {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          stream.getTracks().forEach((t) => t.stop());
-        }
-        return true;
-      } catch (err) {
-        setError(micErrorMessage(err));
-        return false;
-      }
-    }
-    let status = await requestOmtMicrophonePermission();
-    if (status === "unavailable" && isNativeAudioRecorderAvailable()) {
-      const ok = await requestNativeMicPermission();
-      status = ok ? "granted" : "denied";
-    }
-    setMicPermission(status === "granted" ? "granted" : status === "denied" ? "denied" : "prompt");
-    if (status !== "granted") {
-      setError(
-        `Microphone not allowed. Tap Allow microphone again, or ${nativeMicDeniedHint()}`,
-      );
-      return false;
-    }
-    // Warm WebView capture after OS grant so LiveKit can use the mic.
     try {
+      await ensureOsMicPermission();
+      setMicPermission("granted");
+      // Warm WebView capture once so later PTT is fast.
       if (navigator.mediaDevices?.getUserMedia) {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         stream.getTracks().forEach((t) => t.stop());
       }
+      setError(null);
+      return true;
     } catch (err) {
+      setMicPermission("denied");
       setError(micErrorMessage(err));
       return false;
     }
-    setError(null);
-    return true;
   }, []);
 
   const stopHeartbeat = useCallback(() => {
@@ -440,11 +432,6 @@ export function useRadioChannel(commandId: number | null) {
     setError(null);
     await unlockSpeaker();
 
-    if (Capacitor.isNativePlatform() && micPermission !== "granted") {
-      setError("Tap Allow microphone first — Android will show Allow / Deny.");
-      return;
-    }
-
     try {
       const data = await radioFetch<{ holder: FloorHolderInfo }>("POST", "/api/radio/floor", {
         commandId: id,
@@ -474,14 +461,7 @@ export function useRadioChannel(commandId: number | null) {
       }
       await refreshFloor();
     }
-  }, [
-    ensureMicPublished,
-    micPermission,
-    refreshFloor,
-    refreshMicPermission,
-    stopHeartbeat,
-    unlockSpeaker,
-  ]);
+  }, [ensureMicPublished, refreshFloor, refreshMicPermission, stopHeartbeat, unlockSpeaker]);
 
   return {
     connected,

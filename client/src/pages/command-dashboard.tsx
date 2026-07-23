@@ -20,7 +20,7 @@ import { LiveIncidentJoinBanner } from "@/components/live-incident-join-banner";
 import { PanicConfirmOverlay } from "@/components/panic-confirm-overlay";
 import { usePanickerLocationSync } from "@/hooks/use-panicker-location-sync";
 import { OperationsDashboard, type DashboardUserSummary } from "@/components/operations-dashboard";
-import { RadioSheet } from "@/components/radio/radio-sheet";
+import { RadioPanel } from "@/components/radio/radio-panel";
 import { useToast } from "@/hooks/use-toast";
 import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import { cn } from "@/lib/utils";
@@ -500,7 +500,6 @@ export default function CommandDashboard() {
   const [period, setPeriod] = useState<Period>("day");
   const [logIncidentOpen, setLogIncidentOpen] = useState(false);
   const [panicOpen, setPanicOpen] = useState(false);
-  const [radioOpen, setRadioOpen] = useState(false);
   const { toast } = useToast();
 
   const DISMISSED_KEY = "dismissedPanicIds";
@@ -834,14 +833,8 @@ export default function CommandDashboard() {
             onClick={() => setPanicOpen(true)}
             testId="button-panic"
           />
-          <ActionTile
-            title="Group radio"
-            subtitle="Hold to talk — live to your group"
-            icon={Radio}
-            variant="radio"
-            onClick={() => setRadioOpen(true)}
-            testId="button-group-radio"
-          />
+          {/* Always-on group radio: listen + PTT without opening a sheet. */}
+          <RadioPanel dock className="w-full" />
           {canPatrol && (
           <ActionTile
             title={activePatrol ? "Patrol in progress" : "Start Patrol"}
@@ -975,8 +968,6 @@ export default function CommandDashboard() {
         onOpenChange={setPanicOpen}
         confirmTestId="button-confirm-panic-dashboard"
       />
-
-      <RadioSheet open={radioOpen} onOpenChange={setRadioOpen} />
     </>
   );
 }
