@@ -47,6 +47,7 @@ import {
   MOTION_STATUS,
   vehicleDisplayName,
 } from "@/lib/fleet-intelligence";
+import { USER_ROLE_LABELS } from "@/lib/user-roles";
 
 type Period = "day" | "week";
 
@@ -226,10 +227,25 @@ function teamStatusLabel(status: ReturnType<typeof teamMemberStatus>): string {
   return "Off duty";
 }
 
-function teamStatusClass(status: ReturnType<typeof teamMemberStatus>): string {
-  if (status === "responding") return "text-orange-300 font-bold";
-  if (status === "available") return "text-emerald-400 font-semibold";
-  return "text-slate-500 font-semibold";
+/** Compact, title-case role for Site Monitor (no raw snake_case). */
+function teamRoleLabel(role: string): string {
+  const mapped = USER_ROLE_LABELS[role];
+  if (mapped) return mapped.replace(/\s*\(.*?\)\s*/g, "").trim();
+  return role
+    .split(/[_\s]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function teamStatusPillClass(status: ReturnType<typeof teamMemberStatus>): string {
+  if (status === "responding") {
+    return "bg-orange-500/15 text-orange-300 ring-1 ring-inset ring-orange-500/25";
+  }
+  if (status === "available") {
+    return "bg-emerald-500/12 text-emerald-300 ring-1 ring-inset ring-emerald-500/25";
+  }
+  return "bg-slate-700/40 text-slate-400 ring-1 ring-inset ring-slate-600/40";
 }
 
 function userIdsAtLocation(
@@ -1085,50 +1101,63 @@ export function OperationsDashboard({
                     : "No team assigned to this site."}
                 </p>
               ) : (
-                <ul className="divide-y divide-emerald-900/15">
+                <ul className="divide-y divide-slate-800/80">
                   {siteTeam.map((user) => {
                     const status = teamMemberStatus(user);
                     const statusLabel = teamStatusLabel(status);
+                    const roleLabel = teamRoleLabel(user.role);
                     const lastActivityAt = teamLastActivityAt(user);
                     const activityLabel = user.isLive ? "Live now" : formatTeamLastActivity(lastActivityAt);
                     const activityStale = isTeamActivityStale(user);
                     const isLongIdle = activityStale && !user.isLive;
+                    const initials =
+                      `${user.firstName?.charAt(0) ?? ""}${user.lastName?.charAt(0) ?? ""}`.toUpperCase() ||
+                      "?";
                     return (
                       <li
                         key={user.id}
                         className={cn(
-                          "px-3 py-2 border-l-2 transition-colors",
+                          "px-3 py-2.5 border-l-2 transition-colors",
                           isLongIdle
-                            ? "bg-amber-950/25 border-l-amber-600/70 hover:bg-amber-950/35"
-                            : "border-l-transparent hover:bg-emerald-950/20",
+                            ? "bg-amber-950/20 border-l-amber-600/60 hover:bg-amber-950/30"
+                            : "border-l-transparent hover:bg-slate-800/35",
                         )}
                       >
-                        <div className="flex items-center gap-2 min-w-0">
+                        <div className="flex items-center gap-2.5 min-w-0">
                           <div
                             className={cn(
-                              "flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-[10px] font-bold",
+                              "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold tracking-wide",
                               isLongIdle
-                                ? "bg-slate-800/80 border-amber-800/40 text-amber-200/90"
-                                : "bg-emerald-950/40 border-emerald-800/30 text-emerald-200",
+                                ? "bg-slate-800 text-amber-200/90 ring-1 ring-amber-800/35"
+                                : status === "available"
+                                  ? "bg-slate-800 text-emerald-200/90 ring-1 ring-emerald-800/40"
+                                  : status === "responding"
+                                    ? "bg-slate-800 text-orange-200/90 ring-1 ring-orange-800/40"
+                                    : "bg-slate-800/90 text-slate-300 ring-1 ring-slate-700/60",
                             )}
+                            aria-hidden
                           >
-                            {user.firstName.charAt(0)}
-                            {user.lastName.charAt(0)}
+                            {initials}
                           </div>
                           <div className="min-w-0 flex-1">
                             <p
                               className={cn(
-                                "text-xs font-medium truncate",
-                                isLongIdle ? "text-slate-300" : "text-slate-200",
+                                "text-[13px] font-semibold tracking-tight truncate leading-snug",
+                                isLongIdle ? "text-slate-300" : "text-slate-100",
                               )}
                             >
                               {user.firstName} {user.lastName}
                             </p>
-                            <div className="flex items-center gap-2 mt-0.5">
-                              <span className="text-[9px] capitalize text-slate-500">
-                                {user.role}
+                            <div className="flex items-center gap-1.5 mt-1 min-w-0">
+                              <span className="text-[10px] text-slate-500 truncate leading-none">
+                                {roleLabel}
                               </span>
-                              <span className={cn("text-[9px] uppercase", teamStatusClass(status))}>
+                              <span
+                                className={cn(
+                                  "shrink-0 inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-medium leading-none",
+                                  teamStatusPillClass(status),
+                                )}
+                              >
                                 {statusLabel}
                               </span>
                             </div>
@@ -1140,14 +1169,14 @@ export function OperationsDashboard({
                                 user.isLive
                                   ? "text-orange-300 font-semibold"
                                   : isLongIdle
-                                    ? "text-amber-400/90 font-semibold"
-                                    : "text-slate-400",
+                                    ? "text-amber-400/90 font-medium"
+                                    : "text-slate-500",
                               )}
                             >
                               {activityLabel}
                             </p>
                             {isLongIdle && (
-                              <p className="text-[8px] font-semibold uppercase text-amber-500/80 mt-0.5 leading-none tracking-wide">
+                              <p className="text-[8px] font-medium uppercase tracking-wider text-amber-500/75 mt-0.5 leading-none">
                                 4h+ idle
                               </p>
                             )}
@@ -1155,7 +1184,7 @@ export function OperationsDashboard({
                           {user.isLive && user.liveIncidentId && (
                             <button
                               type="button"
-                              className="text-[10px] text-emerald-500 hover:underline shrink-0"
+                              className="text-[10px] font-medium text-emerald-400 hover:text-emerald-300 hover:underline shrink-0"
                               onClick={() => onOpenLiveMonitor(user.liveIncidentId!)}
                             >
                               Live
