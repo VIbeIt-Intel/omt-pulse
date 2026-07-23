@@ -12,6 +12,12 @@ import {
   requestNativeMicPermission,
 } from "@/lib/native-audio-recorder";
 import { nativeMicDeniedHint } from "@/lib/native-mic-hint";
+import {
+  checkOmtMicrophonePermission,
+  requestOmtMicrophonePermission,
+  type OmtMicPermission,
+} from "@/lib/omt-app-settings";
+import { Capacitor } from "@capacitor/core";
 
 export type RadioChannel = {
   id: number;
@@ -68,18 +74,21 @@ function micErrorMessage(err: unknown): string {
     lower.includes("could not start audio") ||
     lower.includes("audio source")
   ) {
-    return `Microphone blocked. ${nativeMicDeniedHint()}`;
+    return `Microphone not allowed yet. Tap Allow microphone — if no dialog appears, ${nativeMicDeniedHint()}`;
   }
   return raw || "Could not open microphone";
 }
 
-/**
- * Request mic once (Android remembers Allow). Uses native plugin when present,
- * then WebView getUserMedia so LiveKit can capture.
- */
+/** Ensure OS mic permission, then create a LiveKit local audio track. */
 async function acquireMicTrack(): Promise<LocalAudioTrack> {
-  if (isNativeAudioRecorderAvailable()) {
-    await requestNativeMicPermission();
+  // Prefer our Capacitor permission bridge (shows system Allow dialog).
+  const omt = await requestOmtMicrophonePermission();
+  if (omt === "denied") {
+    throw new DOMException("Microphone permission denied", "NotAllowedError");
+  }
+  if (omt === "unavailable" && isNativeAudioRecorderAvailable()) {
+    const ok = await requestNativeMicPermission();
+    if (!ok) throw new DOMException("Microphone permission denied", "NotAllowedError");
   }
   if (navigator.mediaDevices?.getUserMedia) {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -157,8 +166,79 @@ export function useRadioChannel(commandId: number | null) {
   const [error, setError] = useState<string | null>(null);
   const [remoteTalking, setRemoteTalking] = useState<string | null>(null);
   const [speakerReady, setSpeakerReady] = useState(false);
+  const [micPermission, setMicPermission] = useState<OmtMicPermission>(
+    Capacitor.isNativePlatform() ? "prompt" : "granted",
+  );
 
   commandIdRef.current = commandId;
+
+  const refreshMicPermission = useCallback(async () => {
+    if (!Capacitor.isNativePlatform()) {
+      setMicPermission("granted");
+      return "granted" as OmtMicPermission;
+    }
+    const status = await checkOmtMicrophonePermission();
+    if (status === "unavailable" && isNativeAudioRecorderAvailable()) {
+      try {
+        const { CapacitorAudioRecorder } = await import("@capgo/capacitor-audio-recorder");
+        const checked = await CapacitorAudioRecorder.checkPermissions();
+        const mapped: OmtMicPermission =
+          checked.recordAudio === "granted"
+            ? "granted"
+            : checked.recordAudio === "denied"
+              ? "denied"
+              : "prompt";
+        setMicPermission(mapped);
+        return mapped;
+      } catch {
+        setMicPermission("prompt");
+        return "prompt";
+      }
+    }
+    setMicPermission(status);
+    return status;
+  }, []);
+
+  const requestMicAccess = useCallback(async () => {
+    setError(null);
+    if (!Capacitor.isNativePlatform()) {
+      setMicPermission("granted");
+      try {
+        if (navigator.mediaDevices?.getUserMedia) {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          stream.getTracks().forEach((t) => t.stop());
+        }
+        return true;
+      } catch (err) {
+        setError(micErrorMessage(err));
+        return false;
+      }
+    }
+    let status = await requestOmtMicrophonePermission();
+    if (status === "unavailable" && isNativeAudioRecorderAvailable()) {
+      const ok = await requestNativeMicPermission();
+      status = ok ? "granted" : "denied";
+    }
+    setMicPermission(status === "granted" ? "granted" : status === "denied" ? "denied" : "prompt");
+    if (status !== "granted") {
+      setError(
+        `Microphone not allowed. Tap Allow microphone again, or ${nativeMicDeniedHint()}`,
+      );
+      return false;
+    }
+    // Warm WebView capture after OS grant so LiveKit can use the mic.
+    try {
+      if (navigator.mediaDevices?.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach((t) => t.stop());
+      }
+    } catch (err) {
+      setError(micErrorMessage(err));
+      return false;
+    }
+    setError(null);
+    return true;
+  }, []);
 
   const stopHeartbeat = useCallback(() => {
     if (heartbeatRef.current) {
@@ -255,6 +335,10 @@ export function useRadioChannel(commandId: number | null) {
   }, [stopHeartbeat]);
 
   useEffect(() => {
+    void refreshMicPermission();
+  }, [refreshMicPermission]);
+
+  useEffect(() => {
     let cancelled = false;
 
     async function run() {
@@ -281,7 +365,6 @@ export function useRadioChannel(commandId: number | null) {
         roomRef.current = room;
 
         const updateParticipants = () => {
-          // Others on the channel (exclude self).
           setListenerCount(room.remoteParticipants.size);
         };
         room.on(RoomEvent.ParticipantConnected, updateParticipants);
@@ -299,7 +382,6 @@ export function useRadioChannel(commandId: number | null) {
           setSpeakerReady(false);
         });
 
-        // Listen-only first — mic opens only on Hold to talk (user gesture).
         await room.connect(tok.url, tok.token);
         if (cancelled) {
           await room.disconnect();
@@ -309,13 +391,13 @@ export function useRadioChannel(commandId: number | null) {
         setConnected(true);
         setSpeakerReady(room.canPlaybackAudio);
         updateParticipants();
-        // Best-effort unlock; browsers/WebViews often still need a tap (see unlockSpeaker).
         try {
           await room.startAudio();
           setSpeakerReady(room.canPlaybackAudio);
         } catch {
           setSpeakerReady(false);
         }
+        await refreshMicPermission();
         await refreshFloor();
         pollRef.current = setInterval(() => {
           void refreshFloor();
@@ -335,7 +417,7 @@ export function useRadioChannel(commandId: number | null) {
       cancelled = true;
       void teardown();
     };
-  }, [commandId, refreshFloor, teardown]);
+  }, [commandId, refreshFloor, refreshMicPermission, teardown]);
 
   const ensureMicPublished = useCallback(async () => {
     const room = roomRef.current;
@@ -345,9 +427,9 @@ export function useRadioChannel(commandId: number | null) {
     await room.localParticipant.publishTrack(mic, {
       source: Track.Source.Microphone,
     });
-    // Start muted; unmute only while holding PTT.
     await mic.mute();
     micRef.current = mic;
+    setMicPermission("granted");
     return mic;
   }, []);
 
@@ -356,8 +438,13 @@ export function useRadioChannel(commandId: number | null) {
     if (id == null || !roomRef.current) return;
     if (holdingRef.current) return;
     setError(null);
-    // User gesture — unlock incoming audio as well as outbound mic.
     await unlockSpeaker();
+
+    if (Capacitor.isNativePlatform() && micPermission !== "granted") {
+      setError("Tap Allow microphone first — Android will show Allow / Deny.");
+      return;
+    }
+
     try {
       const data = await radioFetch<{ holder: FloorHolderInfo }>("POST", "/api/radio/floor", {
         commandId: id,
@@ -379,6 +466,7 @@ export function useRadioChannel(commandId: number | null) {
       const withHolder = err as Error & { holder?: FloorHolderInfo };
       if (withHolder.holder) setFloor(withHolder.holder);
       setError(micErrorMessage(err));
+      void refreshMicPermission();
       try {
         await radioFetch("POST", "/api/radio/floor/release", { commandId: id });
       } catch {
@@ -386,7 +474,14 @@ export function useRadioChannel(commandId: number | null) {
       }
       await refreshFloor();
     }
-  }, [ensureMicPublished, refreshFloor, stopHeartbeat, unlockSpeaker]);
+  }, [
+    ensureMicPublished,
+    micPermission,
+    refreshFloor,
+    refreshMicPermission,
+    stopHeartbeat,
+    unlockSpeaker,
+  ]);
 
   return {
     connected,
@@ -396,8 +491,11 @@ export function useRadioChannel(commandId: number | null) {
     floor,
     remoteTalking,
     speakerReady,
+    micPermission,
     error,
     unlockSpeaker,
+    requestMicAccess,
+    refreshMicPermission,
     startTransmit,
     stopTransmit,
   };

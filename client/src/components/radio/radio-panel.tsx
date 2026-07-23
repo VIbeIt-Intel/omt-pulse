@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Loader2, Radio, Users, Volume2 } from "lucide-react";
+import { Loader2, Mic, Radio, Settings, Users, Volume2 } from "lucide-react";
 import {
   useRadioChannel,
   useRadioChannels,
@@ -14,6 +14,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { openOmtAppDetailsSettings } from "@/lib/omt-app-settings";
+import { Capacitor } from "@capacitor/core";
 import { cn } from "@/lib/utils";
 
 export function RadioPanel({
@@ -30,6 +32,7 @@ export function RadioPanel({
   const enabled = available === true;
   const { channels, loading: channelsLoading } = useRadioChannels(enabled);
   const [commandId, setCommandId] = useState<number | null>(null);
+  const [requestingMic, setRequestingMic] = useState(false);
 
   useEffect(() => {
     if (channels.length === 0) {
@@ -48,19 +51,23 @@ export function RadioPanel({
 
   const radio = useRadioChannel(enabled ? commandId : null);
   const busy = !!(radio.floor && !radio.floor.isMe);
+  const needsMicAllow =
+    Capacitor.isNativePlatform() && radio.micPermission !== "granted";
   const statusLine = radio.transmitting
     ? "You are on air"
     : radio.remoteTalking
       ? `${radio.remoteTalking} talking`
       : busy && radio.floor
         ? `${radio.floor.displayName} has the floor`
-        : radio.connected && !radio.speakerReady
-          ? "Connected — tap Enable speaker to hear"
-          : radio.connected
-            ? "Listening — hold to talk"
-            : radio.connecting
-              ? "Connecting…"
-              : "Offline";
+        : needsMicAllow
+          ? "Tap Allow microphone — Android will ask once"
+          : radio.connected && !radio.speakerReady
+            ? "Connected — tap Enable speaker to hear"
+            : radio.connected
+              ? "Listening — hold to talk"
+              : radio.connecting
+                ? "Connecting…"
+                : "Offline";
 
   if (available === null) {
     return (
@@ -140,6 +147,40 @@ export function RadioPanel({
             </SelectContent>
           </Select>
 
+          {needsMicAllow ? (
+            <div className="space-y-2">
+              <Button
+                type="button"
+                className="w-full h-12 gap-2 bg-emerald-600 hover:bg-emerald-500 text-white"
+                data-testid="button-radio-allow-mic"
+                disabled={requestingMic}
+                onClick={() => {
+                  setRequestingMic(true);
+                  void radio.requestMicAccess().finally(() => setRequestingMic(false));
+                }}
+              >
+                {requestingMic ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Mic className="h-4 w-4" />
+                )}
+                Allow microphone
+              </Button>
+              {radio.micPermission === "denied" ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full h-10 gap-2"
+                  data-testid="button-radio-open-mic-settings"
+                  onClick={() => void openOmtAppDetailsSettings()}
+                >
+                  <Settings className="h-4 w-4" />
+                  Open app permission settings
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+
           {radio.connected && !radio.speakerReady ? (
             <Button
               type="button"
@@ -154,7 +195,7 @@ export function RadioPanel({
           ) : null}
 
           <RadioPttButton
-            disabled={!radio.connected || radio.connecting}
+            disabled={!radio.connected || radio.connecting || needsMicAllow}
             transmitting={radio.transmitting}
             busy={busy}
             onPressStart={() => void radio.startTransmit()}
@@ -167,7 +208,8 @@ export function RadioPanel({
             </p>
           ) : (
             <p className="text-[10px] text-muted-foreground/80">
-              Mic: allow once in Android settings (stays allowed). Speaker: tap Enable speaker once per session. Audio is never saved.
+              Android does not ask for mic during APK install — tap Allow microphone once in this
+              screen. Speaker needs no permission. Audio is never saved.
             </p>
           )}
         </>

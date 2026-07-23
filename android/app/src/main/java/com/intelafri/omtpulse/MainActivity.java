@@ -8,24 +8,33 @@ import android.os.Build;
 import android.os.Bundle;
 import android.webkit.PermissionRequest;
 import android.webkit.WebSettings;
-import androidx.annotation.NonNull;
-import androidx.core.app.ActivityCompat;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.core.content.ContextCompat;
 import androidx.webkit.WebSettingsCompat;
 import androidx.webkit.WebViewFeature;
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.BridgeWebChromeClient;
 import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.Set;
 
 public class MainActivity extends BridgeActivity {
-    private static final int WEB_MEDIA_PERMISSION_REQUEST = 1001;
     private PermissionRequest pendingWebPermissionRequest;
+    private ActivityResultLauncher<String[]> webMediaPermissionLauncher;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         registerPlugin(OmtAppSettingsPlugin.class);
         registerPlugin(OmtBinaryEyeScannerPlugin.class);
+
+        // Activity Result API — reliable on modern Android / Capacitor (unlike
+        // deprecated onRequestPermissionsResult for WebView getUserMedia bridging).
+        webMediaPermissionLauncher =
+                registerForActivityResult(
+                        new ActivityResultContracts.RequestMultiplePermissions(),
+                        this::onWebMediaPermissionsResult);
+
         super.onCreate(savedInstanceState);
 
         // Transparent WebView background so @capacitor/google-maps native
@@ -50,10 +59,27 @@ public class MainActivity extends BridgeActivity {
             WebSettingsCompat.setForceDark(settings, WebSettingsCompat.FORCE_DARK_OFF);
         }
 
-        // Bridge WebView getUserMedia (voice notes, camera) to Android runtime permissions.
+        // Bridge WebView getUserMedia (voice notes, camera, LiveKit) to Android runtime permissions.
         // Must run in onStart — Capacitor may replace the WebChromeClient during bridge init.
         installMediaPermissionWebChromeClient();
         handleBinaryEyeReturnIntent(getIntent());
+    }
+
+    private void onWebMediaPermissionsResult(Map<String, Boolean> result) {
+        if (pendingWebPermissionRequest == null) return;
+        boolean allGranted = !result.isEmpty();
+        for (Boolean granted : result.values()) {
+            if (granted == null || !granted) {
+                allGranted = false;
+                break;
+            }
+        }
+        if (allGranted) {
+            pendingWebPermissionRequest.grant(pendingWebPermissionRequest.getResources());
+        } else {
+            pendingWebPermissionRequest.deny();
+        }
+        pendingWebPermissionRequest = null;
     }
 
     @Override
@@ -88,23 +114,36 @@ public class MainActivity extends BridgeActivity {
         this.bridge.getWebView().setWebChromeClient(new BridgeWebChromeClient(this.bridge) {
             @Override
             public void onPermissionRequest(final PermissionRequest request) {
-                String[] needed = androidPermissionsForWebRequest(request);
-                if (needed.length == 0) {
-                    request.grant(request.getResources());
-                    return;
-                }
-                for (String permission : needed) {
-                    if (ContextCompat.checkSelfPermission(MainActivity.this, permission)
-                            != PackageManager.PERMISSION_GRANTED) {
-                        pendingWebPermissionRequest = request;
-                        ActivityCompat.requestPermissions(
-                                MainActivity.this, needed, WEB_MEDIA_PERMISSION_REQUEST);
-                        return;
-                    }
-                }
-                request.grant(request.getResources());
+                runOnUiThread(() -> handleWebPermissionRequest(request));
             }
         });
+    }
+
+    private void handleWebPermissionRequest(PermissionRequest request) {
+        String[] needed = androidPermissionsForWebRequest(request);
+        if (needed.length == 0) {
+            request.grant(request.getResources());
+            return;
+        }
+        boolean allGranted = true;
+        for (String permission : needed) {
+            if (ContextCompat.checkSelfPermission(this, permission)
+                    != PackageManager.PERMISSION_GRANTED) {
+                allGranted = false;
+                break;
+            }
+        }
+        if (allGranted) {
+            request.grant(request.getResources());
+            return;
+        }
+        pendingWebPermissionRequest = request;
+        if (webMediaPermissionLauncher != null) {
+            webMediaPermissionLauncher.launch(needed);
+        } else {
+            request.deny();
+            pendingWebPermissionRequest = null;
+        }
     }
 
     private static String[] androidPermissionsForWebRequest(PermissionRequest request) {
@@ -119,29 +158,5 @@ public class MainActivity extends BridgeActivity {
             }
         }
         return perms.toArray(new String[0]);
-    }
-
-    @Override
-    public void onRequestPermissionsResult(
-            int requestCode,
-            @NonNull String[] permissions,
-            @NonNull int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode != WEB_MEDIA_PERMISSION_REQUEST || pendingWebPermissionRequest == null) {
-            return;
-        }
-        boolean allGranted = grantResults.length > 0;
-        for (int result : grantResults) {
-            if (result != PackageManager.PERMISSION_GRANTED) {
-                allGranted = false;
-                break;
-            }
-        }
-        if (allGranted) {
-            pendingWebPermissionRequest.grant(pendingWebPermissionRequest.getResources());
-        } else {
-            pendingWebPermissionRequest.deny();
-        }
-        pendingWebPermissionRequest = null;
     }
 }

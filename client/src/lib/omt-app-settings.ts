@@ -4,6 +4,8 @@ export interface OmtAppSettingsPlugin {
   openAppDetails(): Promise<void>;
   openLocationSources(): Promise<void>;
   isLocationEnabled(): Promise<{ enabled: boolean }>;
+  checkMicrophone(): Promise<{ recordAudio: string }>;
+  requestMicrophone(): Promise<{ recordAudio: string }>;
 }
 
 const OmtAppSettings = registerPlugin<OmtAppSettingsPlugin>("OmtAppSettings");
@@ -45,5 +47,36 @@ export async function openOmtLocationSourcesSettings(): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+export type OmtMicPermission = "granted" | "denied" | "prompt" | "unavailable";
+
+/** Check Android RECORD_AUDIO without prompting. */
+export async function checkOmtMicrophonePermission(): Promise<OmtMicPermission> {
+  if (!hasOmtAppSettingsPlugin()) return "unavailable";
+  try {
+    const { recordAudio } = await OmtAppSettings.checkMicrophone();
+    if (recordAudio === "granted") return "granted";
+    if (recordAudio === "denied") return "denied";
+    return "prompt";
+  } catch {
+    return "unavailable";
+  }
+}
+
+/**
+ * Show the system Allow/Deny microphone dialog (Android).
+ * Call from a normal tap — not from hold-to-talk.
+ */
+export async function requestOmtMicrophonePermission(): Promise<OmtMicPermission> {
+  if (!hasOmtAppSettingsPlugin()) return "unavailable";
+  try {
+    const { recordAudio } = await OmtAppSettings.requestMicrophone();
+    if (recordAudio === "granted") return "granted";
+    if (recordAudio === "denied") return "denied";
+    return "prompt";
+  } catch {
+    return "denied";
   }
 }

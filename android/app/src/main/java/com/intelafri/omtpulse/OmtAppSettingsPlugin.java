@@ -1,5 +1,6 @@
 package com.intelafri.omtpulse;
 
+import android.Manifest;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -8,13 +9,27 @@ import android.net.Uri;
 import android.os.Build;
 import android.provider.Settings;
 import com.getcapacitor.JSObject;
+import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
 
-/** Opens Android system settings from the WebView (reliable for location / app permissions). */
-@CapacitorPlugin(name = "OmtAppSettings")
+/**
+ * Opens Android system settings from the WebView, and requests RECORD_AUDIO via
+ * Capacitor's permission API (shows the system Allow/Deny dialog).
+ */
+@CapacitorPlugin(
+    name = "OmtAppSettings",
+    permissions = {
+        @Permission(
+            alias = "microphone",
+            strings = { Manifest.permission.RECORD_AUDIO }
+        )
+    }
+)
 public class OmtAppSettingsPlugin extends Plugin {
 
     /** True when system Location (GPS / network) is enabled — not app permission. */
@@ -53,6 +68,42 @@ public class OmtAppSettingsPlugin extends Plugin {
         } catch (Exception e) {
             call.reject("Failed to open app settings", e);
         }
+    }
+
+    @PluginMethod
+    public void checkMicrophone(PluginCall call) {
+        JSObject ret = new JSObject();
+        ret.put("recordAudio", permissionToString(getPermissionState("microphone")));
+        call.resolve(ret);
+    }
+
+    /**
+     * Shows the Android system microphone permission dialog (once per install unless
+     * previously denied permanently — then openAppDetails is required).
+     */
+    @PluginMethod
+    public void requestMicrophone(PluginCall call) {
+        if (getPermissionState("microphone") == PermissionState.GRANTED) {
+            JSObject ret = new JSObject();
+            ret.put("recordAudio", "granted");
+            call.resolve(ret);
+            return;
+        }
+        requestPermissionForAlias("microphone", call, "microphonePermissionCallback");
+    }
+
+    @PermissionCallback
+    public void microphonePermissionCallback(PluginCall call) {
+        JSObject ret = new JSObject();
+        ret.put("recordAudio", permissionToString(getPermissionState("microphone")));
+        call.resolve(ret);
+    }
+
+    private static String permissionToString(PermissionState state) {
+        if (state == null) return "prompt";
+        if (state == PermissionState.GRANTED) return "granted";
+        if (state == PermissionState.DENIED) return "denied";
+        return "prompt";
     }
 
     @PluginMethod
