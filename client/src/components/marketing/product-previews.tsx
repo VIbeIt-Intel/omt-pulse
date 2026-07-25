@@ -1,4 +1,4 @@
-/** Real product screenshots for the omtpulse.com "See it in action" section. */
+/** Real product screenshots for the omtpulse.com product sections. */
 
 function PhoneScreenshot({ src, alt, label }: { src: string; alt: string; label: string }) {
   return (
@@ -19,24 +19,44 @@ function PhoneScreenshot({ src, alt, label }: { src: string; alt: string; label:
   );
 }
 
+function WideScreenshot({ src, alt, label }: { src: string; alt: string; label: string }) {
+  return (
+    <figure className="flex flex-col gap-3">
+      <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-lg shadow-primary/10">
+        <img
+          src={src}
+          alt={alt}
+          className="w-full object-cover object-top"
+          loading="lazy"
+          decoding="async"
+        />
+      </div>
+      <figcaption className="text-center text-sm font-medium text-foreground">{label}</figcaption>
+    </figure>
+  );
+}
+
 const PREVIEWS = [
   {
-    id: "live-monitor",
-    label: "Live response map",
-    src: "/marketing/live-monitor.png",
-    alt: "Live Monitor showing responders on a map during an escalated incident",
+    id: "control-room",
+    label: "Control Room",
+    src: "/marketing/control-room.png",
+    alt: "OMT Pulse Control Room with group radio, site monitor, fleet and live incident overview",
+    wide: true,
+  },
+  {
+    id: "radio",
+    label: "Group radio (PTT)",
+    src: "/marketing/group-radio.png",
+    alt: "Group radio push-to-talk — tap to talk, live audio never saved",
+    wide: true,
   },
   {
     id: "panic",
     label: "One-tap panic / SOS",
     src: "/marketing/panic-alert.png",
     alt: "SOS panic alert on a patrol phone with acknowledge and join actions",
-  },
-  {
-    id: "navigation",
-    label: "Turn-by-turn in the field",
-    src: "/marketing/turn-by-turn-nav.png",
-    alt: "In-app navigation with live GPS while responding to an incident",
+    wide: false,
   },
 ] as const;
 
@@ -47,11 +67,17 @@ export function ProductPreviewsSection() {
         <div className="mb-12 text-center">
           <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">See it in action</h2>
           <p className="mt-2 text-sm text-muted-foreground sm:text-base">
-            From the control room to the patrol officer&apos;s pocket — one connected workflow.
+            Control Room on the desk. Radio, SOS, and live response in the field — one connected
+            system.
           </p>
         </div>
-        <div className="grid gap-10 sm:grid-cols-3 sm:gap-6">
-          {PREVIEWS.map(({ id, label, src, alt }) => (
+        <div className="grid gap-10 lg:grid-cols-2 lg:gap-8">
+          {PREVIEWS.filter((p) => p.wide).map(({ id, label, src, alt }) => (
+            <WideScreenshot key={id} src={src} alt={alt} label={label} />
+          ))}
+        </div>
+        <div className="mt-12 flex justify-center">
+          {PREVIEWS.filter((p) => !p.wide).map(({ id, label, src, alt }) => (
             <PhoneScreenshot key={id} src={src} alt={alt} label={label} />
           ))}
         </div>
@@ -62,14 +88,24 @@ export function ProductPreviewsSection() {
 
 const GALLERY = [
   {
-    src: "/marketing/mobile-dashboard.png",
-    alt: "OMT Pulse mobile dashboard with report incident and SOS buttons",
-    caption: "Patrol dashboard — report, live incident, and SOS on one screen",
+    src: "/marketing/fleet-board.png",
+    alt: "Fleet board showing vehicle status — moving, idle and offline",
+    caption: "Fleet board — live vehicle status across your sites",
+  },
+  {
+    src: "/marketing/fleet-route.png",
+    alt: "Vehicle daily travel map with trip playback and GPS route history",
+    caption: "Fleet routes — daily travel, trips and playback",
+  },
+  {
+    src: "/marketing/access-control.png",
+    alt: "Access Control overview with people on site and visit log",
+    caption: "Access Control — who’s on site, check-ins and visit history",
   },
   {
     src: "/marketing/live-incident-map.png",
     alt: "Live incident map with severity and GPS tracking",
-    caption: "Live GPS and severity on the operations map",
+    caption: "Live incidents — GPS and severity on the operations map",
   },
 ] as const;
 
@@ -77,9 +113,9 @@ export function FieldGallerySection() {
   return (
     <section id="gallery" className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:pb-24">
       <div className="mb-10 text-center">
-        <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">Built for the field</h2>
+        <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">Built for the shift</h2>
         <p className="mt-2 text-sm text-muted-foreground sm:text-base">
-          Real screens from security teams using OMT Pulse in South Africa.
+          Real screens from OMT Pulse — Control Room, fleet, access and field response.
         </p>
       </div>
       <div className="grid gap-6 md:grid-cols-2">

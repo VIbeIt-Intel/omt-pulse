@@ -20,6 +20,10 @@ import {
   GraduationCap,
   HardHat,
   Siren,
+  Car,
+  ShieldCheck,
+  Footprints,
+  MapPinned,
 } from "lucide-react";
 import omtLogo from "@/assets/omt-logo-v2.png";
 import { FieldGallerySection, ProductPreviewsSection } from "@/components/marketing/product-previews";
@@ -31,23 +35,43 @@ const SALES_EMAIL = "sales@intelafri.org";
 const FEATURES = [
   {
     icon: ShieldAlert,
-    title: "Instant Panic / SOS",
-    body: "One-tap distress alert with live location to responders.",
+    title: "Panic / SOS",
+    body: "One-tap distress with live GPS to Control Room and nearby responders.",
   },
   {
     icon: Radio,
-    title: "Live Incident Monitor",
-    body: "Real-time map of who's where, doing what.",
+    title: "Group radio",
+    body: "Live push-to-talk for Pulse Groups — Control Room and field, audio never saved.",
   },
   {
-    icon: Layers,
-    title: "Multi-tenant Groups",
-    body: "Sub-organisations with isolated data + cross-Group visibility grants.",
+    icon: MapPinned,
+    title: "Live Incident Monitor",
+    body: "Real-time map of responders, severity, and join-from-anywhere workflows.",
   },
   {
     icon: BookOpenCheck,
-    title: "Audit-grade Occurrence Book",
-    body: "Every action logged, full Excel export.",
+    title: "Occurrence Book",
+    body: "Every action logged and searchable — audit-ready with Excel export.",
+  },
+  {
+    icon: Car,
+    title: "Fleet & Site Monitor",
+    body: "GPS vehicles, idle/moving status, routes, and team presence on one board.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Access Control",
+    body: "People and vehicles in and out — who’s on site, visit logs, gate desk.",
+  },
+  {
+    icon: Footprints,
+    title: "Patrol",
+    body: "Routes and checkpoint clocking for patrol teams on the ground.",
+  },
+  {
+    icon: Layers,
+    title: "Pulse Groups",
+    body: "Multi-tenant groups with isolated data and controlled cross-group visibility.",
   },
 ];
 
@@ -112,9 +136,10 @@ function useLandingSEO() {
       twDesc: twDesc.content,
     };
 
-    const TITLE = "OMT Pulse — Occurrence book, panic button & live response map for security teams";
+    const TITLE =
+      "OMT Pulse — Control Room, group radio, SOS, fleet & access for security teams";
     const DESC =
-      "OMT Pulse is the digital occurrence book, panic button and live response map your security team will actually use. Built for security companies, residential estates, campuses, mines and response teams.";
+      "OMT Pulse is the Control Room and field app for security teams: live group radio, panic SOS, live incident maps, occurrence book, fleet GPS, access control and patrol — built for South African ops.";
     const URL = typeof window !== "undefined" ? window.location.origin : "https://omtpulse.com";
 
     document.title = TITLE;
@@ -220,23 +245,22 @@ export default function LandingPage() {
             <div className="text-center lg:text-left">
               <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-border bg-card/60 px-3 py-1 text-xs font-medium text-muted-foreground">
                 <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-                For security teams that need to act, not paperwork
+                Control Room + field app — one ops system
               </div>
               <h1
                 className="mb-5 text-4xl font-bold leading-tight tracking-tight sm:text-5xl lg:text-[3.25rem]"
                 data-testid="text-hero-title"
               >
-                The occurrence book, panic button, and live response map your
-                security team will{" "}
-                <span className="text-primary">actually use.</span>
+                Radio, SOS, fleet and access — the ops stack your team will{" "}
+                <span className="text-primary">actually run.</span>
               </h1>
               <p
                 className="mb-9 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg lg:mx-0 mx-auto"
                 data-testid="text-hero-subtitle"
               >
-                OMT Pulse turns radio chatter and paper logs into a single,
-                searchable record — with a one-tap SOS, live responder tracking,
-                and analytics your operations manager can read at a glance.
+                OMT Pulse connects Control Room and patrol: live group radio, one-tap panic,
+                live incident maps, occurrence book, GPS fleet, access control and patrol
+                clocking — searchable, real-time, built for South African security sites.
               </p>
               <div className="flex flex-col items-center justify-center gap-3 sm:flex-row lg:justify-start">
                 <a href="#contact">
@@ -256,21 +280,19 @@ export default function LandingPage() {
             </p>
             </div>
             <div className="flex justify-center lg:justify-end">
-              <div className="relative w-full max-w-[300px]">
-                <div className="absolute -inset-4 -z-10 rounded-[2.5rem] bg-primary/15 blur-2xl" />
-                <div className="rounded-[1.75rem] border-[3px] border-foreground/10 bg-card p-2 shadow-xl shadow-primary/10">
-                  <div className="overflow-hidden rounded-[1.35rem] border border-border aspect-[9/16]">
-                    <img
-                      src="/marketing/panic-alert.png"
-                      alt="OMT Pulse panic alert — one tap SOS with live GPS for security responders"
-                      className="h-full w-full object-cover object-top"
-                      loading="eager"
-                      decoding="async"
-                    />
-                  </div>
+              <div className="relative w-full max-w-xl">
+                <div className="absolute -inset-4 -z-10 rounded-3xl bg-primary/15 blur-2xl" />
+                <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-xl shadow-primary/10">
+                  <img
+                    src="/marketing/control-room.png"
+                    alt="OMT Pulse Control Room — group radio, site monitor, fleet and live overview"
+                    className="w-full object-cover object-top"
+                    loading="eager"
+                    decoding="async"
+                  />
                 </div>
                 <p className="mt-4 text-center text-xs text-muted-foreground">
-                  Real product — panic alert on a patrol phone
+                  Real product — Control Room with live radio and site monitor
                 </p>
               </div>
             </div>
@@ -282,14 +304,14 @@ export default function LandingPage() {
 
       <FieldGallerySection />
 
-      {/* ── Why OMT Pulse — exactly 4 cards ─────────────────────────────── */}
+      {/* ── Capabilities ─────────────────────────────────────────────────── */}
       <section id="features" className="mx-auto max-w-6xl px-4 pb-16 sm:px-6 sm:pb-24">
         <div className="mb-10 text-center">
           <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">
-            Why OMT Pulse
+            What your team runs on shift
           </h2>
           <p className="mt-2 text-sm text-muted-foreground sm:text-base">
-            Four things that matter on shift — and that we got right.
+            From the Control Room desk to the officer&apos;s phone — modules that stay connected.
           </p>
         </div>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
