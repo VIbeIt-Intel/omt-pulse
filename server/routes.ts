@@ -1021,10 +1021,11 @@ async function getCommandScope(req: Request): Promise<CommandScope> {
   }
 
   // Writes (mutations) must target a Command the user actually belongs to.
-  // In a single-command session that's just `[active]`; in "all" mode it's
-  // the user's whole accessible set. Grants are deliberately excluded — they
-  // are read-only.
-  const writeAccessCommandIds = active === "all"
+  // Administrators / superadmins can write to any org Command regardless of the
+  // current Command Switcher selection (e.g. move a vehicle Operations → Central).
+  // Other roles: only the active Command (or all assigned when viewing "all").
+  // Grants are deliberately excluded — they are read-only.
+  const writeAccessCommandIds = wideAccess || active === "all"
     ? accessibleIds
     : (typeof active === "number" && accessibleIds.includes(active)) ? [active] : [];
 
