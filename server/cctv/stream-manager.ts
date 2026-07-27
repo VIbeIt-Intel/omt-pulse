@@ -57,6 +57,23 @@ function spawnFfmpeg(rtspUrl: string, outDir: string): ChildProcess {
   const segmentPattern = path.join(outDir, "seg_%03d.ts");
   const playlistPath = path.join(outDir, "playlist.m3u8");
 
+  /** Passthrough H.264 from camera (no generation loss). Set CCTV_FORCE_TRANSCODE=1 for HEVC or incompatible sources. */
+  const forceTranscode = process.env.CCTV_FORCE_TRANSCODE === "1";
+  const videoArgs = forceTranscode
+    ? [
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-tune",
+        "zerolatency",
+        "-g",
+        "48",
+        "-sc_threshold",
+        "0",
+      ]
+    : ["-c:v", "copy", "-bsf:v", "h264_mp4toannexb"];
+
   const args = [
     "-hide_banner",
     "-loglevel",
@@ -66,16 +83,7 @@ function spawnFfmpeg(rtspUrl: string, outDir: string): ChildProcess {
     "-i",
     rtspUrl,
     "-an",
-    "-c:v",
-    "libx264",
-    "-preset",
-    "veryfast",
-    "-tune",
-    "zerolatency",
-    "-g",
-    "48",
-    "-sc_threshold",
-    "0",
+    ...videoArgs,
     "-f",
     "hls",
     "-hls_time",
