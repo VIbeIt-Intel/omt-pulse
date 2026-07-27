@@ -152,16 +152,14 @@ function PermissionsSection({ form }: { form: ReturnType<typeof useForm<UserForm
   );
 }
 
-type ShareInfo = { firstName: string; email: string; password?: string };
-
-function buildTesterWelcomeMessage(shareInfo: ShareInfo, orgName: string | null): string {
-  return buildOrgAdminAccessMessage({
-    firstName: shareInfo.firstName,
-    email: shareInfo.email,
-    password: shareInfo.password,
-    orgName,
-  });
-}
+type ShareInfo = {
+  firstName: string;
+  email: string;
+  password?: string;
+  inviteEmailSent?: boolean;
+  inviteEmailReason?: string | null;
+  inviteToken?: string | null;
+};
 
 function ShareScreen({
   shareInfo,
@@ -175,7 +173,18 @@ function ShareScreen({
   onAddAnother: () => void;
 }) {
   const [copiedMsg, setCopiedMsg] = useState(false);
-  const message = buildTesterWelcomeMessage(shareInfo, orgName);
+  const appUrl = import.meta.env.VITE_APP_BASE_URL || window.location.origin;
+  const inviteUrl = shareInfo.inviteToken
+    ? `${appUrl}/invite?token=${shareInfo.inviteToken}`
+    : undefined;
+  const invitedByEmail = !shareInfo.password && !!shareInfo.inviteToken;
+  const message = buildOrgAdminAccessMessage({
+    firstName: shareInfo.firstName,
+    email: shareInfo.email,
+    password: shareInfo.password,
+    inviteUrl,
+    orgName,
+  });
 
   function handleCopyMsg() {
     navigator.clipboard.writeText(message).then(() => {
@@ -200,7 +209,13 @@ function ShareScreen({
         <div>
           <p className="font-semibold">{shareInfo.firstName} has been added</p>
           <p className="text-sm text-muted-foreground">
-            Copy this message with web sign-in details. Mobile app install is arranged by IntelAfri.
+            {invitedByEmail
+              ? shareInfo.inviteEmailSent
+                ? "An invite email was sent. You can also copy or WhatsApp the link below."
+                : shareInfo.inviteEmailReason
+                  ? `Invite email could not be sent (${shareInfo.inviteEmailReason}). Copy or WhatsApp the link below.`
+                  : "Copy or WhatsApp the invite link below."
+              : "Copy this message with web sign-in details. Mobile app install is arranged by IntelAfri."}
           </p>
         </div>
       </div>
@@ -372,7 +387,7 @@ function UserDialog({
   }
 
   const mutation = useMutation({
-    mutationFn: (data: UserFormValues) => {
+    mutationFn: async (data: UserFormValues) => {
       const body: Record<string, unknown> = {
         firstName: data.firstName,
         lastName: data.lastName,
@@ -384,26 +399,54 @@ function UserDialog({
         canEditIncidents: data.canEditIncidents ?? true,
         canManageAttachments: data.canManageAttachments ?? true,
         canDeleteIncidents: data.canDeleteIncidents ?? true,
-        password: isEdit ? (data.password && data.password.length > 0 ? data.password : undefined) : data.password,
         commandIds: data.commandIds,
       };
 
       if (isEdit) {
+        if (data.password && data.password.length > 0) {
+          body.password = data.password;
+        }
         return apiRequest("PATCH", `/api/users/${editUser!.id}`, body);
+      }
+
+      // Invite by email is the default. Only send a password if the admin typed one.
+      if (data.password && data.password.length > 0) {
+        body.password = data.password;
+        body.sendInviteEmail = false;
+      } else {
+        body.sendInviteEmail = true;
       }
       return apiRequest("POST", "/api/users", body);
     },
-    onSuccess: (res, variables) => {
+    onSuccess: async (res, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/users"] });
       if (isEdit) {
         toast({ title: "User updated" });
         handleClose();
       } else {
+        const created = await res.json() as {
+          inviteToken?: string | null;
+          inviteEmailSent?: boolean;
+          inviteEmailReason?: string | null;
+        };
+        const usedPassword = !!(variables.password && variables.password.length > 0);
         setShareInfo({
           firstName: variables.firstName,
           email: variables.email.trim().toLowerCase(),
-          password: variables.password,
+          password: usedPassword ? variables.password : undefined,
+          inviteToken: created.inviteToken ?? null,
+          inviteEmailSent: created.inviteEmailSent,
+          inviteEmailReason: created.inviteEmailReason ?? null,
         });
+        if (!usedPassword && created.inviteEmailSent) {
+          toast({ title: "Invite email sent", description: `Sent to ${variables.email.trim().toLowerCase()}` });
+        } else if (!usedPassword && created.inviteEmailSent === false) {
+          toast({
+            title: "User created — email not sent",
+            description: created.inviteEmailReason ?? "Copy the invite link to share manually.",
+            variant: "destructive",
+          });
+        }
       }
     },
     onError: (err: Error) => {
@@ -444,8 +487,8 @@ function UserDialog({
           <Form {...form}>
             <form
               onSubmit={form.handleSubmit((d) => {
-                if (!isEdit) {
-                  if (!d.password || d.password.length < 10) {
+                if (!isEdit && d.password && d.password.length > 0) {
+                  if (d.password.length < 10) {
                     form.setError("password", { message: "Password must be at least 10 characters" });
                     return;
                   }
@@ -641,14 +684,15 @@ function UserDialog({
               {!isEdit && (
                 <div className="border-t pt-2.5 space-y-2">
                   <p className="text-xs text-muted-foreground">
-                    Set a login password now — you&apos;ll copy a WhatsApp message with web sign-in details.
+                    By default we email an invite so they set their own password. Only fill password
+                    below if you want to set one yourself and share it manually (e.g. WhatsApp).
                   </p>
                   <FormField control={form.control} name="password" render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Password <span className="text-destructive">*</span></FormLabel>
+                      <FormLabel>Password <span className="text-muted-foreground font-normal">(optional)</span></FormLabel>
                       <FormControl>
                         <div className="relative">
-                          <Input {...field} type={showPassword ? "text" : "password"} placeholder="Minimum 10 characters" className="pr-10" data-testid="input-user-password" autoComplete="new-password" />
+                          <Input {...field} type={showPassword ? "text" : "password"} placeholder="Leave blank to email an invite" className="pr-10" data-testid="input-user-password" autoComplete="new-password" />
                           <button
                             type="button"
                             onClick={() => setShowPassword((v) => !v)}
@@ -664,10 +708,10 @@ function UserDialog({
                   )} />
                   <FormField control={form.control} name="confirmPassword" render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Confirm password <span className="text-destructive">*</span></FormLabel>
+                      <FormLabel>Confirm password</FormLabel>
                       <FormControl>
                         <div className="relative">
-                          <Input {...field} type={showConfirm ? "text" : "password"} placeholder="Repeat password" className="pr-10" data-testid="input-user-confirm-password" autoComplete="new-password" />
+                          <Input {...field} type={showConfirm ? "text" : "password"} placeholder="Only if setting a password" className="pr-10" data-testid="input-user-confirm-password" autoComplete="new-password" />
                           <button
                             type="button"
                             onClick={() => setShowConfirm((v) => !v)}
@@ -688,7 +732,11 @@ function UserDialog({
               <DialogFooter className="shrink-0 border-t pt-2 mt-1.5">
                 <Button type="button" variant="outline" onClick={handleClose}>Cancel</Button>
                 <Button type="submit" disabled={mutation.isPending} data-testid="button-save-user">
-                  {mutation.isPending ? "Saving..." : isEdit ? "Save Changes" : "Create User"}
+                  {mutation.isPending
+                    ? "Saving..."
+                    : isEdit
+                      ? "Save Changes"
+                      : "Create & email invite"}
                 </Button>
               </DialogFooter>
             </form>
@@ -1790,13 +1838,26 @@ function RegenerateInviteButton({ userId, firstName }: { userId: string; firstNa
   const regenMutation = useMutation({
     mutationFn: () => apiRequest("POST", `/api/users/${userId}/regenerate-invite`, {}),
     onSuccess: async (res) => {
-      const updated: OrgUser = await res.json();
+      const updated = await res.json() as OrgUser & {
+        inviteEmailSent?: boolean;
+        inviteEmailReason?: string | null;
+      };
       queryClient.invalidateQueries({ queryKey: ["/api/users"] });
       if (updated.inviteToken) {
         const inviteUrl = `${appUrl}/invite?token=${updated.inviteToken}`;
         navigator.clipboard.writeText(inviteUrl).then(() => {
           setCopied(true);
           setTimeout(() => setCopied(false), 2500);
+        });
+      }
+      if (updated.inviteEmailSent) {
+        toast({ title: "Invite emailed", description: `Sent to ${firstName} and link copied.` });
+      } else {
+        toast({
+          title: "Invite link ready",
+          description: updated.inviteEmailReason
+            ? `Email not sent (${updated.inviteEmailReason}). Link copied.`
+            : "Link copied — share it manually.",
         });
       }
     },
@@ -1810,7 +1871,7 @@ function RegenerateInviteButton({ userId, firstName }: { userId: string; firstNa
       className="min-h-[44px] min-w-[44px] touch-manipulation"
       onClick={() => regenMutation.mutate()}
       disabled={regenMutation.isPending}
-      title={`Generate invite link for ${firstName}`}
+      title={`Email invite link to ${firstName}`}
       data-testid={`button-regen-invite-${userId}`}
     >
       {copied

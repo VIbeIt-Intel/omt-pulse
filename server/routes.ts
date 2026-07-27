@@ -20,6 +20,7 @@ import { parseFile, suggestMapping, resolveRows, collectUnknownReferences, build
 import * as XLSX from "xlsx";
 import { CENTRAL_COMMAND_NAME } from "./archon-constants";
 import { sendArchonWelcomeEmail } from "./archon-welcome-email";
+import { sendTeamInviteEmail } from "./user-invite-email";
 import { createInviteToken, hashPlaceholderPassword } from "./user-invite";
 import { appInviteUrl } from "@shared/app-url";
 import { formatOrgAddress } from "@shared/org-address";
@@ -2035,7 +2036,8 @@ export async function registerRoutes(
     homeAddress: z.string().optional().nullable(),
     posting: z.string().optional().nullable(),
     role: z.enum(USER_ROLES),
-    password: z.string().min(10, "Password must be at least 10 characters"),
+    /** Optional: if omitted, user gets an email invite to set their own password. */
+    password: z.string().min(10, "Password must be at least 10 characters").optional(),
     shiftPin: z.union([
       z.string().regex(/^\d{4,6}$/, "Shift PIN must be 4–6 digits"),
       z.literal(""),
@@ -2045,6 +2047,8 @@ export async function registerRoutes(
     canManageAttachments: z.boolean().optional().default(true),
     canDeleteIncidents: z.boolean().optional().default(true),
     commandIds: z.array(z.number().int().positive()).min(1, "At least one Command is required"),
+    /** Default true — send invite email when no password is set. */
+    sendInviteEmail: z.boolean().optional().default(true),
   });
 
   const updateUserSchema = z.object({
@@ -2100,7 +2104,7 @@ export async function registerRoutes(
         details: parsed.error.errors,
       });
     }
-    const { password: rawPassword, commandIds, shiftPin, ...rest } = parsed.data;
+    const { password: rawPassword, commandIds, shiftPin, sendInviteEmail, ...rest } = parsed.data;
     // Validate every commandId belongs to the admin's org before we create anything.
     const orgCmds = await storage.getCommands(req.currentUser!.organizationId);
     const orgCmdIds = new Set(orgCmds.map(c => c.id));
@@ -2140,17 +2144,24 @@ export async function registerRoutes(
       return res.status(400).json({ message: "A user with this email already exists" });
     }
 
-    // Password required for new users — admins share email + password (field testers, Play closed test).
-    if (!rawPassword || rawPassword.length < 10) {
-      return res.status(400).json({ message: "Password must be at least 10 characters" });
-    }
-    if (await isPasswordInUse(rawPassword)) {
-      return res.status(400).json({ message: PASSWORD_IN_USE_MSG });
+    const useInvite = !rawPassword || rawPassword.length === 0;
+    if (!useInvite) {
+      if (rawPassword.length < 10) {
+        return res.status(400).json({ message: "Password must be at least 10 characters" });
+      }
+      if (await isPasswordInUse(rawPassword)) {
+        return res.status(400).json({ message: PASSWORD_IN_USE_MSG });
+      }
     }
 
-    const hashedPassword = await bcrypt.hash(rawPassword, SALT_ROUNDS);
+    const hashedPassword = useInvite
+      ? await hashPlaceholderPassword()
+      : await bcrypt.hash(rawPassword!, SALT_ROUNDS);
     const shiftPinHash = shiftPin && shiftPin.length > 0 ? await hashShiftPin(shiftPin) : null;
     const orgId = req.currentUser!.organizationId;
+    const { token: inviteToken, expiresAt: inviteTokenExpiresAt } = useInvite
+      ? createInviteToken()
+      : { token: null as string | null, expiresAt: null as Date | null };
 
     if (rest.role === "administrator") {
       rest.canEditIncidents = true;
@@ -2174,9 +2185,9 @@ export async function registerRoutes(
       password: hashedPassword,
       shiftPinHash,
       isActive: true,
-      mustChangePassword: false,
-      inviteToken: null,
-      inviteTokenExpiresAt: null,
+      mustChangePassword: useInvite,
+      inviteToken,
+      inviteTokenExpiresAt,
     });
     // Assign the new user to every selected Command. Required: schema enforces
     // commandIds.length >= 1, so the user can always raise a panic and have
@@ -2185,9 +2196,39 @@ export async function registerRoutes(
       await storage.assignUserToCommand(cid, user.id, orgId);
     }
     const assignedNames = orgCmds.filter(c => commandIds.includes(c.id)).map(c => c.name).join(", ");
-    audit(req.currentUser!.id, orgId, "admin.user_create", `Created user ${rest.firstName} ${rest.lastName} (${rest.role}) in ${assignedNames}`, { entityType: "user", entityId: user.id });
+    audit(
+      req.currentUser!.id,
+      orgId,
+      "admin.user_create",
+      useInvite
+        ? `Invited user ${rest.firstName} ${rest.lastName} (${rest.role}) in ${assignedNames}`
+        : `Created user ${rest.firstName} ${rest.lastName} (${rest.role}) in ${assignedNames}`,
+      { entityType: "user", entityId: user.id },
+    );
+
+    let inviteEmailSent = false;
+    let inviteEmailReason: string | null = null;
+    if (useInvite && sendInviteEmail !== false && inviteToken) {
+      const org = await storage.getOrganization(orgId);
+      const inviter = req.currentUser!;
+      const emailResult = await sendTeamInviteEmail({
+        orgName: org?.name ?? "OMT Pulse",
+        firstName: rest.firstName,
+        email,
+        inviteToken,
+        invitedByName: `${inviter.firstName} ${inviter.lastName}`.trim(),
+      });
+      inviteEmailSent = emailResult.sent;
+      inviteEmailReason = emailResult.reason ?? null;
+    }
+
     const { password: _pw, ...safeUser } = user;
-    res.status(201).json({ ...safeUser, commandIds });
+    res.status(201).json({
+      ...safeUser,
+      commandIds,
+      inviteEmailSent,
+      inviteEmailReason,
+    });
   });
 
   app.patch("/api/users/:id", requireAdmin, async (req, res) => {
@@ -2309,7 +2350,7 @@ export async function registerRoutes(
     res.json({ success: true });
   });
 
-  // Regenerate invite token for a user (admin only, authenticated)
+  // Regenerate invite token + email for a user (admin only)
   app.post("/api/users/:id/regenerate-invite", requireAdmin, async (req, res) => {
     const { id } = req.params as { id: string };
     const orgId = req.currentUser!.organizationId;
@@ -2317,12 +2358,33 @@ export async function registerRoutes(
     if (!existingUser || existingUser.organizationId !== orgId) {
       return res.status(404).json({ message: "User not found" });
     }
-    const inviteToken = crypto.randomUUID();
-    const inviteTokenExpiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000);
-    const updated = await storage.updateUser(id, { inviteToken, inviteTokenExpiresAt });
+    if (!existingUser.isActive) {
+      return res.status(400).json({ message: "Cannot invite an inactive user" });
+    }
+    const { token: inviteToken, expiresAt: inviteTokenExpiresAt } = createInviteToken();
+    const updated = await storage.updateUser(id, {
+      inviteToken,
+      inviteTokenExpiresAt,
+      mustChangePassword: true,
+    });
     if (!updated) return res.status(500).json({ message: "Failed to update user" });
+
+    const org = await storage.getOrganization(orgId);
+    const inviter = req.currentUser!;
+    const emailResult = await sendTeamInviteEmail({
+      orgName: org?.name ?? "OMT Pulse",
+      firstName: existingUser.firstName,
+      email: existingUser.email,
+      inviteToken,
+      invitedByName: `${inviter.firstName} ${inviter.lastName}`.trim(),
+    });
+
     const { password: _pw, ...safeUser } = updated;
-    res.json(safeUser);
+    res.json({
+      ...safeUser,
+      inviteEmailSent: emailResult.sent,
+      inviteEmailReason: emailResult.reason ?? null,
+    });
   });
 
   // Invite token lookup — unauthenticated
