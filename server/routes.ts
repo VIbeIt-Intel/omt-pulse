@@ -1114,6 +1114,7 @@ const BUILD_ID = String(Date.now());
 import { registerAccessControlRoutes } from "./access-control/routes";
 import { registerPatrolRoutes } from "./patrol/routes";
 import { registerFleetAlertRoutes } from "./fleet-alerts/routes";
+import { registerCctvRoutes } from "./cctv/routes";
 import { registerWorkstationRoutes, attachWorkstation } from "./workstations/routes";
 import { hashShiftPin } from "./workstations/storage";
 import { registerFleetAlertPushHandler } from "./fleet-alerts/push";
@@ -5635,6 +5636,7 @@ export async function registerRoutes(
   registerAccessControlRoutes(app);
   registerPatrolRoutes(app);
   registerFleetAlertRoutes(app);
+  registerCctvRoutes(app);
   registerWorkstationRoutes(app);
 
   registerFleetAlertPushHandler(async ({ alert, commandId }) => {

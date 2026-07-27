@@ -1,4 +1,4 @@
-import { BookOpen, Settings, BarChart3, LogOut, Users, Upload, Bell, Radio, LayoutDashboard, MessageSquare, Shield, Network, Car, ShieldCheck, Footprints } from "lucide-react";
+import { BookOpen, Settings, BarChart3, LogOut, Users, Upload, Bell, Radio, LayoutDashboard, MessageSquare, Shield, Network, Car, ShieldCheck, Footprints, Video } from "lucide-react";
 import { useState, useEffect } from "react";
 import africaLogo from "../assets/africa-logo.png";
 import { useLocation, Link } from "wouter";
@@ -214,6 +214,7 @@ function getNavItems(role: string, isSuperadmin: boolean) {
     items.push({ title: "Analytics", url: "/analytics", icon: BarChart3 });
     items.push({ title: "Live Monitor", url: "/live-monitor", icon: Radio });
     items.push({ title: "Fleet", url: "/fleet", icon: Car });
+    items.push({ title: "Cameras", url: "/cctv", icon: Video });
   }
   if (isFieldReporter(role)) {
     items.push({ title: "Live Incident", url: "/live-incident", icon: Radio });
