@@ -6,7 +6,7 @@ import {
   canManageCctvCameras,
   canViewCctvModule,
   insertCctvCameraSchema,
-  isPrivateRtspHost,
+  isUnreachablePrivateRtspOnCloud,
   PRIVATE_RTSP_SERVER_MESSAGE,
 } from "@shared/cctv";
 import {
@@ -158,7 +158,7 @@ export function registerCctvRoutes(app: Express): void {
       if (
         !allowPrivate &&
         process.env.NODE_ENV === "production" &&
-        isPrivateRtspHost(rtsp)
+        isUnreachablePrivateRtspOnCloud(rtsp)
       ) {
         return res.status(503).json({ message: PRIVATE_RTSP_SERVER_MESSAGE });
       }

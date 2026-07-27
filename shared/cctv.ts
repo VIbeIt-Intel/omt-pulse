@@ -79,7 +79,25 @@ export function isPrivateRtspHost(rtspUrl: string): boolean {
   }
 }
 
+/** True for localhost / 127.x (e.g. SSH reverse tunnel terminating on the VPS). */
+export function isLoopbackRtspHost(rtspUrl: string): boolean {
+  try {
+    const host = new URL(rtspUrl.trim()).hostname.toLowerCase();
+    if (host === "localhost") return true;
+    const m = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(host);
+    if (!m) return false;
+    return Number(m[1]) === 127;
+  } catch {
+    return false;
+  }
+}
+
+/** LAN/private hosts the cloud VPS cannot dial directly (excludes loopback relay). */
+export function isUnreachablePrivateRtspOnCloud(rtspUrl: string): boolean {
+  return isPrivateRtspHost(rtspUrl) && !isLoopbackRtspHost(rtspUrl);
+}
+
 export const PRIVATE_RTSP_SERVER_MESSAGE =
-  "This camera uses a private LAN address (for example 192.168.x.x). The OMT Pulse cloud server cannot reach it. " +
-  "Run OMT on a PC on the same Wi‑Fi (npm run dev) to test, or place the camera on a monitored site network with VPN to the server. " +
-  "To allow private RTSP on this host, set CCTV_ALLOW_PRIVATE_RTSP=1 on the server.";
+  "This camera uses a private LAN address (for example 192.168.x.x). The OMT Pulse cloud server cannot reach it directly. " +
+  "Use the site VPN, a site relay, or run scripts/cctv-lan-rtsp-tunnel.ps1 on a PC on the same Wi‑Fi as the camera (SSH tunnel to this server). " +
+  "Then set the camera RTSP host to 127.0.0.1 and the tunnel port.";
