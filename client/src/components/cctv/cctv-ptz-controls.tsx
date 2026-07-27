@@ -63,8 +63,9 @@ export function CctvPtzControls({ cameraId }: CctvPtzControlsProps) {
       <CardHeader className="pb-2">
         <CardTitle className="text-base">PTZ controls</CardTitle>
         <CardDescription>
-          Hold a direction to move; release to stop. Requires the LAN HTTP tunnel (port 8555) on your
-          PC.
+          Hold a direction to move; release to stop. Requires{" "}
+          <span className="font-mono text-xs">scripts/cctv-lan-rtsp-tunnel.ps1</span> on your PC (RTSP 8554
+          + HTTP 8555/8556).
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-wrap items-center gap-4">

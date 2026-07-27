@@ -36,6 +36,7 @@ Write-Host ""
 Write-Host "OMT CCTV LAN tunnels"
 Write-Host "  RTSP  ${CameraHost}:${CameraRtspPort} -> VPS 127.0.0.1:${RemoteRtspPort}"
 Write-Host "  HTTP  ${CameraHost}:${CameraHttpPort} -> VPS 127.0.0.1:${RemotePtzPort} (PTZ / ISAPI)"
+Write-Host "  HTTP  ${CameraHost}:8000 -> VPS 127.0.0.1:8556 (PTZ alt port)"
 Write-Host "  SSH:   $SshHost"
 Write-Host ""
 Write-Host "Leave this running. Press Ctrl+C to stop."
@@ -44,4 +45,5 @@ Write-Host ""
 ssh -i $SshKey -o ServerAliveInterval=30 -o ExitOnForwardFailure=yes -N `
   -R "${RemoteRtspPort}:${CameraHost}:${CameraRtspPort}" `
   -R "${RemotePtzPort}:${CameraHost}:${CameraHttpPort}" `
+  -R "8556:${CameraHost}:8000" `
   $SshHost

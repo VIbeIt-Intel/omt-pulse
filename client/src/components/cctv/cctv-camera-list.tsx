@@ -129,7 +129,28 @@ export function CctvCameraList({
             <CctvCameraPlayer cameraId={selected.id} cameraName={selected.name} />
             {selected.streamRotation === "rotate180" && (
               <Alert>
-                <AlertDescription className="text-sm leading-relaxed">{ROTATE180_OSD_HINT}</AlertDescription>
+                <AlertDescription className="text-sm leading-relaxed space-y-3">
+                  <p>{ROTATE180_OSD_HINT}</p>
+                  {isAdmin && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      data-testid="cctv-fix-timestamp"
+                      onClick={async () => {
+                        try {
+                          await apiRequest("POST", `/api/cctv/cameras/${selected.id}/fix-timestamp`, {});
+                          void queryClient.invalidateQueries({ queryKey: ["/api/cctv/cameras"] });
+                        } catch {
+                          /* toast handled by apiRequest throw — still refresh list */
+                          void queryClient.invalidateQueries({ queryKey: ["/api/cctv/cameras"] });
+                        }
+                      }}
+                    >
+                      Fix timestamp (camera flip + Normal)
+                    </Button>
+                  )}
+                </AlertDescription>
               </Alert>
             )}
             {selected.isPtz && <CctvPtzControls cameraId={selected.id} />}

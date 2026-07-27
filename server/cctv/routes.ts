@@ -25,7 +25,7 @@ import {
   stopCctvStream,
   touchCctvStream,
 } from "./stream-manager";
-import { sendCameraPtz } from "./ptz";
+import { sendCameraPtz, applyCameraImageFlip } from "./ptz";
 
 function requireUser(req: Request, res: Response): boolean {
   if (!req.currentUser) {
@@ -208,6 +208,34 @@ export function registerCctvRoutes(app: Express): void {
     } catch (err) {
       console.error("[cctv] ptz:", err);
       res.status(500).json({ message: "PTZ command failed" });
+    }
+  });
+
+  app.post("/api/cctv/cameras/:id/fix-timestamp", async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const id = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid camera id" });
+    try {
+      const orgId = req.currentUser!.organizationId;
+      const camera = await getCctvCamera(id, orgId);
+      if (!camera) return res.status(404).json({ message: "Camera not found" });
+      const flip = applyCameraImageFlip(camera);
+      const updated = await updateCctvCamera(id, orgId, { streamRotation: "normal" });
+      stopCctvStream(orgId, id);
+      if (!flip.ok) {
+        return res.status(502).json({
+          message: `${flip.message} Orientation was set to Normal — refresh the stream after enabling flip in the EZVIZ app.`,
+          streamRotation: "normal",
+        });
+      }
+      res.json({
+        ok: true,
+        message: "Camera flip applied. Refresh the live stream.",
+        camera: updated,
+      });
+    } catch (err) {
+      console.error("[cctv] fix-timestamp:", err);
+      res.status(500).json({ message: "Failed to fix timestamp orientation" });
     }
   });
 
