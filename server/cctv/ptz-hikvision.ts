@@ -104,10 +104,10 @@ export function enableHikvisionImageFlipCenter(
 
 export const PTZ_PRESETS: Record<string, PtzVector> = {
   stop: { pan: 0, tilt: 0, zoom: 0 },
-  left: { pan: -55, tilt: 0, zoom: 0 },
-  right: { pan: 55, tilt: 0, zoom: 0 },
-  up: { pan: 0, tilt: 55, zoom: 0 },
-  down: { pan: 0, tilt: -55, zoom: 0 },
-  zoom_in: { pan: 0, tilt: 0, zoom: 55 },
-  zoom_out: { pan: 0, tilt: 0, zoom: -55 },
+  left: { pan: -80, tilt: 0, zoom: 0 },
+  right: { pan: 80, tilt: 0, zoom: 0 },
+  up: { pan: 0, tilt: 80, zoom: 0 },
+  down: { pan: 0, tilt: -80, zoom: 0 },
+  zoom_in: { pan: 0, tilt: 0, zoom: 80 },
+  zoom_out: { pan: 0, tilt: 0, zoom: -80 },
 };

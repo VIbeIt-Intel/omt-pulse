@@ -69,6 +69,9 @@ export function CctvCameraPlayer({ cameraId, cameraName, className }: CctvCamera
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: true,
+        liveSyncDurationCount: 1,
+        liveMaxLatencyDurationCount: 3,
+        maxLiveSyncPlaybackRate: 1.5,
         xhrSetup(xhr) {
           xhr.withCredentials = true;
         },

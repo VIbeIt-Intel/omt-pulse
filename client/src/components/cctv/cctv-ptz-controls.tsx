@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import {
   ArrowDown,
   ArrowLeft,
@@ -28,33 +28,49 @@ type CctvPtzControlsProps = {
 
 export function CctvPtzControls({ cameraId }: CctvPtzControlsProps) {
   const { toast } = useToast();
-  const sending = useRef(false);
+  const seq = useRef(0);
+  const activeAction = useRef<PtzAction | null>(null);
+  const lastErrorAt = useRef(0);
 
   const send = useCallback(
-    async (action: PtzAction) => {
-      if (sending.current && action !== "stop") return;
-      sending.current = true;
-      try {
-        await apiRequest("POST", `/api/cctv/cameras/${cameraId}/ptz`, { action });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "PTZ command failed";
-        toast({ variant: "destructive", title: "PTZ", description: message });
-      } finally {
-        sending.current = false;
-      }
+    (action: PtzAction) => {
+      const mySeq = ++seq.current;
+      if (action !== "stop") activeAction.current = action;
+      else activeAction.current = null;
+
+      void (async () => {
+        try {
+          await apiRequest("POST", `/api/cctv/cameras/${cameraId}/ptz`, { action });
+        } catch (err) {
+          // Ignore stale responses after a newer press/release.
+          if (mySeq !== seq.current) return;
+          const now = Date.now();
+          if (now - lastErrorAt.current < 1500) return;
+          lastErrorAt.current = now;
+          const message = err instanceof Error ? err.message : "PTZ command failed";
+          toast({ variant: "destructive", title: "PTZ", description: message });
+        }
+      })();
     },
     [cameraId, toast],
   );
 
+  useEffect(() => {
+    void apiRequest("POST", `/api/cctv/cameras/${cameraId}/ptz/warmup`, {}).catch(() => undefined);
+  }, [cameraId]);
+
   function bindHold(action: PtzAction) {
     return {
       onPointerDown: (e: React.PointerEvent) => {
+        e.preventDefault();
         e.currentTarget.setPointerCapture(e.pointerId);
-        void send(action);
+        send(action);
       },
-      onPointerUp: () => void send("stop"),
-      onPointerLeave: () => void send("stop"),
-      onPointerCancel: () => void send("stop"),
+      onPointerUp: () => send("stop"),
+      onPointerCancel: () => send("stop"),
+      onLostPointerCapture: () => {
+        if (activeAction.current === action) send("stop");
+      },
     };
   }
 
@@ -63,8 +79,8 @@ export function CctvPtzControls({ cameraId }: CctvPtzControlsProps) {
       <CardHeader className="pb-2">
         <CardTitle className="text-base">PTZ controls</CardTitle>
         <CardDescription>
-          Hold a direction to move; release to stop. Uses ONVIF over the LAN HTTP tunnel. Set camera
-          Username/Password to the EZVIZ ONVIF account (not only the RTSP device code).
+          Hold a direction to move; release to stop. Live video may lag the motors by about a second
+          (HLS preview).
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-wrap items-center gap-4">
@@ -82,7 +98,7 @@ export function CctvPtzControls({ cameraId }: CctvPtzControlsProps) {
             variant="secondary"
             size="icon"
             aria-label="Stop"
-            onClick={() => void send("stop")}
+            onClick={() => send("stop")}
           >
             <Square className="h-4 w-4" />
           </Button>

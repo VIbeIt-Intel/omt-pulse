@@ -2,13 +2,17 @@ import type { CctvCamera } from "@shared/cctv";
 import { isLoopbackRtspHost, isUnreachablePrivateRtspOnCloud } from "@shared/cctv";
 import { buildRtspSource } from "./storage";
 import { decryptCameraPassword } from "./credentials";
-import {
-  PTZ_PRESETS,
-  PTZ_TUNNEL_HELP,
-  isPtzConnectionRefused,
-  sendHikvisionPtzContinuous,
-} from "./ptz-hikvision";
-import { sendOnvifPtz } from "./ptz-onvif";
+import { PTZ_PRESETS, PTZ_TUNNEL_HELP, isPtzConnectionRefused } from "./ptz-hikvision";
+import { sendOnvifPtz, warmupOnvifPtz } from "./ptz-onvif";
+
+type RouteCache = {
+  httpBase: string;
+  username: string;
+  password: string;
+  at: number;
+};
+
+const routeCache = new Map<number, RouteCache>();
 
 export function parseRtspCredentials(rtspUrl: string): { username: string; password: string } {
   try {
@@ -22,14 +26,13 @@ export function parseRtspCredentials(rtspUrl: string): { username: string; passw
   }
 }
 
-/** VPS tunnel ports → camera HTTP (80 / 8000). */
+/** VPS tunnel ports → camera HTTP (prefer 8555 / port 80 first). */
 export function buildPtzHttpBases(camera: CctvCamera): string[] {
   try {
     const host = new URL(camera.rtspUrl.trim()).hostname.toLowerCase();
     if (isLoopbackRtspHost(camera.rtspUrl)) {
       const primary = camera.ptzControlPort ?? 8555;
-      const alt = primary === 8555 ? 8556 : primary + 1;
-      return [`http://127.0.0.1:${primary}`, `http://127.0.0.1:${alt}`];
+      return [`http://127.0.0.1:${primary}`];
     }
     if (
       process.env.NODE_ENV === "production" &&
@@ -44,7 +47,6 @@ export function buildPtzHttpBases(camera: CctvCamera): string[] {
   }
 }
 
-/** Candidate ONVIF/ISAPI logins: stored password first, then RTSP URL password. */
 export function ptzCredentialCandidates(
   camera: CctvCamera,
 ): Array<{ username: string; password: string }> {
@@ -71,11 +73,26 @@ function toOnvifVelocity(action: keyof typeof PTZ_PRESETS): {
   zoom: number;
 } {
   const v = PTZ_PRESETS[action] ?? PTZ_PRESETS.stop;
+  // Slightly higher than UI presets so moves feel snappier over tunnel + HLS lag.
+  const boost = 1.35;
   return {
-    pan: Math.max(-1, Math.min(1, v.pan / 100)),
-    tilt: Math.max(-1, Math.min(1, v.tilt / 100)),
-    zoom: Math.max(-1, Math.min(1, v.zoom / 100)),
+    pan: Math.max(-1, Math.min(1, (v.pan / 100) * boost)),
+    tilt: Math.max(-1, Math.min(1, (v.tilt / 100) * boost)),
+    zoom: Math.max(-1, Math.min(1, (v.zoom / 100) * boost)),
   };
+}
+
+export async function warmupCameraPtz(camera: CctvCamera): Promise<void> {
+  const bases = buildPtzHttpBases(camera);
+  const creds = ptzCredentialCandidates(camera);
+  if (!bases[0] || !creds[0]) return;
+  await warmupOnvifPtz(bases[0], creds[0].username, creds[0].password);
+  routeCache.set(camera.id, {
+    httpBase: bases[0],
+    username: creds[0].username,
+    password: creds[0].password,
+    at: Date.now(),
+  });
 }
 
 export async function sendCameraPtz(
@@ -85,6 +102,28 @@ export async function sendCameraPtz(
   if (!camera.isPtz) {
     return { ok: false, message: "This camera is not marked as PTZ." };
   }
+
+  const velocity = toOnvifVelocity(action);
+  const cached = routeCache.get(camera.id);
+  if (cached && Date.now() - cached.at < 60 * 60_000) {
+    const onvif = await sendOnvifPtz(
+      cached.httpBase,
+      cached.username,
+      cached.password,
+      velocity,
+    );
+    if (onvif.ok) {
+      cached.at = Date.now();
+      return { ok: true };
+    }
+    if (!isPtzConnectionRefused(onvif.detail ?? "")) {
+      // Keep trying fresh routes below; clear bad cache on auth failure.
+      if (/ONVIF rejected|login failed/i.test(onvif.detail ?? "")) {
+        routeCache.delete(camera.id);
+      }
+    }
+  }
+
   const bases = buildPtzHttpBases(camera);
   if (!bases.length) {
     return {
@@ -102,29 +141,21 @@ export async function sendCameraPtz(
     };
   }
 
-  const velocity = toOnvifVelocity(action);
-  const vector = PTZ_PRESETS[action] ?? PTZ_PRESETS.stop;
-  const channel = camera.ptzChannel ?? 1;
   let lastDetail = "PTZ command failed.";
-
   for (const httpBase of bases) {
     for (const c of creds) {
       const onvif = await sendOnvifPtz(httpBase, c.username, c.password, velocity);
-      if (onvif.ok) return { ok: true };
+      if (onvif.ok) {
+        routeCache.set(camera.id, {
+          httpBase,
+          username: c.username,
+          password: c.password,
+          at: Date.now(),
+        });
+        return { ok: true };
+      }
       lastDetail = onvif.detail ?? lastDetail;
       if (isPtzConnectionRefused(lastDetail)) continue;
-
-      const hik = sendHikvisionPtzContinuous(
-        httpBase,
-        c.username,
-        c.password,
-        vector,
-        channel,
-      );
-      if (hik.ok) return { ok: true };
-      if (hik.detail && !/404|Not Found|ISAPI/i.test(hik.detail)) {
-        lastDetail = hik.detail;
-      }
     }
   }
 
@@ -135,7 +166,7 @@ export async function sendCameraPtz(
 }
 
 export async function applyCameraImageFlip(
-  camera: CctvCamera,
+  _camera: CctvCamera,
 ): Promise<{ ok: boolean; message?: string }> {
   return {
     ok: false,

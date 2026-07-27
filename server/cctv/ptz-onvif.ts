@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import http from "node:http";
 
 export type OnvifVelocity = { pan: number; tilt: number; zoom: number };
 
@@ -33,34 +34,79 @@ function escapeXml(s: string): string {
     .replace(/'/g, "&apos;");
 }
 
-async function soapPost(
+const keepAliveAgent = new http.Agent({
+  keepAlive: true,
+  maxSockets: 8,
+  keepAliveMsecs: 30_000,
+});
+
+function soapPost(
   url: string,
   bodyInner: string,
   username: string,
   password: string,
+  timeoutMs = 2500,
 ): Promise<{ ok: boolean; status: number; text: string }> {
   const xml =
     `<?xml version="1.0" encoding="UTF-8"?>` +
     `<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:trt="http://www.onvif.org/ver10/media/wsdl" xmlns:tptz="http://www.onvif.org/ver20/ptz/wsdl" xmlns:tt="http://www.onvif.org/ver10/schema">` +
     `<s:Header>${passwordDigestToken(username, password)}</s:Header>` +
     `<s:Body>${bodyInner}</s:Body></s:Envelope>`;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10_000);
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/soap+xml; charset=utf-8" },
-      body: xml,
-      signal: controller.signal,
-    });
-    const text = await res.text();
-    return { ok: res.ok, status: res.status, text };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { ok: false, status: 0, text: msg };
-  } finally {
-    clearTimeout(timer);
-  }
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (value: { ok: boolean; status: number; text: string }) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+
+    try {
+      const parsed = new URL(url);
+      const req = http.request(
+        {
+          protocol: parsed.protocol,
+          hostname: parsed.hostname,
+          port: parsed.port || 80,
+          path: `${parsed.pathname}${parsed.search}`,
+          method: "POST",
+          agent: keepAliveAgent,
+          headers: {
+            "Content-Type": "application/soap+xml; charset=utf-8",
+            "Content-Length": Buffer.byteLength(xml),
+            Connection: "keep-alive",
+          },
+          timeout: timeoutMs,
+        },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on("data", (c) => {
+            if (chunks.length < 8) chunks.push(c as Buffer);
+          });
+          res.on("end", () => {
+            const status = res.statusCode ?? 0;
+            const text = Buffer.concat(chunks).toString("utf8");
+            done({ ok: status >= 200 && status < 300, status, text });
+          });
+        },
+      );
+      req.on("timeout", () => {
+        req.destroy();
+        done({ ok: false, status: 0, text: "PTZ request timed out" });
+      });
+      req.on("error", (err) => {
+        done({ ok: false, status: 0, text: err.message });
+      });
+      req.write(xml);
+      req.end();
+    } catch (err) {
+      done({
+        ok: false,
+        status: 0,
+        text: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
 }
 
 function firstProfileToken(profilesXml: string): string | null {
@@ -79,17 +125,32 @@ async function resolveProfileToken(
 ): Promise<string | null> {
   const key = `${httpBase}|${username}`;
   const cached = profileCache.get(key);
-  if (cached && Date.now() - cached.at < 10 * 60_000) return cached.token;
-  const res = await soapPost(
+  if (cached && Date.now() - cached.at < 60 * 60_000) return cached.token;
+
+  // Return immediately with EZVIZ-common Profile_1; refresh from GetProfiles in background.
+  const guessed = "Profile_1";
+  profileCache.set(key, { token: guessed, at: Date.now() });
+  void soapPost(
     `${httpBase.replace(/\/$/, "")}/onvif/Media`,
     "<trt:GetProfiles/>",
     username,
     password,
-  );
-  if (!res.ok) return null;
-  const token = firstProfileToken(res.text);
-  if (token) profileCache.set(key, { token, at: Date.now() });
-  return token;
+    2000,
+  ).then((res) => {
+    if (!res.ok) return;
+    const token = firstProfileToken(res.text);
+    if (token) profileCache.set(key, { token, at: Date.now() });
+  });
+  return guessed;
+}
+
+/** Warm profile cache so the first PTZ press is faster. */
+export async function warmupOnvifPtz(
+  httpBase: string,
+  username: string,
+  password: string,
+): Promise<void> {
+  await resolveProfileToken(httpBase.replace(/\/$/, ""), username, password);
 }
 
 /** ONVIF ContinuousMove / Stop for EZVIZ and similar (WS-UsernameToken PasswordDigest). */
@@ -127,19 +188,31 @@ export async function sendOnvifPtz(
       `<tptz:ContinuousMove>` +
       `<tptz:ProfileToken>${escapeXml(token)}</tptz:ProfileToken>` +
       `<tptz:Velocity><tt:Zoom x="${zoom}"/></tptz:Velocity>` +
-      `<tptz:Timeout>PT30S</tptz:Timeout>` +
+      `<tptz:Timeout>PT8S</tptz:Timeout>` +
       `</tptz:ContinuousMove>`;
   } else {
     body =
       `<tptz:ContinuousMove>` +
       `<tptz:ProfileToken>${escapeXml(token)}</tptz:ProfileToken>` +
       `<tptz:Velocity><tt:PanTilt x="${pan}" y="${tilt}"/></tptz:Velocity>` +
-      `<tptz:Timeout>PT30S</tptz:Timeout>` +
+      `<tptz:Timeout>PT8S</tptz:Timeout>` +
       `</tptz:ContinuousMove>`;
   }
 
-  const res = await soapPost(`${base}/onvif/PTZ`, body, username, password);
+  const res = await soapPost(`${base}/onvif/PTZ`, body, username, password, 2500);
   if (res.ok) return { ok: true };
+
+  // Stale guessed Profile_1 — clear cache and retry once with GetProfiles.
+  if (/Invalid|Unknown|token|Profile/i.test(res.text)) {
+    profileCache.delete(`${base}|${username}`);
+    const retryToken = await resolveProfileToken(base, username, password);
+    if (retryToken && retryToken !== token) {
+      const retryBody = body.replace(escapeXml(token), escapeXml(retryToken));
+      const retry = await soapPost(`${base}/onvif/PTZ`, retryBody, username, password, 2500);
+      if (retry.ok) return { ok: true };
+    }
+  }
+
   if (/NotAuthorized|Unauthorized/i.test(res.text)) {
     return {
       ok: false,

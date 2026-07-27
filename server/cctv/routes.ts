@@ -25,7 +25,7 @@ import {
   stopCctvStream,
   touchCctvStream,
 } from "./stream-manager";
-import { sendCameraPtz, applyCameraImageFlip } from "./ptz";
+import { sendCameraPtz, applyCameraImageFlip, warmupCameraPtz } from "./ptz";
 
 function requireUser(req: Request, res: Response): boolean {
   if (!req.currentUser) {
@@ -208,6 +208,24 @@ export function registerCctvRoutes(app: Express): void {
     } catch (err) {
       console.error("[cctv] ptz:", err);
       res.status(500).json({ message: "PTZ command failed" });
+    }
+  });
+
+  app.post("/api/cctv/cameras/:id/ptz/warmup", async (req, res) => {
+    if (!requireView(req, res)) return;
+    const id = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid camera id" });
+    try {
+      const orgId = req.currentUser!.organizationId;
+      const camera = await getCctvCamera(id, orgId);
+      if (!camera) return res.status(404).json({ message: "Camera not found" });
+      if (camera.isPtz) {
+        void warmupCameraPtz(camera).catch((err) => console.warn("[cctv] ptz warmup:", err));
+      }
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("[cctv] ptz warmup:", err);
+      res.status(500).json({ message: "PTZ warmup failed" });
     }
   });
 
