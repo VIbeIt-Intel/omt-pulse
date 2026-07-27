@@ -19,7 +19,6 @@ import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import { ROTATE180_OSD_HINT } from "@shared/cctv";
 import { CctvCameraPlayer } from "./cctv-camera-player";
-import { CctvPtzControls } from "./cctv-ptz-controls";
 
 type CctvCameraListProps = {
   cameras: CctvCameraPublic[];
@@ -126,7 +125,11 @@ export function CctvCameraList({
                 </div>
               )}
             </div>
-            <CctvCameraPlayer cameraId={selected.id} cameraName={selected.name} />
+            <CctvCameraPlayer
+              cameraId={selected.id}
+              cameraName={selected.name}
+              showPtz={selected.isPtz}
+            />
             {selected.streamRotation === "rotate180" && (
               <Alert>
                 <AlertDescription className="text-sm leading-relaxed space-y-3">
@@ -166,7 +169,6 @@ export function CctvCameraList({
                 </AlertDescription>
               </Alert>
             )}
-            {selected.isPtz && <CctvPtzControls cameraId={selected.id} />}
           </>
         ) : (
           <Card className="flex flex-col items-center justify-center gap-2 border-dashed py-16 text-center text-muted-foreground">

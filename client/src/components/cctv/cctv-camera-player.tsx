@@ -5,10 +5,12 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { workstationAuthHeaders } from "@/lib/workstation-session";
+import { CctvPtzControls } from "./cctv-ptz-controls";
 
 type CctvCameraPlayerProps = {
   cameraId: number;
   cameraName: string;
+  showPtz?: boolean;
   className?: string;
 };
 
@@ -38,7 +40,12 @@ async function probePlaylist(playlistUrl: string): Promise<{ ok: true } | { ok: 
   };
 }
 
-export function CctvCameraPlayer({ cameraId, cameraName, className }: CctvCameraPlayerProps) {
+export function CctvCameraPlayer({
+  cameraId,
+  cameraName,
+  showPtz = false,
+  className,
+}: CctvCameraPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -182,6 +189,11 @@ export function CctvCameraPlayer({ cameraId, cameraName, className }: CctvCamera
           <Maximize2 className="h-4 w-4" />
         </Button>
       </div>
+      {showPtz && !error && (
+        <div className="pointer-events-none absolute bottom-3 left-3 z-10 sm:bottom-4 sm:left-4">
+          <CctvPtzControls cameraId={cameraId} overlay />
+        </div>
+      )}
       {loading && !error && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/60 text-white">
           <RefreshCw className="h-8 w-8 animate-spin" aria-hidden />
