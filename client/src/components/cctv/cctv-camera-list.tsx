@@ -131,23 +131,36 @@ export function CctvCameraList({
               <Alert>
                 <AlertDescription className="text-sm leading-relaxed space-y-3">
                   <p>{ROTATE180_OSD_HINT}</p>
+                </AlertDescription>
+              </Alert>
+            )}
+            {selected.streamRotation === "normal" && (
+              <Alert>
+                <AlertDescription className="text-sm leading-relaxed space-y-3">
+                  <p>
+                    Orientation is Normal. If the live picture is upside down, open Edit and choose{" "}
+                    <strong>Rotate 180 degrees</strong>, then refresh the stream. That uprights the
+                    scene (the burned-in EZVIZ timestamp may then appear inverted until you flip the
+                    image in the EZVIZ app).
+                  </p>
                   {isAdmin && (
                     <Button
                       type="button"
                       size="sm"
                       variant="secondary"
-                      data-testid="cctv-fix-timestamp"
+                      data-testid="cctv-set-rotate180"
                       onClick={async () => {
                         try {
-                          await apiRequest("POST", `/api/cctv/cameras/${selected.id}/fix-timestamp`, {});
+                          await apiRequest("PATCH", `/api/cctv/cameras/${selected.id}`, {
+                            streamRotation: "rotate180",
+                          });
                           void queryClient.invalidateQueries({ queryKey: ["/api/cctv/cameras"] });
                         } catch {
-                          /* toast handled by apiRequest throw — still refresh list */
                           void queryClient.invalidateQueries({ queryKey: ["/api/cctv/cameras"] });
                         }
                       }}
                     >
-                      Fix timestamp (camera flip + Normal)
+                      Rotate picture 180°
                     </Button>
                   )}
                 </AlertDescription>

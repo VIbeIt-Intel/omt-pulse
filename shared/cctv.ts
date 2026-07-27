@@ -10,7 +10,9 @@ export const cctvStreamRotationEnum = z.enum(["normal", "rotate180"]);
 export type CctvStreamRotation = z.infer<typeof cctvStreamRotationEnum>;
 
 export const ROTATE180_OSD_HINT =
-  "Rotate 180° fixes the picture but may flip the camera’s own timestamp/logo. Prefer EZVIZ app → Image Flip, then set Orientation to Normal here.";
+  "OMT Rotate 180° uprights the live picture. The EZVIZ timestamp/logo are burned into the video, so they will appear upside down. " +
+  "To get both picture and timestamp upright, flip the image in the EZVIZ app (Image flip) until VLC/the stream looks correct, then set Orientation to Normal here. " +
+  "If you only flip in OMT or only set Normal without a working camera flip, one of the two will stay inverted.";
 
 export const cctvCameras = pgTable("cctv_cameras", {
   id: serial("id").primaryKey(),
