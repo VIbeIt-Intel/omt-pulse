@@ -190,7 +190,7 @@ export function CctvCameraPlayer({
         </Button>
       </div>
       {showPtz && !error && (
-        <div className="pointer-events-none absolute bottom-3 left-3 z-10 sm:bottom-4 sm:left-4">
+        <div className="pointer-events-none absolute bottom-3 right-3 z-10 sm:bottom-4 sm:right-4">
           <CctvPtzControls cameraId={cameraId} overlay />
         </div>
       )}

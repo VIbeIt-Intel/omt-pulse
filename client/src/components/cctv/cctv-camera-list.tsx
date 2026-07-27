@@ -86,21 +86,10 @@ export function CctvCameraList({
       <div className="min-w-0 space-y-3">
         {selected ? (
           <>
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <div>
-                <h2 className="text-lg font-semibold">{selected.name}</h2>
-                <p className="text-xs text-muted-foreground font-mono truncate max-w-xl">
-                  {selected.rtspPreview}
-                </p>
-                <div className="mt-1 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                  {selected.streamRotation === "rotate180" && (
-                    <span className="rounded-full border px-2 py-0.5">Rotated 180 degrees</span>
-                  )}
-                  {selected.isPtz && <span className="rounded-full border px-2 py-0.5">PTZ</span>}
-                </div>
-              </div>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-lg font-semibold truncate">{selected.name}</h2>
               {isAdmin && (
-                <div className="flex gap-2">
+                <div className="flex gap-2 shrink-0">
                   <Button
                     type="button"
                     variant="outline"
