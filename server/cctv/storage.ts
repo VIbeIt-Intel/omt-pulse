@@ -29,6 +29,16 @@ export function toPublicCamera(row: CctvCamera): CctvCameraPublic {
 
 export function buildRtspSource(row: CctvCamera): string {
   let url = row.rtspUrl.trim();
+  try {
+    const embedded = new URL(url);
+    // Prefer device-code credentials already in the RTSP URL so ONVIF password
+    // can live in passwordEnc without breaking the live stream.
+    if (embedded.username || embedded.password) {
+      return url;
+    }
+  } catch {
+    /* fall through */
+  }
   const user = row.username?.trim() || "";
   let pass = "";
   if (row.passwordEnc) {

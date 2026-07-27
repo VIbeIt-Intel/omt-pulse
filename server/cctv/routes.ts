@@ -202,7 +202,7 @@ export function registerCctvRoutes(app: Express): void {
       const orgId = req.currentUser!.organizationId;
       const camera = await getCctvCamera(id, orgId);
       if (!camera) return res.status(404).json({ message: "Camera not found" });
-      const result = sendCameraPtz(camera, parsed.data.action);
+      const result = await sendCameraPtz(camera, parsed.data.action);
       if (!result.ok) return res.status(502).json({ message: result.message ?? "PTZ failed" });
       res.json({ ok: true });
     } catch (err) {
@@ -219,7 +219,7 @@ export function registerCctvRoutes(app: Express): void {
       const orgId = req.currentUser!.organizationId;
       const camera = await getCctvCamera(id, orgId);
       if (!camera) return res.status(404).json({ message: "Camera not found" });
-      const flip = applyCameraImageFlip(camera);
+      const flip = await applyCameraImageFlip(camera);
       const updated = await updateCctvCamera(id, orgId, { streamRotation: "normal" });
       stopCctvStream(orgId, id);
       if (!flip.ok) {

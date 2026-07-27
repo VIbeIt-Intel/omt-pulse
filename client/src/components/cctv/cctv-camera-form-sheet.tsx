@@ -219,9 +219,11 @@ export function CctvCameraFormSheet({
                   <FormControl>
                     <Input type="password" autoComplete="new-password" {...field} data-testid="cctv-input-password" />
                   </FormControl>
-                  {isEdit && (
-                    <FormDescription>Leave blank to keep the existing password.</FormDescription>
-                  )}
+                  <FormDescription>
+                    {isEdit
+                      ? "Leave blank to keep the existing password. For PTZ, use the EZVIZ ONVIF password (often different from the RTSP verification code). Keep the RTSP device code in the RTSP URL if needed."
+                      : "For PTZ, use the EZVIZ ONVIF password. RTSP device code can stay in the RTSP URL."}
+                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}

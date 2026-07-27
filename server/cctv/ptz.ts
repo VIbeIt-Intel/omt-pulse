@@ -1,12 +1,14 @@
 import type { CctvCamera } from "@shared/cctv";
 import { isLoopbackRtspHost, isUnreachablePrivateRtspOnCloud } from "@shared/cctv";
 import { buildRtspSource } from "./storage";
+import { decryptCameraPassword } from "./credentials";
 import {
   PTZ_PRESETS,
   PTZ_TUNNEL_HELP,
-  enableHikvisionImageFlipCenter,
+  isPtzConnectionRefused,
   sendHikvisionPtzContinuous,
 } from "./ptz-hikvision";
+import { sendOnvifPtz } from "./ptz-onvif";
 
 export function parseRtspCredentials(rtspUrl: string): { username: string; password: string } {
   try {
@@ -42,17 +44,44 @@ export function buildPtzHttpBases(camera: CctvCamera): string[] {
   }
 }
 
-function cameraCredentials(camera: CctvCamera): { username: string; password: string } | null {
-  const rtsp = buildRtspSource(camera);
-  const creds = parseRtspCredentials(rtsp);
-  if (!creds.password) return null;
-  return creds;
+/** Candidate ONVIF/ISAPI logins: stored password first, then RTSP URL password. */
+export function ptzCredentialCandidates(
+  camera: CctvCamera,
+): Array<{ username: string; password: string }> {
+  const fromUrl = parseRtspCredentials(buildRtspSource(camera));
+  const out: Array<{ username: string; password: string }> = [];
+  const user = camera.username?.trim() || fromUrl.username || "admin";
+  if (camera.passwordEnc) {
+    try {
+      const pass = decryptCameraPassword(camera.passwordEnc);
+      if (pass) out.push({ username: user, password: pass });
+    } catch {
+      /* ignore */
+    }
+  }
+  if (fromUrl.password && !out.some((c) => c.password === fromUrl.password)) {
+    out.push({ username: fromUrl.username || user, password: fromUrl.password });
+  }
+  return out;
 }
 
-export function sendCameraPtz(
+function toOnvifVelocity(action: keyof typeof PTZ_PRESETS): {
+  pan: number;
+  tilt: number;
+  zoom: number;
+} {
+  const v = PTZ_PRESETS[action] ?? PTZ_PRESETS.stop;
+  return {
+    pan: Math.max(-1, Math.min(1, v.pan / 100)),
+    tilt: Math.max(-1, Math.min(1, v.tilt / 100)),
+    zoom: Math.max(-1, Math.min(1, v.zoom / 100)),
+  };
+}
+
+export async function sendCameraPtz(
   camera: CctvCamera,
   action: "stop" | "left" | "right" | "up" | "down" | "zoom_in" | "zoom_out",
-): { ok: boolean; message?: string } {
+): Promise<{ ok: boolean; message?: string }> {
   if (!camera.isPtz) {
     return { ok: false, message: "This camera is not marked as PTZ." };
   }
@@ -64,57 +93,53 @@ export function sendCameraPtz(
         "PTZ control is not reachable from the server. Run the LAN tunnel with HTTP or use a site VPN.",
     };
   }
-  const creds = cameraCredentials(camera);
-  if (!creds) {
-    return { ok: false, message: "Camera credentials are missing for PTZ control." };
+  const creds = ptzCredentialCandidates(camera);
+  if (!creds.length) {
+    return {
+      ok: false,
+      message:
+        "No camera password for PTZ. In Edit camera set Username admin and Password to your EZVIZ ONVIF password (may differ from the RTSP device code).",
+    };
   }
+
+  const velocity = toOnvifVelocity(action);
   const vector = PTZ_PRESETS[action] ?? PTZ_PRESETS.stop;
   const channel = camera.ptzChannel ?? 1;
-  let lastDetail = PTZ_TUNNEL_HELP;
+  let lastDetail = "PTZ command failed.";
+
   for (const httpBase of bases) {
-    const result = sendHikvisionPtzContinuous(
-      httpBase,
-      creds.username,
-      creds.password,
-      vector,
-      channel,
-    );
-    if (result.ok) return { ok: true };
-    lastDetail = result.detail ?? lastDetail;
-    if (!/connection refused|HTTP 000|Failed to connect/i.test(lastDetail)) {
-      break;
+    for (const c of creds) {
+      const onvif = await sendOnvifPtz(httpBase, c.username, c.password, velocity);
+      if (onvif.ok) return { ok: true };
+      lastDetail = onvif.detail ?? lastDetail;
+      if (isPtzConnectionRefused(lastDetail)) continue;
+
+      const hik = sendHikvisionPtzContinuous(
+        httpBase,
+        c.username,
+        c.password,
+        vector,
+        channel,
+      );
+      if (hik.ok) return { ok: true };
+      if (hik.detail && !/404|Not Found|ISAPI/i.test(hik.detail)) {
+        lastDetail = hik.detail;
+      }
     }
   }
-  return {
-    ok: false,
-    message:
-      lastDetail.includes("LAN tunnel") ? lastDetail : `${lastDetail}. ${PTZ_TUNNEL_HELP}`,
-  };
-}
 
-/** Try camera-side image flip, then caller should set streamRotation to normal. */
-export function applyCameraImageFlip(camera: CctvCamera): { ok: boolean; message?: string } {
-  const bases = buildPtzHttpBases(camera);
-  if (!bases.length) {
+  if (isPtzConnectionRefused(lastDetail)) {
     return { ok: false, message: PTZ_TUNNEL_HELP };
   }
-  const creds = cameraCredentials(camera);
-  if (!creds) {
-    return { ok: false, message: "Camera credentials are missing." };
-  }
-  const channel = camera.ptzChannel ?? 1;
-  for (const httpBase of bases) {
-    const result = enableHikvisionImageFlipCenter(
-      httpBase,
-      creds.username,
-      creds.password,
-      channel,
-    );
-    if (result.ok) return { ok: true };
-  }
+  return { ok: false, message: lastDetail };
+}
+
+export async function applyCameraImageFlip(
+  camera: CctvCamera,
+): Promise<{ ok: boolean; message?: string }> {
   return {
     ok: false,
     message:
-      "Could not set flip on the camera via ISAPI. In the EZVIZ app enable Image flip, then set Orientation to Normal in OMT.",
+      "Use EZVIZ app Image flip, then set Orientation to Normal in OMT. Camera-side ISAPI flip is not available on this model.",
   };
 }

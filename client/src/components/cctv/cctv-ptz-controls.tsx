@@ -63,9 +63,8 @@ export function CctvPtzControls({ cameraId }: CctvPtzControlsProps) {
       <CardHeader className="pb-2">
         <CardTitle className="text-base">PTZ controls</CardTitle>
         <CardDescription>
-          Hold a direction to move; release to stop. Requires{" "}
-          <span className="font-mono text-xs">scripts/cctv-lan-rtsp-tunnel.ps1</span> on your PC (RTSP 8554
-          + HTTP 8555/8556).
+          Hold a direction to move; release to stop. Uses ONVIF over the LAN HTTP tunnel. Set camera
+          Username/Password to the EZVIZ ONVIF account (not only the RTSP device code).
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-wrap items-center gap-4">
