@@ -1256,6 +1256,7 @@ import { registerAccessControlRoutes } from "./access-control/routes";
 import { registerPatrolRoutes } from "./patrol/routes";
 import { registerRadioRoutes } from "./radio/routes";
 import { registerFleetAlertRoutes } from "./fleet-alerts/routes";
+import { registerCctvRoutes } from "./cctv/routes";
 import { registerWorkstationRoutes, attachWorkstation } from "./workstations/routes";
 import { hashShiftPin } from "./workstations/storage";
 import { registerFleetAlertPushHandler } from "./fleet-alerts/push";
@@ -5817,6 +5818,7 @@ export async function registerRoutes(
   registerPatrolRoutes(app);
   registerRadioRoutes(app);
   registerFleetAlertRoutes(app);
+  registerCctvRoutes(app);
   registerWorkstationRoutes(app);
 
   registerFleetAlertPushHandler(async ({ alert, commandId }) => {

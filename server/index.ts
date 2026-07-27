@@ -14,6 +14,7 @@ import { migrateAccessControl } from "./migrate-access-control";
 import { migrateBillingRates } from "./migrate-billing-rates";
 import { migratePatrol } from "./migrate-patrol";
 import { migrateFleetAlerts } from "./migrate-fleet-alerts";
+import { migrateCctv } from "./cctv/migrate-cctv";
 import { migrateWorkstations } from "./migrate-workstations";
 import { migrateAttachmentByteSize } from "./migrate-attachment-byte-size";
 import { startFleetOfflineAlertMonitor } from "./fleet-alerts/detection";
@@ -370,6 +371,7 @@ app.use((req, res, next) => {
   await migrateBillingRates().catch((err) => console.error("Billing rates migration error:", err));
   await migratePatrol().catch((err) => console.error("Patrol migration error:", err));
   await migrateFleetAlerts().catch((err) => console.error("Fleet alerts migration error:", err));
+  await migrateCctv().catch((err) => console.error("CCTV migration error:", err));
   await migrateWorkstations().catch((err) => console.error("Workstations migration error:", err));
   await migrateAttachmentByteSize().catch((err) => console.error("Attachment byte size migration error:", err));
 
