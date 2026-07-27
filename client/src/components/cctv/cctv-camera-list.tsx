@@ -1,7 +1,7 @@
-import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Pencil, ScanSearch, Trash2, Video } from "lucide-react";
-import type { CctvCameraPublic } from "@shared/cctv";
+import { useEffect, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { BrainCircuit, Pencil, ScanSearch, Trash2, Video } from "lucide-react";
+import type { CctvAiEventPublic, CctvCameraPublic } from "@shared/cctv";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card } from "@/components/ui/card";
@@ -18,6 +18,8 @@ import {
 import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import { ROTATE180_OSD_HINT } from "@shared/cctv";
+import { useToast } from "@/hooks/use-toast";
+import { workstationAuthHeaders } from "@/lib/workstation-session";
 import { CctvCameraPlayer } from "./cctv-camera-player";
 
 type CctvCameraListProps = {
@@ -36,7 +38,10 @@ export function CctvCameraList({
   onEdit,
 }: CctvCameraListProps) {
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const [deleteTarget, setDeleteTarget] = useState<CctvCameraPublic | null>(null);
+  const seenEventIds = useRef<Set<number>>(new Set());
+  const primedEvents = useRef(false);
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
@@ -50,6 +55,43 @@ export function CctvCameraList({
   });
 
   const selected = cameras.find((c) => c.id === selectedId) ?? null;
+
+  const { data: aiEvents = [] } = useQuery<CctvAiEventPublic[]>({
+    queryKey: ["/api/cctv/cameras", selected?.id, "ai", "events"],
+    queryFn: async () => {
+      const res = await fetch(`/api/cctv/cameras/${selected!.id}/ai/events`, {
+        credentials: "include",
+        cache: "no-store",
+        headers: workstationAuthHeaders(),
+      });
+      if (!res.ok) throw new Error("Failed to load AI events");
+      return res.json();
+    },
+    enabled: !!selected?.aiEnabled,
+    refetchInterval: selected?.aiEnabled ? 3000 : false,
+  });
+
+  useEffect(() => {
+    primedEvents.current = false;
+    seenEventIds.current = new Set();
+  }, [selected?.id]);
+
+  useEffect(() => {
+    if (!selected?.aiEnabled) return;
+    if (!primedEvents.current) {
+      for (const ev of aiEvents) seenEventIds.current.add(ev.id);
+      primedEvents.current = true;
+      return;
+    }
+    const fresh = aiEvents.filter((ev) => !seenEventIds.current.has(ev.id));
+    for (const ev of fresh) {
+      seenEventIds.current.add(ev.id);
+      toast({
+        title: "Vehicle detected",
+        description: `${selected.name}: ${ev.label} (${Math.round(ev.confidence * 100)}%)`,
+      });
+    }
+  }, [aiEvents, selected, toast]);
 
   return (
     <div className="grid gap-5 lg:grid-cols-[minmax(0,280px)_1fr]">
@@ -75,7 +117,12 @@ export function CctvCameraList({
                 >
                   <Video className="h-4 w-4 shrink-0 text-primary" aria-hidden />
                   <span className="flex-1 truncate font-medium">{cam.name}</span>
-                  {cam.isPtz && <ScanSearch className="h-4 w-4 shrink-0 text-muted-foreground" aria-label="PTZ camera" />}
+                  {cam.aiEnabled && (
+                    <BrainCircuit className="h-4 w-4 shrink-0 text-emerald-500" aria-label="AI enabled" />
+                  )}
+                  {cam.isPtz && (
+                    <ScanSearch className="h-4 w-4 shrink-0 text-muted-foreground" aria-label="PTZ camera" />
+                  )}
                 </button>
               </li>
             );
@@ -118,7 +165,36 @@ export function CctvCameraList({
               cameraId={selected.id}
               cameraName={selected.name}
               showPtz={selected.isPtz}
+              aiEnabled={selected.aiEnabled}
             />
+            {selected.aiEnabled && (
+              <div className="rounded-lg border p-3 space-y-2" data-testid="cctv-ai-events">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Recent AI alerts
+                </p>
+                {aiEvents.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No vehicle alerts yet. Detection runs every 4 seconds while AI is enabled.
+                  </p>
+                ) : (
+                  <ul className="space-y-1.5 text-sm">
+                    {aiEvents.slice(0, 8).map((ev) => (
+                      <li key={ev.id} className="flex items-center justify-between gap-2">
+                        <span className="capitalize">
+                          {ev.label}{" "}
+                          <span className="text-muted-foreground">
+                            ({Math.round(ev.confidence * 100)}%)
+                          </span>
+                        </span>
+                        <span className="text-xs text-muted-foreground tabular-nums">
+                          {new Date(ev.createdAt).toLocaleString()}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
             {selected.streamRotation === "rotate180" && (
               <Alert>
                 <AlertDescription className="text-sm leading-relaxed space-y-3">

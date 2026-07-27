@@ -7,3 +7,5 @@ server/public
 vite.config.ts.*
 *.tar.gz
 attached_assets/
+server/cctv/models/*.onnx
+server/cctv/models/*.tmp

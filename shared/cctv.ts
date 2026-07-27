@@ -33,6 +33,8 @@ export const cctvCameras = pgTable("cctv_cameras", {
   username: text("username"),
   streamRotation: text("stream_rotation").notNull().default("normal"),
   streamQuality: text("stream_quality").notNull().default("medium"),
+  /** When true, VPS AI worker samples frames for vehicle detection. */
+  aiEnabled: boolean("ai_enabled").notNull().default(false),
   isPtz: boolean("is_ptz").notNull().default(false),
   /** VPS-side tunnel port for PTZ HTTP (default 8555 → camera :80). */
   ptzControlPort: integer("ptz_control_port").default(8555),
@@ -58,6 +60,7 @@ export const insertCctvCameraSchema = createInsertSchema(cctvCameras, {
   username: z.string().max(200).optional().nullable(),
   streamRotation: cctvStreamRotationEnum.default("normal"),
   streamQuality: cctvStreamQualityEnum.default("medium"),
+  aiEnabled: z.boolean().default(false),
   isPtz: z.boolean().default(false),
   ptzControlPort: z.number().int().min(1).max(65535).optional().nullable(),
   ptzCameraHttpPort: z.number().int().min(1).max(65535).optional().nullable(),
@@ -74,6 +77,43 @@ export const insertCctvCameraSchema = createInsertSchema(cctvCameras, {
 export type InsertCctvCamera = z.infer<typeof insertCctvCameraSchema>;
 export type CctvCamera = typeof cctvCameras.$inferSelect;
 
+/** Rising-edge vehicle detections (Phase 1 AI alerts). */
+export const cctvAiEvents = pgTable("cctv_ai_events", {
+  id: serial("id").primaryKey(),
+  organizationId: varchar("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  cameraId: integer("camera_id")
+    .notNull()
+    .references(() => cctvCameras.id, { onDelete: "cascade" }),
+  label: text("label").notNull(),
+  confidence: text("confidence").notNull(),
+  /** Normalized bbox JSON: { x, y, w, h } in 0–1 of the frame. */
+  bboxJson: text("bbox_json"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type CctvAiEvent = typeof cctvAiEvents.$inferSelect;
+
+export type CctvAiDetection = {
+  label: string;
+  confidence: number;
+  /** Normalized 0–1 relative to the source frame. */
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+};
+
+export type CctvAiEventPublic = {
+  id: number;
+  cameraId: number;
+  label: string;
+  confidence: number;
+  bbox: { x: number; y: number; w: number; h: number } | null;
+  createdAt: string;
+};
+
 export type CctvCameraPublic = {
   id: number;
   name: string;
@@ -82,6 +122,7 @@ export type CctvCameraPublic = {
   hasCredentials: boolean;
   streamRotation: CctvStreamRotation;
   streamQuality: CctvStreamQuality;
+  aiEnabled: boolean;
   isPtz: boolean;
   createdAt: string;
   updatedAt: string;

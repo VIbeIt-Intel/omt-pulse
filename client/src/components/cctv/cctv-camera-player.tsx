@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import Hls from "hls.js";
 import { AlertCircle, Maximize2, RefreshCw } from "lucide-react";
+import type { CctvAiDetection } from "@shared/cctv";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -11,7 +13,15 @@ type CctvCameraPlayerProps = {
   cameraId: number;
   cameraName: string;
   showPtz?: boolean;
+  aiEnabled?: boolean;
   className?: string;
+};
+
+type DetectionsResponse = {
+  aiEnabled: boolean;
+  detections: CctvAiDetection[];
+  updatedAt: string | null;
+  error: string | null;
 };
 
 async function probePlaylist(playlistUrl: string): Promise<{ ok: true } | { ok: false; message: string }> {
@@ -44,6 +54,7 @@ export function CctvCameraPlayer({
   cameraId,
   cameraName,
   showPtz = false,
+  aiEnabled = false,
   className,
 }: CctvCameraPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -51,6 +62,23 @@ export function CctvCameraPlayer({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [reloadNonce, setReloadNonce] = useState(0);
+
+  const { data: aiData } = useQuery<DetectionsResponse>({
+    queryKey: ["/api/cctv/cameras", cameraId, "ai", "detections"],
+    queryFn: async () => {
+      const res = await fetch(`/api/cctv/cameras/${cameraId}/ai/detections`, {
+        credentials: "include",
+        cache: "no-store",
+        headers: workstationAuthHeaders(),
+      });
+      if (!res.ok) throw new Error("Failed to load detections");
+      return res.json();
+    },
+    enabled: aiEnabled && !error,
+    refetchInterval: 2000,
+  });
+
+  const detections = aiData?.detections ?? [];
 
   useEffect(() => {
     const video = videoRef.current;
@@ -79,22 +107,18 @@ export function CctvCameraPlayer({
         liveSyncDurationCount: 1,
         liveMaxLatencyDurationCount: 3,
         maxLiveSyncPlaybackRate: 1.5,
-        xhrSetup(xhr) {
-          xhr.withCredentials = true;
-        },
       });
       hlsRef.current = hls;
       hls.loadSource(playlistUrl);
       hls.attachMedia(el);
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        if (cancelled) return;
-        setLoading(false);
+        if (!cancelled) setLoading(false);
         void el.play().catch(() => undefined);
       });
       hls.on(Hls.Events.ERROR, (_event, data) => {
-        if (cancelled || !data.fatal) return;
+        if (!data.fatal || cancelled) return;
         setLoading(false);
-        setError("Live stream interrupted. Try refreshing or check the camera.");
+        setError("Stream playback failed. Try refreshing.");
         hls.destroy();
         hlsRef.current = null;
       });
@@ -165,7 +189,35 @@ export function CctvCameraPlayer({
         autoPlay
         aria-label={`Live stream: ${cameraName}`}
       />
+      {aiEnabled && detections.length > 0 && !error && (
+        <div className="pointer-events-none absolute inset-0 z-[5]" aria-hidden>
+          {detections.map((det, idx) => (
+            <div
+              key={`${det.label}-${idx}-${det.x.toFixed(3)}`}
+              className="absolute border-2 border-emerald-400 bg-emerald-400/10"
+              style={{
+                left: `${det.x * 100}%`,
+                top: `${det.y * 100}%`,
+                width: `${det.w * 100}%`,
+                height: `${det.h * 100}%`,
+              }}
+            >
+              <span className="absolute -top-5 left-0 rounded bg-emerald-500 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                {det.label} {(det.confidence * 100).toFixed(0)}%
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="absolute right-3 top-3 z-10 flex gap-2">
+        {aiEnabled && !error && (
+          <span
+            className="rounded bg-emerald-600/90 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white"
+            data-testid={`cctv-ai-badge-${cameraId}`}
+          >
+            AI
+          </span>
+        )}
         <Button
           type="button"
           size="icon"

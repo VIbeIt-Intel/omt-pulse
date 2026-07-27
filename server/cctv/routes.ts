@@ -17,6 +17,7 @@ import {
   createCctvCamera,
   deleteCctvCamera,
   getCctvCamera,
+  listCctvAiEvents,
   listCctvCameras,
   updateCctvCamera,
 } from "./storage";
@@ -28,6 +29,7 @@ import {
   touchCctvStream,
 } from "./stream-manager";
 import { sendCameraPtz, applyCameraImageFlip, warmupCameraPtz } from "./ptz";
+import { clearCctvAiCameraState, getLatestCctvAiDetections, startCctvAiWorker } from "./ai-worker";
 
 function requireUser(req: Request, res: Response): boolean {
   if (!req.currentUser) {
@@ -70,6 +72,7 @@ const updateBodySchema = z.object({
   username: z.string().max(200).optional().nullable(),
   streamRotation: cctvStreamRotationEnum.optional(),
   streamQuality: cctvStreamQualityEnum.optional(),
+  aiEnabled: z.boolean().optional(),
   isPtz: z.boolean().optional(),
   ptzControlPort: z.number().int().min(1).max(65535).optional().nullable(),
   ptzCameraHttpPort: z.number().int().min(1).max(65535).optional().nullable(),
@@ -79,6 +82,8 @@ const updateBodySchema = z.object({
 });
 
 export function registerCctvRoutes(app: Express): void {
+  startCctvAiWorker();
+
   app.get("/api/cctv/status", (req, res) => {
     if (!requireView(req, res)) return;
     res.json({ ffmpegAvailable: isFfmpegAvailable() });
@@ -129,6 +134,7 @@ export function registerCctvRoutes(app: Express): void {
       const updated = await updateCctvCamera(id, req.currentUser!.organizationId, parsed.data);
       if (!updated) return res.status(404).json({ message: "Camera not found" });
       stopCctvStream(req.currentUser!.organizationId, id);
+      if (parsed.data.aiEnabled === false) clearCctvAiCameraState(id);
       res.json(updated);
     } catch (err) {
       console.error("[cctv] update:", err);
@@ -145,6 +151,7 @@ export function registerCctvRoutes(app: Express): void {
       const ok = await deleteCctvCamera(id, orgId);
       if (!ok) return res.status(404).json({ message: "Camera not found" });
       stopCctvStream(orgId, id);
+      clearCctvAiCameraState(id);
       res.status(204).end();
     } catch (err) {
       console.error("[cctv] delete:", err);
@@ -187,6 +194,54 @@ export function registerCctvRoutes(app: Express): void {
       console.error("[cctv] playlist:", err);
       const msg = err instanceof Error ? err.message : "Failed to start stream";
       res.status(502).json({ message: msg });
+    }
+  });
+
+  app.get("/api/cctv/cameras/:id/ai/detections", async (req, res) => {
+    if (!requireView(req, res)) return;
+    const id = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid camera id" });
+    try {
+      const orgId = req.currentUser!.organizationId;
+      const camera = await getCctvCamera(id, orgId);
+      if (!camera) return res.status(404).json({ message: "Camera not found" });
+      if (!camera.aiEnabled) {
+        return res.json({ aiEnabled: false, detections: [], updatedAt: null, error: null });
+      }
+      const latest = getLatestCctvAiDetections(id);
+      res.json({
+        aiEnabled: true,
+        detections: latest?.detections ?? [],
+        updatedAt: latest ? new Date(latest.at).toISOString() : null,
+        error: latest?.error ?? null,
+      });
+    } catch (err) {
+      console.error("[cctv] ai detections:", err);
+      res.status(500).json({ message: "Failed to load detections" });
+    }
+  });
+
+  app.get("/api/cctv/cameras/:id/ai/events", async (req, res) => {
+    if (!requireView(req, res)) return;
+    const id = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid camera id" });
+    try {
+      const orgId = req.currentUser!.organizationId;
+      const camera = await getCctvCamera(id, orgId);
+      if (!camera) return res.status(404).json({ message: "Camera not found" });
+      const sinceRaw = typeof req.query.since === "string" ? req.query.since : undefined;
+      const since = sinceRaw ? new Date(sinceRaw) : undefined;
+      if (since && Number.isNaN(since.getTime())) {
+        return res.status(400).json({ message: "Invalid since timestamp" });
+      }
+      const events = await listCctvAiEvents(orgId, id, {
+        since: since && !Number.isNaN(since.getTime()) ? since : undefined,
+        limit: since ? 50 : 20,
+      });
+      res.json(events);
+    } catch (err) {
+      console.error("[cctv] ai events:", err);
+      res.status(500).json({ message: "Failed to load AI events" });
     }
   });
 

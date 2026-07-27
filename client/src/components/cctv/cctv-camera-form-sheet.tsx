@@ -42,6 +42,7 @@ const formSchema = z.object({
   username: z.string().max(200).optional(),
   streamRotation: z.enum(["normal", "rotate180"]).default("normal"),
   streamQuality: z.enum(["high", "medium", "low"]).default("medium"),
+  aiEnabled: z.boolean().default(false),
   isPtz: z.boolean().default(false),
   password: z.string().max(500).optional(),
 });
@@ -71,6 +72,7 @@ export function CctvCameraFormSheet({
       username: "",
       streamRotation: "normal",
       streamQuality: "medium",
+      aiEnabled: false,
       isPtz: false,
       password: "",
     },
@@ -85,6 +87,7 @@ export function CctvCameraFormSheet({
         username: camera.username ?? "",
         streamRotation: camera.streamRotation,
         streamQuality: camera.streamQuality ?? "medium",
+        aiEnabled: !!camera.aiEnabled,
         isPtz: camera.isPtz,
         password: "",
       });
@@ -95,6 +98,7 @@ export function CctvCameraFormSheet({
         username: "",
         streamRotation: "normal",
         streamQuality: "medium",
+        aiEnabled: false,
         isPtz: false,
         password: "",
       });
@@ -107,6 +111,7 @@ export function CctvCameraFormSheet({
       rtspUrl: values.rtspUrl.trim(),
       streamRotation: values.streamRotation,
       streamQuality: values.streamQuality,
+      aiEnabled: values.aiEnabled,
       isPtz: values.isPtz,
     };
 
@@ -218,6 +223,28 @@ export function CctvCameraFormSheet({
                     resolution and bitrate for slower connections. Saving restarts the live stream.
                   </FormDescription>
                   <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="aiEnabled"
+              render={({ field }) => (
+                <FormItem className="flex items-center justify-between rounded-lg border p-3">
+                  <div className="space-y-1">
+                    <FormLabel>AI vehicle analytics</FormLabel>
+                    <FormDescription>
+                      Detect cars, trucks, buses, and motorcycles on the VPS every 4 seconds. Shows
+                      boxes on the live view and in-app alerts (60s cooldown).
+                    </FormDescription>
+                  </div>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                      data-testid="cctv-input-ai-enabled"
+                    />
+                  </FormControl>
                 </FormItem>
               )}
             />

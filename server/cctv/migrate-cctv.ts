@@ -34,6 +34,10 @@ export async function migrateCctv() {
     ALTER TABLE cctv_cameras
     ADD COLUMN IF NOT EXISTS stream_quality TEXT NOT NULL DEFAULT 'medium'
   `);
+  await safe("cctv_cameras.ai_enabled", sql`
+    ALTER TABLE cctv_cameras
+    ADD COLUMN IF NOT EXISTS ai_enabled BOOLEAN NOT NULL DEFAULT FALSE
+  `);
   await safe("cctv_cameras.is_ptz", sql`
     ALTER TABLE cctv_cameras
     ADD COLUMN IF NOT EXISTS is_ptz BOOLEAN NOT NULL DEFAULT FALSE
@@ -52,5 +56,24 @@ export async function migrateCctv() {
   `);
   await safe("cctv_cameras.org_idx", sql`
     CREATE INDEX IF NOT EXISTS cctv_cameras_org_idx ON cctv_cameras (organization_id, name)
+  `);
+  await safe("cctv_ai_events.create", sql`
+    CREATE TABLE IF NOT EXISTS cctv_ai_events (
+      id SERIAL PRIMARY KEY,
+      organization_id VARCHAR NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      camera_id INTEGER NOT NULL REFERENCES cctv_cameras(id) ON DELETE CASCADE,
+      label TEXT NOT NULL,
+      confidence TEXT NOT NULL,
+      bbox_json TEXT,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `);
+  await safe("cctv_ai_events.camera_idx", sql`
+    CREATE INDEX IF NOT EXISTS cctv_ai_events_camera_idx
+    ON cctv_ai_events (camera_id, created_at DESC)
+  `);
+  await safe("cctv_ai_events.org_idx", sql`
+    CREATE INDEX IF NOT EXISTS cctv_ai_events_org_idx
+    ON cctv_ai_events (organization_id, created_at DESC)
   `);
 }

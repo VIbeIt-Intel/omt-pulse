@@ -1,12 +1,15 @@
 import {
+  cctvAiEvents,
   cctvCameras,
   normalizeCctvStreamQuality,
+  type CctvAiDetection,
+  type CctvAiEventPublic,
   type CctvCamera,
   type CctvCameraPublic,
   type CctvStreamQuality,
 } from "@shared/cctv";
 import { db } from "../storage";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, gt } from "drizzle-orm";
 import { decryptCameraPassword, encryptCameraPassword } from "./credentials";
 
 export function rtspPreviewUrl(rtspUrl: string): string {
@@ -29,9 +32,37 @@ export function toPublicCamera(row: CctvCamera): CctvCameraPublic {
     hasCredentials: !!(row.username || row.passwordEnc),
     streamRotation: row.streamRotation === "rotate180" ? "rotate180" : "normal",
     streamQuality: normalizeCctvStreamQuality(row.streamQuality),
+    aiEnabled: !!row.aiEnabled,
     isPtz: !!row.isPtz,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+function toPublicAiEvent(row: typeof cctvAiEvents.$inferSelect): CctvAiEventPublic {
+  let bbox: CctvAiEventPublic["bbox"] = null;
+  if (row.bboxJson) {
+    try {
+      const parsed = JSON.parse(row.bboxJson) as { x: number; y: number; w: number; h: number };
+      if (
+        Number.isFinite(parsed.x) &&
+        Number.isFinite(parsed.y) &&
+        Number.isFinite(parsed.w) &&
+        Number.isFinite(parsed.h)
+      ) {
+        bbox = parsed;
+      }
+    } catch {
+      bbox = null;
+    }
+  }
+  return {
+    id: row.id,
+    cameraId: row.cameraId,
+    label: row.label,
+    confidence: Number(row.confidence) || 0,
+    bbox,
+    createdAt: row.createdAt.toISOString(),
   };
 }
 
@@ -77,6 +108,10 @@ export async function listCctvCameras(orgId: string): Promise<CctvCameraPublic[]
   return rows.map(toPublicCamera);
 }
 
+export async function listAiEnabledCameras(): Promise<CctvCamera[]> {
+  return db.select().from(cctvCameras).where(eq(cctvCameras.aiEnabled, true));
+}
+
 export async function getCctvCamera(id: number, orgId: string): Promise<CctvCamera | null> {
   const [row] = await db
     .select()
@@ -93,6 +128,7 @@ export async function createCctvCamera(input: {
   username?: string | null;
   streamRotation?: "normal" | "rotate180";
   streamQuality?: CctvStreamQuality;
+  aiEnabled?: boolean;
   isPtz?: boolean;
   ptzControlPort?: number | null;
   ptzCameraHttpPort?: number | null;
@@ -110,6 +146,7 @@ export async function createCctvCamera(input: {
       username: input.username?.trim() || null,
       streamRotation: input.streamRotation === "rotate180" ? "rotate180" : "normal",
       streamQuality: normalizeCctvStreamQuality(input.streamQuality),
+      aiEnabled: !!input.aiEnabled,
       isPtz: !!input.isPtz,
       ptzControlPort: input.ptzControlPort ?? 8555,
       ptzCameraHttpPort: input.ptzCameraHttpPort ?? 80,
@@ -132,6 +169,7 @@ export async function updateCctvCamera(
     username?: string | null;
     streamRotation?: "normal" | "rotate180";
     streamQuality?: CctvStreamQuality;
+    aiEnabled?: boolean;
     isPtz?: boolean;
     ptzControlPort?: number | null;
     ptzCameraHttpPort?: number | null;
@@ -156,6 +194,9 @@ export async function updateCctvCamera(
   }
   if (patch.streamQuality != null) {
     updates.streamQuality = normalizeCctvStreamQuality(patch.streamQuality);
+  }
+  if (patch.aiEnabled !== undefined) {
+    updates.aiEnabled = !!patch.aiEnabled;
   }
   if (patch.isPtz !== undefined) {
     updates.isPtz = !!patch.isPtz;
@@ -189,4 +230,46 @@ export async function deleteCctvCamera(id: number, orgId: string): Promise<boole
     .where(and(eq(cctvCameras.id, id), eq(cctvCameras.organizationId, orgId)))
     .returning({ id: cctvCameras.id });
   return result.length > 0;
+}
+
+export async function insertCctvAiEvent(input: {
+  organizationId: string;
+  cameraId: number;
+  detection: CctvAiDetection;
+}): Promise<CctvAiEventPublic> {
+  const [row] = await db
+    .insert(cctvAiEvents)
+    .values({
+      organizationId: input.organizationId,
+      cameraId: input.cameraId,
+      label: input.detection.label,
+      confidence: String(input.detection.confidence),
+      bboxJson: JSON.stringify({
+        x: input.detection.x,
+        y: input.detection.y,
+        w: input.detection.w,
+        h: input.detection.h,
+      }),
+    })
+    .returning();
+  return toPublicAiEvent(row);
+}
+
+export async function listCctvAiEvents(
+  orgId: string,
+  cameraId: number,
+  opts?: { since?: Date; limit?: number },
+): Promise<CctvAiEventPublic[]> {
+  const limit = Math.min(Math.max(opts?.limit ?? 20, 1), 100);
+  const conditions = [eq(cctvAiEvents.organizationId, orgId), eq(cctvAiEvents.cameraId, cameraId)];
+  if (opts?.since) {
+    conditions.push(gt(cctvAiEvents.createdAt, opts.since));
+  }
+  const rows = await db
+    .select()
+    .from(cctvAiEvents)
+    .where(and(...conditions))
+    .orderBy(desc(cctvAiEvents.createdAt))
+    .limit(limit);
+  return rows.map(toPublicAiEvent);
 }
