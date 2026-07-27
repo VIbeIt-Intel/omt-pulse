@@ -3,12 +3,39 @@ import Hls from "hls.js";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
+import { workstationAuthHeaders } from "@/lib/workstation-session";
 
 type CctvCameraPlayerProps = {
   cameraId: number;
   cameraName: string;
   className?: string;
 };
+
+async function probePlaylist(playlistUrl: string): Promise<{ ok: true } | { ok: false; message: string }> {
+  const res = await fetch(playlistUrl, {
+    credentials: "include",
+    cache: "no-store",
+    headers: workstationAuthHeaders(),
+  });
+  if (res.ok) {
+    const text = await res.text();
+    if (text.includes("#EXTM3U")) return { ok: true };
+    return { ok: false, message: "Server returned an invalid playlist." };
+  }
+  try {
+    const body = (await res.json()) as { message?: string };
+    if (body.message) return { ok: false, message: body.message };
+  } catch {
+    /* not JSON */
+  }
+  return {
+    ok: false,
+    message:
+      res.status === 503
+        ? "Streaming is not available on this server."
+        : "Could not start the camera stream. Check the RTSP URL and credentials.",
+  };
+}
 
 export function CctvCameraPlayer({ cameraId, cameraName, className }: CctvCameraPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -55,17 +82,21 @@ export function CctvCameraPlayer({ cameraId, cameraName, className }: CctvCamera
       hls.on(Hls.Events.ERROR, (_event, data) => {
         if (cancelled || !data.fatal) return;
         setLoading(false);
-        if (data.response?.code === 502 || data.response?.code === 503) {
-          setError("Could not connect to the camera stream. Check the RTSP URL and server FFmpeg.");
-        } else {
-          setError("Live stream interrupted. Try refreshing or check the camera.");
-        }
+        setError("Live stream interrupted. Try refreshing or check the camera.");
         hls.destroy();
         hlsRef.current = null;
       });
     }
 
     void (async () => {
+      const probe = await probePlaylist(playlistUrl);
+      if (cancelled) return;
+      if (!probe.ok) {
+        setLoading(false);
+        setError(probe.message);
+        return;
+      }
+
       if (Hls.isSupported()) {
         await attachHlsJs();
       } else if (el.canPlayType("application/vnd.apple.mpegurl")) {
@@ -124,7 +155,7 @@ export function CctvCameraPlayer({ cameraId, cameraName, className }: CctvCamera
           <Alert variant="destructive" className="max-w-md">
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>Stream unavailable</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
+            <AlertDescription className="text-sm leading-relaxed">{error}</AlertDescription>
           </Alert>
         </div>
       )}

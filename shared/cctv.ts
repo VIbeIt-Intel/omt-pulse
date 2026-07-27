@@ -59,3 +59,27 @@ export function canViewCctvModule(role: string): boolean {
 export function canManageCctvCameras(role: string, isSuperadmin?: boolean | null): boolean {
   return role === "administrator" || !!isSuperadmin;
 }
+
+/** True when hostname is RFC1918 / loopback (not reachable from a public cloud VPS). */
+export function isPrivateRtspHost(rtspUrl: string): boolean {
+  try {
+    const host = new URL(rtspUrl.trim()).hostname.toLowerCase();
+    if (host === "localhost" || host.endsWith(".local")) return true;
+    const m = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(host);
+    if (!m) return false;
+    const a = Number(m[1]);
+    const b = Number(m[2]);
+    if (a === 10) return true;
+    if (a === 127) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+export const PRIVATE_RTSP_SERVER_MESSAGE =
+  "This camera uses a private LAN address (for example 192.168.x.x). The OMT Pulse cloud server cannot reach it. " +
+  "Run OMT on a PC on the same Wi‑Fi (npm run dev) to test, or place the camera on a monitored site network with VPN to the server. " +
+  "To allow private RTSP on this host, set CCTV_ALLOW_PRIVATE_RTSP=1 on the server.";

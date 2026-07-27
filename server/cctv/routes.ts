@@ -6,6 +6,8 @@ import {
   canManageCctvCameras,
   canViewCctvModule,
   insertCctvCameraSchema,
+  isPrivateRtspHost,
+  PRIVATE_RTSP_SERVER_MESSAGE,
 } from "@shared/cctv";
 import {
   buildRtspSource,
@@ -152,6 +154,14 @@ export function registerCctvRoutes(app: Express): void {
       const camera = await getCctvCamera(id, orgId);
       if (!camera) return res.status(404).json({ message: "Camera not found" });
       const rtsp = buildRtspSource(camera);
+      const allowPrivate = process.env.CCTV_ALLOW_PRIVATE_RTSP === "1";
+      if (
+        !allowPrivate &&
+        process.env.NODE_ENV === "production" &&
+        isPrivateRtspHost(rtsp)
+      ) {
+        return res.status(503).json({ message: PRIVATE_RTSP_SERVER_MESSAGE });
+      }
       const playlistPath = await touchCctvStream(orgId, id, rtsp);
       const body = rewritePlaylist(playlistPath, id);
       res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
