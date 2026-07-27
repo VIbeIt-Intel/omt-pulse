@@ -4,7 +4,11 @@ import path from "node:path";
 import os from "node:os";
 import ffmpegStatic from "ffmpeg-static";
 
-import type { CctvStreamRotation } from "@shared/cctv";
+import {
+  normalizeCctvStreamQuality,
+  type CctvStreamQuality,
+  type CctvStreamRotation,
+} from "@shared/cctv";
 
 const IDLE_MS = 5 * 60_000;
 const START_TIMEOUT_MS = 22_000;
@@ -14,6 +18,8 @@ type StreamEntry = {
   dir: string;
   lastAccess: number;
   starting: Promise<void>;
+  streamRotation: CctvStreamRotation;
+  streamQuality: CctvStreamQuality;
 };
 
 type VideoMode = "copy" | "transcode";
@@ -73,30 +79,89 @@ function hlsOutputArgs(outDir: string): { segmentPattern: string; playlistPath: 
   return { segmentPattern, playlistPath, args };
 }
 
-function videoEncodeArgs(mode: VideoMode, streamRotation: CctvStreamRotation): string[] {
-  const flip =
-    streamRotation === "rotate180" ? ["-vf", "hflip,vflip"] : [];
+/** Build -vf chain for orientation + optional downscale (Low only). */
+function videoFilters(streamRotation: CctvStreamRotation, streamQuality: CctvStreamQuality): string[] {
+  const parts: string[] = [];
+  if (streamRotation === "rotate180") parts.push("hflip,vflip");
+  if (streamQuality === "low") parts.push("scale='min(854\\,iw)':-2");
+  if (!parts.length) return [];
+  return ["-vf", parts.join(",")];
+}
+
+/**
+ * Encode args for quality presets.
+ * High: camera-native when copy; CRF 17 / up to ~5 Mbps when encoding.
+ * Medium (default): camera-native when copy; CRF 18 / ~3 Mbps when encoding (prior default).
+ * Low: always re-encode — max 854p / CRF 28 / ~800 kbps / 12 fps.
+ */
+function videoEncodeArgs(
+  mode: VideoMode,
+  streamRotation: CctvStreamRotation,
+  streamQuality: CctvStreamQuality,
+): string[] {
   if (mode === "copy") {
-    if (flip.length) {
-      return [...flip, "-c:v", "libx264", "-preset", "fast", "-crf", "18", "-g", "48"];
-    }
     return ["-c:v", "copy"];
   }
+
+  const vf = videoFilters(streamRotation, streamQuality);
+  const common = [...vf, "-c:v", "libx264", "-tune", "zerolatency", "-sc_threshold", "0"];
+
+  if (streamQuality === "high") {
+    return [
+      ...common,
+      "-preset",
+      "veryfast",
+      "-crf",
+      "17",
+      "-maxrate",
+      "5M",
+      "-bufsize",
+      "10M",
+      "-g",
+      "48",
+    ];
+  }
+
+  if (streamQuality === "low") {
+    return [
+      ...common,
+      "-preset",
+      "veryfast",
+      "-crf",
+      "28",
+      "-maxrate",
+      "800k",
+      "-bufsize",
+      "1600k",
+      "-r",
+      "12",
+      "-g",
+      "24",
+    ];
+  }
+
+  // medium — keep close to the previous default encode path
   return [
-    ...flip,
-    "-c:v",
-    "libx264",
+    ...common,
     "-preset",
     "fast",
     "-crf",
     "18",
-    "-tune",
-    "zerolatency",
+    "-maxrate",
+    "3M",
+    "-bufsize",
+    "6M",
     "-g",
     "48",
-    "-sc_threshold",
-    "0",
   ];
+}
+
+function prefersPassthrough(streamQuality: CctvStreamQuality, streamRotation: CctvStreamRotation): boolean {
+  if (streamQuality === "low") return false;
+  if (streamRotation === "rotate180") return false;
+  if (process.env.CCTV_FORCE_TRANSCODE === "1") return false;
+  // High + Medium: keep camera bitstream when possible (best practical quality / current default).
+  return true;
 }
 
 function spawnFfmpeg(
@@ -104,6 +169,7 @@ function spawnFfmpeg(
   outDir: string,
   mode: VideoMode,
   streamRotation: CctvStreamRotation,
+  streamQuality: CctvStreamQuality,
 ): ChildProcess {
   const bin = ffmpegPath();
   if (!bin) {
@@ -121,7 +187,7 @@ function spawnFfmpeg(
     "-i",
     rtspUrl,
     "-an",
-    ...videoEncodeArgs(mode, streamRotation),
+    ...videoEncodeArgs(mode, streamRotation, streamQuality),
     ...hlsArgs,
   ];
 
@@ -142,12 +208,13 @@ async function tryStartStreamOnce(
   rtspUrl: string,
   mode: VideoMode,
   streamRotation: CctvStreamRotation,
+  streamQuality: CctvStreamQuality,
 ): Promise<StreamEntry> {
   const key = streamKey(orgId, cameraId);
   const dir = path.join(os.tmpdir(), "omt-cctv", orgId, String(cameraId));
   resetStreamDir(dir);
 
-  const proc = spawnFfmpeg(rtspUrl, dir, mode, streamRotation);
+  const proc = spawnFfmpeg(rtspUrl, dir, mode, streamRotation, streamQuality);
   let stderr = "";
   proc.stderr?.on("data", (chunk: Buffer) => {
     stderr = (stderr + chunk.toString()).slice(-4000);
@@ -164,6 +231,8 @@ async function tryStartStreamOnce(
     dir,
     lastAccess: Date.now(),
     starting,
+    streamRotation,
+    streamQuality,
   };
 
   proc.on("exit", () => {
@@ -181,31 +250,36 @@ async function startStream(
   cameraId: number,
   rtspUrl: string,
   streamRotation: CctvStreamRotation,
+  streamQuality: CctvStreamQuality,
 ): Promise<StreamEntry> {
   const key = streamKey(orgId, cameraId);
   const existing = streams.get(key);
   if (existing) {
-    existing.lastAccess = Date.now();
-    await existing.starting;
-    return existing;
+    if (existing.streamRotation === streamRotation && existing.streamQuality === streamQuality) {
+      existing.lastAccess = Date.now();
+      await existing.starting;
+      return existing;
+    }
+    existing.proc.kill("SIGTERM");
+    streams.delete(key);
   }
 
-  const needsFlip = streamRotation === "rotate180";
-  const forceTranscode = process.env.CCTV_FORCE_TRANSCODE === "1" || needsFlip;
+  const useCopy = prefersPassthrough(streamQuality, streamRotation);
   let entry: StreamEntry;
 
   try {
-    if (forceTranscode) {
-      entry = await tryStartStreamOnce(orgId, cameraId, rtspUrl, "transcode", streamRotation);
+    if (!useCopy) {
+      entry = await tryStartStreamOnce(orgId, cameraId, rtspUrl, "transcode", streamRotation, streamQuality);
+      console.log(`[cctv] stream ${key} using H.264 transcode (${streamQuality})`);
     } else {
       try {
-        entry = await tryStartStreamOnce(orgId, cameraId, rtspUrl, "copy", streamRotation);
-        console.log(`[cctv] stream ${key} using H.264 passthrough`);
+        entry = await tryStartStreamOnce(orgId, cameraId, rtspUrl, "copy", streamRotation, streamQuality);
+        console.log(`[cctv] stream ${key} using H.264 passthrough (${streamQuality})`);
       } catch (copyErr) {
         console.warn(`[cctv] passthrough failed for ${key}, using transcode:`, copyErr);
         streams.delete(key);
-        entry = await tryStartStreamOnce(orgId, cameraId, rtspUrl, "transcode", streamRotation);
-        console.log(`[cctv] stream ${key} using H.264 transcode (crf 18)`);
+        entry = await tryStartStreamOnce(orgId, cameraId, rtspUrl, "transcode", streamRotation, streamQuality);
+        console.log(`[cctv] stream ${key} using H.264 transcode fallback (${streamQuality})`);
       }
     }
   } catch (err) {
@@ -222,8 +296,10 @@ export async function touchCctvStream(
   cameraId: number,
   rtspUrl: string,
   streamRotation: CctvStreamRotation = "normal",
+  streamQuality: CctvStreamQuality = "medium",
 ): Promise<string> {
-  const entry = await startStream(orgId, cameraId, rtspUrl, streamRotation);
+  const quality = normalizeCctvStreamQuality(streamQuality);
+  const entry = await startStream(orgId, cameraId, rtspUrl, streamRotation, quality);
   entry.lastAccess = Date.now();
   return path.join(entry.dir, "playlist.m3u8");
 }

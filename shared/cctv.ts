@@ -9,6 +9,15 @@ import { DISPATCH_STAFF_ROLES } from "./user-roles";
 export const cctvStreamRotationEnum = z.enum(["normal", "rotate180"]);
 export type CctvStreamRotation = z.infer<typeof cctvStreamRotationEnum>;
 
+/** Per-camera live encode preference (RTSP → HLS). */
+export const cctvStreamQualityEnum = z.enum(["high", "medium", "low"]);
+export type CctvStreamQuality = z.infer<typeof cctvStreamQualityEnum>;
+
+export function normalizeCctvStreamQuality(value: unknown): CctvStreamQuality {
+  if (value === "high" || value === "low" || value === "medium") return value;
+  return "medium";
+}
+
 export const ROTATE180_OSD_HINT =
   "OMT Rotate 180° uprights the live picture. The EZVIZ timestamp/logo are burned into the video, so they will appear upside down. " +
   "To get both picture and timestamp upright, flip the image in the EZVIZ app (Image flip) until VLC/the stream looks correct, then set Orientation to Normal here. " +
@@ -23,6 +32,7 @@ export const cctvCameras = pgTable("cctv_cameras", {
   rtspUrl: text("rtsp_url").notNull(),
   username: text("username"),
   streamRotation: text("stream_rotation").notNull().default("normal"),
+  streamQuality: text("stream_quality").notNull().default("medium"),
   isPtz: boolean("is_ptz").notNull().default(false),
   /** VPS-side tunnel port for PTZ HTTP (default 8555 → camera :80). */
   ptzControlPort: integer("ptz_control_port").default(8555),
@@ -47,6 +57,7 @@ export const insertCctvCameraSchema = createInsertSchema(cctvCameras, {
     .refine((u) => /^rtsp:\/\//i.test(u.trim()), "Must be an RTSP URL (rtsp://…)"),
   username: z.string().max(200).optional().nullable(),
   streamRotation: cctvStreamRotationEnum.default("normal"),
+  streamQuality: cctvStreamQualityEnum.default("medium"),
   isPtz: z.boolean().default(false),
   ptzControlPort: z.number().int().min(1).max(65535).optional().nullable(),
   ptzCameraHttpPort: z.number().int().min(1).max(65535).optional().nullable(),
@@ -70,6 +81,7 @@ export type CctvCameraPublic = {
   username: string | null;
   hasCredentials: boolean;
   streamRotation: CctvStreamRotation;
+  streamQuality: CctvStreamQuality;
   isPtz: boolean;
   createdAt: string;
   updatedAt: string;

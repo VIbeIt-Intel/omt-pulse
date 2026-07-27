@@ -1,4 +1,10 @@
-import { cctvCameras, type CctvCamera, type CctvCameraPublic } from "@shared/cctv";
+import {
+  cctvCameras,
+  normalizeCctvStreamQuality,
+  type CctvCamera,
+  type CctvCameraPublic,
+  type CctvStreamQuality,
+} from "@shared/cctv";
 import { db } from "../storage";
 import { and, asc, eq } from "drizzle-orm";
 import { decryptCameraPassword, encryptCameraPassword } from "./credentials";
@@ -22,6 +28,7 @@ export function toPublicCamera(row: CctvCamera): CctvCameraPublic {
     username: row.username?.trim() || null,
     hasCredentials: !!(row.username || row.passwordEnc),
     streamRotation: row.streamRotation === "rotate180" ? "rotate180" : "normal",
+    streamQuality: normalizeCctvStreamQuality(row.streamQuality),
     isPtz: !!row.isPtz,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -85,6 +92,7 @@ export async function createCctvCamera(input: {
   rtspUrl: string;
   username?: string | null;
   streamRotation?: "normal" | "rotate180";
+  streamQuality?: CctvStreamQuality;
   isPtz?: boolean;
   ptzControlPort?: number | null;
   ptzCameraHttpPort?: number | null;
@@ -101,6 +109,7 @@ export async function createCctvCamera(input: {
       rtspUrl: input.rtspUrl.trim(),
       username: input.username?.trim() || null,
       streamRotation: input.streamRotation === "rotate180" ? "rotate180" : "normal",
+      streamQuality: normalizeCctvStreamQuality(input.streamQuality),
       isPtz: !!input.isPtz,
       ptzControlPort: input.ptzControlPort ?? 8555,
       ptzCameraHttpPort: input.ptzCameraHttpPort ?? 80,
@@ -122,7 +131,11 @@ export async function updateCctvCamera(
     rtspUrl?: string;
     username?: string | null;
     streamRotation?: "normal" | "rotate180";
+    streamQuality?: CctvStreamQuality;
     isPtz?: boolean;
+    ptzControlPort?: number | null;
+    ptzCameraHttpPort?: number | null;
+    ptzChannel?: number | null;
     password?: string | null;
     clearPassword?: boolean;
   },
@@ -140,6 +153,9 @@ export async function updateCctvCamera(
   }
   if (patch.streamRotation != null) {
     updates.streamRotation = patch.streamRotation === "rotate180" ? "rotate180" : "normal";
+  }
+  if (patch.streamQuality != null) {
+    updates.streamQuality = normalizeCctvStreamQuality(patch.streamQuality);
   }
   if (patch.isPtz !== undefined) {
     updates.isPtz = !!patch.isPtz;

@@ -41,6 +41,7 @@ const formSchema = z.object({
     .refine((u) => /^rtsp:\/\//i.test(u.trim()), "Must start with rtsp://"),
   username: z.string().max(200).optional(),
   streamRotation: z.enum(["normal", "rotate180"]).default("normal"),
+  streamQuality: z.enum(["high", "medium", "low"]).default("medium"),
   isPtz: z.boolean().default(false),
   password: z.string().max(500).optional(),
 });
@@ -69,6 +70,7 @@ export function CctvCameraFormSheet({
       rtspUrl: "",
       username: "",
       streamRotation: "normal",
+      streamQuality: "medium",
       isPtz: false,
       password: "",
     },
@@ -82,11 +84,20 @@ export function CctvCameraFormSheet({
         rtspUrl: camera.rtspPreview,
         username: camera.username ?? "",
         streamRotation: camera.streamRotation,
+        streamQuality: camera.streamQuality ?? "medium",
         isPtz: camera.isPtz,
         password: "",
       });
     } else {
-      form.reset({ name: "", rtspUrl: "", username: "", streamRotation: "normal", isPtz: false, password: "" });
+      form.reset({
+        name: "",
+        rtspUrl: "",
+        username: "",
+        streamRotation: "normal",
+        streamQuality: "medium",
+        isPtz: false,
+        password: "",
+      });
     }
   }, [open, camera, form]);
 
@@ -95,6 +106,7 @@ export function CctvCameraFormSheet({
       name: values.name.trim(),
       rtspUrl: values.rtspUrl.trim(),
       streamRotation: values.streamRotation,
+      streamQuality: values.streamQuality,
       isPtz: values.isPtz,
     };
 
@@ -179,6 +191,32 @@ export function CctvCameraFormSheet({
                     </SelectContent>
                   </Select>
                   <FormDescription>{ROTATE180_OSD_HINT}</FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="streamQuality"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Stream Quality</FormLabel>
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <FormControl>
+                      <SelectTrigger data-testid="cctv-input-quality">
+                        <SelectValue placeholder="Choose quality" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="high">High (best quality, higher bandwidth)</SelectItem>
+                      <SelectItem value="medium">Medium (balanced – default)</SelectItem>
+                      <SelectItem value="low">Low (lower bandwidth)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormDescription>
+                    High/Medium keep the camera’s native stream when possible. Low re-encodes at lower
+                    resolution and bitrate for slower connections. Saving restarts the live stream.
+                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}

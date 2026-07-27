@@ -5,9 +5,11 @@ import { z } from "zod";
 import {
   canManageCctvCameras,
   canViewCctvModule,
+  cctvStreamQualityEnum,
   cctvStreamRotationEnum,
   insertCctvCameraSchema,
   isUnreachablePrivateRtspOnCloud,
+  normalizeCctvStreamQuality,
   PRIVATE_RTSP_SERVER_MESSAGE,
 } from "@shared/cctv";
 import {
@@ -67,6 +69,7 @@ const updateBodySchema = z.object({
     .optional(),
   username: z.string().max(200).optional().nullable(),
   streamRotation: cctvStreamRotationEnum.optional(),
+  streamQuality: cctvStreamQualityEnum.optional(),
   isPtz: z.boolean().optional(),
   ptzControlPort: z.number().int().min(1).max(65535).optional().nullable(),
   ptzCameraHttpPort: z.number().int().min(1).max(65535).optional().nullable(),
@@ -174,6 +177,7 @@ export function registerCctvRoutes(app: Express): void {
         id,
         rtsp,
         camera.streamRotation === "rotate180" ? "rotate180" : "normal",
+        normalizeCctvStreamQuality(camera.streamQuality),
       );
       const body = rewritePlaylist(playlistPath, id);
       res.setHeader("Content-Type", "application/vnd.apple.mpegurl");

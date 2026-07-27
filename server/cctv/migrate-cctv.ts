@@ -30,6 +30,10 @@ export async function migrateCctv() {
     ALTER TABLE cctv_cameras
     ADD COLUMN IF NOT EXISTS stream_rotation TEXT NOT NULL DEFAULT 'normal'
   `);
+  await safe("cctv_cameras.stream_quality", sql`
+    ALTER TABLE cctv_cameras
+    ADD COLUMN IF NOT EXISTS stream_quality TEXT NOT NULL DEFAULT 'medium'
+  `);
   await safe("cctv_cameras.is_ptz", sql`
     ALTER TABLE cctv_cameras
     ADD COLUMN IF NOT EXISTS is_ptz BOOLEAN NOT NULL DEFAULT FALSE
