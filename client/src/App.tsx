@@ -35,6 +35,7 @@ import LiveMonitorPage from "@/pages/live-monitor";
 import CommandDashboard from "@/pages/command-dashboard";
 import CommandsPage from "@/pages/commands";
 import FleetPage from "@/pages/fleet";
+import CctvPage from "@/pages/cctv";
 import AccessControlPage from "@/pages/access-control";
 import PatrolPage from "@/pages/patrol";
 import VisibilityPage from "@/pages/visibility";
@@ -980,6 +981,11 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
               <Route path="/fleet">
                 <RoleGuard role={user.role} allowed={["administrator", "supervisor", "control_room"]}>
                   <FleetPage />
+                </RoleGuard>
+              </Route>
+              <Route path="/cctv">
+                <RoleGuard role={user.role} allowed={["administrator", "supervisor", "control_room"]}>
+                  <CctvPage />
                 </RoleGuard>
               </Route>
               <Route path="/access-control">
