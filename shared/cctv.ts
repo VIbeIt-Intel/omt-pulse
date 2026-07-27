@@ -67,6 +67,7 @@ export type CctvCameraPublic = {
   id: number;
   name: string;
   rtspPreview: string;
+  username: string | null;
   hasCredentials: boolean;
   streamRotation: CctvStreamRotation;
   isPtz: boolean;

@@ -80,7 +80,7 @@ export function CctvCameraFormSheet({
       form.reset({
         name: camera.name,
         rtspUrl: camera.rtspPreview,
-        username: "",
+        username: camera.username ?? "",
         streamRotation: camera.streamRotation,
         isPtz: camera.isPtz,
         password: "",
@@ -94,17 +94,24 @@ export function CctvCameraFormSheet({
     const body: Record<string, unknown> = {
       name: values.name.trim(),
       rtspUrl: values.rtspUrl.trim(),
-      username: values.username?.trim() || null,
       streamRotation: values.streamRotation,
       isPtz: values.isPtz,
     };
-    if (values.password?.trim()) {
-      body.password = values.password.trim();
-    }
 
     if (isEdit && camera) {
+      // Keep saved username/password unless the user changes them.
+      if (values.username?.trim()) {
+        body.username = values.username.trim();
+      }
+      if (values.password?.trim()) {
+        body.password = values.password.trim();
+      }
       await apiRequest("PATCH", `/api/cctv/cameras/${camera.id}`, body);
     } else {
+      body.username = values.username?.trim() || null;
+      if (values.password?.trim()) {
+        body.password = values.password.trim();
+      }
       await apiRequest("POST", "/api/cctv/cameras", body);
     }
     onSaved();
@@ -202,10 +209,16 @@ export function CctvCameraFormSheet({
               name="username"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Username (optional)</FormLabel>
+                  <FormLabel>Username</FormLabel>
                   <FormControl>
-                    <Input autoComplete="off" {...field} data-testid="cctv-input-username" />
+                    <Input
+                      autoComplete="off"
+                      placeholder="admin"
+                      {...field}
+                      data-testid="cctv-input-username"
+                    />
                   </FormControl>
+                  <FormDescription>Saved with the camera. Used for ONVIF / PTZ.</FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
@@ -215,14 +228,20 @@ export function CctvCameraFormSheet({
               name="password"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Password (optional)</FormLabel>
+                  <FormLabel>Password</FormLabel>
                   <FormControl>
-                    <Input type="password" autoComplete="new-password" {...field} data-testid="cctv-input-password" />
+                    <Input
+                      type="password"
+                      autoComplete="new-password"
+                      placeholder={isEdit && camera?.hasCredentials ? "•••••••• (saved)" : undefined}
+                      {...field}
+                      data-testid="cctv-input-password"
+                    />
                   </FormControl>
                   <FormDescription>
-                    {isEdit
-                      ? "Leave blank to keep the existing password. For PTZ, use the EZVIZ ONVIF password (often different from the RTSP verification code). Keep the RTSP device code in the RTSP URL if needed."
-                      : "For PTZ, use the EZVIZ ONVIF password. RTSP device code can stay in the RTSP URL."}
+                    {isEdit && camera?.hasCredentials
+                      ? "A password is already saved. Leave blank to keep it — only type a new one to replace it."
+                      : "Saved encrypted. For PTZ use the EZVIZ ONVIF password; the RTSP device code can stay in the RTSP URL."}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>

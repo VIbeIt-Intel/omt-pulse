@@ -19,6 +19,7 @@ export function toPublicCamera(row: CctvCamera): CctvCameraPublic {
     id: row.id,
     name: row.name,
     rtspPreview: rtspPreviewUrl(row.rtspUrl),
+    username: row.username?.trim() || null,
     hasCredentials: !!(row.username || row.passwordEnc),
     streamRotation: row.streamRotation === "rotate180" ? "rotate180" : "normal",
     isPtz: !!row.isPtz,
