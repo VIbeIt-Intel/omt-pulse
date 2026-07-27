@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Pencil, ScanSearch, Trash2, Video } from "lucide-react";
 import type { CctvCameraPublic } from "@shared/cctv";
 import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card } from "@/components/ui/card";
 import {
   AlertDialog,
@@ -16,7 +17,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
+import { ROTATE180_OSD_HINT } from "@shared/cctv";
 import { CctvCameraPlayer } from "./cctv-camera-player";
+import { CctvPtzControls } from "./cctv-ptz-controls";
 
 type CctvCameraListProps = {
   cameras: CctvCameraPublic[];
@@ -123,18 +126,13 @@ export function CctvCameraList({
                 </div>
               )}
             </div>
-            <CctvCameraPlayer
-              cameraId={selected.id}
-              cameraName={selected.name}
-              streamRotation={selected.streamRotation}
-            />
-            {selected.isPtz && (
-              <Card className="p-4 text-sm text-muted-foreground">
-                PTZ is enabled for this camera. The next wiring step is a reachable control protocol
-                such as ONVIF or the vendor API. RTSP gives us the live picture, but pan / tilt /
-                zoom commands need a separate control endpoint.
-              </Card>
+            <CctvCameraPlayer cameraId={selected.id} cameraName={selected.name} />
+            {selected.streamRotation === "rotate180" && (
+              <Alert>
+                <AlertDescription className="text-sm leading-relaxed">{ROTATE180_OSD_HINT}</AlertDescription>
+              </Alert>
             )}
+            {selected.isPtz && <CctvPtzControls cameraId={selected.id} />}
           </>
         ) : (
           <Card className="flex flex-col items-center justify-center gap-2 border-dashed py-16 text-center text-muted-foreground">

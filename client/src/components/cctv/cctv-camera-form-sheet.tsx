@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import type { CctvCameraPublic } from "@shared/cctv";
+import { ROTATE180_OSD_HINT, type CctvCameraPublic } from "@shared/cctv";
 import {
   Sheet,
   SheetContent,
@@ -171,7 +171,7 @@ export function CctvCameraFormSheet({
                       <SelectItem value="rotate180">Rotate 180 degrees</SelectItem>
                     </SelectContent>
                   </Select>
-                  <FormDescription>Use rotate 180 degrees for cameras mounted upside down.</FormDescription>
+                  <FormDescription>{ROTATE180_OSD_HINT}</FormDescription>
                   <FormMessage />
                 </FormItem>
               )}

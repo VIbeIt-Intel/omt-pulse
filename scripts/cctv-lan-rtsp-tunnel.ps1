@@ -1,14 +1,15 @@
-# Forward EZVIZ (or any LAN RTSP camera) to the OMT Pulse VPS via SSH reverse tunnel.
-# Keep this window open while dispatch watches the stream on omtpulse.com / the app.
+# Forward EZVIZ (or LAN camera) RTSP + HTTP (PTZ) to OMT Pulse VPS via SSH reverse tunnels.
+# Keep this window open while using omtpulse.com / the app.
 #
-# 1. Camera RTSP in OMT admin must use: rtsp://127.0.0.1:<RemotePort>/Streaming/Channels/101
-#    (credentials admin + device code stay in OMT as today)
-# 2. PC must be on the same network as the camera.
+# OMT camera RTSP URL: rtsp://127.0.0.1:8554/Streaming/Channels/101
+# PTZ uses HTTP on the VPS at 127.0.0.1:8555 (→ camera port 80)
 
 param(
   [string]$CameraHost = "192.168.0.168",
-  [int]$CameraPort = 554,
-  [int]$RemotePort = 8554,
+  [int]$CameraRtspPort = 554,
+  [int]$CameraHttpPort = 80,
+  [int]$RemoteRtspPort = 8554,
+  [int]$RemotePtzPort = 8555,
   [string]$SshHost = "ubuntu@154.65.108.187",
   [string]$SshKey = ""
 )
@@ -32,13 +33,15 @@ if (-not $SshKey -or -not (Test-Path $SshKey)) {
 }
 
 Write-Host ""
-Write-Host "OMT CCTV LAN tunnel"
-Write-Host "  Camera:  ${CameraHost}:${CameraPort}"
-Write-Host "  On VPS:  127.0.0.1:${RemotePort}  (set OMT RTSP URL to this host/port)"
-Write-Host "  SSH:     $SshHost"
+Write-Host "OMT CCTV LAN tunnels"
+Write-Host "  RTSP  ${CameraHost}:${CameraRtspPort} -> VPS 127.0.0.1:${RemoteRtspPort}"
+Write-Host "  HTTP  ${CameraHost}:${CameraHttpPort} -> VPS 127.0.0.1:${RemotePtzPort} (PTZ / ISAPI)"
+Write-Host "  SSH:   $SshHost"
 Write-Host ""
-Write-Host "Leave this running. Press Ctrl+C to stop the tunnel."
+Write-Host "Leave this running. Press Ctrl+C to stop."
 Write-Host ""
 
-$bind = "${RemotePort}:${CameraHost}:${CameraPort}"
-ssh -i $SshKey -o ServerAliveInterval=30 -o ExitOnForwardFailure=yes -N -R $bind $SshHost
+ssh -i $SshKey -o ServerAliveInterval=30 -o ExitOnForwardFailure=yes -N `
+  -R "${RemoteRtspPort}:${CameraHost}:${CameraRtspPort}" `
+  -R "${RemotePtzPort}:${CameraHost}:${CameraHttpPort}" `
+  $SshHost

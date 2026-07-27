@@ -25,6 +25,7 @@ import {
   stopCctvStream,
   touchCctvStream,
 } from "./stream-manager";
+import { sendCameraPtz } from "./ptz";
 
 function requireUser(req: Request, res: Response): boolean {
   if (!req.currentUser) {
@@ -67,6 +68,9 @@ const updateBodySchema = z.object({
   username: z.string().max(200).optional().nullable(),
   streamRotation: cctvStreamRotationEnum.optional(),
   isPtz: z.boolean().optional(),
+  ptzControlPort: z.number().int().min(1).max(65535).optional().nullable(),
+  ptzCameraHttpPort: z.number().int().min(1).max(65535).optional().nullable(),
+  ptzChannel: z.number().int().min(1).max(32).optional().nullable(),
   password: z.string().max(500).optional().nullable(),
   clearPassword: z.boolean().optional(),
 });
@@ -165,7 +169,12 @@ export function registerCctvRoutes(app: Express): void {
       ) {
         return res.status(503).json({ message: PRIVATE_RTSP_SERVER_MESSAGE });
       }
-      const playlistPath = await touchCctvStream(orgId, id, rtsp);
+      const playlistPath = await touchCctvStream(
+        orgId,
+        id,
+        rtsp,
+        camera.streamRotation === "rotate180" ? "rotate180" : "normal",
+      );
       const body = rewritePlaylist(playlistPath, id);
       res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
       res.setHeader("Cache-Control", "no-store");
@@ -174,6 +183,31 @@ export function registerCctvRoutes(app: Express): void {
       console.error("[cctv] playlist:", err);
       const msg = err instanceof Error ? err.message : "Failed to start stream";
       res.status(502).json({ message: msg });
+    }
+  });
+
+  const ptzBodySchema = z.object({
+    action: z.enum(["stop", "left", "right", "up", "down", "zoom_in", "zoom_out"]),
+  });
+
+  app.post("/api/cctv/cameras/:id/ptz", async (req, res) => {
+    if (!requireView(req, res)) return;
+    const id = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid camera id" });
+    const parsed = ptzBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: parsed.error.errors[0]?.message ?? "Invalid PTZ action" });
+    }
+    try {
+      const orgId = req.currentUser!.organizationId;
+      const camera = await getCctvCamera(id, orgId);
+      if (!camera) return res.status(404).json({ message: "Camera not found" });
+      const result = sendCameraPtz(camera, parsed.data.action);
+      if (!result.ok) return res.status(502).json({ message: result.message ?? "PTZ failed" });
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("[cctv] ptz:", err);
+      res.status(500).json({ message: "PTZ command failed" });
     }
   });
 

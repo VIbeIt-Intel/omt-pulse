@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, timestamp, serial } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, integer, timestamp, serial } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { organizations, users } from "./schema";
@@ -8,6 +8,9 @@ import { DISPATCH_STAFF_ROLES } from "./user-roles";
 /** IP cameras configured per organisation (Phase 1 — view + admin CRUD). */
 export const cctvStreamRotationEnum = z.enum(["normal", "rotate180"]);
 export type CctvStreamRotation = z.infer<typeof cctvStreamRotationEnum>;
+
+export const ROTATE180_OSD_HINT =
+  "Rotate 180° fixes the picture but may flip the camera’s own timestamp/logo. Prefer EZVIZ app → Image Flip, then set Orientation to Normal here.";
 
 export const cctvCameras = pgTable("cctv_cameras", {
   id: serial("id").primaryKey(),
@@ -19,6 +22,11 @@ export const cctvCameras = pgTable("cctv_cameras", {
   username: text("username"),
   streamRotation: text("stream_rotation").notNull().default("normal"),
   isPtz: boolean("is_ptz").notNull().default(false),
+  /** VPS-side tunnel port for PTZ HTTP (default 8555 → camera :80). */
+  ptzControlPort: integer("ptz_control_port").default(8555),
+  /** Camera HTTP port on LAN (ISAPI), usually 80. */
+  ptzCameraHttpPort: integer("ptz_camera_http_port").default(80),
+  ptzChannel: integer("ptz_channel").default(1),
   /** AES-256-GCM encrypted password (never returned to clients). */
   passwordEnc: text("password_enc"),
   createdByUserId: varchar("created_by_user_id")
@@ -38,6 +46,9 @@ export const insertCctvCameraSchema = createInsertSchema(cctvCameras, {
   username: z.string().max(200).optional().nullable(),
   streamRotation: cctvStreamRotationEnum.default("normal"),
   isPtz: z.boolean().default(false),
+  ptzControlPort: z.number().int().min(1).max(65535).optional().nullable(),
+  ptzCameraHttpPort: z.number().int().min(1).max(65535).optional().nullable(),
+  ptzChannel: z.number().int().min(1).max(32).optional().nullable(),
 }).omit({
   id: true,
   organizationId: true,

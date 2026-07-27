@@ -4,6 +4,8 @@ import path from "node:path";
 import os from "node:os";
 import ffmpegStatic from "ffmpeg-static";
 
+import type { CctvStreamRotation } from "@shared/cctv";
+
 const IDLE_MS = 5 * 60_000;
 const START_TIMEOUT_MS = 22_000;
 
@@ -71,11 +73,17 @@ function hlsOutputArgs(outDir: string): { segmentPattern: string; playlistPath: 
   return { segmentPattern, playlistPath, args };
 }
 
-function videoEncodeArgs(mode: VideoMode): string[] {
+function videoEncodeArgs(mode: VideoMode, streamRotation: CctvStreamRotation): string[] {
+  const flip =
+    streamRotation === "rotate180" ? ["-vf", "hflip,vflip"] : [];
   if (mode === "copy") {
+    if (flip.length) {
+      return [...flip, "-c:v", "libx264", "-preset", "fast", "-crf", "18", "-g", "48"];
+    }
     return ["-c:v", "copy"];
   }
   return [
+    ...flip,
     "-c:v",
     "libx264",
     "-preset",
@@ -91,7 +99,12 @@ function videoEncodeArgs(mode: VideoMode): string[] {
   ];
 }
 
-function spawnFfmpeg(rtspUrl: string, outDir: string, mode: VideoMode): ChildProcess {
+function spawnFfmpeg(
+  rtspUrl: string,
+  outDir: string,
+  mode: VideoMode,
+  streamRotation: CctvStreamRotation,
+): ChildProcess {
   const bin = ffmpegPath();
   if (!bin) {
     throw new Error("FFmpeg is not available on this server");
@@ -108,7 +121,7 @@ function spawnFfmpeg(rtspUrl: string, outDir: string, mode: VideoMode): ChildPro
     "-i",
     rtspUrl,
     "-an",
-    ...videoEncodeArgs(mode),
+    ...videoEncodeArgs(mode, streamRotation),
     ...hlsArgs,
   ];
 
@@ -128,12 +141,13 @@ async function tryStartStreamOnce(
   cameraId: number,
   rtspUrl: string,
   mode: VideoMode,
+  streamRotation: CctvStreamRotation,
 ): Promise<StreamEntry> {
   const key = streamKey(orgId, cameraId);
   const dir = path.join(os.tmpdir(), "omt-cctv", orgId, String(cameraId));
   resetStreamDir(dir);
 
-  const proc = spawnFfmpeg(rtspUrl, dir, mode);
+  const proc = spawnFfmpeg(rtspUrl, dir, mode, streamRotation);
   let stderr = "";
   proc.stderr?.on("data", (chunk: Buffer) => {
     stderr = (stderr + chunk.toString()).slice(-4000);
@@ -162,7 +176,12 @@ async function tryStartStreamOnce(
   return entry;
 }
 
-async function startStream(orgId: string, cameraId: number, rtspUrl: string): Promise<StreamEntry> {
+async function startStream(
+  orgId: string,
+  cameraId: number,
+  rtspUrl: string,
+  streamRotation: CctvStreamRotation,
+): Promise<StreamEntry> {
   const key = streamKey(orgId, cameraId);
   const existing = streams.get(key);
   if (existing) {
@@ -171,20 +190,21 @@ async function startStream(orgId: string, cameraId: number, rtspUrl: string): Pr
     return existing;
   }
 
-  const forceTranscode = process.env.CCTV_FORCE_TRANSCODE === "1";
+  const needsFlip = streamRotation === "rotate180";
+  const forceTranscode = process.env.CCTV_FORCE_TRANSCODE === "1" || needsFlip;
   let entry: StreamEntry;
 
   try {
     if (forceTranscode) {
-      entry = await tryStartStreamOnce(orgId, cameraId, rtspUrl, "transcode");
+      entry = await tryStartStreamOnce(orgId, cameraId, rtspUrl, "transcode", streamRotation);
     } else {
       try {
-        entry = await tryStartStreamOnce(orgId, cameraId, rtspUrl, "copy");
+        entry = await tryStartStreamOnce(orgId, cameraId, rtspUrl, "copy", streamRotation);
         console.log(`[cctv] stream ${key} using H.264 passthrough`);
       } catch (copyErr) {
         console.warn(`[cctv] passthrough failed for ${key}, using transcode:`, copyErr);
         streams.delete(key);
-        entry = await tryStartStreamOnce(orgId, cameraId, rtspUrl, "transcode");
+        entry = await tryStartStreamOnce(orgId, cameraId, rtspUrl, "transcode", streamRotation);
         console.log(`[cctv] stream ${key} using H.264 transcode (crf 18)`);
       }
     }
@@ -197,8 +217,13 @@ async function startStream(orgId: string, cameraId: number, rtspUrl: string): Pr
   return entry;
 }
 
-export async function touchCctvStream(orgId: string, cameraId: number, rtspUrl: string): Promise<string> {
-  const entry = await startStream(orgId, cameraId, rtspUrl);
+export async function touchCctvStream(
+  orgId: string,
+  cameraId: number,
+  rtspUrl: string,
+  streamRotation: CctvStreamRotation = "normal",
+): Promise<string> {
+  const entry = await startStream(orgId, cameraId, rtspUrl, streamRotation);
   entry.lastAccess = Date.now();
   return path.join(entry.dir, "playlist.m3u8");
 }

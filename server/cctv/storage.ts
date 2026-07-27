@@ -75,6 +75,9 @@ export async function createCctvCamera(input: {
   username?: string | null;
   streamRotation?: "normal" | "rotate180";
   isPtz?: boolean;
+  ptzControlPort?: number | null;
+  ptzCameraHttpPort?: number | null;
+  ptzChannel?: number | null;
   password?: string | null;
   createdByUserId: string;
 }): Promise<CctvCameraPublic> {
@@ -88,6 +91,9 @@ export async function createCctvCamera(input: {
       username: input.username?.trim() || null,
       streamRotation: input.streamRotation === "rotate180" ? "rotate180" : "normal",
       isPtz: !!input.isPtz,
+      ptzControlPort: input.ptzControlPort ?? 8555,
+      ptzCameraHttpPort: input.ptzCameraHttpPort ?? 80,
+      ptzChannel: input.ptzChannel ?? 1,
       passwordEnc: input.password?.trim() ? encryptCameraPassword(input.password.trim()) : null,
       createdByUserId: input.createdByUserId,
       createdAt: now,
@@ -126,6 +132,15 @@ export async function updateCctvCamera(
   }
   if (patch.isPtz !== undefined) {
     updates.isPtz = !!patch.isPtz;
+  }
+  if (patch.ptzControlPort !== undefined) {
+    updates.ptzControlPort = patch.ptzControlPort ?? 8555;
+  }
+  if (patch.ptzCameraHttpPort !== undefined) {
+    updates.ptzCameraHttpPort = patch.ptzCameraHttpPort ?? 80;
+  }
+  if (patch.ptzChannel !== undefined) {
+    updates.ptzChannel = patch.ptzChannel ?? 1;
   }
   if (patch.clearPassword) {
     updates.passwordEnc = null;

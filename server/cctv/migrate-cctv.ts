@@ -34,6 +34,18 @@ export async function migrateCctv() {
     ALTER TABLE cctv_cameras
     ADD COLUMN IF NOT EXISTS is_ptz BOOLEAN NOT NULL DEFAULT FALSE
   `);
+  await safe("cctv_cameras.ptz_control_port", sql`
+    ALTER TABLE cctv_cameras
+    ADD COLUMN IF NOT EXISTS ptz_control_port INTEGER DEFAULT 8555
+  `);
+  await safe("cctv_cameras.ptz_camera_http_port", sql`
+    ALTER TABLE cctv_cameras
+    ADD COLUMN IF NOT EXISTS ptz_camera_http_port INTEGER DEFAULT 80
+  `);
+  await safe("cctv_cameras.ptz_channel", sql`
+    ALTER TABLE cctv_cameras
+    ADD COLUMN IF NOT EXISTS ptz_channel INTEGER DEFAULT 1
+  `);
   await safe("cctv_cameras.org_idx", sql`
     CREATE INDEX IF NOT EXISTS cctv_cameras_org_idx ON cctv_cameras (organization_id, name)
   `);

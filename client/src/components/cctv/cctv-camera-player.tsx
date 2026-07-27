@@ -1,4 +1,3 @@
-import type { CctvStreamRotation } from "@shared/cctv";
 import { useEffect, useRef, useState } from "react";
 import Hls from "hls.js";
 import { AlertCircle, Maximize2, RefreshCw } from "lucide-react";
@@ -10,7 +9,6 @@ import { workstationAuthHeaders } from "@/lib/workstation-session";
 type CctvCameraPlayerProps = {
   cameraId: number;
   cameraName: string;
-  streamRotation?: CctvStreamRotation;
   className?: string;
 };
 
@@ -40,12 +38,7 @@ async function probePlaylist(playlistUrl: string): Promise<{ ok: true } | { ok: 
   };
 }
 
-export function CctvCameraPlayer({
-  cameraId,
-  cameraName,
-  streamRotation = "normal",
-  className,
-}: CctvCameraPlayerProps) {
+export function CctvCameraPlayer({ cameraId, cameraName, className }: CctvCameraPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -156,10 +149,7 @@ export function CctvCameraPlayer({
     >
       <video
         ref={videoRef}
-        className={cn(
-          "h-full w-full object-contain",
-          streamRotation === "rotate180" && "rotate-180",
-        )}
+        className="h-full w-full object-contain"
         playsInline
         muted
         autoPlay
