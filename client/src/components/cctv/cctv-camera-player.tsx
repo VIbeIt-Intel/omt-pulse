@@ -1,8 +1,9 @@
 import type { CctvStreamRotation } from "@shared/cctv";
 import { useEffect, useRef, useState } from "react";
 import Hls from "hls.js";
-import { AlertCircle, Loader2 } from "lucide-react";
+import { AlertCircle, Maximize2, RefreshCw } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { workstationAuthHeaders } from "@/lib/workstation-session";
 
@@ -49,6 +50,7 @@ export function CctvCameraPlayer({
   const hlsRef = useRef<Hls | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [reloadNonce, setReloadNonce] = useState(0);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -132,7 +134,17 @@ export function CctvCameraPlayer({
       el.removeAttribute("src");
       el.load();
     };
-  }, [cameraId]);
+  }, [cameraId, reloadNonce]);
+
+  async function enterFullscreen() {
+    const video = videoRef.current;
+    if (!video) return;
+    if (document.fullscreenElement) {
+      await document.exitFullscreen().catch(() => undefined);
+      return;
+    }
+    await video.requestFullscreen?.().catch(() => undefined);
+  }
 
   return (
     <div
@@ -151,12 +163,35 @@ export function CctvCameraPlayer({
         playsInline
         muted
         autoPlay
-        controls
         aria-label={`Live stream: ${cameraName}`}
       />
+      <div className="absolute right-3 top-3 z-10 flex gap-2">
+        <Button
+          type="button"
+          size="icon"
+          variant="secondary"
+          className="h-8 w-8 bg-black/60 text-white hover:bg-black/75"
+          onClick={() => setReloadNonce((n) => n + 1)}
+          data-testid={`cctv-refresh-${cameraId}`}
+          aria-label="Refresh stream"
+        >
+          <RefreshCw className="h-4 w-4" />
+        </Button>
+        <Button
+          type="button"
+          size="icon"
+          variant="secondary"
+          className="h-8 w-8 bg-black/60 text-white hover:bg-black/75"
+          onClick={() => void enterFullscreen()}
+          data-testid={`cctv-fullscreen-${cameraId}`}
+          aria-label="Toggle fullscreen"
+        >
+          <Maximize2 className="h-4 w-4" />
+        </Button>
+      </div>
       {loading && !error && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/60 text-white">
-          <Loader2 className="h-8 w-8 animate-spin" aria-hidden />
+          <RefreshCw className="h-8 w-8 animate-spin" aria-hidden />
           <span className="text-sm">Connecting to {cameraName}…</span>
         </div>
       )}

@@ -130,8 +130,9 @@ export function CctvCameraList({
             />
             {selected.isPtz && (
               <Card className="p-4 text-sm text-muted-foreground">
-                PTZ is enabled for this camera. The live control transport is the next wiring step and
-                depends on a reachable control protocol such as ONVIF or the vendor API, not RTSP alone.
+                PTZ is enabled for this camera. The next wiring step is a reachable control protocol
+                such as ONVIF or the vendor API. RTSP gives us the live picture, but pan / tilt /
+                zoom commands need a separate control endpoint.
               </Card>
             )}
           </>
