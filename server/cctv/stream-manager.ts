@@ -5,7 +5,7 @@ import os from "node:os";
 import ffmpegStatic from "ffmpeg-static";
 
 const IDLE_MS = 5 * 60_000;
-const START_TIMEOUT_MS = 25_000;
+const START_TIMEOUT_MS = 22_000;
 
 type StreamEntry = {
   proc: ChildProcess;
@@ -13,6 +13,8 @@ type StreamEntry = {
   lastAccess: number;
   starting: Promise<void>;
 };
+
+type VideoMode = "copy" | "transcode";
 
 const streams = new Map<string, StreamEntry>();
 
@@ -48,31 +50,54 @@ function waitForPlaylist(dir: string, timeoutMs: number): Promise<void> {
   });
 }
 
-function spawnFfmpeg(rtspUrl: string, outDir: string): ChildProcess {
+function hlsOutputArgs(outDir: string): { segmentPattern: string; playlistPath: string; args: string[] } {
+  const segmentPattern = path.join(outDir, "seg_%03d.ts");
+  const playlistPath = path.join(outDir, "playlist.m3u8");
+  const args = [
+    "-f",
+    "hls",
+    "-hls_time",
+    "2",
+    "-hls_list_size",
+    "8",
+    "-hls_segment_type",
+    "mpegts",
+    "-hls_flags",
+    "delete_segments+append_list+omit_endlist",
+    "-hls_segment_filename",
+    segmentPattern,
+    playlistPath,
+  ];
+  return { segmentPattern, playlistPath, args };
+}
+
+function videoEncodeArgs(mode: VideoMode): string[] {
+  if (mode === "copy") {
+    return ["-c:v", "copy"];
+  }
+  return [
+    "-c:v",
+    "libx264",
+    "-preset",
+    "fast",
+    "-crf",
+    "18",
+    "-tune",
+    "zerolatency",
+    "-g",
+    "48",
+    "-sc_threshold",
+    "0",
+  ];
+}
+
+function spawnFfmpeg(rtspUrl: string, outDir: string, mode: VideoMode): ChildProcess {
   const bin = ffmpegPath();
   if (!bin) {
     throw new Error("FFmpeg is not available on this server");
   }
   ensureDir(outDir);
-  const segmentPattern = path.join(outDir, "seg_%03d.ts");
-  const playlistPath = path.join(outDir, "playlist.m3u8");
-
-  /** Passthrough H.264 from camera (no generation loss). Set CCTV_FORCE_TRANSCODE=1 for HEVC or incompatible sources. */
-  const forceTranscode = process.env.CCTV_FORCE_TRANSCODE === "1";
-  const videoArgs = forceTranscode
-    ? [
-        "-c:v",
-        "libx264",
-        "-preset",
-        "veryfast",
-        "-tune",
-        "zerolatency",
-        "-g",
-        "48",
-        "-sc_threshold",
-        "0",
-      ]
-    : ["-c:v", "copy", "-bsf:v", "h264_mp4toannexb"];
+  const { args: hlsArgs } = hlsOutputArgs(outDir);
 
   const args = [
     "-hide_banner",
@@ -83,21 +108,58 @@ function spawnFfmpeg(rtspUrl: string, outDir: string): ChildProcess {
     "-i",
     rtspUrl,
     "-an",
-    ...videoArgs,
-    "-f",
-    "hls",
-    "-hls_time",
-    "2",
-    "-hls_list_size",
-    "8",
-    "-hls_flags",
-    "delete_segments+append_list+omit_endlist",
-    "-hls_segment_filename",
-    segmentPattern,
-    playlistPath,
+    ...videoEncodeArgs(mode),
+    ...hlsArgs,
   ];
 
   return spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
+}
+
+function resetStreamDir(dir: string) {
+  try {
+    fs.rmSync(dir, { recursive: true, force: true });
+  } catch {
+    /* ignore */
+  }
+}
+
+async function tryStartStreamOnce(
+  orgId: string,
+  cameraId: number,
+  rtspUrl: string,
+  mode: VideoMode,
+): Promise<StreamEntry> {
+  const key = streamKey(orgId, cameraId);
+  const dir = path.join(os.tmpdir(), "omt-cctv", orgId, String(cameraId));
+  resetStreamDir(dir);
+
+  const proc = spawnFfmpeg(rtspUrl, dir, mode);
+  let stderr = "";
+  proc.stderr?.on("data", (chunk: Buffer) => {
+    stderr = (stderr + chunk.toString()).slice(-4000);
+  });
+
+  const starting = waitForPlaylist(dir, START_TIMEOUT_MS).catch((err) => {
+    proc.kill("SIGTERM");
+    const hint = stderr.trim() ? `: ${stderr.trim().split("\n").pop()}` : "";
+    throw new Error(`${err instanceof Error ? err.message : String(err)}${hint}`);
+  });
+
+  const entry: StreamEntry = {
+    proc,
+    dir,
+    lastAccess: Date.now(),
+    starting,
+  };
+
+  proc.on("exit", () => {
+    if (streams.get(key)?.proc === proc) {
+      streams.delete(key);
+    }
+  });
+
+  await starting;
+  return entry;
 }
 
 async function startStream(orgId: string, cameraId: number, rtspUrl: string): Promise<StreamEntry> {
@@ -109,41 +171,29 @@ async function startStream(orgId: string, cameraId: number, rtspUrl: string): Pr
     return existing;
   }
 
-  const dir = path.join(os.tmpdir(), "omt-cctv", orgId, String(cameraId));
+  const forceTranscode = process.env.CCTV_FORCE_TRANSCODE === "1";
+  let entry: StreamEntry;
+
   try {
-    fs.rmSync(dir, { recursive: true, force: true });
-  } catch {
-    /* ignore */
+    if (forceTranscode) {
+      entry = await tryStartStreamOnce(orgId, cameraId, rtspUrl, "transcode");
+    } else {
+      try {
+        entry = await tryStartStreamOnce(orgId, cameraId, rtspUrl, "copy");
+        console.log(`[cctv] stream ${key} using H.264 passthrough`);
+      } catch (copyErr) {
+        console.warn(`[cctv] passthrough failed for ${key}, using transcode:`, copyErr);
+        streams.delete(key);
+        entry = await tryStartStreamOnce(orgId, cameraId, rtspUrl, "transcode");
+        console.log(`[cctv] stream ${key} using H.264 transcode (crf 18)`);
+      }
+    }
+  } catch (err) {
+    streams.delete(key);
+    throw err;
   }
 
-  const proc = spawnFfmpeg(rtspUrl, dir);
-  let stderr = "";
-  proc.stderr?.on("data", (chunk: Buffer) => {
-    stderr = (stderr + chunk.toString()).slice(-4000);
-  });
-
-  const starting = waitForPlaylist(dir, START_TIMEOUT_MS).catch((err) => {
-    proc.kill("SIGTERM");
-    streams.delete(key);
-    const hint = stderr.trim() ? `: ${stderr.trim().split("\n").pop()}` : "";
-    throw new Error(`${err instanceof Error ? err.message : String(err)}${hint}`);
-  });
-
-  const entry: StreamEntry = {
-    proc,
-    dir,
-    lastAccess: Date.now(),
-    starting,
-  };
   streams.set(key, entry);
-
-  proc.on("exit", () => {
-    if (streams.get(key)?.proc === proc) {
-      streams.delete(key);
-    }
-  });
-
-  await starting;
   return entry;
 }
 
@@ -166,10 +216,7 @@ export function getCctvStreamSegmentPath(orgId: string, cameraId: number, fileNa
   return full;
 }
 
-export function rewritePlaylist(
-  playlistPath: string,
-  cameraId: number,
-): string {
+export function rewritePlaylist(playlistPath: string, cameraId: number): string {
   const raw = fs.readFileSync(playlistPath, "utf8");
   const base = `/api/cctv/cameras/${cameraId}/hls/`;
   return raw
