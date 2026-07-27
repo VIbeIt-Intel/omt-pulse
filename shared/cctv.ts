@@ -1,11 +1,14 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, timestamp, serial } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, timestamp, serial } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { organizations, users } from "./schema";
 import { DISPATCH_STAFF_ROLES } from "./user-roles";
 
 /** IP cameras configured per organisation (Phase 1 — view + admin CRUD). */
+export const cctvStreamRotationEnum = z.enum(["normal", "rotate180"]);
+export type CctvStreamRotation = z.infer<typeof cctvStreamRotationEnum>;
+
 export const cctvCameras = pgTable("cctv_cameras", {
   id: serial("id").primaryKey(),
   organizationId: varchar("organization_id")
@@ -14,6 +17,8 @@ export const cctvCameras = pgTable("cctv_cameras", {
   name: text("name").notNull(),
   rtspUrl: text("rtsp_url").notNull(),
   username: text("username"),
+  streamRotation: text("stream_rotation").notNull().default("normal"),
+  isPtz: boolean("is_ptz").notNull().default(false),
   /** AES-256-GCM encrypted password (never returned to clients). */
   passwordEnc: text("password_enc"),
   createdByUserId: varchar("created_by_user_id")
@@ -31,6 +36,8 @@ export const insertCctvCameraSchema = createInsertSchema(cctvCameras, {
     .max(2000)
     .refine((u) => /^rtsp:\/\//i.test(u.trim()), "Must be an RTSP URL (rtsp://…)"),
   username: z.string().max(200).optional().nullable(),
+  streamRotation: cctvStreamRotationEnum.default("normal"),
+  isPtz: z.boolean().default(false),
 }).omit({
   id: true,
   organizationId: true,
@@ -48,6 +55,8 @@ export type CctvCameraPublic = {
   name: string;
   rtspPreview: string;
   hasCredentials: boolean;
+  streamRotation: CctvStreamRotation;
+  isPtz: boolean;
   createdAt: string;
   updatedAt: string;
 };

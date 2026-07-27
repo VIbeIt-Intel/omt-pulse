@@ -22,6 +22,14 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { apiRequest } from "@/lib/queryClient";
 
 const formSchema = z.object({
@@ -32,6 +40,8 @@ const formSchema = z.object({
     .max(2000)
     .refine((u) => /^rtsp:\/\//i.test(u.trim()), "Must start with rtsp://"),
   username: z.string().max(200).optional(),
+  streamRotation: z.enum(["normal", "rotate180"]).default("normal"),
+  isPtz: z.boolean().default(false),
   password: z.string().max(500).optional(),
 });
 
@@ -58,6 +68,8 @@ export function CctvCameraFormSheet({
       name: "",
       rtspUrl: "",
       username: "",
+      streamRotation: "normal",
+      isPtz: false,
       password: "",
     },
   });
@@ -69,10 +81,12 @@ export function CctvCameraFormSheet({
         name: camera.name,
         rtspUrl: camera.rtspPreview,
         username: "",
+        streamRotation: camera.streamRotation,
+        isPtz: camera.isPtz,
         password: "",
       });
     } else {
-      form.reset({ name: "", rtspUrl: "", username: "", password: "" });
+      form.reset({ name: "", rtspUrl: "", username: "", streamRotation: "normal", isPtz: false, password: "" });
     }
   }, [open, camera, form]);
 
@@ -81,6 +95,8 @@ export function CctvCameraFormSheet({
       name: values.name.trim(),
       rtspUrl: values.rtspUrl.trim(),
       username: values.username?.trim() || null,
+      streamRotation: values.streamRotation,
+      isPtz: values.isPtz,
     };
     if (values.password?.trim()) {
       body.password = values.password.trim();
@@ -135,6 +151,49 @@ export function CctvCameraFormSheet({
                     />
                   </FormControl>
                   <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="streamRotation"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Orientation</FormLabel>
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <FormControl>
+                      <SelectTrigger data-testid="cctv-input-rotation">
+                        <SelectValue placeholder="Choose orientation" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="normal">Normal</SelectItem>
+                      <SelectItem value="rotate180">Rotate 180 degrees</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormDescription>Use rotate 180 degrees for cameras mounted upside down.</FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="isPtz"
+              render={({ field }) => (
+                <FormItem className="flex items-center justify-between rounded-lg border p-3">
+                  <div className="space-y-1">
+                    <FormLabel>PTZ camera</FormLabel>
+                    <FormDescription>
+                      Mark this camera as pan-tilt-zoom capable so OMT can expose PTZ controls.
+                    </FormDescription>
+                  </div>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                      data-testid="cctv-input-is-ptz"
+                    />
+                  </FormControl>
                 </FormItem>
               )}
             />

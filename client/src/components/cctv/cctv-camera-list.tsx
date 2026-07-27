@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Pencil, Trash2, Video } from "lucide-react";
+import { Pencil, ScanSearch, Trash2, Video } from "lucide-react";
 import type { CctvCameraPublic } from "@shared/cctv";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -73,6 +73,7 @@ export function CctvCameraList({
                 >
                   <Video className="h-4 w-4 shrink-0 text-primary" aria-hidden />
                   <span className="flex-1 truncate font-medium">{cam.name}</span>
+                  {cam.isPtz && <ScanSearch className="h-4 w-4 shrink-0 text-muted-foreground" aria-label="PTZ camera" />}
                 </button>
               </li>
             );
@@ -89,6 +90,12 @@ export function CctvCameraList({
                 <p className="text-xs text-muted-foreground font-mono truncate max-w-xl">
                   {selected.rtspPreview}
                 </p>
+                <div className="mt-1 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                  {selected.streamRotation === "rotate180" && (
+                    <span className="rounded-full border px-2 py-0.5">Rotated 180 degrees</span>
+                  )}
+                  {selected.isPtz && <span className="rounded-full border px-2 py-0.5">PTZ</span>}
+                </div>
               </div>
               {isAdmin && (
                 <div className="flex gap-2">
@@ -116,7 +123,17 @@ export function CctvCameraList({
                 </div>
               )}
             </div>
-            <CctvCameraPlayer cameraId={selected.id} cameraName={selected.name} />
+            <CctvCameraPlayer
+              cameraId={selected.id}
+              cameraName={selected.name}
+              streamRotation={selected.streamRotation}
+            />
+            {selected.isPtz && (
+              <Card className="p-4 text-sm text-muted-foreground">
+                PTZ is enabled for this camera. The live control transport is the next wiring step and
+                depends on a reachable control protocol such as ONVIF or the vendor API, not RTSP alone.
+              </Card>
+            )}
           </>
         ) : (
           <Card className="flex flex-col items-center justify-center gap-2 border-dashed py-16 text-center text-muted-foreground">

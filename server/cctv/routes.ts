@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   canManageCctvCameras,
   canViewCctvModule,
+  cctvStreamRotationEnum,
   insertCctvCameraSchema,
   isUnreachablePrivateRtspOnCloud,
   PRIVATE_RTSP_SERVER_MESSAGE,
@@ -64,6 +65,8 @@ const updateBodySchema = z.object({
     .refine((u) => /^rtsp:\/\//i.test(u.trim()), "Must be an RTSP URL")
     .optional(),
   username: z.string().max(200).optional().nullable(),
+  streamRotation: cctvStreamRotationEnum.optional(),
+  isPtz: z.boolean().optional(),
   password: z.string().max(500).optional().nullable(),
   clearPassword: z.boolean().optional(),
 });

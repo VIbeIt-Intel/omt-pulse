@@ -20,6 +20,8 @@ export function toPublicCamera(row: CctvCamera): CctvCameraPublic {
     name: row.name,
     rtspPreview: rtspPreviewUrl(row.rtspUrl),
     hasCredentials: !!(row.username || row.passwordEnc),
+    streamRotation: row.streamRotation === "rotate180" ? "rotate180" : "normal",
+    isPtz: !!row.isPtz,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -32,7 +34,8 @@ export function buildRtspSource(row: CctvCamera): string {
   if (row.passwordEnc) {
     try {
       pass = decryptCameraPassword(row.passwordEnc);
-    } catch {
+    } catch (err) {
+      console.error("[cctv] decrypt camera password failed:", err);
       pass = "";
     }
   }
@@ -70,6 +73,8 @@ export async function createCctvCamera(input: {
   name: string;
   rtspUrl: string;
   username?: string | null;
+  streamRotation?: "normal" | "rotate180";
+  isPtz?: boolean;
   password?: string | null;
   createdByUserId: string;
 }): Promise<CctvCameraPublic> {
@@ -81,6 +86,8 @@ export async function createCctvCamera(input: {
       name: input.name.trim(),
       rtspUrl: input.rtspUrl.trim(),
       username: input.username?.trim() || null,
+      streamRotation: input.streamRotation === "rotate180" ? "rotate180" : "normal",
+      isPtz: !!input.isPtz,
       passwordEnc: input.password?.trim() ? encryptCameraPassword(input.password.trim()) : null,
       createdByUserId: input.createdByUserId,
       createdAt: now,
@@ -97,6 +104,8 @@ export async function updateCctvCamera(
     name?: string;
     rtspUrl?: string;
     username?: string | null;
+    streamRotation?: "normal" | "rotate180";
+    isPtz?: boolean;
     password?: string | null;
     clearPassword?: boolean;
   },
@@ -111,6 +120,12 @@ export async function updateCctvCamera(
   if (patch.rtspUrl != null) updates.rtspUrl = patch.rtspUrl.trim();
   if (patch.username !== undefined) {
     updates.username = patch.username?.trim() || null;
+  }
+  if (patch.streamRotation != null) {
+    updates.streamRotation = patch.streamRotation === "rotate180" ? "rotate180" : "normal";
+  }
+  if (patch.isPtz !== undefined) {
+    updates.isPtz = !!patch.isPtz;
   }
   if (patch.clearPassword) {
     updates.passwordEnc = null;
