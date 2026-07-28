@@ -14,7 +14,7 @@ import {
 
 const TICK_MS = 2_500;
 const ALERT_COOLDOWN_MS = 60_000;
-const STALE_MS = 8_000;
+const STALE_MS = 12_000;
 
 type LatestState = {
   detections: CctvAiDetection[];
@@ -78,7 +78,7 @@ function confirmPersonDetections(
   const pending = personConfirmPending.get(cameraId) ?? [];
 
   for (const p of needConfirm) {
-    const match = pending.some((prev) => iou(prev, p) >= 0.25);
+    const match = pending.some((prev) => iou(prev, p) >= 0.15);
     if (match) confirmedLow.push(p);
   }
 

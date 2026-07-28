@@ -81,7 +81,7 @@ export function CctvCameraPlayer({
   const detectionsRaw = aiData?.detections ?? [];
   const updatedAtMs = aiData?.updatedAt ? new Date(aiData.updatedAt).getTime() : 0;
   const detectionsFresh =
-    updatedAtMs > 0 && Date.now() - updatedAtMs < 7000 ? detectionsRaw : [];
+    updatedAtMs > 0 && Date.now() - updatedAtMs < 10_000 ? detectionsRaw : [];
   const detections = detectionsFresh;
 
   useEffect(() => {

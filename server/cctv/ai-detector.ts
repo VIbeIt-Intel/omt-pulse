@@ -12,7 +12,7 @@ const CONF_THRESHOLD = 0.22;
 const IOU_THRESHOLD = 0.45;
 
 const MIN_CONF: Record<string, number> = {
-  person: 0.48,
+  person: 0.40,
   car: 0.38,
   motorcycle: 0.38,
   bus: 0.38,
@@ -20,8 +20,8 @@ const MIN_CONF: Record<string, number> = {
 };
 
 /** Person boxes below this need two consecutive samples (see ai-worker). */
-export const PERSON_INSTANT_CONF = 0.62;
-export const PERSON_MIN_CONF = MIN_CONF.person ?? 0.48;
+export const PERSON_INSTANT_CONF = 0.52;
+export const PERSON_MIN_CONF = MIN_CONF.person ?? 0.4;
 
 /** COCO class ids we alert on: person + common vehicles. */
 const DETECT_CLASS_IDS = new Set([0, 2, 3, 5, 7]); // person, car, motorcycle, bus, truck
@@ -306,8 +306,10 @@ export function refineDetections(dets: CctvAiDetection[]): CctvAiDetection[] {
 
     if (d.label === "person") {
       const aspect = d.h / Math.max(d.w, 1e-6);
-      if (aspect < 0.72) return false;
-      if (area < 0.0035 && d.confidence < 0.55) return false;
+      // Crouching / bending is often wider than tall; only drop very flat low-score blobs (chairs).
+      if (aspect < 0.38) return false;
+      if (aspect < 0.55 && d.confidence < 0.52) return false;
+      if (area < 0.002 && d.confidence < 0.48) return false;
     }
     return true;
   });
@@ -393,7 +395,11 @@ export async function detectObjectsInJpeg(jpeg: Buffer): Promise<CctvAiDetection
 async function grabFrameJpeg(rtspUrl: string, hlsSegment: string | null): Promise<Buffer> {
   if (hlsSegment) {
     try {
-      return await grabMpegTsJpeg(hlsSegment);
+      const st = fs.statSync(hlsSegment);
+      // Prefer HLS when segment is fresh; stale segments mis-align with live view.
+      if (Date.now() - st.mtimeMs <= 4_000) {
+        return await grabMpegTsJpeg(hlsSegment);
+      }
     } catch {
       /* fall through to RTSP */
     }
