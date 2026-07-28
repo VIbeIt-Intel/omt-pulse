@@ -185,7 +185,7 @@ export function CctvCameraList({
                           {ev.snapshotUrl ? (
                             <img
                               src={ev.snapshotUrl}
-                              alt={`${ev.label} snapshot`}
+                              alt={`${ev.label} alert snapshot`}
                               className="h-12 w-12 shrink-0 rounded object-cover border bg-muted"
                               loading="lazy"
                             />

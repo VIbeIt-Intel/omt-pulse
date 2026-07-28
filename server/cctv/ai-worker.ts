@@ -109,14 +109,11 @@ async function processCamera(camera: Awaited<ReturnType<typeof listAiEnabledCame
       if (Date.now() - last >= ALERT_COOLDOWN_MS) {
         const best = [...detections].sort((a, b) => b.confidence - a.confidence)[0]!;
         if (best.label !== "person" || best.confidence >= PERSON_MIN_CONF) {
-          const snapshotPath =
-            best.label === "person"
-              ? await saveDetectionSnapshot({
-                  jpeg,
-                  detection: best,
-                  cameraId: camera.id,
-                })
-              : null;
+          const snapshotPath = await saveDetectionSnapshot({
+            jpeg,
+            detection: best,
+            cameraId: camera.id,
+          });
           await insertCctvAiEvent({
             organizationId: camera.organizationId,
             cameraId: camera.id,
