@@ -72,6 +72,7 @@ export function CctvCameraPlayer({
   const [loading, setLoading] = useState(true);
   const [reloadNonce, setReloadNonce] = useState(0);
   const [editingVehicleRoi, setEditingVehicleRoi] = useState(false);
+  const [previewVehicleRoi, setPreviewVehicleRoi] = useState(false);
   const [draftVehicleRoi, setDraftVehicleRoi] = useState<CctvRoi | null>(null);
   const drawStartRef = useRef<{ x: number; y: number } | null>(null);
 
@@ -95,8 +96,15 @@ export function CctvCameraPlayer({
   const detectionsFresh =
     updatedAtMs > 0 && Date.now() - updatedAtMs < 10_000 ? detectionsRaw : [];
   const detections = detectionsFresh;
-  const showVehicleRoiOverlay = editingVehicleRoi && draftVehicleRoi;
+  const overlayRoi = editingVehicleRoi ? draftVehicleRoi : previewVehicleRoi ? vehicleRoi : null;
   const vehicleZoneActive = !!vehicleRoi && !editingVehicleRoi;
+
+  useEffect(() => {
+    setPreviewVehicleRoi(false);
+    setEditingVehicleRoi(false);
+    setDraftVehicleRoi(null);
+    drawStartRef.current = null;
+  }, [cameraId]);
 
   function clamp01(n: number) {
     return Math.max(0, Math.min(1, n));
@@ -115,6 +123,7 @@ export function CctvCameraPlayer({
   }
 
   function beginVehicleRoiEdit() {
+    setPreviewVehicleRoi(false);
     setDraftVehicleRoi(vehicleRoi);
     setEditingVehicleRoi(true);
   }
@@ -124,6 +133,7 @@ export function CctvCameraPlayer({
     await onSaveVehicleRoi(roi);
     setEditingVehicleRoi(false);
     setDraftVehicleRoi(null);
+    setPreviewVehicleRoi(false);
   }
 
   useEffect(() => {
@@ -236,14 +246,17 @@ export function CctvCameraPlayer({
         autoPlay
         aria-label={`Live stream: ${cameraName}`}
       />
-      {showVehicleRoiOverlay && (
+      {overlayRoi && (
         <div
-          className="pointer-events-none absolute z-[4] border-2 border-cyan-300 border-dashed bg-cyan-300/10"
+          className={cn(
+            "pointer-events-none absolute z-[4] border-2 bg-cyan-300/10",
+            editingVehicleRoi ? "border-cyan-300 border-dashed" : "border-cyan-400",
+          )}
           style={{
-            left: `${draftVehicleRoi!.x * 100}%`,
-            top: `${draftVehicleRoi!.y * 100}%`,
-            width: `${draftVehicleRoi!.w * 100}%`,
-            height: `${draftVehicleRoi!.h * 100}%`,
+            left: `${overlayRoi.x * 100}%`,
+            top: `${overlayRoi.y * 100}%`,
+            width: `${overlayRoi.w * 100}%`,
+            height: `${overlayRoi.h * 100}%`,
           }}
         >
           <span className="absolute -top-5 left-0 rounded bg-cyan-500 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
@@ -286,16 +299,28 @@ export function CctvCameraPlayer({
       )}
       <div className="absolute right-3 top-3 z-10 flex gap-2">
         {vehicleZoneActive && !error && (
-          <span
-            className="inline-flex h-8 items-center gap-1 rounded bg-cyan-600/90 px-2 text-white"
-            title="Vehicle detection zone is active (hidden on stream)"
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            className={cn(
+              "h-8 gap-1 px-2 text-white hover:bg-cyan-500",
+              previewVehicleRoi ? "bg-cyan-500" : "bg-cyan-600/90",
+            )}
+            title={
+              previewVehicleRoi
+                ? "Hide vehicle detection area"
+                : "Show vehicle detection area"
+            }
+            aria-pressed={previewVehicleRoi}
+            onClick={() => setPreviewVehicleRoi((v) => !v)}
             data-testid={`cctv-vehicle-roi-badge-${cameraId}`}
           >
             <ScanSearch className="h-4 w-4 shrink-0" aria-hidden />
-            <span className="text-[10px] font-semibold uppercase tracking-wide hidden sm:inline">
+            <span className="text-[10px] font-semibold uppercase tracking-wide">
               Zone
             </span>
-          </span>
+          </Button>
         )}
         {aiEnabled && !error && (
           <span
@@ -314,7 +339,7 @@ export function CctvCameraPlayer({
             onClick={beginVehicleRoiEdit}
             title={vehicleZoneActive ? "Edit vehicle detection zone" : "Set vehicle detection zone"}
           >
-            {vehicleZoneActive ? <ScanSearch className="h-4 w-4" /> : "ROI"}
+            {vehicleZoneActive ? "Edit" : "ROI"}
           </Button>
         )}
         <Button
