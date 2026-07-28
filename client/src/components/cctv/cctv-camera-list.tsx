@@ -174,8 +174,8 @@ export function CctvCameraList({
                 </p>
                 {aiEvents.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
-                    No AI alerts yet. Detection runs every 4 seconds for people and vehicles while AI
-                    is enabled.
+                    No AI alerts yet. Detection runs every 2.5 seconds for people and vehicles while AI
+                    is enabled and the stream is active.
                   </p>
                 ) : (
                   <ul className="space-y-1.5 text-sm">

@@ -30,6 +30,38 @@ function streamKey(orgId: string, cameraId: number): string {
   return `${orgId}:${cameraId}`;
 }
 
+/** Latest HLS segment on disk when a live transmux is running (for AI frame grab). */
+export function getLatestHlsSegmentPath(orgId: string, cameraId: number): string | null {
+  const key = streamKey(orgId, cameraId);
+  const entry = streams.get(key);
+  if (!entry) return null;
+  entry.lastAccess = Date.now();
+
+  const playlist = path.join(entry.dir, "playlist.m3u8");
+  if (!fs.existsSync(playlist)) return null;
+
+  let lastRel: string | null = null;
+  for (const line of fs.readFileSync(playlist, "utf8").split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed && !trimmed.startsWith("#") && trimmed.endsWith(".ts")) {
+      lastRel = path.basename(trimmed);
+    }
+  }
+  if (lastRel) {
+    const full = path.join(entry.dir, lastRel);
+    if (fs.existsSync(full)) return full;
+  }
+
+  let newest: { full: string; mtime: number } | null = null;
+  for (const name of fs.readdirSync(entry.dir)) {
+    if (!name.endsWith(".ts")) continue;
+    const full = path.join(entry.dir, name);
+    const st = fs.statSync(full);
+    if (!newest || st.mtimeMs > newest.mtime) newest = { full, mtime: st.mtimeMs };
+  }
+  return newest?.full ?? null;
+}
+
 function ffmpegPath(): string | null {
   if (ffmpegStatic && typeof ffmpegStatic === "string") return ffmpegStatic;
   return null;

@@ -75,10 +75,14 @@ export function CctvCameraPlayer({
       return res.json();
     },
     enabled: aiEnabled && !error,
-    refetchInterval: 2000,
+    refetchInterval: 1500,
   });
 
-  const detections = aiData?.detections ?? [];
+  const detectionsRaw = aiData?.detections ?? [];
+  const updatedAtMs = aiData?.updatedAt ? new Date(aiData.updatedAt).getTime() : 0;
+  const detectionsFresh =
+    updatedAtMs > 0 && Date.now() - updatedAtMs < 7000 ? detectionsRaw : [];
+  const detections = detectionsFresh;
 
   useEffect(() => {
     const video = videoRef.current;

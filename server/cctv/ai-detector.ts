@@ -7,8 +7,21 @@ import * as ort from "onnxruntime-node";
 import type { CctvAiDetection } from "@shared/cctv";
 
 const INPUT_SIZE = 640;
-const CONF_THRESHOLD = 0.25;
+/** Raw YOLO score floor; refined per-class in `refineDetections`. */
+const CONF_THRESHOLD = 0.22;
 const IOU_THRESHOLD = 0.45;
+
+const MIN_CONF: Record<string, number> = {
+  person: 0.48,
+  car: 0.38,
+  motorcycle: 0.38,
+  bus: 0.38,
+  truck: 0.38,
+};
+
+/** Person boxes below this need two consecutive samples (see ai-worker). */
+export const PERSON_INSTANT_CONF = 0.62;
+export const PERSON_MIN_CONF = MIN_CONF.person ?? 0.48;
 
 /** COCO class ids we alert on: person + common vehicles. */
 const DETECT_CLASS_IDS = new Set([0, 2, 3, 5, 7]); // person, car, motorcycle, bus, truck
@@ -82,7 +95,7 @@ async function getSession(): Promise<ort.InferenceSession> {
   return sessionPromise;
 }
 
-export async function grabRtspJpeg(rtspUrl: string, timeoutMs = 12_000): Promise<Buffer> {
+export async function grabRtspJpeg(rtspUrl: string, timeoutMs = 8_000): Promise<Buffer> {
   const bin = ffmpegStatic && typeof ffmpegStatic === "string" ? ffmpegStatic : null;
   if (!bin) throw new Error("FFmpeg is not available");
 
@@ -91,6 +104,12 @@ export async function grabRtspJpeg(rtspUrl: string, timeoutMs = 12_000): Promise
       "-hide_banner",
       "-loglevel",
       "error",
+      "-probesize",
+      "32768",
+      "-analyzeduration",
+      "500000",
+      "-fflags",
+      "nobuffer",
       "-rtsp_transport",
       "tcp",
       "-i",
@@ -102,7 +121,7 @@ export async function grabRtspJpeg(rtspUrl: string, timeoutMs = 12_000): Promise
       "-vcodec",
       "mjpeg",
       "-q:v",
-      "3",
+      "2",
       "pipe:1",
     ];
     const proc = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
@@ -137,6 +156,63 @@ export async function grabRtspJpeg(rtspUrl: string, timeoutMs = 12_000): Promise
         return;
       }
       reject(new Error(`Frame grab failed${stderr ? `: ${stderr.trim()}` : ` (code ${code})`}`));
+    });
+  });
+}
+
+export async function grabMpegTsJpeg(segmentPath: string, timeoutMs = 5_000): Promise<Buffer> {
+  const bin = ffmpegStatic && typeof ffmpegStatic === "string" ? ffmpegStatic : null;
+  if (!bin) throw new Error("FFmpeg is not available");
+
+  return new Promise((resolve, reject) => {
+    const args = [
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-i",
+      segmentPath,
+      "-frames:v",
+      "1",
+      "-f",
+      "image2pipe",
+      "-vcodec",
+      "mjpeg",
+      "-q:v",
+      "2",
+      "pipe:1",
+    ];
+    const proc = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const chunks: Buffer[] = [];
+    let stderr = "";
+    let settled = false;
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      proc.kill("SIGKILL");
+      reject(new Error("Segment frame grab timed out"));
+    }, timeoutMs);
+
+    proc.stdout?.on("data", (c: Buffer) => chunks.push(c));
+    proc.stderr?.on("data", (c: Buffer) => {
+      stderr = (stderr + c.toString()).slice(-2000);
+    });
+    proc.on("error", (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(err);
+    });
+    proc.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      const buf = Buffer.concat(chunks);
+      if (code === 0 && buf.length > 100) {
+        resolve(buf);
+        return;
+      }
+      reject(new Error(`Segment grab failed${stderr ? `: ${stderr.trim()}` : ` (code ${code})`}`));
     });
   });
 }
@@ -219,6 +295,24 @@ function nms(dets: CctvAiDetection[]): CctvAiDetection[] {
   return kept;
 }
 
+/** Drop weak scores and person false positives (chairs, small wide blobs). */
+export function refineDetections(dets: CctvAiDetection[]): CctvAiDetection[] {
+  return dets.filter((d) => {
+    const minConf = MIN_CONF[d.label] ?? 0.4;
+    if (d.confidence < minConf) return false;
+
+    const area = d.w * d.h;
+    if (area < 0.0015) return false;
+
+    if (d.label === "person") {
+      const aspect = d.h / Math.max(d.w, 1e-6);
+      if (aspect < 0.72) return false;
+      if (area < 0.0035 && d.confidence < 0.55) return false;
+    }
+    return true;
+  });
+}
+
 function parseYoloOutput(output: ort.Tensor, meta: LetterboxMeta): CctvAiDetection[] {
   const dims = output.dims;
   // YOLOv8 export: [1, 84, N] where 84 = 4 box + 80 classes
@@ -282,7 +376,7 @@ function parseYoloOutput(output: ort.Tensor, meta: LetterboxMeta): CctvAiDetecti
     });
   }
 
-  return nms(raw);
+  return refineDetections(nms(raw));
 }
 
 /** Run person + vehicle detection on a JPEG frame. */
@@ -296,9 +390,23 @@ export async function detectObjectsInJpeg(jpeg: Buffer): Promise<CctvAiDetection
   return parseYoloOutput(results[outName], meta);
 }
 
-/** Grab one RTSP frame and detect people / vehicles. */
-export async function detectObjectsFromRtsp(rtspUrl: string): Promise<CctvAiDetection[]> {
-  const jpeg = await grabRtspJpeg(rtspUrl);
+async function grabFrameJpeg(rtspUrl: string, hlsSegment: string | null): Promise<Buffer> {
+  if (hlsSegment) {
+    try {
+      return await grabMpegTsJpeg(hlsSegment);
+    } catch {
+      /* fall through to RTSP */
+    }
+  }
+  return grabRtspJpeg(rtspUrl);
+}
+
+/** Grab one frame (HLS segment when live stream is up, else RTSP) and detect. */
+export async function detectObjectsFromRtsp(
+  rtspUrl: string,
+  hlsSegmentPath?: string | null,
+): Promise<CctvAiDetection[]> {
+  const jpeg = await grabFrameJpeg(rtspUrl, hlsSegmentPath ?? null);
   return detectObjectsInJpeg(jpeg);
 }
 
