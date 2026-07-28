@@ -71,8 +71,10 @@ export function CctvCameraList({
   const { toast } = useToast();
   const [deleteTarget, setDeleteTarget] = useState<CctvCameraPublic | null>(null);
   const [seenByCamera, setSeenByCamera] = useState<SeenMap>(() => loadSeenMap());
+  const [fadingEventIds, setFadingEventIds] = useState<Set<number>>(() => new Set());
   const toastedEventIds = useRef<Set<number>>(new Set());
   const recentPrimed = useRef(false);
+  const fadeTimers = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
@@ -165,6 +167,44 @@ export function CctvCameraList({
     return events.filter((e) => e.id > seenId).length;
   }
 
+  function acknowledgeSidebarAlert(cam: CctvCameraPublic, ev: CctvAiEventPublic) {
+    if (fadingEventIds.has(ev.id)) return;
+    setFadingEventIds((prev) => {
+      const next = new Set(prev);
+      next.add(ev.id);
+      return next;
+    });
+    onSelect(cam.id);
+    markCameraSeen(cam.id, ev.id);
+    if (ev.snapshotUrl) {
+      setSnapshotPreview({
+        url: ev.snapshotUrl,
+        label: ev.label,
+        confidence: ev.confidence,
+        createdAt: ev.createdAt,
+      });
+    }
+    const existing = fadeTimers.current.get(ev.id);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => {
+      setFadingEventIds((prev) => {
+        const next = new Set(prev);
+        next.delete(ev.id);
+        return next;
+      });
+      fadeTimers.current.delete(ev.id);
+    }, 900);
+    fadeTimers.current.set(ev.id, timer);
+  }
+
+  useEffect(() => {
+    const timers = fadeTimers.current;
+    return () => {
+      for (const t of timers.values()) clearTimeout(t);
+      timers.clear();
+    };
+  }, []);
+
   useEffect(() => {
     if (!anyAiEnabled) return;
     if (!recentPrimed.current) {
@@ -183,13 +223,6 @@ export function CctvCameraList({
     }
   }, [recentAiEvents, anyAiEnabled, cameras, toast]);
 
-  useEffect(() => {
-    if (selectedId != null && selected?.aiEnabled) {
-      markCameraSeen(selectedId);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- mark when selection or events update
-  }, [selectedId, selected?.aiEnabled, eventsByCamera]);
-
   return (
     <div className="grid gap-5 lg:grid-cols-[minmax(0,280px)_1fr]">
       <div className="space-y-2">
@@ -200,16 +233,19 @@ export function CctvCameraList({
           {cameras.map((cam) => {
             const active = cam.id === selectedId;
             const camEvents = eventsByCamera.get(cam.id) ?? [];
-            const latest = camEvents[0];
+            const seenId = seenByCamera[String(cam.id)] ?? 0;
+            const latestUnread = camEvents.find((e) => e.id > seenId) ?? null;
+            const fadingEvent =
+              camEvents.find((e) => fadingEventIds.has(e.id)) ??
+              (latestUnread && fadingEventIds.has(latestUnread.id) ? latestUnread : null);
+            const notice = fadingEvent ?? latestUnread;
+            const isFading = !!(notice && fadingEventIds.has(notice.id));
             const unread = cam.aiEnabled ? unreadCount(cam.id) : 0;
             return (
               <li key={cam.id} className="space-y-1">
                 <button
                   type="button"
-                  onClick={() => {
-                    if (!active) markCameraSeen(cam.id);
-                    onSelect(active ? null : cam.id);
-                  }}
+                  onClick={() => onSelect(active ? null : cam.id)}
                   className={cn(
                     "w-full flex items-center gap-2 rounded-lg border px-3 py-2.5 text-left text-sm transition-colors",
                     active
@@ -242,19 +278,46 @@ export function CctvCameraList({
                     <ScanSearch className="h-4 w-4 shrink-0 text-muted-foreground" aria-label="PTZ camera" />
                   )}
                 </button>
-                {cam.aiEnabled && latest && (
+                {cam.aiEnabled && notice && (
                   <button
                     type="button"
-                    className="ml-1 w-[calc(100%-0.25rem)] rounded-md border border-border/60 bg-muted/30 px-2.5 py-1.5 text-left text-[11px] text-muted-foreground hover:bg-muted/50"
-                    onClick={() => {
-                      markCameraSeen(cam.id);
-                      onSelect(cam.id);
-                    }}
+                    className={cn(
+                      "ml-1 flex w-[calc(100%-0.25rem)] items-center gap-2 rounded-md border px-2.5 py-1.5 text-left text-[11px] transition-all duration-700",
+                      isFading
+                        ? "border-border/40 bg-muted/20 text-muted-foreground/50 opacity-40 scale-[0.98]"
+                        : "border-amber-500/40 bg-amber-500/10 text-muted-foreground hover:bg-amber-500/15",
+                    )}
+                    onClick={() => acknowledgeSidebarAlert(cam, notice)}
+                    disabled={isFading}
+                    aria-label={
+                      isFading
+                        ? "Alert acknowledged"
+                        : `Open ${notice.label} alert`
+                    }
                   >
-                    <span className="capitalize text-foreground/90">{latest.label}</span>
-                    <span> · {Math.round(latest.confidence * 100)}%</span>
-                    <span className="block truncate tabular-nums">
-                      {new Date(latest.createdAt).toLocaleString()}
+                    {notice.snapshotUrl ? (
+                      <img
+                        src={notice.snapshotUrl}
+                        alt=""
+                        className={cn(
+                          "h-8 w-8 shrink-0 rounded border object-cover transition-opacity duration-700",
+                          isFading && "opacity-40",
+                        )}
+                        loading="lazy"
+                        decoding="async"
+                      />
+                    ) : null}
+                    <span className="min-w-0 flex-1">
+                      <span className={cn("capitalize", isFading ? "text-muted-foreground/60" : "text-foreground/90")}>
+                        {notice.label}
+                      </span>
+                      <span> · {Math.round(notice.confidence * 100)}%</span>
+                      {isFading ? (
+                        <span className="ml-1 text-[10px] uppercase tracking-wide">Seen</span>
+                      ) : null}
+                      <span className="block truncate tabular-nums">
+                        {new Date(notice.createdAt).toLocaleString()}
+                      </span>
                     </span>
                   </button>
                 )}
