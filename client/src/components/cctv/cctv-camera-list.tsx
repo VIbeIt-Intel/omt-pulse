@@ -312,22 +312,25 @@ export function CctvCameraList({
           if (!open) setSnapshotPreview(null);
         }}
       >
-        <DialogContent className="max-w-sm p-0 gap-0 overflow-hidden sm:max-w-md">
+        <DialogContent className="max-w-[min(92vw,36rem)] gap-0 overflow-hidden border-border/60 bg-zinc-950 p-0 text-zinc-50 sm:rounded-xl">
           {snapshotPreview && (
             <>
-              <DialogHeader className="px-4 pt-4 pb-2 space-y-1">
-                <DialogTitle className="capitalize text-base">
-                  {snapshotPreview.label} ({Math.round(snapshotPreview.confidence * 100)}%)
+              <DialogHeader className="space-y-1 border-b border-white/10 px-4 py-3 pr-12 text-left">
+                <DialogTitle className="capitalize text-base text-zinc-50">
+                  {snapshotPreview.label}{" "}
+                  <span className="font-normal text-zinc-400">
+                    ({Math.round(snapshotPreview.confidence * 100)}%)
+                  </span>
                 </DialogTitle>
-                <DialogDescription className="text-xs">
+                <DialogDescription className="text-xs text-zinc-400">
                   {new Date(snapshotPreview.createdAt).toLocaleString()}
                 </DialogDescription>
               </DialogHeader>
-              <div className="px-4 pb-4 flex justify-center bg-muted/30">
+              <div className="flex min-h-[280px] items-center justify-center bg-black px-3 py-4 sm:min-h-[360px] sm:px-4">
                 <img
                   src={snapshotPreview.url}
                   alt={`${snapshotPreview.label} detection`}
-                  className="max-h-[min(70vh,480px)] w-auto max-w-full rounded border object-contain image-rendering-auto"
+                  className="max-h-[min(72vh,560px)] w-full object-contain"
                   decoding="async"
                 />
               </div>

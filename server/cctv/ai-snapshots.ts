@@ -5,7 +5,10 @@ import sharp from "sharp";
 import type { CctvAiDetection } from "@shared/cctv";
 
 const SNAPSHOT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
-const SNAPSHOT_MAX_SIZE = 224;
+/** Large enough to open cleanly; still a small WebP crop, not a full frame. */
+const SNAPSHOT_MAX_SIZE = 512;
+/** Upscale tiny distant crops so the preview isn't a postage stamp. */
+const SNAPSHOT_MIN_SIZE = 320;
 
 function snapshotsDir(): string {
   const dir = path.join(os.tmpdir(), "omt-cctv", "ai-snapshots");
@@ -47,7 +50,8 @@ export async function saveDetectionSnapshot(input: {
     const height = meta.height ?? 0;
     if (!width || !height) return null;
 
-    const pad = 0.12;
+    // Extra context around the box so distant cars/people are readable when opened.
+    const pad = 0.35;
     const x1 = clamp01(input.detection.x - input.detection.w * pad);
     const y1 = clamp01(input.detection.y - input.detection.h * pad);
     const x2 = clamp01(input.detection.x + input.detection.w * (1 + pad));
@@ -61,10 +65,25 @@ export async function saveDetectionSnapshot(input: {
     const fileName = `cam-${input.cameraId}-${Date.now()}.webp`;
     const full = getAiSnapshotPath(fileName);
 
-    await image
-      .extract({ left, top, width: Math.min(extractWidth, width - left), height: Math.min(extractHeight, height - top) })
-      .resize(SNAPSHOT_MAX_SIZE, SNAPSHOT_MAX_SIZE, { fit: "inside", withoutEnlargement: true })
-      .webp({ quality: 56 })
+    const cropped = image.extract({
+      left,
+      top,
+      width: Math.min(extractWidth, width - left),
+      height: Math.min(extractHeight, height - top),
+    });
+
+    const cropMeta = await cropped.metadata();
+    const cropW = cropMeta.width ?? extractWidth;
+    const cropH = cropMeta.height ?? extractHeight;
+    const longest = Math.max(cropW, cropH);
+    const target =
+      longest < SNAPSHOT_MIN_SIZE
+        ? SNAPSHOT_MIN_SIZE
+        : Math.min(SNAPSHOT_MAX_SIZE, Math.max(longest, SNAPSHOT_MIN_SIZE));
+
+    await cropped
+      .resize(target, target, { fit: "inside" })
+      .webp({ quality: 78, effort: 4 })
       .toFile(full);
 
     pruneAiSnapshots();
