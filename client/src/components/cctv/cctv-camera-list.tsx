@@ -145,6 +145,12 @@ export function CctvCameraList({
                   {cam.aiEnabled && (
                     <BrainCircuit className="h-4 w-4 shrink-0 text-emerald-500" aria-label="AI enabled" />
                   )}
+                  {cam.vehicleRoi && (
+                    <ScanSearch
+                      className="h-4 w-4 shrink-0 text-cyan-500"
+                      aria-label="Vehicle zone active"
+                    />
+                  )}
                   {cam.isPtz && (
                     <ScanSearch className="h-4 w-4 shrink-0 text-muted-foreground" aria-label="PTZ camera" />
                   )}

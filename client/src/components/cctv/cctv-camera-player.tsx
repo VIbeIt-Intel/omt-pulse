@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Hls from "hls.js";
-import { AlertCircle, Maximize2, RefreshCw } from "lucide-react";
+import { AlertCircle, Maximize2, RefreshCw, ScanSearch } from "lucide-react";
 import type { CctvAiDetection, CctvRoi } from "@shared/cctv";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -95,7 +95,8 @@ export function CctvCameraPlayer({
   const detectionsFresh =
     updatedAtMs > 0 && Date.now() - updatedAtMs < 10_000 ? detectionsRaw : [];
   const detections = detectionsFresh;
-  const visibleVehicleRoi = editingVehicleRoi ? draftVehicleRoi : vehicleRoi;
+  const showVehicleRoiOverlay = editingVehicleRoi && draftVehicleRoi;
+  const vehicleZoneActive = !!vehicleRoi && !editingVehicleRoi;
 
   function clamp01(n: number) {
     return Math.max(0, Math.min(1, n));
@@ -235,17 +236,14 @@ export function CctvCameraPlayer({
         autoPlay
         aria-label={`Live stream: ${cameraName}`}
       />
-      {visibleVehicleRoi && (
+      {showVehicleRoiOverlay && (
         <div
-          className={cn(
-            "pointer-events-none absolute z-[4] border-2",
-            editingVehicleRoi ? "border-cyan-300 border-dashed bg-cyan-300/10" : "border-cyan-400/80 bg-cyan-400/5",
-          )}
+          className="pointer-events-none absolute z-[4] border-2 border-cyan-300 border-dashed bg-cyan-300/10"
           style={{
-            left: `${visibleVehicleRoi.x * 100}%`,
-            top: `${visibleVehicleRoi.y * 100}%`,
-            width: `${visibleVehicleRoi.w * 100}%`,
-            height: `${visibleVehicleRoi.h * 100}%`,
+            left: `${draftVehicleRoi!.x * 100}%`,
+            top: `${draftVehicleRoi!.y * 100}%`,
+            width: `${draftVehicleRoi!.w * 100}%`,
+            height: `${draftVehicleRoi!.h * 100}%`,
           }}
         >
           <span className="absolute -top-5 left-0 rounded bg-cyan-500 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
@@ -287,6 +285,18 @@ export function CctvCameraPlayer({
         </div>
       )}
       <div className="absolute right-3 top-3 z-10 flex gap-2">
+        {vehicleZoneActive && !error && (
+          <span
+            className="inline-flex h-8 items-center gap-1 rounded bg-cyan-600/90 px-2 text-white"
+            title="Vehicle detection zone is active (hidden on stream)"
+            data-testid={`cctv-vehicle-roi-badge-${cameraId}`}
+          >
+            <ScanSearch className="h-4 w-4 shrink-0" aria-hidden />
+            <span className="text-[10px] font-semibold uppercase tracking-wide hidden sm:inline">
+              Zone
+            </span>
+          </span>
+        )}
         {aiEnabled && !error && (
           <span
             className="rounded bg-emerald-600/90 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white"
@@ -302,8 +312,9 @@ export function CctvCameraPlayer({
             variant="secondary"
             className="h-8 bg-black/60 text-white hover:bg-black/75"
             onClick={beginVehicleRoiEdit}
+            title={vehicleZoneActive ? "Edit vehicle detection zone" : "Set vehicle detection zone"}
           >
-            ROI
+            {vehicleZoneActive ? <ScanSearch className="h-4 w-4" /> : "ROI"}
           </Button>
         )}
         <Button
