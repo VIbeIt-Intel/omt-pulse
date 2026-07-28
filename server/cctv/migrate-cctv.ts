@@ -20,6 +20,7 @@ export async function migrateCctv() {
       username TEXT,
       stream_rotation TEXT NOT NULL DEFAULT 'normal',
       is_ptz BOOLEAN NOT NULL DEFAULT FALSE,
+      vehicle_roi_json TEXT,
       password_enc TEXT,
       created_by_user_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
       created_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -37,6 +38,10 @@ export async function migrateCctv() {
   await safe("cctv_cameras.ai_enabled", sql`
     ALTER TABLE cctv_cameras
     ADD COLUMN IF NOT EXISTS ai_enabled BOOLEAN NOT NULL DEFAULT FALSE
+  `);
+  await safe("cctv_cameras.vehicle_roi_json", sql`
+    ALTER TABLE cctv_cameras
+    ADD COLUMN IF NOT EXISTS vehicle_roi_json TEXT
   `);
   await safe("cctv_cameras.is_ptz", sql`
     ALTER TABLE cctv_cameras

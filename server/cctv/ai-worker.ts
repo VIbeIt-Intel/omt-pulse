@@ -1,6 +1,7 @@
 import type { CctvAiDetection } from "@shared/cctv";
 import {
   detectObjectsFromRtspWithFrame,
+  detectVehicleObjectsInJpegForRoi,
   PERSON_INSTANT_CONF,
   PERSON_MIN_CONF,
   warmupCctvAiDetector,
@@ -92,12 +93,33 @@ function confirmPersonDetections(
   return [...vehicles, ...instant, ...confirmedLow];
 }
 
+function mergeUniqueDetections(dets: CctvAiDetection[]): CctvAiDetection[] {
+  const sorted = [...dets].sort((a, b) => b.confidence - a.confidence);
+  const kept: CctvAiDetection[] = [];
+  for (const det of sorted) {
+    const dupe = kept.some((k) => k.label === det.label && iou(k, det) >= 0.45);
+    if (!dupe) kept.push(det);
+  }
+  return kept;
+}
+
 async function processCamera(camera: Awaited<ReturnType<typeof listAiEnabledCameras>>[number]) {
   const rtsp = buildRtspSource(camera);
   const hlsSeg = getLatestHlsSegmentPath(camera.organizationId, camera.id);
   try {
     const { jpeg, detections: raw } = await detectObjectsFromRtspWithFrame(rtsp, hlsSeg);
-    const detections = confirmPersonDetections(camera.id, raw);
+    let combined = raw;
+    if (camera.vehicleRoiJson) {
+      try {
+        const roi = JSON.parse(camera.vehicleRoiJson) as { x: number; y: number; w: number; h: number };
+        const fullFrame = raw.filter((d) => d.label === "person");
+        const roiVehicles = await detectVehicleObjectsInJpegForRoi(jpeg, roi);
+        combined = mergeUniqueDetections([...fullFrame, ...roiVehicles]);
+      } catch {
+        combined = raw;
+      }
+    }
+    const detections = confirmPersonDetections(camera.id, combined);
     latestByCamera.set(camera.id, { detections, at: Date.now() });
 
     const nowHas = detections.length > 0;

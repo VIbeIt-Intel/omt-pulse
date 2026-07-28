@@ -13,6 +13,14 @@ export type CctvStreamRotation = z.infer<typeof cctvStreamRotationEnum>;
 export const cctvStreamQualityEnum = z.enum(["high", "medium", "low"]);
 export type CctvStreamQuality = z.infer<typeof cctvStreamQualityEnum>;
 
+export const cctvRoiSchema = z.object({
+  x: z.number().min(0).max(1),
+  y: z.number().min(0).max(1),
+  w: z.number().min(0.01).max(1),
+  h: z.number().min(0.01).max(1),
+});
+export type CctvRoi = z.infer<typeof cctvRoiSchema>;
+
 export function normalizeCctvStreamQuality(value: unknown): CctvStreamQuality {
   if (value === "high" || value === "low" || value === "medium") return value;
   return "medium";
@@ -35,6 +43,8 @@ export const cctvCameras = pgTable("cctv_cameras", {
   streamQuality: text("stream_quality").notNull().default("medium"),
   /** When true, VPS AI worker samples frames for person + vehicle detection. */
   aiEnabled: boolean("ai_enabled").notNull().default(false),
+  /** Optional vehicle-specific detection zone in normalized 0-1 image coords. */
+  vehicleRoiJson: text("vehicle_roi_json"),
   isPtz: boolean("is_ptz").notNull().default(false),
   /** VPS-side tunnel port for PTZ HTTP (default 8555 → camera :80). */
   ptzControlPort: integer("ptz_control_port").default(8555),
@@ -61,6 +71,7 @@ export const insertCctvCameraSchema = createInsertSchema(cctvCameras, {
   streamRotation: cctvStreamRotationEnum.default("normal"),
   streamQuality: cctvStreamQualityEnum.default("medium"),
   aiEnabled: z.boolean().default(false),
+  vehicleRoiJson: z.string().optional().nullable(),
   isPtz: z.boolean().default(false),
   ptzControlPort: z.number().int().min(1).max(65535).optional().nullable(),
   ptzCameraHttpPort: z.number().int().min(1).max(65535).optional().nullable(),
@@ -126,6 +137,7 @@ export type CctvCameraPublic = {
   streamRotation: CctvStreamRotation;
   streamQuality: CctvStreamQuality;
   aiEnabled: boolean;
+  vehicleRoi: CctvRoi | null;
   isPtz: boolean;
   createdAt: string;
   updatedAt: string;

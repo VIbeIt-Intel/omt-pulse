@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BrainCircuit, Pencil, ScanSearch, Trash2, Video } from "lucide-react";
-import type { CctvAiEventPublic, CctvCameraPublic } from "@shared/cctv";
+import type { CctvAiEventPublic, CctvCameraPublic, CctvRoi } from "@shared/cctv";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card } from "@/components/ui/card";
@@ -53,8 +53,20 @@ export function CctvCameraList({
       setDeleteTarget(null);
     },
   });
+  const [savingVehicleRoi, setSavingVehicleRoi] = useState(false);
 
   const selected = cameras.find((c) => c.id === selectedId) ?? null;
+
+  async function saveVehicleRoi(roi: CctvRoi | null) {
+    if (!selected) return;
+    setSavingVehicleRoi(true);
+    try {
+      await apiRequest("PATCH", `/api/cctv/cameras/${selected.id}`, { vehicleRoi: roi });
+      void queryClient.invalidateQueries({ queryKey: ["/api/cctv/cameras"] });
+    } finally {
+      setSavingVehicleRoi(false);
+    }
+  }
 
   const { data: aiEvents = [] } = useQuery<CctvAiEventPublic[]>({
     queryKey: ["/api/cctv/cameras", selected?.id, "ai", "events"],
@@ -166,6 +178,10 @@ export function CctvCameraList({
               cameraName={selected.name}
               showPtz={selected.isPtz}
               aiEnabled={selected.aiEnabled}
+              vehicleRoi={selected.vehicleRoi}
+              canEditVehicleRoi={isAdmin}
+              savingVehicleRoi={savingVehicleRoi}
+              onSaveVehicleRoi={saveVehicleRoi}
             />
             {selected.aiEnabled && (
               <div className="rounded-lg border p-3 space-y-2" data-testid="cctv-ai-events">

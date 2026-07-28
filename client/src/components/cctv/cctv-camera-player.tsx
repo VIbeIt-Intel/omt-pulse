@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Hls from "hls.js";
 import { AlertCircle, Maximize2, RefreshCw } from "lucide-react";
-import type { CctvAiDetection } from "@shared/cctv";
+import type { CctvAiDetection, CctvRoi } from "@shared/cctv";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -14,6 +14,10 @@ type CctvCameraPlayerProps = {
   cameraName: string;
   showPtz?: boolean;
   aiEnabled?: boolean;
+  vehicleRoi?: CctvRoi | null;
+  canEditVehicleRoi?: boolean;
+  savingVehicleRoi?: boolean;
+  onSaveVehicleRoi?: (roi: CctvRoi | null) => Promise<void> | void;
   className?: string;
 };
 
@@ -55,13 +59,21 @@ export function CctvCameraPlayer({
   cameraName,
   showPtz = false,
   aiEnabled = false,
+  vehicleRoi = null,
+  canEditVehicleRoi = false,
+  savingVehicleRoi = false,
+  onSaveVehicleRoi,
   className,
 }: CctvCameraPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [reloadNonce, setReloadNonce] = useState(0);
+  const [editingVehicleRoi, setEditingVehicleRoi] = useState(false);
+  const [draftVehicleRoi, setDraftVehicleRoi] = useState<CctvRoi | null>(null);
+  const drawStartRef = useRef<{ x: number; y: number } | null>(null);
 
   const { data: aiData } = useQuery<DetectionsResponse>({
     queryKey: ["/api/cctv/cameras", cameraId, "ai", "detections"],
@@ -83,6 +95,35 @@ export function CctvCameraPlayer({
   const detectionsFresh =
     updatedAtMs > 0 && Date.now() - updatedAtMs < 10_000 ? detectionsRaw : [];
   const detections = detectionsFresh;
+  const visibleVehicleRoi = editingVehicleRoi ? draftVehicleRoi : vehicleRoi;
+
+  function clamp01(n: number) {
+    return Math.max(0, Math.min(1, n));
+  }
+
+  function eventToNormalized(
+    clientX: number,
+    clientY: number,
+  ): { x: number; y: number } | null {
+    const rect = rootRef.current?.getBoundingClientRect();
+    if (!rect || rect.width <= 0 || rect.height <= 0) return null;
+    return {
+      x: clamp01((clientX - rect.left) / rect.width),
+      y: clamp01((clientY - rect.top) / rect.height),
+    };
+  }
+
+  function beginVehicleRoiEdit() {
+    setDraftVehicleRoi(vehicleRoi);
+    setEditingVehicleRoi(true);
+  }
+
+  async function saveVehicleRoi(roi: CctvRoi | null) {
+    if (!onSaveVehicleRoi) return;
+    await onSaveVehicleRoi(roi);
+    setEditingVehicleRoi(false);
+    setDraftVehicleRoi(null);
+  }
 
   useEffect(() => {
     const video = videoRef.current;
@@ -179,6 +220,7 @@ export function CctvCameraPlayer({
 
   return (
     <div
+      ref={rootRef}
       className={cn(
         "relative overflow-hidden rounded-lg border bg-black aspect-video",
         className,
@@ -193,6 +235,24 @@ export function CctvCameraPlayer({
         autoPlay
         aria-label={`Live stream: ${cameraName}`}
       />
+      {visibleVehicleRoi && (
+        <div
+          className={cn(
+            "pointer-events-none absolute z-[4] border-2",
+            editingVehicleRoi ? "border-cyan-300 border-dashed bg-cyan-300/10" : "border-cyan-400/80 bg-cyan-400/5",
+          )}
+          style={{
+            left: `${visibleVehicleRoi.x * 100}%`,
+            top: `${visibleVehicleRoi.y * 100}%`,
+            width: `${visibleVehicleRoi.w * 100}%`,
+            height: `${visibleVehicleRoi.h * 100}%`,
+          }}
+        >
+          <span className="absolute -top-5 left-0 rounded bg-cyan-500 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+            Vehicle area
+          </span>
+        </div>
+      )}
       {aiEnabled && detections.length > 0 && !error && (
         <div className="pointer-events-none absolute inset-0 z-[5]" aria-hidden>
           {detections.map((det, idx) => {
@@ -235,6 +295,17 @@ export function CctvCameraPlayer({
             AI
           </span>
         )}
+        {canEditVehicleRoi && !editingVehicleRoi && (
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            className="h-8 bg-black/60 text-white hover:bg-black/75"
+            onClick={beginVehicleRoiEdit}
+          >
+            ROI
+          </Button>
+        )}
         <Button
           type="button"
           size="icon"
@@ -258,6 +329,74 @@ export function CctvCameraPlayer({
           <Maximize2 className="h-4 w-4" />
         </Button>
       </div>
+      {editingVehicleRoi && (
+        <>
+          <div
+            className="absolute inset-0 z-[6] cursor-crosshair"
+            onPointerDown={(e) => {
+              const p = eventToNormalized(e.clientX, e.clientY);
+              if (!p) return;
+              drawStartRef.current = p;
+              setDraftVehicleRoi({ x: p.x, y: p.y, w: 0.01, h: 0.01 });
+            }}
+            onPointerMove={(e) => {
+              const start = drawStartRef.current;
+              if (!start) return;
+              const p = eventToNormalized(e.clientX, e.clientY);
+              if (!p) return;
+              const x1 = Math.min(start.x, p.x);
+              const y1 = Math.min(start.y, p.y);
+              const x2 = Math.max(start.x, p.x);
+              const y2 = Math.max(start.y, p.y);
+              setDraftVehicleRoi({
+                x: x1,
+                y: y1,
+                w: Math.max(0.01, x2 - x1),
+                h: Math.max(0.01, y2 - y1),
+              });
+            }}
+            onPointerUp={() => {
+              drawStartRef.current = null;
+            }}
+          />
+          <div className="absolute left-3 top-3 z-[7] max-w-sm rounded bg-black/70 px-3 py-2 text-xs text-white">
+            Draw the distant vehicle area on the image, then save it.
+          </div>
+          <div className="absolute bottom-3 left-3 z-[7] flex gap-2">
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => void saveVehicleRoi(draftVehicleRoi)}
+              disabled={!draftVehicleRoi || savingVehicleRoi}
+            >
+              {savingVehicleRoi ? "Saving..." : "Save vehicle area"}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => void saveVehicleRoi(null)}
+              disabled={savingVehicleRoi}
+            >
+              Clear
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="bg-black/60 text-white hover:bg-black/75"
+              onClick={() => {
+                setEditingVehicleRoi(false);
+                setDraftVehicleRoi(null);
+                drawStartRef.current = null;
+              }}
+              disabled={savingVehicleRoi}
+            >
+              Cancel
+            </Button>
+          </div>
+        </>
+      )}
       {showPtz && !error && (
         <div className="pointer-events-none absolute bottom-3 right-3 z-10 sm:bottom-4 sm:right-4">
           <CctvPtzControls cameraId={cameraId} overlay />

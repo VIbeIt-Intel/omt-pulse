@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   canManageCctvCameras,
   canViewCctvModule,
+  cctvRoiSchema,
   cctvStreamQualityEnum,
   cctvStreamRotationEnum,
   insertCctvCameraSchema,
@@ -75,6 +76,7 @@ const updateBodySchema = z.object({
   streamRotation: cctvStreamRotationEnum.optional(),
   streamQuality: cctvStreamQualityEnum.optional(),
   aiEnabled: z.boolean().optional(),
+  vehicleRoi: cctvRoiSchema.nullable().optional(),
   isPtz: z.boolean().optional(),
   ptzControlPort: z.number().int().min(1).max(65535).optional().nullable(),
   ptzCameraHttpPort: z.number().int().min(1).max(65535).optional().nullable(),

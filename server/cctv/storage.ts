@@ -6,6 +6,7 @@ import {
   type CctvAiEventPublic,
   type CctvCamera,
   type CctvCameraPublic,
+  type CctvRoi,
   type CctvStreamQuality,
 } from "@shared/cctv";
 import { db } from "../storage";
@@ -23,6 +24,30 @@ export function rtspPreviewUrl(rtspUrl: string): string {
   }
 }
 
+function parseVehicleRoi(raw: string | null): CctvRoi | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as CctvRoi;
+    if (
+      Number.isFinite(parsed.x) &&
+      Number.isFinite(parsed.y) &&
+      Number.isFinite(parsed.w) &&
+      Number.isFinite(parsed.h) &&
+      parsed.x >= 0 &&
+      parsed.y >= 0 &&
+      parsed.w > 0 &&
+      parsed.h > 0 &&
+      parsed.x + parsed.w <= 1 &&
+      parsed.y + parsed.h <= 1
+    ) {
+      return parsed;
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
 export function toPublicCamera(row: CctvCamera): CctvCameraPublic {
   return {
     id: row.id,
@@ -33,6 +58,7 @@ export function toPublicCamera(row: CctvCamera): CctvCameraPublic {
     streamRotation: row.streamRotation === "rotate180" ? "rotate180" : "normal",
     streamQuality: normalizeCctvStreamQuality(row.streamQuality),
     aiEnabled: !!row.aiEnabled,
+    vehicleRoi: parseVehicleRoi(row.vehicleRoiJson ?? null),
     isPtz: !!row.isPtz,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -132,6 +158,7 @@ export async function createCctvCamera(input: {
   streamRotation?: "normal" | "rotate180";
   streamQuality?: CctvStreamQuality;
   aiEnabled?: boolean;
+  vehicleRoi?: CctvRoi | null;
   isPtz?: boolean;
   ptzControlPort?: number | null;
   ptzCameraHttpPort?: number | null;
@@ -150,6 +177,7 @@ export async function createCctvCamera(input: {
       streamRotation: input.streamRotation === "rotate180" ? "rotate180" : "normal",
       streamQuality: normalizeCctvStreamQuality(input.streamQuality),
       aiEnabled: !!input.aiEnabled,
+      vehicleRoiJson: input.vehicleRoi ? JSON.stringify(input.vehicleRoi) : null,
       isPtz: !!input.isPtz,
       ptzControlPort: input.ptzControlPort ?? 8555,
       ptzCameraHttpPort: input.ptzCameraHttpPort ?? 80,
@@ -173,6 +201,7 @@ export async function updateCctvCamera(
     streamRotation?: "normal" | "rotate180";
     streamQuality?: CctvStreamQuality;
     aiEnabled?: boolean;
+    vehicleRoi?: CctvRoi | null;
     isPtz?: boolean;
     ptzControlPort?: number | null;
     ptzCameraHttpPort?: number | null;
@@ -200,6 +229,9 @@ export async function updateCctvCamera(
   }
   if (patch.aiEnabled !== undefined) {
     updates.aiEnabled = !!patch.aiEnabled;
+  }
+  if (patch.vehicleRoi !== undefined) {
+    updates.vehicleRoiJson = patch.vehicleRoi ? JSON.stringify(patch.vehicleRoi) : null;
   }
   if (patch.isPtz !== undefined) {
     updates.isPtz = !!patch.isPtz;

@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import ffmpegStatic from "ffmpeg-static";
 import sharp from "sharp";
 import * as ort from "onnxruntime-node";
-import type { CctvAiDetection } from "@shared/cctv";
+import type { CctvAiDetection, CctvRoi } from "@shared/cctv";
 
 const INPUT_SIZE = 640;
 /** Raw YOLO score floor; refined per-class in `refineDetections`. */
@@ -32,6 +32,7 @@ const DETECT_LABELS: Record<number, string> = {
   5: "bus",
   7: "truck",
 };
+const VEHICLE_LABEL_SET = new Set(["car", "motorcycle", "bus", "truck"]);
 
 const MODEL_URLS = [
   "https://huggingface.co/Kalray/yolov8/resolve/main/yolov8n.onnx",
@@ -400,6 +401,34 @@ export async function detectObjectsInJpegWithFrame(jpeg: Buffer): Promise<{
     jpeg,
     detections: await detectObjectsInJpeg(jpeg),
   };
+}
+
+export async function detectVehicleObjectsInJpegForRoi(
+  jpeg: Buffer,
+  roi: CctvRoi,
+): Promise<CctvAiDetection[]> {
+  const image = sharp(jpeg, { failOn: "none" }).rotate();
+  const meta = await image.metadata();
+  const width = meta.width ?? 0;
+  const height = meta.height ?? 0;
+  if (!width || !height) return [];
+
+  const left = Math.max(0, Math.floor(roi.x * width));
+  const top = Math.max(0, Math.floor(roi.y * height));
+  const cropWidth = Math.max(1, Math.min(width - left, Math.ceil(roi.w * width)));
+  const cropHeight = Math.max(1, Math.min(height - top, Math.ceil(roi.h * height)));
+  const cropped = await image.extract({ left, top, width: cropWidth, height: cropHeight }).jpeg({ quality: 90 }).toBuffer();
+  const detections = await detectObjectsInJpeg(cropped);
+
+  return detections
+    .filter((d) => VEHICLE_LABEL_SET.has(d.label))
+    .map((d) => ({
+      ...d,
+      x: roi.x + d.x * roi.w,
+      y: roi.y + d.y * roi.h,
+      w: d.w * roi.w,
+      h: d.h * roi.h,
+    }));
 }
 
 async function grabFrameJpeg(rtspUrl: string, hlsSegment: string | null): Promise<Buffer> {
