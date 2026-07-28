@@ -15,8 +15,11 @@ import {
 } from "./storage";
 
 const TICK_MS = 2_500;
-const ALERT_COOLDOWN_MS = 60_000;
+/** Per class (person vs vehicle) so one doesn't block the other. */
+const ALERT_COOLDOWN_MS = 45_000;
 const STALE_MS = 12_000;
+/** Boxes with IoU below this are treated as a different vehicle. */
+const DISTINCT_VEHICLE_IOU = 0.28;
 
 type LatestState = {
   detections: CctvAiDetection[];
@@ -25,15 +28,21 @@ type LatestState = {
 };
 
 const latestByCamera = new Map<number, LatestState>();
-/** Rising-edge tracker: any person/vehicle present. */
-const hadTarget = new Map<number, boolean>();
-const lastAlertAt = new Map<number, number>();
+const lastPersonAlertAt = new Map<number, number>();
+const lastVehicleAlertAt = new Map<number, number>();
+/** Vehicles seen on the previous successful tick (for new-vehicle detection). */
+const prevVehiclesByCamera = new Map<number, CctvAiDetection[]>();
+const hadPerson = new Map<number, boolean>();
 /** Low-confidence person must appear on consecutive ticks before we show/alert. */
 const personConfirmPending = new Map<number, CctvAiDetection[]>();
 
 let started = false;
 let tickRunning = false;
 let timer: ReturnType<typeof setInterval> | null = null;
+
+function isVehicle(d: CctvAiDetection): boolean {
+  return d.label !== "person";
+}
 
 export function getLatestCctvAiDetections(cameraId: number): LatestState | null {
   const state = latestByCamera.get(cameraId);
@@ -46,8 +55,10 @@ export function getLatestCctvAiDetections(cameraId: number): LatestState | null 
 
 export function clearCctvAiCameraState(cameraId: number): void {
   latestByCamera.delete(cameraId);
-  hadTarget.delete(cameraId);
-  lastAlertAt.delete(cameraId);
+  lastPersonAlertAt.delete(cameraId);
+  lastVehicleAlertAt.delete(cameraId);
+  prevVehiclesByCamera.delete(cameraId);
+  hadPerson.delete(cameraId);
   personConfirmPending.delete(cameraId);
 }
 
@@ -71,7 +82,7 @@ function confirmPersonDetections(
   cameraId: number,
   raw: CctvAiDetection[],
 ): CctvAiDetection[] {
-  const vehicles = raw.filter((d) => d.label !== "person");
+  const vehicles = raw.filter((d) => isVehicle(d));
   const persons = raw.filter((d) => d.label === "person");
   const instant = persons.filter((p) => p.confidence >= PERSON_INSTANT_CONF);
   const needConfirm = persons.filter((p) => p.confidence < PERSON_INSTANT_CONF);
@@ -103,6 +114,40 @@ function mergeUniqueDetections(dets: CctvAiDetection[]): CctvAiDetection[] {
   return kept;
 }
 
+function bestOf(dets: CctvAiDetection[]): CctvAiDetection | null {
+  if (!dets.length) return null;
+  return [...dets].sort((a, b) => b.confidence - a.confidence)[0] ?? null;
+}
+
+/** Vehicles that don't overlap a previous tick's vehicles (new car in frame). */
+function findNewVehicles(
+  prev: CctvAiDetection[],
+  now: CctvAiDetection[],
+): CctvAiDetection[] {
+  return now.filter((v) => prev.every((p) => iou(p, v) < DISTINCT_VEHICLE_IOU));
+}
+
+async function emitAlert(
+  camera: Awaited<ReturnType<typeof listAiEnabledCameras>>[number],
+  jpeg: Buffer,
+  detection: CctvAiDetection,
+): Promise<void> {
+  const snapshotPath = await saveDetectionSnapshot({
+    jpeg,
+    detection,
+    cameraId: camera.id,
+  });
+  await insertCctvAiEvent({
+    organizationId: camera.organizationId,
+    cameraId: camera.id,
+    detection,
+    snapshotPath,
+  });
+  console.log(
+    `[cctv-ai] alert camera=${camera.id} ${detection.label} ${(detection.confidence * 100).toFixed(0)}%`,
+  );
+}
+
 async function processCamera(camera: Awaited<ReturnType<typeof listAiEnabledCameras>>[number]) {
   const rtsp = buildRtspSource(camera);
   const hlsSeg = getLatestHlsSegmentPath(camera.organizationId, camera.id);
@@ -122,31 +167,34 @@ async function processCamera(camera: Awaited<ReturnType<typeof listAiEnabledCame
     const detections = confirmPersonDetections(camera.id, combined);
     latestByCamera.set(camera.id, { detections, at: Date.now() });
 
-    const nowHas = detections.length > 0;
-    const prevHad = hadTarget.get(camera.id) ?? false;
-    hadTarget.set(camera.id, nowHas);
+    const persons = detections.filter((d) => d.label === "person");
+    const vehicles = detections.filter((d) => isVehicle(d));
+    const now = Date.now();
 
-    if (nowHas && !prevHad) {
-      const last = lastAlertAt.get(camera.id) ?? 0;
-      if (Date.now() - last >= ALERT_COOLDOWN_MS) {
-        const best = [...detections].sort((a, b) => b.confidence - a.confidence)[0]!;
-        if (best.label !== "person" || best.confidence >= PERSON_MIN_CONF) {
-          const snapshotPath = await saveDetectionSnapshot({
-            jpeg,
-            detection: best,
-            cameraId: camera.id,
-          });
-          await insertCctvAiEvent({
-            organizationId: camera.organizationId,
-            cameraId: camera.id,
-            detection: best,
-            snapshotPath,
-          });
-          lastAlertAt.set(camera.id, Date.now());
-          console.log(
-            `[cctv-ai] alert camera=${camera.id} ${best.label} ${(best.confidence * 100).toFixed(0)}%`,
-          );
-        }
+    // Person: rising edge only (nothing → person).
+    const nowHasPerson = persons.length > 0;
+    const prevHadPerson = hadPerson.get(camera.id) ?? false;
+    hadPerson.set(camera.id, nowHasPerson);
+    if (nowHasPerson && !prevHadPerson) {
+      const last = lastPersonAlertAt.get(camera.id) ?? 0;
+      const best = bestOf(persons);
+      if (best && best.confidence >= PERSON_MIN_CONF && now - last >= ALERT_COOLDOWN_MS) {
+        await emitAlert(camera, jpeg, best);
+        lastPersonAlertAt.set(camera.id, now);
+      }
+    }
+
+    // Vehicle: rising edge OR a distinct new box vs previous tick (2nd car while 1st still there).
+    const prevVehicles = prevVehiclesByCamera.get(camera.id) ?? [];
+    const newVehicles = findNewVehicles(prevVehicles, vehicles);
+    prevVehiclesByCamera.set(camera.id, vehicles);
+
+    if (newVehicles.length > 0) {
+      const last = lastVehicleAlertAt.get(camera.id) ?? 0;
+      const best = bestOf(newVehicles);
+      if (best && now - last >= ALERT_COOLDOWN_MS) {
+        await emitAlert(camera, jpeg, best);
+        lastVehicleAlertAt.set(camera.id, now);
       }
     }
   } catch (err) {
@@ -156,7 +204,8 @@ async function processCamera(camera: Awaited<ReturnType<typeof listAiEnabledCame
       at: Date.now(),
       error: message,
     });
-    hadTarget.set(camera.id, false);
+    hadPerson.set(camera.id, false);
+    prevVehiclesByCamera.set(camera.id, []);
     personConfirmPending.delete(camera.id);
     console.warn(`[cctv-ai] camera ${camera.id}:`, message);
   }
@@ -188,7 +237,7 @@ export function startCctvAiWorker(): void {
 
   void tick();
   timer = setInterval(() => void tick(), TICK_MS);
-  console.log(`[cctv-ai] worker started (every ${TICK_MS / 1000}s, cooldown ${ALERT_COOLDOWN_MS / 1000}s)`);
+  console.log(`[cctv-ai] worker started (every ${TICK_MS / 1000}s, cooldown ${ALERT_COOLDOWN_MS / 1000}s per class)`);
 }
 
 export function stopCctvAiWorker(): void {
