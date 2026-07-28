@@ -13,10 +13,10 @@ const IOU_THRESHOLD = 0.45;
 
 const MIN_CONF: Record<string, number> = {
   person: 0.55,
-  car: 0.58,
-  motorcycle: 0.58,
-  bus: 0.58,
-  truck: 0.58,
+  car: 0.48,
+  motorcycle: 0.48,
+  bus: 0.48,
+  truck: 0.48,
 };
 
 /** Person boxes below this need two consecutive samples (see ai-worker). */

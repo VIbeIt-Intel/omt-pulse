@@ -235,9 +235,8 @@ export function CctvCameraFormSheet({
                     <FormLabel>AI analytics</FormLabel>
                     <FormDescription>
                       Detect people and vehicles (car, truck, bus, motorcycle) on the VPS every 2.5
-                      seconds while you watch live. Uses a 55% confidence floor plus stricter
-                      filtering to reduce false alarms. Boxes on the live view and in-app alerts
-                      (60s cooldown).
+                      seconds while you watch live. Person floor 55%; vehicle floor 48% (safer with a
+                      vehicle Zone). Boxes on the live view and in-app alerts (60s cooldown).
                     </FormDescription>
                   </div>
                   <FormControl>
