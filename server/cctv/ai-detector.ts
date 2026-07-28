@@ -12,7 +12,7 @@ const CONF_THRESHOLD = 0.22;
 const IOU_THRESHOLD = 0.45;
 
 const MIN_CONF: Record<string, number> = {
-  person: 0.40,
+  person: 0.55,
   car: 0.58,
   motorcycle: 0.58,
   bus: 0.58,
@@ -20,8 +20,8 @@ const MIN_CONF: Record<string, number> = {
 };
 
 /** Person boxes below this need two consecutive samples (see ai-worker). */
-export const PERSON_INSTANT_CONF = 0.52;
-export const PERSON_MIN_CONF = MIN_CONF.person ?? 0.4;
+export const PERSON_INSTANT_CONF = 0.55;
+export const PERSON_MIN_CONF = MIN_CONF.person ?? 0.55;
 
 /** COCO class ids we alert on: person + common vehicles. */
 const DETECT_CLASS_IDS = new Set([0, 2, 3, 5, 7]); // person, car, motorcycle, bus, truck
