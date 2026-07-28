@@ -15,8 +15,10 @@ import {
 } from "./storage";
 
 const TICK_MS = 2_500;
-/** Per class (person vs vehicle) so one doesn't block the other. */
-const ALERT_COOLDOWN_MS = 45_000;
+/** Person alerts: avoid spam when someone stays in view. */
+const PERSON_ALERT_COOLDOWN_MS = 45_000;
+/** Vehicle alerts: short so cars that follow each other still get separate records. */
+const VEHICLE_ALERT_COOLDOWN_MS = 8_000;
 const STALE_MS = 12_000;
 /** Boxes with IoU below this are treated as a different vehicle. */
 const DISTINCT_VEHICLE_IOU = 0.28;
@@ -178,7 +180,7 @@ async function processCamera(camera: Awaited<ReturnType<typeof listAiEnabledCame
     if (nowHasPerson && !prevHadPerson) {
       const last = lastPersonAlertAt.get(camera.id) ?? 0;
       const best = bestOf(persons);
-      if (best && best.confidence >= PERSON_MIN_CONF && now - last >= ALERT_COOLDOWN_MS) {
+      if (best && best.confidence >= PERSON_MIN_CONF && now - last >= PERSON_ALERT_COOLDOWN_MS) {
         await emitAlert(camera, jpeg, best);
         lastPersonAlertAt.set(camera.id, now);
       }
@@ -192,7 +194,7 @@ async function processCamera(camera: Awaited<ReturnType<typeof listAiEnabledCame
     if (newVehicles.length > 0) {
       const last = lastVehicleAlertAt.get(camera.id) ?? 0;
       const best = bestOf(newVehicles);
-      if (best && now - last >= ALERT_COOLDOWN_MS) {
+      if (best && now - last >= VEHICLE_ALERT_COOLDOWN_MS) {
         await emitAlert(camera, jpeg, best);
         lastVehicleAlertAt.set(camera.id, now);
       }
@@ -237,7 +239,7 @@ export function startCctvAiWorker(): void {
 
   void tick();
   timer = setInterval(() => void tick(), TICK_MS);
-  console.log(`[cctv-ai] worker started (every ${TICK_MS / 1000}s, cooldown ${ALERT_COOLDOWN_MS / 1000}s per class)`);
+  console.log(`[cctv-ai] worker started (every ${TICK_MS / 1000}s, person cooldown ${PERSON_ALERT_COOLDOWN_MS / 1000}s, vehicle cooldown ${VEHICLE_ALERT_COOLDOWN_MS / 1000}s)`);
 }
 
 export function stopCctvAiWorker(): void {
