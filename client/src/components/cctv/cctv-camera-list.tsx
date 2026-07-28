@@ -87,7 +87,7 @@ export function CctvCameraList({
     for (const ev of fresh) {
       seenEventIds.current.add(ev.id);
       toast({
-        title: "Vehicle detected",
+        title: ev.label === "person" ? "Person detected" : "Vehicle detected",
         description: `${selected.name}: ${ev.label} (${Math.round(ev.confidence * 100)}%)`,
       });
     }
@@ -174,7 +174,8 @@ export function CctvCameraList({
                 </p>
                 {aiEvents.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
-                    No vehicle alerts yet. Detection runs every 4 seconds while AI is enabled.
+                    No AI alerts yet. Detection runs every 4 seconds for people and vehicles while AI
+                    is enabled.
                   </p>
                 ) : (
                   <ul className="space-y-1.5 text-sm">

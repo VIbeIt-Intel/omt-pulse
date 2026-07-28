@@ -191,22 +191,35 @@ export function CctvCameraPlayer({
       />
       {aiEnabled && detections.length > 0 && !error && (
         <div className="pointer-events-none absolute inset-0 z-[5]" aria-hidden>
-          {detections.map((det, idx) => (
-            <div
-              key={`${det.label}-${idx}-${det.x.toFixed(3)}`}
-              className="absolute border-2 border-emerald-400 bg-emerald-400/10"
-              style={{
-                left: `${det.x * 100}%`,
-                top: `${det.y * 100}%`,
-                width: `${det.w * 100}%`,
-                height: `${det.h * 100}%`,
-              }}
-            >
-              <span className="absolute -top-5 left-0 rounded bg-emerald-500 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
-                {det.label} {(det.confidence * 100).toFixed(0)}%
-              </span>
-            </div>
-          ))}
+          {detections.map((det, idx) => {
+            const isPerson = det.label === "person";
+            return (
+              <div
+                key={`${det.label}-${idx}-${det.x.toFixed(3)}`}
+                className={
+                  isPerson
+                    ? "absolute border-2 border-amber-400 bg-amber-400/10"
+                    : "absolute border-2 border-emerald-400 bg-emerald-400/10"
+                }
+                style={{
+                  left: `${det.x * 100}%`,
+                  top: `${det.y * 100}%`,
+                  width: `${det.w * 100}%`,
+                  height: `${det.h * 100}%`,
+                }}
+              >
+                <span
+                  className={
+                    isPerson
+                      ? "absolute -top-5 left-0 rounded bg-amber-500 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white"
+                      : "absolute -top-5 left-0 rounded bg-emerald-500 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white"
+                  }
+                >
+                  {det.label} {(det.confidence * 100).toFixed(0)}%
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
       <div className="absolute right-3 top-3 z-10 flex gap-2">

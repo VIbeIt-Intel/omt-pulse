@@ -33,7 +33,7 @@ export const cctvCameras = pgTable("cctv_cameras", {
   username: text("username"),
   streamRotation: text("stream_rotation").notNull().default("normal"),
   streamQuality: text("stream_quality").notNull().default("medium"),
-  /** When true, VPS AI worker samples frames for vehicle detection. */
+  /** When true, VPS AI worker samples frames for person + vehicle detection. */
   aiEnabled: boolean("ai_enabled").notNull().default(false),
   isPtz: boolean("is_ptz").notNull().default(false),
   /** VPS-side tunnel port for PTZ HTTP (default 8555 → camera :80). */
@@ -77,7 +77,7 @@ export const insertCctvCameraSchema = createInsertSchema(cctvCameras, {
 export type InsertCctvCamera = z.infer<typeof insertCctvCameraSchema>;
 export type CctvCamera = typeof cctvCameras.$inferSelect;
 
-/** Rising-edge vehicle detections (Phase 1 AI alerts). */
+/** Rising-edge person/vehicle detections (Phase 1 AI alerts). */
 export const cctvAiEvents = pgTable("cctv_ai_events", {
   id: serial("id").primaryKey(),
   organizationId: varchar("organization_id")

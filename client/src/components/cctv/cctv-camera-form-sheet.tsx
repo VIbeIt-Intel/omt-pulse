@@ -232,10 +232,10 @@ export function CctvCameraFormSheet({
               render={({ field }) => (
                 <FormItem className="flex items-center justify-between rounded-lg border p-3">
                   <div className="space-y-1">
-                    <FormLabel>AI vehicle analytics</FormLabel>
+                    <FormLabel>AI analytics</FormLabel>
                     <FormDescription>
-                      Detect cars, trucks, buses, and motorcycles on the VPS every 4 seconds. Shows
-                      boxes on the live view and in-app alerts (60s cooldown).
+                      Detect people and vehicles (car, truck, bus, motorcycle) on the VPS every 4
+                      seconds. Shows boxes on the live view and in-app alerts (60s cooldown).
                     </FormDescription>
                   </div>
                   <FormControl>

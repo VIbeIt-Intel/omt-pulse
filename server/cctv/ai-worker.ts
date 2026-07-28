@@ -1,5 +1,5 @@
 import type { CctvAiDetection } from "@shared/cctv";
-import { detectVehiclesFromRtsp, warmupCctvAiDetector } from "./ai-detector";
+import { detectObjectsFromRtsp, warmupCctvAiDetector } from "./ai-detector";
 import {
   buildRtspSource,
   insertCctvAiEvent,
@@ -16,7 +16,8 @@ type LatestState = {
 };
 
 const latestByCamera = new Map<number, LatestState>();
-const hadVehicle = new Map<number, boolean>();
+/** Rising-edge tracker: any person/vehicle present. */
+const hadTarget = new Map<number, boolean>();
 const lastAlertAt = new Map<number, number>();
 
 let started = false;
@@ -29,19 +30,19 @@ export function getLatestCctvAiDetections(cameraId: number): LatestState | null 
 
 export function clearCctvAiCameraState(cameraId: number): void {
   latestByCamera.delete(cameraId);
-  hadVehicle.delete(cameraId);
+  hadTarget.delete(cameraId);
   lastAlertAt.delete(cameraId);
 }
 
 async function processCamera(camera: Awaited<ReturnType<typeof listAiEnabledCameras>>[number]) {
   const rtsp = buildRtspSource(camera);
   try {
-    const detections = await detectVehiclesFromRtsp(rtsp);
+    const detections = await detectObjectsFromRtsp(rtsp);
     latestByCamera.set(camera.id, { detections, at: Date.now() });
 
     const nowHas = detections.length > 0;
-    const prevHad = hadVehicle.get(camera.id) ?? false;
-    hadVehicle.set(camera.id, nowHas);
+    const prevHad = hadTarget.get(camera.id) ?? false;
+    hadTarget.set(camera.id, nowHas);
 
     if (nowHas && !prevHad) {
       const last = lastAlertAt.get(camera.id) ?? 0;
@@ -65,8 +66,8 @@ async function processCamera(camera: Awaited<ReturnType<typeof listAiEnabledCame
       at: Date.now(),
       error: message,
     });
-    // Treat grab/detect failure as "no vehicle" so we don't lock rising-edge forever.
-    hadVehicle.set(camera.id, false);
+    // Treat grab/detect failure as clear so rising-edge can fire again after recovery.
+    hadTarget.set(camera.id, false);
     console.warn(`[cctv-ai] camera ${camera.id}:`, message);
   }
 }

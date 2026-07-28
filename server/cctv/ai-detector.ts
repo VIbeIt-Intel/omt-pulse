@@ -10,9 +10,10 @@ const INPUT_SIZE = 640;
 const CONF_THRESHOLD = 0.25;
 const IOU_THRESHOLD = 0.45;
 
-/** COCO class ids we treat as vehicles. */
-const VEHICLE_CLASS_IDS = new Set([2, 3, 5, 7]); // car, motorcycle, bus, truck
-const VEHICLE_LABELS: Record<number, string> = {
+/** COCO class ids we alert on: person + common vehicles. */
+const DETECT_CLASS_IDS = new Set([0, 2, 3, 5, 7]); // person, car, motorcycle, bus, truck
+const DETECT_LABELS: Record<number, string> = {
+  0: "person",
   2: "car",
   3: "motorcycle",
   5: "bus",
@@ -241,7 +242,7 @@ function parseYoloOutput(output: ort.Tensor, meta: LetterboxMeta): CctvAiDetecti
   for (let i = 0; i < numPred; i++) {
     let bestScore = 0;
     let bestCls = -1;
-    for (const cls of VEHICLE_CLASS_IDS) {
+    for (const cls of DETECT_CLASS_IDS) {
       const score = transposed
         ? data[i * numFeat + (4 + cls)]!
         : data[(4 + cls) * numPred + i]!;
@@ -272,7 +273,7 @@ function parseYoloOutput(output: ort.Tensor, meta: LetterboxMeta): CctvAiDetecti
     if (w < 0.002 || h < 0.002) continue;
 
     raw.push({
-      label: VEHICLE_LABELS[bestCls] ?? "vehicle",
+      label: DETECT_LABELS[bestCls] ?? "object",
       confidence: bestScore,
       x: nx1,
       y: ny1,
@@ -284,8 +285,8 @@ function parseYoloOutput(output: ort.Tensor, meta: LetterboxMeta): CctvAiDetecti
   return nms(raw);
 }
 
-/** Run vehicle detection on a JPEG frame. */
-export async function detectVehiclesInJpeg(jpeg: Buffer): Promise<CctvAiDetection[]> {
+/** Run person + vehicle detection on a JPEG frame. */
+export async function detectObjectsInJpeg(jpeg: Buffer): Promise<CctvAiDetection[]> {
   const session = await getSession();
   const { tensor, meta } = await letterbox(jpeg);
   const inputName = session.inputNames[0] ?? "images";
@@ -295,11 +296,16 @@ export async function detectVehiclesInJpeg(jpeg: Buffer): Promise<CctvAiDetectio
   return parseYoloOutput(results[outName], meta);
 }
 
-/** Grab one RTSP frame and detect vehicles. */
-export async function detectVehiclesFromRtsp(rtspUrl: string): Promise<CctvAiDetection[]> {
+/** Grab one RTSP frame and detect people / vehicles. */
+export async function detectObjectsFromRtsp(rtspUrl: string): Promise<CctvAiDetection[]> {
   const jpeg = await grabRtspJpeg(rtspUrl);
-  return detectVehiclesInJpeg(jpeg);
+  return detectObjectsInJpeg(jpeg);
 }
+
+/** @deprecated Use detectObjectsFromRtsp */
+export const detectVehiclesFromRtsp = detectObjectsFromRtsp;
+/** @deprecated Use detectObjectsInJpeg */
+export const detectVehiclesInJpeg = detectObjectsInJpeg;
 
 export async function warmupCctvAiDetector(): Promise<void> {
   await getSession();
