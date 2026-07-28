@@ -329,3 +329,18 @@ export async function listCctvAiEvents(
     .limit(limit);
   return rows.map(toPublicAiEvent);
 }
+
+/** Recent AI alerts across all cameras in the org (for sidebar badges / activity). */
+export async function listRecentCctvAiEvents(
+  orgId: string,
+  opts?: { limit?: number },
+): Promise<CctvAiEventPublic[]> {
+  const limit = Math.min(Math.max(opts?.limit ?? 40, 1), 100);
+  const rows = await db
+    .select()
+    .from(cctvAiEvents)
+    .where(eq(cctvAiEvents.organizationId, orgId))
+    .orderBy(desc(cctvAiEvents.createdAt))
+    .limit(limit);
+  return rows.map(toPublicAiEvent);
+}

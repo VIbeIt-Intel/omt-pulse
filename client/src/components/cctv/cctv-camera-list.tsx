@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BrainCircuit, Pencil, ScanSearch, Trash2, Video } from "lucide-react";
 import type { CctvAiEventPublic, CctvCameraPublic, CctvRoi } from "@shared/cctv";
@@ -29,6 +29,29 @@ import { useToast } from "@/hooks/use-toast";
 import { workstationAuthHeaders } from "@/lib/workstation-session";
 import { CctvCameraPlayer } from "./cctv-camera-player";
 
+const SEEN_EVENTS_KEY = "omt-cctv-ai-seen-by-camera";
+
+type SeenMap = Record<string, number>;
+
+function loadSeenMap(): SeenMap {
+  try {
+    const raw = localStorage.getItem(SEEN_EVENTS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as SeenMap;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveSeenMap(map: SeenMap) {
+  try {
+    localStorage.setItem(SEEN_EVENTS_KEY, JSON.stringify(map));
+  } catch {
+    /* ignore */
+  }
+}
+
 type CctvCameraListProps = {
   cameras: CctvCameraPublic[];
   isAdmin: boolean;
@@ -47,8 +70,9 @@ export function CctvCameraList({
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [deleteTarget, setDeleteTarget] = useState<CctvCameraPublic | null>(null);
-  const seenEventIds = useRef<Set<number>>(new Set());
-  const primedEvents = useRef(false);
+  const [seenByCamera, setSeenByCamera] = useState<SeenMap>(() => loadSeenMap());
+  const toastedEventIds = useRef<Set<number>>(new Set());
+  const recentPrimed = useRef(false);
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
@@ -69,6 +93,7 @@ export function CctvCameraList({
   } | null>(null);
 
   const selected = cameras.find((c) => c.id === selectedId) ?? null;
+  const anyAiEnabled = cameras.some((c) => c.aiEnabled);
 
   async function saveVehicleRoi(roi: CctvRoi | null) {
     if (!selected) return;
@@ -80,6 +105,21 @@ export function CctvCameraList({
       setSavingVehicleRoi(false);
     }
   }
+
+  const { data: recentAiEvents = [] } = useQuery<CctvAiEventPublic[]>({
+    queryKey: ["/api/cctv/ai/events/recent"],
+    queryFn: async () => {
+      const res = await fetch("/api/cctv/ai/events/recent", {
+        credentials: "include",
+        cache: "no-store",
+        headers: workstationAuthHeaders(),
+      });
+      if (!res.ok) throw new Error("Failed to load recent AI events");
+      return res.json();
+    },
+    enabled: anyAiEnabled,
+    refetchInterval: anyAiEnabled ? 4000 : false,
+  });
 
   const { data: aiEvents = [] } = useQuery<CctvAiEventPublic[]>({
     queryKey: ["/api/cctv/cameras", selected?.id, "ai", "events"],
@@ -96,27 +136,59 @@ export function CctvCameraList({
     refetchInterval: selected?.aiEnabled ? 3000 : false,
   });
 
-  useEffect(() => {
-    primedEvents.current = false;
-    seenEventIds.current = new Set();
-  }, [selected?.id]);
+  const eventsByCamera = useMemo(() => {
+    const map = new Map<number, CctvAiEventPublic[]>();
+    for (const ev of recentAiEvents) {
+      const list = map.get(ev.cameraId) ?? [];
+      list.push(ev);
+      map.set(ev.cameraId, list);
+    }
+    return map;
+  }, [recentAiEvents]);
+
+  function markCameraSeen(cameraId: number, latestEventId?: number) {
+    const events = eventsByCamera.get(cameraId) ?? [];
+    const maxId = latestEventId ?? (events.length ? Math.max(...events.map((e) => e.id)) : 0);
+    if (!maxId) return;
+    setSeenByCamera((prev) => {
+      const key = String(cameraId);
+      if ((prev[key] ?? 0) >= maxId) return prev;
+      const next = { ...prev, [key]: maxId };
+      saveSeenMap(next);
+      return next;
+    });
+  }
+
+  function unreadCount(cameraId: number): number {
+    const events = eventsByCamera.get(cameraId) ?? [];
+    const seenId = seenByCamera[String(cameraId)] ?? 0;
+    return events.filter((e) => e.id > seenId).length;
+  }
 
   useEffect(() => {
-    if (!selected?.aiEnabled) return;
-    if (!primedEvents.current) {
-      for (const ev of aiEvents) seenEventIds.current.add(ev.id);
-      primedEvents.current = true;
+    if (!anyAiEnabled) return;
+    if (!recentPrimed.current) {
+      for (const ev of recentAiEvents) toastedEventIds.current.add(ev.id);
+      recentPrimed.current = true;
       return;
     }
-    const fresh = aiEvents.filter((ev) => !seenEventIds.current.has(ev.id));
+    const fresh = recentAiEvents.filter((ev) => !toastedEventIds.current.has(ev.id));
     for (const ev of fresh) {
-      seenEventIds.current.add(ev.id);
+      toastedEventIds.current.add(ev.id);
+      const cam = cameras.find((c) => c.id === ev.cameraId);
       toast({
         title: ev.label === "person" ? "Person detected" : "Vehicle detected",
-        description: `${selected.name}: ${ev.label} (${Math.round(ev.confidence * 100)}%)`,
+        description: `${cam?.name ?? `Camera ${ev.cameraId}`}: ${ev.label} (${Math.round(ev.confidence * 100)}%)`,
       });
     }
-  }, [aiEvents, selected, toast]);
+  }, [recentAiEvents, anyAiEnabled, cameras, toast]);
+
+  useEffect(() => {
+    if (selectedId != null && selected?.aiEnabled) {
+      markCameraSeen(selectedId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mark when selection or events update
+  }, [selectedId, selected?.aiEnabled, eventsByCamera]);
 
   return (
     <div className="grid gap-5 lg:grid-cols-[minmax(0,280px)_1fr]">
@@ -127,21 +199,36 @@ export function CctvCameraList({
         <ul className="space-y-1.5" data-testid="cctv-camera-list">
           {cameras.map((cam) => {
             const active = cam.id === selectedId;
+            const camEvents = eventsByCamera.get(cam.id) ?? [];
+            const latest = camEvents[0];
+            const unread = cam.aiEnabled ? unreadCount(cam.id) : 0;
             return (
-              <li key={cam.id}>
+              <li key={cam.id} className="space-y-1">
                 <button
                   type="button"
-                  onClick={() => onSelect(active ? null : cam.id)}
+                  onClick={() => {
+                    if (!active) markCameraSeen(cam.id);
+                    onSelect(active ? null : cam.id);
+                  }}
                   className={cn(
                     "w-full flex items-center gap-2 rounded-lg border px-3 py-2.5 text-left text-sm transition-colors",
                     active
                       ? "border-primary bg-primary/10"
                       : "border-border hover:bg-accent/50",
+                    unread > 0 && !active && "border-amber-500/50",
                   )}
                   data-testid={`cctv-camera-item-${cam.id}`}
                 >
                   <Video className="h-4 w-4 shrink-0 text-primary" aria-hidden />
                   <span className="flex-1 truncate font-medium">{cam.name}</span>
+                  {unread > 0 && (
+                    <span
+                      className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 text-[10px] font-bold text-black"
+                      aria-label={`${unread} new AI alerts`}
+                    >
+                      {unread > 9 ? "9+" : unread}
+                    </span>
+                  )}
                   {cam.aiEnabled && (
                     <BrainCircuit className="h-4 w-4 shrink-0 text-emerald-500" aria-label="AI enabled" />
                   )}
@@ -155,6 +242,22 @@ export function CctvCameraList({
                     <ScanSearch className="h-4 w-4 shrink-0 text-muted-foreground" aria-label="PTZ camera" />
                   )}
                 </button>
+                {cam.aiEnabled && latest && (
+                  <button
+                    type="button"
+                    className="ml-1 w-[calc(100%-0.25rem)] rounded-md border border-border/60 bg-muted/30 px-2.5 py-1.5 text-left text-[11px] text-muted-foreground hover:bg-muted/50"
+                    onClick={() => {
+                      markCameraSeen(cam.id);
+                      onSelect(cam.id);
+                    }}
+                  >
+                    <span className="capitalize text-foreground/90">{latest.label}</span>
+                    <span> · {Math.round(latest.confidence * 100)}%</span>
+                    <span className="block truncate tabular-nums">
+                      {new Date(latest.createdAt).toLocaleString()}
+                    </span>
+                  </button>
+                )}
               </li>
             );
           })}

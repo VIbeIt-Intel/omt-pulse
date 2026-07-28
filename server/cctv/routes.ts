@@ -21,6 +21,7 @@ import {
   getCctvCamera,
   listCctvAiEvents,
   listCctvCameras,
+  listRecentCctvAiEvents,
   updateCctvCamera,
 } from "./storage";
 import { getAiSnapshotPath } from "./ai-snapshots";
@@ -222,6 +223,18 @@ export function registerCctvRoutes(app: Express): void {
     } catch (err) {
       console.error("[cctv] ai detections:", err);
       res.status(500).json({ message: "Failed to load detections" });
+    }
+  });
+
+  app.get("/api/cctv/ai/events/recent", async (req, res) => {
+    if (!requireView(req, res)) return;
+    try {
+      const orgId = req.currentUser!.organizationId;
+      const events = await listRecentCctvAiEvents(orgId, { limit: 50 });
+      res.json(events);
+    } catch (err) {
+      console.error("[cctv] ai recent events:", err);
+      res.status(500).json({ message: "Failed to load recent AI events" });
     }
   });
 
