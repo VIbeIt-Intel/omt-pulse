@@ -15,6 +15,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import { ROTATE180_OSD_HINT } from "@shared/cctv";
@@ -54,6 +61,12 @@ export function CctvCameraList({
     },
   });
   const [savingVehicleRoi, setSavingVehicleRoi] = useState(false);
+  const [snapshotPreview, setSnapshotPreview] = useState<{
+    url: string;
+    label: string;
+    confidence: number;
+    createdAt: string;
+  } | null>(null);
 
   const selected = cameras.find((c) => c.id === selectedId) ?? null;
 
@@ -199,12 +212,27 @@ export function CctvCameraList({
                       <li key={ev.id} className="flex items-center justify-between gap-3 rounded-md border p-2">
                         <div className="flex min-w-0 items-center gap-3">
                           {ev.snapshotUrl ? (
-                            <img
-                              src={ev.snapshotUrl}
-                              alt={`${ev.label} alert snapshot`}
-                              className="h-12 w-12 shrink-0 rounded object-cover border bg-muted"
-                              loading="lazy"
-                            />
+                            <button
+                              type="button"
+                              className="h-12 w-12 shrink-0 overflow-hidden rounded border bg-muted ring-offset-background transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              onClick={() =>
+                                setSnapshotPreview({
+                                  url: ev.snapshotUrl!,
+                                  label: ev.label,
+                                  confidence: ev.confidence,
+                                  createdAt: ev.createdAt,
+                                })
+                              }
+                              aria-label={`View ${ev.label} snapshot`}
+                            >
+                              <img
+                                src={ev.snapshotUrl}
+                                alt=""
+                                className="h-full w-full object-cover"
+                                loading="lazy"
+                                decoding="async"
+                              />
+                            </button>
                           ) : (
                             <div className="h-12 w-12 shrink-0 rounded border bg-muted/50" />
                           )}
@@ -271,6 +299,36 @@ export function CctvCameraList({
           </Card>
         )}
       </div>
+
+      <Dialog
+        open={!!snapshotPreview}
+        onOpenChange={(open) => {
+          if (!open) setSnapshotPreview(null);
+        }}
+      >
+        <DialogContent className="max-w-sm p-0 gap-0 overflow-hidden sm:max-w-md">
+          {snapshotPreview && (
+            <>
+              <DialogHeader className="px-4 pt-4 pb-2 space-y-1">
+                <DialogTitle className="capitalize text-base">
+                  {snapshotPreview.label} ({Math.round(snapshotPreview.confidence * 100)}%)
+                </DialogTitle>
+                <DialogDescription className="text-xs">
+                  {new Date(snapshotPreview.createdAt).toLocaleString()}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="px-4 pb-4 flex justify-center bg-muted/30">
+                <img
+                  src={snapshotPreview.url}
+                  alt={`${snapshotPreview.label} detection`}
+                  className="max-h-[min(70vh,480px)] w-auto max-w-full rounded border object-contain image-rendering-auto"
+                  decoding="async"
+                />
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <AlertDialogContent>
