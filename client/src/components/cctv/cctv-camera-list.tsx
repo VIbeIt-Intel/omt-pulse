@@ -180,14 +180,26 @@ export function CctvCameraList({
                 ) : (
                   <ul className="space-y-1.5 text-sm">
                     {aiEvents.slice(0, 8).map((ev) => (
-                      <li key={ev.id} className="flex items-center justify-between gap-2">
-                        <span className="capitalize">
-                          {ev.label}{" "}
-                          <span className="text-muted-foreground">
-                            ({Math.round(ev.confidence * 100)}%)
+                      <li key={ev.id} className="flex items-center justify-between gap-3 rounded-md border p-2">
+                        <div className="flex min-w-0 items-center gap-3">
+                          {ev.snapshotUrl ? (
+                            <img
+                              src={ev.snapshotUrl}
+                              alt={`${ev.label} snapshot`}
+                              className="h-12 w-12 shrink-0 rounded object-cover border bg-muted"
+                              loading="lazy"
+                            />
+                          ) : (
+                            <div className="h-12 w-12 shrink-0 rounded border bg-muted/50" />
+                          )}
+                          <span className="min-w-0 capitalize">
+                            {ev.label}{" "}
+                            <span className="text-muted-foreground">
+                              ({Math.round(ev.confidence * 100)}%)
+                            </span>
                           </span>
-                        </span>
-                        <span className="text-xs text-muted-foreground tabular-nums">
+                        </div>
+                        <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
                           {new Date(ev.createdAt).toLocaleString()}
                         </span>
                       </li>

@@ -392,6 +392,16 @@ export async function detectObjectsInJpeg(jpeg: Buffer): Promise<CctvAiDetection
   return parseYoloOutput(results[outName], meta);
 }
 
+export async function detectObjectsInJpegWithFrame(jpeg: Buffer): Promise<{
+  jpeg: Buffer;
+  detections: CctvAiDetection[];
+}> {
+  return {
+    jpeg,
+    detections: await detectObjectsInJpeg(jpeg),
+  };
+}
+
 async function grabFrameJpeg(rtspUrl: string, hlsSegment: string | null): Promise<Buffer> {
   if (hlsSegment) {
     try {
@@ -414,6 +424,14 @@ export async function detectObjectsFromRtsp(
 ): Promise<CctvAiDetection[]> {
   const jpeg = await grabFrameJpeg(rtspUrl, hlsSegmentPath ?? null);
   return detectObjectsInJpeg(jpeg);
+}
+
+export async function detectObjectsFromRtspWithFrame(
+  rtspUrl: string,
+  hlsSegmentPath?: string | null,
+): Promise<{ jpeg: Buffer; detections: CctvAiDetection[] }> {
+  const jpeg = await grabFrameJpeg(rtspUrl, hlsSegmentPath ?? null);
+  return detectObjectsInJpegWithFrame(jpeg);
 }
 
 /** @deprecated Use detectObjectsFromRtsp */

@@ -1,10 +1,11 @@
 import type { CctvAiDetection } from "@shared/cctv";
 import {
-  detectObjectsFromRtsp,
+  detectObjectsFromRtspWithFrame,
   PERSON_INSTANT_CONF,
   PERSON_MIN_CONF,
   warmupCctvAiDetector,
 } from "./ai-detector";
+import { saveDetectionSnapshot } from "./ai-snapshots";
 import { getLatestHlsSegmentPath } from "./stream-manager";
 import {
   buildRtspSource,
@@ -95,7 +96,7 @@ async function processCamera(camera: Awaited<ReturnType<typeof listAiEnabledCame
   const rtsp = buildRtspSource(camera);
   const hlsSeg = getLatestHlsSegmentPath(camera.organizationId, camera.id);
   try {
-    const raw = await detectObjectsFromRtsp(rtsp, hlsSeg);
+    const { jpeg, detections: raw } = await detectObjectsFromRtspWithFrame(rtsp, hlsSeg);
     const detections = confirmPersonDetections(camera.id, raw);
     latestByCamera.set(camera.id, { detections, at: Date.now() });
 
@@ -108,10 +109,19 @@ async function processCamera(camera: Awaited<ReturnType<typeof listAiEnabledCame
       if (Date.now() - last >= ALERT_COOLDOWN_MS) {
         const best = [...detections].sort((a, b) => b.confidence - a.confidence)[0]!;
         if (best.label !== "person" || best.confidence >= PERSON_MIN_CONF) {
+          const snapshotPath =
+            best.label === "person"
+              ? await saveDetectionSnapshot({
+                  jpeg,
+                  detection: best,
+                  cameraId: camera.id,
+                })
+              : null;
           await insertCctvAiEvent({
             organizationId: camera.organizationId,
             cameraId: camera.id,
             detection: best,
+            snapshotPath,
           });
           lastAlertAt.set(camera.id, Date.now());
           console.log(

@@ -65,8 +65,13 @@ export async function migrateCctv() {
       label TEXT NOT NULL,
       confidence TEXT NOT NULL,
       bbox_json TEXT,
+      snapshot_path TEXT,
       created_at TIMESTAMP NOT NULL DEFAULT NOW()
     )
+  `);
+  await safe("cctv_ai_events.snapshot_path", sql`
+    ALTER TABLE cctv_ai_events
+    ADD COLUMN IF NOT EXISTS snapshot_path TEXT
   `);
   await safe("cctv_ai_events.camera_idx", sql`
     CREATE INDEX IF NOT EXISTS cctv_ai_events_camera_idx

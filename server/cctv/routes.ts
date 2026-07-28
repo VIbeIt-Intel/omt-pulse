@@ -16,11 +16,13 @@ import {
   buildRtspSource,
   createCctvCamera,
   deleteCctvCamera,
+  getCctvAiEventSnapshotPath,
   getCctvCamera,
   listCctvAiEvents,
   listCctvCameras,
   updateCctvCamera,
 } from "./storage";
+import { getAiSnapshotPath } from "./ai-snapshots";
 import {
   getCctvStreamSegmentPath,
   isFfmpegAvailable,
@@ -242,6 +244,30 @@ export function registerCctvRoutes(app: Express): void {
     } catch (err) {
       console.error("[cctv] ai events:", err);
       res.status(500).json({ message: "Failed to load AI events" });
+    }
+  });
+
+  app.get("/api/cctv/cameras/:id/ai/events/:eventId/snapshot", async (req, res) => {
+    if (!requireView(req, res)) return;
+    const id = parseInt(String(req.params.id), 10);
+    const eventId = parseInt(String(req.params.eventId), 10);
+    if (!Number.isFinite(id) || !Number.isFinite(eventId)) {
+      return res.status(400).json({ message: "Invalid event id" });
+    }
+    try {
+      const orgId = req.currentUser!.organizationId;
+      const camera = await getCctvCamera(id, orgId);
+      if (!camera) return res.status(404).json({ message: "Camera not found" });
+      const fileName = await getCctvAiEventSnapshotPath(orgId, id, eventId);
+      if (!fileName) return res.status(404).json({ message: "Snapshot not found" });
+      const full = getAiSnapshotPath(fileName);
+      if (!fs.existsSync(full)) return res.status(404).json({ message: "Snapshot missing" });
+      res.setHeader("Content-Type", "image/webp");
+      res.setHeader("Cache-Control", "private, max-age=300");
+      fs.createReadStream(full).pipe(res);
+    } catch (err) {
+      console.error("[cctv] ai snapshot:", err);
+      res.status(500).json({ message: "Failed to load snapshot" });
     }
   });
 

@@ -62,6 +62,9 @@ function toPublicAiEvent(row: typeof cctvAiEvents.$inferSelect): CctvAiEventPubl
     label: row.label,
     confidence: Number(row.confidence) || 0,
     bbox,
+    snapshotUrl: row.snapshotPath
+      ? `/api/cctv/cameras/${row.cameraId}/ai/events/${row.id}/snapshot`
+      : null,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -236,6 +239,7 @@ export async function insertCctvAiEvent(input: {
   organizationId: string;
   cameraId: number;
   detection: CctvAiDetection;
+  snapshotPath?: string | null;
 }): Promise<CctvAiEventPublic> {
   const [row] = await db
     .insert(cctvAiEvents)
@@ -250,9 +254,29 @@ export async function insertCctvAiEvent(input: {
         w: input.detection.w,
         h: input.detection.h,
       }),
+      snapshotPath: input.snapshotPath ?? null,
     })
     .returning();
   return toPublicAiEvent(row);
+}
+
+export async function getCctvAiEventSnapshotPath(
+  orgId: string,
+  cameraId: number,
+  eventId: number,
+): Promise<string | null> {
+  const [row] = await db
+    .select({ snapshotPath: cctvAiEvents.snapshotPath })
+    .from(cctvAiEvents)
+    .where(
+      and(
+        eq(cctvAiEvents.organizationId, orgId),
+        eq(cctvAiEvents.cameraId, cameraId),
+        eq(cctvAiEvents.id, eventId),
+      ),
+    )
+    .limit(1);
+  return row?.snapshotPath?.trim() || null;
 }
 
 export async function listCctvAiEvents(

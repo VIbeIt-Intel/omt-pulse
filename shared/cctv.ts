@@ -90,6 +90,8 @@ export const cctvAiEvents = pgTable("cctv_ai_events", {
   confidence: text("confidence").notNull(),
   /** Normalized bbox JSON: { x, y, w, h } in 0–1 of the frame. */
   bboxJson: text("bbox_json"),
+  /** Relative server-side thumbnail filename for the event snapshot. */
+  snapshotPath: text("snapshot_path"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -111,6 +113,7 @@ export type CctvAiEventPublic = {
   label: string;
   confidence: number;
   bbox: { x: number; y: number; w: number; h: number } | null;
+  snapshotUrl: string | null;
   createdAt: string;
 };
 
