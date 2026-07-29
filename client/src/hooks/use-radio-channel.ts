@@ -112,11 +112,14 @@ const sharedRadio: {
   commandId: number | null;
   holders: number;
   teardownTimer: ReturnType<typeof setTimeout> | null;
+  /** In-flight join so a second panel/remount awaits instead of fighting LiveKit. */
+  connectPromise: Promise<Room> | null;
 } = {
   room: null,
   commandId: null,
   holders: 0,
   teardownTimer: null,
+  connectPromise: null,
 };
 
 function micErrorMessage(err: unknown): string {
@@ -415,6 +418,7 @@ export function useRadioChannel(commandId: number | null) {
     if (sharedRadio.room === room) {
       sharedRadio.room = null;
       sharedRadio.commandId = null;
+      sharedRadio.connectPromise = null;
     }
     if (room) {
       try {
@@ -554,25 +558,18 @@ export function useRadioChannel(commandId: number | null) {
       sharedRadio.holders += 1;
 
       // Waiting for channel list — do not teardown (that killed first-open Central join).
+      // Holder cleanup is only in the effect return — do not decrement here.
       if (cancelled || commandId == null) {
-        sharedRadio.holders = Math.max(0, sharedRadio.holders - 1);
         return;
       }
 
       const forceReconnect = reconnectTick > 0 && reconnectTick !== lastHandledReconnectTick.current;
       lastHandledReconnectTick.current = reconnectTick;
 
-      // Reuse shared live room across remounts (same channel, not a manual Retry).
-      const shared = sharedRadio.room;
-      if (
-        !forceReconnect &&
-        shared &&
-        sharedRadio.commandId === commandId &&
-        shared.state === ConnectionState.Connected
-      ) {
+      const adoptSharedRoom = async (shared: Room) => {
         roomRef.current = shared;
         activeRoom = shared;
-        setConnected(true);
+        setConnected(shared.state === ConnectionState.Connected);
         setConnecting(false);
         setError(null);
         setSpeakerReady(shared.canPlaybackAudio);
@@ -584,14 +581,51 @@ export function useRadioChannel(commandId: number | null) {
             void refreshFloor();
           }, 2000);
         }
+      };
+
+      // Reuse shared live room across remounts (same channel, not a manual Retry).
+      const shared = sharedRadio.room;
+      if (
+        !forceReconnect &&
+        shared &&
+        sharedRadio.commandId === commandId &&
+        shared.state === ConnectionState.Connected
+      ) {
+        await adoptSharedRoom(shared);
         return;
       }
 
+      // Another mount already joining this channel — wait instead of a second token/join.
+      if (
+        !forceReconnect &&
+        sharedRadio.connectPromise &&
+        sharedRadio.commandId === commandId
+      ) {
+        setConnecting(true);
+        setError(null);
+        try {
+          const room = await sharedRadio.connectPromise;
+          if (cancelled || effectGen !== radioEffectGeneration) return;
+          await adoptSharedRoom(room);
+          return;
+        } catch {
+          if (cancelled || effectGen !== radioEffectGeneration) return;
+          // Fall through to a fresh join attempt.
+        }
+      }
+
       // Tear down only when switching channel, forcing retry, or prior join is dead.
+      // Never kill an in-progress join for the same channel (DUPLICATE_IDENTITY flap).
+      const prior = sharedRadio.room;
+      const priorDead =
+        prior &&
+        prior.state !== ConnectionState.Connected &&
+        prior.state !== ConnectionState.Connecting &&
+        !sharedRadio.connectPromise;
       if (
         forceReconnect ||
-        (sharedRadio.room && sharedRadio.commandId !== commandId) ||
-        (sharedRadio.room && sharedRadio.room.state !== ConnectionState.Connected)
+        (prior && sharedRadio.commandId !== commandId) ||
+        priorDead
       ) {
         intentionalLeave = true;
         await teardown();
@@ -610,7 +644,29 @@ export function useRadioChannel(commandId: number | null) {
           if (attempt > 1) await sleep(700 * attempt);
           else await sleep(150);
 
-          const room = await connectOnce(commandId);
+          if (
+            !forceReconnect &&
+            sharedRadio.connectPromise &&
+            sharedRadio.commandId === commandId
+          ) {
+            const room = await sharedRadio.connectPromise;
+            if (cancelled || effectGen !== radioEffectGeneration) return;
+            await adoptSharedRoom(room);
+            lastErr = null;
+            break;
+          }
+
+          sharedRadio.commandId = commandId;
+          const join = connectOnce(commandId);
+          sharedRadio.connectPromise = join;
+          let room: Room;
+          try {
+            room = await join;
+          } finally {
+            if (sharedRadio.connectPromise === join) {
+              sharedRadio.connectPromise = null;
+            }
+          }
           if (cancelled || effectGen !== radioEffectGeneration) return;
 
           setConnected(true);
@@ -650,6 +706,7 @@ export function useRadioChannel(commandId: number | null) {
           if (sharedRadio.room === activeRoom) {
             sharedRadio.room = null;
             sharedRadio.commandId = null;
+            sharedRadio.connectPromise = null;
           }
           activeRoom = null;
           if (roomRef.current) roomRef.current = null;

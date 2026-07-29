@@ -1,6 +1,20 @@
 import { useState, useMemo, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
+/** Matches Tailwind `lg:` — desktop Control Room vs mobile field home. */
+function useIsLgUp(): boolean {
+  const [isLgUp, setIsLgUp] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia("(min-width: 1024px)").matches : false,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const apply = () => setIsLgUp(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
+  return isLgUp;
+}
 import type { Location } from "@shared/schema";
 import {
   isDispatchStaff,
@@ -524,6 +538,11 @@ export default function CommandDashboard() {
   const canAccessControl = canViewAccessControlModule(currentUser?.role ?? "");
   const canPatrol = canAccessPatrolModule(currentUser?.role ?? "");
   const isDispatch = currentUser?.role ? isDispatchStaff(currentUser.role) : false;
+  // Desktop Control Room and the mobile field home both used to mount RadioPanel
+  // (mobile tree stayed mounted under lg:hidden). Two LiveKit joins = stuck "Connecting".
+  const isLgUp = useIsLgUp();
+  const showDesktopOps = Boolean(isDispatch && isLgUp);
+  const showMobileHome = !showDesktopOps;
 
   const { data: activePatrol } = useQuery<{ id: number; routeName?: string | null } | null>({
     queryKey: ["/api/patrol/patrols/active"],
@@ -833,8 +852,8 @@ export default function CommandDashboard() {
             onClick={() => setPanicOpen(true)}
             testId="button-panic"
           />
-          {/* Always-on group radio: listen + PTT without opening a sheet. */}
-          <RadioPanel dock className="w-full" />
+          {/* Field home only — desktop Control Room uses OperationsDashboard radio. */}
+          {showMobileHome ? <RadioPanel dock className="w-full" /> : null}
           {canPatrol && (
           <ActionTile
             title={activePatrol ? "Patrol in progress" : "Start Patrol"}
@@ -933,8 +952,8 @@ export default function CommandDashboard() {
 
   return (
     <>
-      {isDispatch && (
-        <div className="hidden lg:flex lg:flex-col h-full min-h-0 overflow-hidden">
+      {showDesktopOps ? (
+        <div className="flex flex-col h-full min-h-0 overflow-hidden">
           <OperationsDashboard
             currentUser={currentUser}
             liveIncidents={liveIncidents}
@@ -957,9 +976,9 @@ export default function CommandDashboard() {
             onPanic={() => setPanicOpen(true)}
           />
         </div>
-      )}
+      ) : null}
 
-      <div className={isDispatch ? "lg:hidden h-full" : "h-full"}>{mobileDashboard}</div>
+      {showMobileHome ? <div className="h-full">{mobileDashboard}</div> : null}
 
       <IncidentDialog open={logIncidentOpen} onOpenChange={setLogIncidentOpen} />
 
