@@ -57,15 +57,31 @@ export function RadioPanel({
   const needsMicAllow =
     Capacitor.isNativePlatform() && radio.micPermission === "denied";
 
-  // First interaction on the dock unlocks speaker (Android/WebView autoplay).
+  // First interaction unlocks speaker (Android/WebView autoplay).
+  // Keep listening until unlock succeeds — a single missed tap left phones deaf.
   useEffect(() => {
     if (!radio.connected || radio.speakerReady) return;
     const unlock = () => {
       void radio.unlockSpeaker();
     };
-    window.addEventListener("pointerdown", unlock, { once: true, capture: true });
-    return () => window.removeEventListener("pointerdown", unlock, true);
+    window.addEventListener("pointerdown", unlock, { capture: true });
+    window.addEventListener("touchstart", unlock, { capture: true });
+    // Retry a few times after connect in case LiveKit tracks arrive late.
+    const t1 = window.setTimeout(unlock, 400);
+    const t2 = window.setTimeout(unlock, 1500);
+    return () => {
+      window.removeEventListener("pointerdown", unlock, true);
+      window.removeEventListener("touchstart", unlock, true);
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
   }, [radio.connected, radio.speakerReady, radio.unlockSpeaker]);
+
+  // Whenever someone talks and speaker is still locked, keep trying + flash the CTA.
+  useEffect(() => {
+    if (!radio.connected || !radio.remoteTalking || radio.speakerReady) return;
+    void radio.unlockSpeaker();
+  }, [radio.connected, radio.remoteTalking, radio.speakerReady, radio.unlockSpeaker]);
 
   const statusLine = radio.transmitting
     ? "You are on air — release to stop"

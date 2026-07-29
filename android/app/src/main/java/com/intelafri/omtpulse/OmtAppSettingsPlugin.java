@@ -134,11 +134,22 @@ public class OmtAppSettingsPlugin extends Plugin {
         if (am == null) return;
 
         if (enabled) {
+            // Hold focus for the whole radio session so inbound talk isn't ducked.
             am.requestAudioFocus(
                     null,
                     AudioManager.STREAM_VOICE_CALL,
-                    AudioManager.AUDIOFOCUS_GAIN_TRANSIENT);
+                    AudioManager.AUDIOFOCUS_GAIN);
+            am.requestAudioFocus(
+                    null,
+                    AudioManager.STREAM_MUSIC,
+                    AudioManager.AUDIOFOCUS_GAIN);
             am.setMode(AudioManager.MODE_IN_COMMUNICATION);
+            routeToBuiltinSpeaker(am);
+            // Inbound WebRTC often uses the call stream — earpiece volume can be 0
+            // while media volume looks fine, so force both up for listen mode.
+            ensureAudible(am, AudioManager.STREAM_VOICE_CALL);
+            ensureAudible(am, AudioManager.STREAM_MUSIC);
+            // Some OEMs drop speakerphone on the next audio route change — re-apply.
             routeToBuiltinSpeaker(am);
         } else {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -152,7 +163,27 @@ public class OmtAppSettingsPlugin extends Plugin {
         }
     }
 
+    private static void ensureAudible(AudioManager am, int stream) {
+        try {
+            int max = am.getStreamMaxVolume(stream);
+            if (max <= 0) return;
+            int target = Math.max(1, (max * 7) / 10);
+            if (am.getStreamVolume(stream) < target) {
+                am.setStreamVolume(stream, target, 0);
+            }
+        } catch (Exception ignored) {
+            /* ignore */
+        }
+    }
+
+    private static void bumpStreamIfSilent(AudioManager am, int stream) {
+        ensureAudible(am, stream);
+    }
+
     private static void routeToBuiltinSpeaker(AudioManager am) {
+        // Always force speakerphone flag — some OEMs ignore setCommunicationDevice alone.
+        //noinspection deprecation
+        am.setSpeakerphoneOn(true);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             AudioDeviceInfo[] devices = am.getDevices(AudioManager.GET_DEVICES_OUTPUTS);
             AudioDeviceInfo speaker = null;
@@ -164,11 +195,8 @@ public class OmtAppSettingsPlugin extends Plugin {
             }
             if (speaker != null) {
                 am.setCommunicationDevice(speaker);
-                return;
             }
         }
-        //noinspection deprecation
-        am.setSpeakerphoneOn(true);
     }
 
     @PluginMethod

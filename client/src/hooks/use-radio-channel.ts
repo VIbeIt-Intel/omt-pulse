@@ -407,6 +407,18 @@ export function useRadioChannel(commandId: number | null) {
       }
     }
     await refreshFloor();
+    // After talking, force listen mode back onto the loudspeaker.
+    await setOmtRadioAudioSession(true);
+    const room = roomRef.current;
+    if (room) {
+      try {
+        await room.startAudio();
+      } catch {
+        /* ignore */
+      }
+      playRemoteAudioTracks(room);
+      setSpeakerReady(room.canPlaybackAudio);
+    }
   }, [refreshFloor, stopHeartbeat]);
 
   stopTransmitRef.current = stopTransmit;
@@ -509,23 +521,37 @@ export function useRadioChannel(commandId: number | null) {
         const other = speakers.find((s) => !s.isLocal);
         setRemoteTalking(other?.name || other?.identity || null);
         if (other) {
-          void setOmtRadioAudioSession(true);
-          void room.startAudio().catch(() => undefined);
-          playRemoteAudioTracks(room);
-          setSpeakerReady(room.canPlaybackAudio);
+          // Receive path: force loudspeaker + play remote tracks (TX already worked).
+          void (async () => {
+            await setOmtRadioAudioSession(true);
+            try {
+              await room.startAudio();
+            } catch {
+              /* ignore */
+            }
+            playRemoteAudioTracks(room);
+            if (isActiveRoom()) setSpeakerReady(room.canPlaybackAudio);
+          })();
         }
       });
       room.on(RoomEvent.TrackSubscribed, (track) => {
         if (!isActiveRoom()) return;
         if (track.kind !== Track.Kind.Audio) return;
-        void setOmtRadioAudioSession(true);
-        playRemoteAudioTracks(room);
-        void room.startAudio().catch(() => undefined);
-        setSpeakerReady(room.canPlaybackAudio);
+        void (async () => {
+          await setOmtRadioAudioSession(true);
+          try {
+            await room.startAudio();
+          } catch {
+            /* ignore */
+          }
+          playRemoteAudioTracks(room);
+          if (isActiveRoom()) setSpeakerReady(room.canPlaybackAudio);
+        })();
       });
       room.on(RoomEvent.AudioPlaybackStatusChanged, () => {
         if (!isActiveRoom()) return;
         setSpeakerReady(room.canPlaybackAudio);
+        if (room.canPlaybackAudio) playRemoteAudioTracks(room);
       });
       room.on(RoomEvent.Disconnected, () => {
         if (roomRef.current !== room) return;
@@ -543,7 +569,16 @@ export function useRadioChannel(commandId: number | null) {
         if (!isActiveRoom()) return;
         setConnecting(false);
         setConnected(true);
-        setSpeakerReady(room.canPlaybackAudio);
+        void (async () => {
+          await setOmtRadioAudioSession(true);
+          try {
+            await room.startAudio();
+          } catch {
+            /* ignore */
+          }
+          playRemoteAudioTracks(room);
+          if (isActiveRoom()) setSpeakerReady(room.canPlaybackAudio);
+        })();
       });
 
       await setOmtRadioAudioSession(true);
@@ -559,6 +594,13 @@ export function useRadioChannel(commandId: number | null) {
         }
         throw new Error("cancelled");
       }
+      // Prime inbound audio immediately after join (not only on PTT).
+      try {
+        await room.startAudio();
+      } catch {
+        /* ignore */
+      }
+      playRemoteAudioTracks(room);
       return room;
     }
 
