@@ -102,10 +102,17 @@ export function registerRadioRoutes(app: Express): void {
       return res.status(403).json({ message: "Not a member of this radio channel" });
     }
 
+    const deviceId =
+      typeof req.body?.deviceId === "string" ? req.body.deviceId.trim().slice(0, 80) : "";
+    const safeDevice = deviceId.replace(/[^a-zA-Z0-9_-]/g, "") || "web";
+    // Unique LiveKit identity per browser tab/device so two open sessions do not
+    // kick each other with DUPLICATE_IDENTITY (that was flapping radio online/offline).
+    const identity = `${user.id}:${safeDevice}`;
+
     const roomName = radioRoomName(user.organizationId, commandId);
     try {
       const at = new AccessToken(cfg.apiKey, cfg.apiSecret, {
-        identity: user.id,
+        identity,
         name: displayName(req),
         ttl: "2h",
       });
@@ -122,7 +129,7 @@ export function registerRadioRoutes(app: Express): void {
         url: cfg.url,
         roomName,
         commandId,
-        identity: user.id,
+        identity,
       });
     } catch (err) {
       console.error("[radio] token:", err);

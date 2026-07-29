@@ -1,4 +1,5 @@
 import {
+  ConnectionState,
   Room,
   RoomEvent,
   Track,
@@ -84,6 +85,39 @@ function friendlyRadioError(err: unknown): string {
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+/** Stable per-tab id so two browser tabs do not kick each other off LiveKit. */
+function getRadioTabDeviceId(): string {
+  const key = "omt-radio-tab-id";
+  try {
+    const existing = sessionStorage.getItem(key);
+    if (existing && existing.length >= 8) return existing.slice(0, 80);
+    const id =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `t-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    sessionStorage.setItem(key, id);
+    return id;
+  } catch {
+    return `t-${Date.now()}`;
+  }
+}
+
+/** Bumped on each connect-effect mount so delayed unmount teardown can no-op after remount. */
+let radioEffectGeneration = 0;
+
+/** Survives React remounts — stops online/offline flap when the dashboard re-renders. */
+const sharedRadio: {
+  room: Room | null;
+  commandId: number | null;
+  holders: number;
+  teardownTimer: ReturnType<typeof setTimeout> | null;
+} = {
+  room: null,
+  commandId: null,
+  holders: 0,
+  teardownTimer: null,
+};
 
 function micErrorMessage(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
@@ -227,6 +261,7 @@ export function useRadioChannel(commandId: number | null) {
     Capacitor.isNativePlatform() ? "prompt" : "granted",
   );
   const autoReconnectCountRef = useRef(0);
+  const lastHandledReconnectTick = useRef(0);
 
   commandIdRef.current = commandId;
 
@@ -377,6 +412,10 @@ export function useRadioChannel(commandId: number | null) {
     }
     const room = roomRef.current;
     roomRef.current = null;
+    if (sharedRadio.room === room) {
+      sharedRadio.room = null;
+      sharedRadio.commandId = null;
+    }
     if (room) {
       try {
         await room.disconnect();
@@ -405,16 +444,19 @@ export function useRadioChannel(commandId: number | null) {
     let cancelled = false;
     let activeRoom: Room | null = null;
     let intentionalLeave = false;
+    const effectGen = ++radioEffectGeneration;
 
     async function connectOnce(commandIdToJoin: number): Promise<Room> {
       const tok = await radioFetch<TokenResponse>("POST", "/api/radio/token", {
         commandId: commandIdToJoin,
+        deviceId: getRadioTabDeviceId(),
       });
       if (cancelled) throw new Error("cancelled");
 
       const room = new Room({
         adaptiveStream: true,
         dynacast: true,
+        disconnectOnPageLeave: false,
         audioCaptureDefaults: {
           echoCancellation: true,
           noiseSuppression: true,
@@ -423,6 +465,8 @@ export function useRadioChannel(commandId: number | null) {
       });
       activeRoom = room;
       roomRef.current = room;
+      sharedRadio.room = room;
+      sharedRadio.commandId = commandIdToJoin;
 
       const isActiveRoom = () => roomRef.current === room && !cancelled;
 
@@ -469,16 +513,18 @@ export function useRadioChannel(commandId: number | null) {
         setConnected(false);
         setTransmitting(false);
         setSpeakerReady(false);
-        if (!intentionalLeave && !cancelled) {
-          if (autoReconnectCountRef.current >= 3) return;
-          autoReconnectCountRef.current += 1;
-          // Brief delay then rejoin — covers DUPLICATE_IDENTITY / brief ICE drops.
-          window.setTimeout(() => {
-            if (!cancelled && commandIdRef.current === commandIdToJoin) {
-              setReconnectTick((n) => n + 1);
-            }
-          }, 1200);
-        }
+        // Do NOT auto-force a full rejoin here. LiveKit already reconnects ICE;
+        // bumping reconnectTick was causing DUPLICATE_IDENTITY flaps (online/offline).
+      });
+      room.on(RoomEvent.Reconnecting, () => {
+        if (!isActiveRoom()) return;
+        setConnecting(true);
+      });
+      room.on(RoomEvent.Reconnected, () => {
+        if (!isActiveRoom()) return;
+        setConnecting(false);
+        setConnected(true);
+        setSpeakerReady(room.canPlaybackAudio);
       });
 
       await setOmtRadioAudioSession(true);
@@ -498,10 +544,50 @@ export function useRadioChannel(commandId: number | null) {
     }
 
     async function run() {
+      if (sharedRadio.teardownTimer) {
+        clearTimeout(sharedRadio.teardownTimer);
+        sharedRadio.teardownTimer = null;
+      }
+      sharedRadio.holders += 1;
+
+      if (cancelled || commandId == null) {
+        intentionalLeave = true;
+        await teardown();
+        return;
+      }
+
+      const forceReconnect = reconnectTick > 0 && reconnectTick !== lastHandledReconnectTick.current;
+      lastHandledReconnectTick.current = reconnectTick;
+
+      // Reuse shared live room across remounts (same channel, not a manual Retry).
+      const shared = sharedRadio.room;
+      if (
+        !forceReconnect &&
+        shared &&
+        sharedRadio.commandId === commandId &&
+        shared.state === ConnectionState.Connected
+      ) {
+        roomRef.current = shared;
+        activeRoom = shared;
+        setConnected(true);
+        setConnecting(false);
+        setError(null);
+        setSpeakerReady(shared.canPlaybackAudio);
+        setListenerCount(shared.remoteParticipants.size);
+        await refreshFloor();
+        if (!pollRef.current) {
+          pollRef.current = setInterval(() => {
+            if (cancelled) return;
+            void refreshFloor();
+          }, 2000);
+        }
+        return;
+      }
+
       intentionalLeave = true;
       await teardown();
       intentionalLeave = false;
-      if (cancelled || commandId == null) return;
+      if (cancelled || commandId == null || effectGen !== radioEffectGeneration) return;
 
       setConnecting(true);
       setError(null);
@@ -509,14 +595,13 @@ export function useRadioChannel(commandId: number | null) {
       const maxAttempts = 3;
       let lastErr: unknown = null;
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        if (cancelled) return;
+        if (cancelled || effectGen !== radioEffectGeneration) return;
         try {
-          // Give LiveKit time to drop a duplicate identity from a prior tab/effect.
           if (attempt > 1) await sleep(700 * attempt);
-          else await sleep(250);
+          else await sleep(150);
 
           const room = await connectOnce(commandId);
-          if (cancelled) return;
+          if (cancelled || effectGen !== radioEffectGeneration) return;
 
           setConnected(true);
           setSpeakerReady(room.canPlaybackAudio);
@@ -552,39 +637,37 @@ export function useRadioChannel(commandId: number | null) {
           } catch {
             /* ignore */
           }
+          if (sharedRadio.room === activeRoom) {
+            sharedRadio.room = null;
+            sharedRadio.commandId = null;
+          }
           activeRoom = null;
           if (roomRef.current) roomRef.current = null;
         }
       }
 
-      if (lastErr && !cancelled) {
+      if (lastErr && !cancelled && effectGen === radioEffectGeneration) {
         setError(friendlyRadioError(lastErr));
         setConnected(false);
       }
-      if (!cancelled) setConnecting(false);
+      if (!cancelled && effectGen === radioEffectGeneration) setConnecting(false);
     }
 
     void run();
     return () => {
       cancelled = true;
       intentionalLeave = true;
-      void (async () => {
-        if (activeRoom && roomRef.current === activeRoom) {
-          await teardown();
-          return;
-        }
-        if (activeRoom) {
-          try {
-            await activeRoom.disconnect();
-          } catch {
-            /* ignore */
-          }
-          return;
-        }
-        await teardown();
-      })();
+      sharedRadio.holders = Math.max(0, sharedRadio.holders - 1);
+      const leaveGen = effectGen;
+      if (sharedRadio.teardownTimer) clearTimeout(sharedRadio.teardownTimer);
+      sharedRadio.teardownTimer = setTimeout(() => {
+        sharedRadio.teardownTimer = null;
+        if (radioEffectGeneration !== leaveGen) return;
+        if (sharedRadio.holders > 0) return;
+        void teardown();
+      }, 1000);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- reconnectTick forces manual/auto retry
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reconnectTick forces manual retry
   }, [commandId, reconnectTick]);
 
   const ensureMicPublished = useCallback(async () => {
