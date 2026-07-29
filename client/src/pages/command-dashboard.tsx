@@ -537,8 +537,6 @@ export default function CommandDashboard() {
   const canAccessControl = canViewAccessControlModule(currentUser?.role ?? "");
   const canPatrol = canAccessPatrolModule(currentUser?.role ?? "");
   const isDispatch = currentUser?.role ? isDispatchStaff(currentUser.role) : false;
-  // Desktop Control Room and the mobile field home both used to mount RadioPanel
-  // (mobile tree stayed mounted under lg:hidden). Two LiveKit joins = stuck "Connecting".
   const isLgUp = useIsLgUp();
   const showDesktopOps = Boolean(isDispatch && isLgUp);
   const showMobileHome = !showDesktopOps;
