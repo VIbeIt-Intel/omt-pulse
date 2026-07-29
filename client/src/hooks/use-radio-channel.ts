@@ -673,6 +673,7 @@ export function useRadioChannel(commandId: number | null) {
       } else if (!cancelled && effectGen === radioEffectGeneration) {
         setConnecting(false);
       }
+    }
 
     void run();
     return () => {
@@ -686,7 +687,7 @@ export function useRadioChannel(commandId: number | null) {
         if (radioEffectGeneration !== leaveGen) return;
         if (sharedRadio.holders > 0) return;
         void teardown();
-      }, 1000);
+      }, 1500);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reconnectTick forces manual retry
   }, [commandId, reconnectTick]);
