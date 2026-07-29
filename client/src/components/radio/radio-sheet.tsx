@@ -20,7 +20,7 @@ export function RadioSheet({
         <SheetHeader className="text-left mb-3">
           <SheetTitle>Group radio</SheetTitle>
           <SheetDescription>
-            Tap to talk — tap again to stop. Everyone in the selected Pulse Group hears you live.
+            Hold to talk — release to stop. Everyone in the selected Pulse Group hears you live.
             Audio is not saved.
           </SheetDescription>
         </SheetHeader>

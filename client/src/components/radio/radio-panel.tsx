@@ -68,7 +68,7 @@ export function RadioPanel({
   }, [radio.connected, radio.speakerReady, radio.unlockSpeaker]);
 
   const statusLine = radio.transmitting
-    ? "You are on air — tap again to stop"
+    ? "You are on air — release to stop"
     : radio.remoteTalking
       ? `${radio.remoteTalking} talking`
       : busy && radio.floor
@@ -77,8 +77,8 @@ export function RadioPanel({
           ? "Connecting radio…"
           : radio.connected
             ? radio.speakerReady
-              ? "Live — tap to talk"
-              : "Live — tap once, then tap to talk"
+              ? "Live — hold to talk"
+              : "Live — tap once for speaker, then hold to talk"
             : "Radio offline";
 
   if (available === null) {
@@ -212,7 +212,7 @@ export function RadioPanel({
             transmitting={radio.transmitting}
             busy={busy}
             className={dock ? "min-h-[4.25rem] py-3" : undefined}
-            label="Tap to talk"
+            label="Hold to talk"
             onPressStart={() => void radio.startTransmit()}
             onPressEnd={() => void radio.stopTransmit()}
           />
@@ -223,12 +223,13 @@ export function RadioPanel({
             </p>
           ) : dock ? (
             <p className="text-[10px] text-muted-foreground/80">
-              Tap to talk, tap again to stop. Always on while you are on this screen — audio is never
+              Hold to talk, release to stop. Always on while you are on this screen — audio is never
               saved.
             </p>
           ) : (
             <p className="text-[10px] text-muted-foreground/80">
-              Mic stays allowed after the first Android Allow (same as voice notes). Audio is never saved.
+              Hold the button to transmit, release to stop. Mic stays allowed after the first Android
+              Allow (same as voice notes). Audio is never saved.
             </p>
           )}
         </>

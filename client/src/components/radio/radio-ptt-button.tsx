@@ -1,9 +1,9 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { Radio } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
- * Toggle PTT: first tap locks the floor / goes on air; second tap releases.
+ * Hold-to-talk PTT: transmit while the pointer is held down; release to stop.
  */
 export function RadioPttButton({
   disabled,
@@ -12,7 +12,7 @@ export function RadioPttButton({
   onPressStart,
   onPressEnd,
   className,
-  label = "Tap to talk",
+  label = "Hold to talk",
 }: {
   disabled?: boolean;
   transmitting: boolean;
@@ -22,15 +22,46 @@ export function RadioPttButton({
   className?: string;
   label?: string;
 }) {
-  const toggle = useCallback(() => {
-    if (disabled) return;
-    if (transmitting) {
-      onPressEnd();
-      return;
-    }
-    if (busy) return;
-    onPressStart();
-  }, [busy, disabled, onPressEnd, onPressStart, transmitting]);
+  const holdingRef = useRef(false);
+
+  const endHold = useCallback(() => {
+    if (!holdingRef.current) return;
+    holdingRef.current = false;
+    onPressEnd();
+  }, [onPressEnd]);
+
+  const beginHold = useCallback(
+    (e: React.PointerEvent<HTMLButtonElement>) => {
+      if (disabled || busy || holdingRef.current) return;
+      if (e.button !== 0) return;
+      e.preventDefault();
+      holdingRef.current = true;
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+      onPressStart();
+    },
+    [busy, disabled, onPressStart],
+  );
+
+  useEffect(() => {
+    const onBlur = () => endHold();
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") endHold();
+    };
+    window.addEventListener("blur", onBlur);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("blur", onBlur);
+      document.removeEventListener("visibilitychange", onVisibility);
+      if (holdingRef.current) {
+        holdingRef.current = false;
+        onPressEnd();
+      }
+    };
+  }, [endHold, onPressEnd]);
 
   return (
     <button
@@ -50,16 +81,17 @@ export function RadioPttButton({
               : "bg-slate-800 text-slate-100 hover:bg-slate-700 border border-emerald-500/40",
         className,
       )}
-      onClick={(e) => {
-        e.preventDefault();
-        toggle();
-      }}
+      onPointerDown={beginHold}
+      onPointerUp={endHold}
+      onPointerCancel={endHold}
+      onLostPointerCapture={endHold}
       onContextMenu={(e) => e.preventDefault()}
+      onClick={(e) => e.preventDefault()}
     >
       <Radio className={cn("h-7 w-7", transmitting && "animate-pulse")} />
       <span>
         {transmitting
-          ? "On air — tap to stop"
+          ? "On air — release to stop"
           : busy
             ? "Channel busy"
             : label}
