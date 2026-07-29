@@ -98,11 +98,12 @@ async function getSession(): Promise<ort.InferenceSession> {
 }
 
 function resolveFfmpegBin(): string {
-  if (ffmpegStatic && typeof ffmpegStatic === "string" && fs.existsSync(ffmpegStatic)) {
-    return ffmpegStatic;
-  }
+  // Prefer system ffmpeg in production — ffmpeg-static has been ENOENT/EACCES on the VPS.
   for (const candidate of ["/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg"]) {
     if (fs.existsSync(candidate)) return candidate;
+  }
+  if (ffmpegStatic && typeof ffmpegStatic === "string" && fs.existsSync(ffmpegStatic)) {
+    return ffmpegStatic;
   }
   throw new Error("FFmpeg is not available");
 }

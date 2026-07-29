@@ -75,11 +75,11 @@ function newestTsInDir(dir: string): string | null {
 }
 
 function ffmpegPath(): string | null {
+  for (const candidate of ["/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg"]) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
   if (ffmpegStatic && typeof ffmpegStatic === "string" && fs.existsSync(ffmpegStatic)) {
     return ffmpegStatic;
-  }
-  for (const candidate of ["/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg", "ffmpeg"]) {
-    if (candidate === "ffmpeg" || fs.existsSync(candidate)) return candidate;
   }
   return null;
 }
