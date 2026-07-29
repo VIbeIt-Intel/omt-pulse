@@ -7,7 +7,7 @@ import {
   warmupCctvAiDetector,
 } from "./ai-detector";
 import { saveDetectionSnapshot } from "./ai-snapshots";
-import { getLatestHlsSegmentPath } from "./stream-manager";
+import { getLatestHlsSegmentPath, touchCctvStream } from "./stream-manager";
 import {
   buildRtspSource,
   insertCctvAiEvent,
@@ -152,6 +152,26 @@ async function emitAlert(
 
 async function processCamera(camera: Awaited<ReturnType<typeof listAiEnabledCameras>>[number]) {
   const rtsp = buildRtspSource(camera);
+  try {
+    // Keep HLS warm even when nobody is watching — AI frame grabs use those segments.
+    await touchCctvStream(
+      camera.organizationId,
+      camera.id,
+      rtsp,
+      (camera.streamRotation as "normal" | "rotate180") || "normal",
+      (camera.streamQuality as "low" | "medium" | "high") || "medium",
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    latestByCamera.set(camera.id, {
+      detections: latestByCamera.get(camera.id)?.detections ?? [],
+      at: Date.now(),
+      error: message,
+    });
+    console.warn(`[cctv-ai] camera ${camera.id} stream:`, message);
+    return;
+  }
+
   const hlsSeg = getLatestHlsSegmentPath(camera.organizationId, camera.id);
   try {
     const { jpeg, detections: raw } = await detectObjectsFromRtspWithFrame(rtsp, hlsSeg);
