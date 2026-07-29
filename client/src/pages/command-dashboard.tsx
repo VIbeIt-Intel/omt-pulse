@@ -34,7 +34,6 @@ import { LiveIncidentJoinBanner } from "@/components/live-incident-join-banner";
 import { PanicConfirmOverlay } from "@/components/panic-confirm-overlay";
 import { usePanickerLocationSync } from "@/hooks/use-panicker-location-sync";
 import { OperationsDashboard, type DashboardUserSummary } from "@/components/operations-dashboard";
-import { RadioPanel } from "@/components/radio/radio-panel";
 import { useToast } from "@/hooks/use-toast";
 import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import { cn } from "@/lib/utils";
@@ -852,8 +851,6 @@ export default function CommandDashboard() {
             onClick={() => setPanicOpen(true)}
             testId="button-panic"
           />
-          {/* Field home only — desktop Control Room uses OperationsDashboard radio. */}
-          {showMobileHome ? <RadioPanel dock className="w-full" /> : null}
           {canPatrol && (
           <ActionTile
             title={activePatrol ? "Patrol in progress" : "Start Patrol"}

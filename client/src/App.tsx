@@ -16,6 +16,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
+import { PersistentRadioDock } from "@/components/radio/persistent-radio-dock";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ConnectivityBadge } from "@/components/connectivity-badge";
@@ -1019,6 +1020,7 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
               <Route component={NotFound} />
             </Switch>
           </main>
+          <PersistentRadioDock />
         </div>
       </div>
       <PermissionPrimerModal />
