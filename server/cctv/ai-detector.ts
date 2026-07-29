@@ -8,15 +8,16 @@ import type { CctvAiDetection, CctvRoi } from "@shared/cctv";
 
 const INPUT_SIZE = 640;
 /** Raw YOLO score floor; refined per-class in `refineDetections`. */
-const CONF_THRESHOLD = 0.22;
+const CONF_THRESHOLD = 0.18;
 const IOU_THRESHOLD = 0.45;
 
 const MIN_CONF: Record<string, number> = {
   person: 0.55,
-  car: 0.48,
-  motorcycle: 0.48,
-  bus: 0.48,
-  truck: 0.48,
+  // Distant field cars are often weak scores — allow lower than people.
+  car: 0.34,
+  motorcycle: 0.34,
+  bus: 0.36,
+  truck: 0.36,
 };
 
 /** Person boxes below this need two consecutive samples (see ai-worker). */
@@ -303,7 +304,13 @@ export function refineDetections(dets: CctvAiDetection[]): CctvAiDetection[] {
     if (d.confidence < minConf) return false;
 
     const area = d.w * d.h;
-    if (area < 0.0015) return false;
+    const isVehicle = VEHICLE_LABEL_SET.has(d.label);
+    // Allow smaller distant vehicles; keep a slightly higher floor for people.
+    if (isVehicle) {
+      if (area < 0.00035) return false;
+    } else if (area < 0.0015) {
+      return false;
+    }
 
     if (d.label === "person") {
       const aspect = d.h / Math.max(d.w, 1e-6);
@@ -367,7 +374,8 @@ function parseYoloOutput(output: ort.Tensor, meta: LetterboxMeta): CctvAiDetecti
     const ny2 = Math.max(0, Math.min(1, y2 / meta.origH));
     const w = nx2 - nx1;
     const h = ny2 - ny1;
-    if (w < 0.002 || h < 0.002) continue;
+    // Keep tiny distant vehicle candidates; people still need a bit more bulk later.
+    if (w < 0.0008 || h < 0.0008) continue;
 
     raw.push({
       label: DETECT_LABELS[bestCls] ?? "object",

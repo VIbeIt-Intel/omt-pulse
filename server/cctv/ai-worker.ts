@@ -159,9 +159,15 @@ async function processCamera(camera: Awaited<ReturnType<typeof listAiEnabledCame
     if (camera.vehicleRoiJson) {
       try {
         const roi = JSON.parse(camera.vehicleRoiJson) as { x: number; y: number; w: number; h: number };
-        const fullFrame = raw.filter((d) => d.label === "person");
+        // People: full frame. Vehicles: full frame + ROI crop (crop boosts distant cars in-zone).
+        const fullFramePeople = raw.filter((d) => d.label === "person");
+        const fullFrameVehicles = raw.filter((d) => isVehicle(d));
         const roiVehicles = await detectVehicleObjectsInJpegForRoi(jpeg, roi);
-        combined = mergeUniqueDetections([...fullFrame, ...roiVehicles]);
+        combined = mergeUniqueDetections([
+          ...fullFramePeople,
+          ...fullFrameVehicles,
+          ...roiVehicles,
+        ]);
       } catch {
         combined = raw;
       }
