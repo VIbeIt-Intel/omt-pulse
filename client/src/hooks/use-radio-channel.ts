@@ -64,6 +64,27 @@ async function radioFetch<T>(method: string, path: string, body?: unknown): Prom
   }
 }
 
+function friendlyRadioError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  const lower = raw.toLowerCase();
+  if (
+    lower.includes("pc connection") ||
+    lower.includes("peerconnection") ||
+    lower.includes("ice") ||
+    lower.includes("dtls")
+  ) {
+    return "Could not establish radio audio link. Close other OMT Pulse tabs on this PC, then tap Retry.";
+  }
+  if (lower.includes("websocket") || lower.includes("connection refused")) {
+    return "Radio server unreachable. Check internet, then tap Retry.";
+  }
+  return raw || "Could not connect to radio";
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function micErrorMessage(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
   const lower = raw.toLowerCase();
@@ -79,6 +100,7 @@ function micErrorMessage(err: unknown): string {
   }
   return raw || "Could not open microphone";
 }
+
 
 /** Ensure OS mic is allowed (no-op if voice notes already granted it). */
 async function ensureOsMicPermission(): Promise<void> {
@@ -200,9 +222,11 @@ export function useRadioChannel(commandId: number | null) {
   const [error, setError] = useState<string | null>(null);
   const [remoteTalking, setRemoteTalking] = useState<string | null>(null);
   const [speakerReady, setSpeakerReady] = useState(false);
+  const [reconnectTick, setReconnectTick] = useState(0);
   const [micPermission, setMicPermission] = useState<OmtMicPermission>(
     Capacitor.isNativePlatform() ? "prompt" : "granted",
   );
+  const autoReconnectCountRef = useRef(0);
 
   commandIdRef.current = commandId;
 
@@ -367,6 +391,12 @@ export function useRadioChannel(commandId: number | null) {
     setFloor(null);
   }, [stopHeartbeat]);
 
+  const reconnect = useCallback(() => {
+    autoReconnectCountRef.current = 0;
+    setError(null);
+    setReconnectTick((n) => n + 1);
+  }, []);
+
   useEffect(() => {
     void refreshMicPermission();
   }, [refreshMicPermission]);
@@ -374,125 +404,170 @@ export function useRadioChannel(commandId: number | null) {
   useEffect(() => {
     let cancelled = false;
     let activeRoom: Room | null = null;
+    let intentionalLeave = false;
+
+    async function connectOnce(commandIdToJoin: number): Promise<Room> {
+      const tok = await radioFetch<TokenResponse>("POST", "/api/radio/token", {
+        commandId: commandIdToJoin,
+      });
+      if (cancelled) throw new Error("cancelled");
+
+      const room = new Room({
+        adaptiveStream: true,
+        dynacast: true,
+        audioCaptureDefaults: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+      activeRoom = room;
+      roomRef.current = room;
+
+      const isActiveRoom = () => roomRef.current === room && !cancelled;
+
+      const updateParticipants = () => {
+        if (!isActiveRoom()) return;
+        setListenerCount(room.remoteParticipants.size);
+      };
+      room.on(RoomEvent.ParticipantConnected, updateParticipants);
+      room.on(RoomEvent.ParticipantDisconnected, updateParticipants);
+      room.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
+        if (!isActiveRoom()) return;
+        const other = speakers.find((s) => !s.isLocal);
+        setRemoteTalking(other?.name || other?.identity || null);
+        if (other) {
+          void setOmtRadioAudioSession(true);
+          void room.startAudio().catch(() => undefined);
+        }
+      });
+      room.on(RoomEvent.TrackSubscribed, (track) => {
+        if (!isActiveRoom()) return;
+        if (track.kind !== Track.Kind.Audio) return;
+        void setOmtRadioAudioSession(true);
+        if ("setVolume" in track && typeof track.setVolume === "function") {
+          track.setVolume(1);
+        }
+        const els =
+          track.attachedElements.length > 0
+            ? track.attachedElements
+            : [track.attach()];
+        for (const el of els) {
+          el.autoplay = true;
+          el.muted = false;
+          el.volume = 1;
+          void el.play().catch(() => undefined);
+        }
+        void room.startAudio().catch(() => undefined);
+      });
+      room.on(RoomEvent.AudioPlaybackStatusChanged, () => {
+        if (!isActiveRoom()) return;
+        setSpeakerReady(room.canPlaybackAudio);
+      });
+      room.on(RoomEvent.Disconnected, () => {
+        if (roomRef.current !== room) return;
+        setConnected(false);
+        setTransmitting(false);
+        setSpeakerReady(false);
+        if (!intentionalLeave && !cancelled) {
+          if (autoReconnectCountRef.current >= 3) return;
+          autoReconnectCountRef.current += 1;
+          // Brief delay then rejoin — covers DUPLICATE_IDENTITY / brief ICE drops.
+          window.setTimeout(() => {
+            if (!cancelled && commandIdRef.current === commandIdToJoin) {
+              setReconnectTick((n) => n + 1);
+            }
+          }, 1200);
+        }
+      });
+
+      await setOmtRadioAudioSession(true);
+      await room.connect(tok.url, tok.token, {
+        peerConnectionTimeout: 25_000,
+        maxRetries: 2,
+      });
+      if (cancelled || roomRef.current !== room) {
+        try {
+          await room.disconnect();
+        } catch {
+          /* ignore */
+        }
+        throw new Error("cancelled");
+      }
+      return room;
+    }
 
     async function run() {
-      // Tear down any previous room before joining again.
+      intentionalLeave = true;
       await teardown();
+      intentionalLeave = false;
       if (cancelled || commandId == null) return;
 
       setConnecting(true);
       setError(null);
-      try {
-        const tok = await radioFetch<TokenResponse>("POST", "/api/radio/token", {
-          commandId,
-        });
+
+      const maxAttempts = 3;
+      let lastErr: unknown = null;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         if (cancelled) return;
+        try {
+          // Give LiveKit time to drop a duplicate identity from a prior tab/effect.
+          if (attempt > 1) await sleep(700 * attempt);
+          else await sleep(250);
 
-        const room = new Room({
-          adaptiveStream: true,
-          dynacast: true,
-          audioCaptureDefaults: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-          },
-        });
-        activeRoom = room;
-        roomRef.current = room;
+          const room = await connectOnce(commandId);
+          if (cancelled) return;
 
-        const isActiveRoom = () => roomRef.current === room && !cancelled;
-
-        const updateParticipants = () => {
-          if (!isActiveRoom()) return;
-          setListenerCount(room.remoteParticipants.size);
-        };
-        room.on(RoomEvent.ParticipantConnected, updateParticipants);
-        room.on(RoomEvent.ParticipantDisconnected, updateParticipants);
-        room.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
-          if (!isActiveRoom()) return;
-          const other = speakers.find((s) => !s.isLocal);
-          setRemoteTalking(other?.name || other?.identity || null);
-          if (other) {
-            // Someone is talking — force speaker path + playback (Android earpiece trap).
-            void setOmtRadioAudioSession(true);
-            void room.startAudio().catch(() => undefined);
-          }
-        });
-        room.on(RoomEvent.TrackSubscribed, (track) => {
-          if (!isActiveRoom()) return;
-          if (track.kind !== Track.Kind.Audio) return;
-          void setOmtRadioAudioSession(true);
-          if ("setVolume" in track && typeof track.setVolume === "function") {
-            track.setVolume(1);
-          }
-          const els =
-            track.attachedElements.length > 0
-              ? track.attachedElements
-              : [track.attach()];
-          for (const el of els) {
-            el.autoplay = true;
-            el.muted = false;
-            el.volume = 1;
-            void el.play().catch(() => undefined);
-          }
-          void room.startAudio().catch(() => undefined);
-        });
-        room.on(RoomEvent.AudioPlaybackStatusChanged, () => {
-          if (!isActiveRoom()) return;
+          setConnected(true);
           setSpeakerReady(room.canPlaybackAudio);
-        });
-        room.on(RoomEvent.Disconnected, () => {
-          // Ignore stale rooms — a newer join can disconnect the previous
-          // identity and must not flip the UI back to offline.
-          if (roomRef.current !== room) return;
-          setConnected(false);
-          setTransmitting(false);
-          setSpeakerReady(false);
-        });
-
-        await setOmtRadioAudioSession(true);
-        await room.connect(tok.url, tok.token);
-        if (cancelled || roomRef.current !== room) {
+          setListenerCount(room.remoteParticipants.size);
+          autoReconnectCountRef.current = 0;
           try {
-            await room.disconnect();
+            await room.startAudio();
+            if (roomRef.current === room && !cancelled) {
+              setSpeakerReady(room.canPlaybackAudio);
+            }
+          } catch {
+            if (roomRef.current === room && !cancelled) setSpeakerReady(false);
+          }
+          await refreshMicPermission();
+          await refreshFloor();
+          if (pollRef.current) {
+            clearInterval(pollRef.current);
+            pollRef.current = null;
+          }
+          pollRef.current = setInterval(() => {
+            if (roomRef.current !== room || cancelled) return;
+            void refreshFloor();
+          }, 2000);
+          lastErr = null;
+          break;
+        } catch (err) {
+          lastErr = err;
+          if (cancelled) return;
+          const msg = err instanceof Error ? err.message : String(err);
+          if (msg === "cancelled") return;
+          try {
+            if (activeRoom) await activeRoom.disconnect();
           } catch {
             /* ignore */
           }
-          return;
+          activeRoom = null;
+          if (roomRef.current) roomRef.current = null;
         }
-
-        setConnected(true);
-        setSpeakerReady(room.canPlaybackAudio);
-        updateParticipants();
-        try {
-          await room.startAudio();
-          if (isActiveRoom()) setSpeakerReady(room.canPlaybackAudio);
-        } catch {
-          if (isActiveRoom()) setSpeakerReady(false);
-        }
-        await refreshMicPermission();
-        await refreshFloor();
-        if (pollRef.current) {
-          clearInterval(pollRef.current);
-          pollRef.current = null;
-        }
-        pollRef.current = setInterval(() => {
-          if (!isActiveRoom()) return;
-          void refreshFloor();
-        }, 2000);
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Could not connect to radio");
-          setConnected(false);
-        }
-      } finally {
-        if (!cancelled) setConnecting(false);
       }
+
+      if (lastErr && !cancelled) {
+        setError(friendlyRadioError(lastErr));
+        setConnected(false);
+      }
+      if (!cancelled) setConnecting(false);
     }
 
     void run();
     return () => {
       cancelled = true;
+      intentionalLeave = true;
       void (async () => {
         if (activeRoom && roomRef.current === activeRoom) {
           await teardown();
@@ -509,10 +584,8 @@ export function useRadioChannel(commandId: number | null) {
         await teardown();
       })();
     };
-    // Only rejoin when the selected channel changes. Callback identities must not
-    // tear down a healthy LiveKit session (that was flipping the UI to offline).
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional
-  }, [commandId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reconnectTick forces manual/auto retry
+  }, [commandId, reconnectTick]);
 
   const ensureMicPublished = useCallback(async () => {
     const room = roomRef.current;
@@ -579,6 +652,7 @@ export function useRadioChannel(commandId: number | null) {
     unlockSpeaker,
     requestMicAccess,
     refreshMicPermission,
+    reconnect,
     startTransmit,
     stopTransmit,
   };

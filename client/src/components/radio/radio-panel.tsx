@@ -220,9 +220,25 @@ export function RadioPanel({
           />
 
           {radio.error ? (
-            <p className="text-xs text-amber-400" data-testid="text-radio-error">
-              {radio.error}
-            </p>
+            <div className="space-y-2">
+              <p className="text-xs text-amber-400" data-testid="text-radio-error">
+                {radio.error}
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="w-full h-9"
+                data-testid="button-radio-retry"
+                disabled={radio.connecting}
+                onClick={() => radio.reconnect()}
+              >
+                {radio.connecting ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : null}
+                Retry radio connection
+              </Button>
+            </div>
           ) : dock ? (
             <p className="text-[10px] text-muted-foreground/80">
               Hold to talk, release to stop. Always on while you are on this screen — audio is never
