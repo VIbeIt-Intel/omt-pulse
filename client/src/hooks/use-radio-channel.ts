@@ -91,6 +91,36 @@ function roomPeopleCount(room: Room): number {
   return room.remoteParticipants.size + 1;
 }
 
+/** Attach + play every remote audio track (Android WebView needs DOM + user-gesture unlock). */
+function playRemoteAudioTracks(room: Room): void {
+  for (const participant of room.remoteParticipants.values()) {
+    for (const pub of participant.audioTrackPublications.values()) {
+      const track = pub.track;
+      if (!track || track.kind !== Track.Kind.Audio) continue;
+      if ("setVolume" in track && typeof track.setVolume === "function") {
+        track.setVolume(1);
+      }
+      const els =
+        track.attachedElements.length > 0
+          ? track.attachedElements
+          : [track.attach()];
+      for (const el of els) {
+        el.autoplay = true;
+        el.muted = false;
+        el.volume = 1;
+        el.setAttribute("playsinline", "true");
+        el.setAttribute("webkit-playsinline", "true");
+        if (!el.isConnected) {
+          el.style.cssText =
+            "position:fixed;width:0;height:0;opacity:0;pointer-events:none;left:0;top:0";
+          document.body.appendChild(el);
+        }
+        void el.play().catch(() => undefined);
+      }
+    }
+  }
+}
+
 /** Stable per-tab id so two browser tabs do not kick each other off LiveKit. */
 function getRadioTabDeviceId(): string {
   const key = "omt-radio-tab-id";
@@ -348,25 +378,7 @@ export function useRadioChannel(commandId: number | null) {
     try {
       await setOmtRadioAudioSession(true);
       await room.startAudio();
-      for (const participant of room.remoteParticipants.values()) {
-        for (const pub of participant.audioTrackPublications.values()) {
-          const track = pub.track;
-          if (!track || track.kind !== Track.Kind.Audio) continue;
-          if ("setVolume" in track && typeof track.setVolume === "function") {
-            track.setVolume(1);
-          }
-          const els =
-            track.attachedElements.length > 0
-              ? track.attachedElements
-              : [track.attach()];
-          for (const el of els) {
-            el.autoplay = true;
-            el.muted = false;
-            el.volume = 1;
-            void el.play().catch(() => undefined);
-          }
-        }
-      }
+      playRemoteAudioTracks(room);
       setSpeakerReady(room.canPlaybackAudio);
       return room.canPlaybackAudio;
     } catch {
@@ -499,26 +511,17 @@ export function useRadioChannel(commandId: number | null) {
         if (other) {
           void setOmtRadioAudioSession(true);
           void room.startAudio().catch(() => undefined);
+          playRemoteAudioTracks(room);
+          setSpeakerReady(room.canPlaybackAudio);
         }
       });
       room.on(RoomEvent.TrackSubscribed, (track) => {
         if (!isActiveRoom()) return;
         if (track.kind !== Track.Kind.Audio) return;
         void setOmtRadioAudioSession(true);
-        if ("setVolume" in track && typeof track.setVolume === "function") {
-          track.setVolume(1);
-        }
-        const els =
-          track.attachedElements.length > 0
-            ? track.attachedElements
-            : [track.attach()];
-        for (const el of els) {
-          el.autoplay = true;
-          el.muted = false;
-          el.volume = 1;
-          void el.play().catch(() => undefined);
-        }
+        playRemoteAudioTracks(room);
         void room.startAudio().catch(() => undefined);
+        setSpeakerReady(room.canPlaybackAudio);
       });
       room.on(RoomEvent.AudioPlaybackStatusChanged, () => {
         if (!isActiveRoom()) return;

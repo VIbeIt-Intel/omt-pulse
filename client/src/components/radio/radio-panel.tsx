@@ -69,7 +69,9 @@ export function RadioPanel({
 
   const statusLine = radio.transmitting
     ? "You are on air — release to stop"
-    : radio.remoteTalking
+    : radio.remoteTalking && !radio.speakerReady
+      ? `${radio.remoteTalking} talking — tap Enable speaker`
+      : radio.remoteTalking
       ? `${radio.remoteTalking} talking`
       : busy && radio.floor
         ? `${radio.floor.displayName} has the floor`
@@ -78,7 +80,7 @@ export function RadioPanel({
           : radio.connected
             ? radio.speakerReady
               ? "Live — hold to talk"
-              : "Live — tap once for speaker, then hold to talk"
+              : "Live — tap Enable speaker to hear"
             : radio.error
               ? "Radio connection failed"
               : "Radio offline";
@@ -197,16 +199,21 @@ export function RadioPanel({
             </div>
           ) : null}
 
-          {radio.connected && !radio.speakerReady && !dock ? (
+          {radio.connected && !radio.speakerReady ? (
             <Button
               type="button"
               variant="secondary"
-              className="w-full h-11 gap-2"
+              className={cn(
+                "w-full gap-2 bg-amber-600 hover:bg-amber-500 text-white",
+                dock ? "h-12 text-sm font-semibold" : "h-11",
+              )}
               data-testid="button-radio-enable-speaker"
               onClick={() => void radio.unlockSpeaker()}
             >
               <Volume2 className="h-4 w-4" />
-              Enable speaker
+              {radio.remoteTalking
+                ? `Tap to hear ${radio.remoteTalking}`
+                : "Tap to enable speaker"}
             </Button>
           ) : null}
 
@@ -216,7 +223,10 @@ export function RadioPanel({
             busy={busy}
             className={dock ? "min-h-[4.25rem] py-3" : undefined}
             label="Hold to talk"
-            onPressStart={() => void radio.startTransmit()}
+            onPressStart={() => {
+              void radio.unlockSpeaker();
+              void radio.startTransmit();
+            }}
             onPressEnd={() => void radio.stopTransmit()}
           />
 
@@ -242,8 +252,7 @@ export function RadioPanel({
             </div>
           ) : dock ? (
             <p className="text-[10px] text-muted-foreground/80">
-              Hold to talk, release to stop. Always on while you are on this screen — audio is never
-              saved.
+              Hold to talk, release to stop. Radio stays on across the app — audio is never saved.
             </p>
           ) : (
             <p className="text-[10px] text-muted-foreground/80">
