@@ -18,7 +18,7 @@ const TICK_MS = 2_500;
 /** Person alerts: avoid spam when someone stays in view. */
 const PERSON_ALERT_COOLDOWN_MS = 45_000;
 /** Vehicle alerts: short so cars that follow each other still get separate records. */
-const VEHICLE_ALERT_COOLDOWN_MS = 8_000;
+const VEHICLE_ALERT_COOLDOWN_MS = 20_000;
 const STALE_MS = 12_000;
 /** Boxes with IoU below this are treated as a different vehicle. */
 const DISTINCT_VEHICLE_IOU = 0.28;

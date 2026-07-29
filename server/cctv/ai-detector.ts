@@ -8,16 +8,16 @@ import type { CctvAiDetection, CctvRoi } from "@shared/cctv";
 
 const INPUT_SIZE = 640;
 /** Raw YOLO score floor; refined per-class in `refineDetections`. */
-const CONF_THRESHOLD = 0.18;
+const CONF_THRESHOLD = 0.20;
 const IOU_THRESHOLD = 0.45;
 
 const MIN_CONF: Record<string, number> = {
   person: 0.55,
-  // Distant field cars are often weak scores — allow lower than people.
-  car: 0.34,
-  motorcycle: 0.34,
-  bus: 0.36,
-  truck: 0.36,
+  // Keep distant cars possible, but block weak false alarms (~35–40%).
+  car: 0.45,
+  motorcycle: 0.45,
+  bus: 0.45,
+  truck: 0.45,
 };
 
 /** Person boxes below this need two consecutive samples (see ai-worker). */
