@@ -373,8 +373,10 @@ export function useRadioChannel(commandId: number | null) {
 
   useEffect(() => {
     let cancelled = false;
+    let activeRoom: Room | null = null;
 
     async function run() {
+      // Tear down any previous room before joining again.
       await teardown();
       if (cancelled || commandId == null) return;
 
@@ -395,14 +397,19 @@ export function useRadioChannel(commandId: number | null) {
             autoGainControl: true,
           },
         });
+        activeRoom = room;
         roomRef.current = room;
 
+        const isActiveRoom = () => roomRef.current === room && !cancelled;
+
         const updateParticipants = () => {
+          if (!isActiveRoom()) return;
           setListenerCount(room.remoteParticipants.size);
         };
         room.on(RoomEvent.ParticipantConnected, updateParticipants);
         room.on(RoomEvent.ParticipantDisconnected, updateParticipants);
         room.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
+          if (!isActiveRoom()) return;
           const other = speakers.find((s) => !s.isLocal);
           setRemoteTalking(other?.name || other?.identity || null);
           if (other) {
@@ -412,6 +419,7 @@ export function useRadioChannel(commandId: number | null) {
           }
         });
         room.on(RoomEvent.TrackSubscribed, (track) => {
+          if (!isActiveRoom()) return;
           if (track.kind !== Track.Kind.Audio) return;
           void setOmtRadioAudioSession(true);
           if ("setVolume" in track && typeof track.setVolume === "function") {
@@ -430,9 +438,13 @@ export function useRadioChannel(commandId: number | null) {
           void room.startAudio().catch(() => undefined);
         });
         room.on(RoomEvent.AudioPlaybackStatusChanged, () => {
+          if (!isActiveRoom()) return;
           setSpeakerReady(room.canPlaybackAudio);
         });
         room.on(RoomEvent.Disconnected, () => {
+          // Ignore stale rooms — a newer join can disconnect the previous
+          // identity and must not flip the UI back to offline.
+          if (roomRef.current !== room) return;
           setConnected(false);
           setTransmitting(false);
           setSpeakerReady(false);
@@ -440,8 +452,12 @@ export function useRadioChannel(commandId: number | null) {
 
         await setOmtRadioAudioSession(true);
         await room.connect(tok.url, tok.token);
-        if (cancelled) {
-          await room.disconnect();
+        if (cancelled || roomRef.current !== room) {
+          try {
+            await room.disconnect();
+          } catch {
+            /* ignore */
+          }
           return;
         }
 
@@ -450,13 +466,18 @@ export function useRadioChannel(commandId: number | null) {
         updateParticipants();
         try {
           await room.startAudio();
-          setSpeakerReady(room.canPlaybackAudio);
+          if (isActiveRoom()) setSpeakerReady(room.canPlaybackAudio);
         } catch {
-          setSpeakerReady(false);
+          if (isActiveRoom()) setSpeakerReady(false);
         }
         await refreshMicPermission();
         await refreshFloor();
+        if (pollRef.current) {
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+        }
         pollRef.current = setInterval(() => {
+          if (!isActiveRoom()) return;
           void refreshFloor();
         }, 2000);
       } catch (err) {
@@ -472,9 +493,26 @@ export function useRadioChannel(commandId: number | null) {
     void run();
     return () => {
       cancelled = true;
-      void teardown();
+      void (async () => {
+        if (activeRoom && roomRef.current === activeRoom) {
+          await teardown();
+          return;
+        }
+        if (activeRoom) {
+          try {
+            await activeRoom.disconnect();
+          } catch {
+            /* ignore */
+          }
+          return;
+        }
+        await teardown();
+      })();
     };
-  }, [commandId, refreshFloor, refreshMicPermission, teardown]);
+    // Only rejoin when the selected channel changes. Callback identities must not
+    // tear down a healthy LiveKit session (that was flipping the UI to offline).
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional
+  }, [commandId]);
 
   const ensureMicPublished = useCallback(async () => {
     const room = roomRef.current;

@@ -1009,7 +1009,6 @@ export function OperationsDashboard({
       <div className="shrink-0 px-4 py-2.5 border-b border-slate-800/80 bg-[#111820]">
         <RadioPanel
           compact
-          defaultCommandId={typeof activeCommandId === "number" ? activeCommandId : null}
           className="max-w-xl"
         />
       </div>

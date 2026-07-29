@@ -73,13 +73,15 @@ export function RadioPanel({
       ? `${radio.remoteTalking} talking`
       : busy && radio.floor
         ? `${radio.floor.displayName} has the floor`
-        : radio.connecting
+        : radio.connecting || channelsLoading || (enabled && commandId == null)
           ? "Connecting radio…"
           : radio.connected
             ? radio.speakerReady
               ? "Live — hold to talk"
               : "Live — tap once for speaker, then hold to talk"
-            : "Radio offline";
+            : radio.error
+              ? "Radio connection failed"
+              : "Radio offline";
 
   if (available === null) {
     return (
