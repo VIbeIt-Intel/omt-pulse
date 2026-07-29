@@ -177,6 +177,15 @@ async function processCamera(camera: Awaited<ReturnType<typeof listAiEnabledCame
 
     const persons = detections.filter((d) => d.label === "person");
     const vehicles = detections.filter((d) => isVehicle(d));
+    if (vehicles.length > 0 || persons.length > 0) {
+      const bestV = bestOf(vehicles);
+      const bestP = bestOf(persons);
+      console.log(
+        `[cctv-ai] camera ${camera.id} saw` +
+          (bestP ? ` person=${(bestP.confidence * 100).toFixed(0)}%` : "") +
+          (bestV ? ` vehicle=${bestV.label}:${(bestV.confidence * 100).toFixed(0)}%` : ""),
+      );
+    }
     const now = Date.now();
 
     // Person: rising edge only (nothing → person).

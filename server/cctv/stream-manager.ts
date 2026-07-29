@@ -34,36 +34,53 @@ function streamKey(orgId: string, cameraId: number): string {
 export function getLatestHlsSegmentPath(orgId: string, cameraId: number): string | null {
   const key = streamKey(orgId, cameraId);
   const entry = streams.get(key);
-  if (!entry) return null;
-  entry.lastAccess = Date.now();
-
-  const playlist = path.join(entry.dir, "playlist.m3u8");
-  if (!fs.existsSync(playlist)) return null;
-
-  let lastRel: string | null = null;
-  for (const line of fs.readFileSync(playlist, "utf8").split("\n")) {
-    const trimmed = line.trim();
-    if (trimmed && !trimmed.startsWith("#") && trimmed.endsWith(".ts")) {
-      lastRel = path.basename(trimmed);
-    }
+  if (entry) {
+    entry.lastAccess = Date.now();
+    const fromEntry = newestTsInDir(entry.dir);
+    if (fromEntry) return fromEntry;
   }
-  if (lastRel) {
-    const full = path.join(entry.dir, lastRel);
-    if (fs.existsSync(full)) return full;
+  // Stream map can miss briefly after restart; still read segments from disk while viewer is live.
+  return newestTsInDir(path.join(os.tmpdir(), "omt-cctv", orgId, String(cameraId)));
+}
+
+function newestTsInDir(dir: string): string | null {
+  if (!fs.existsSync(dir)) return null;
+  const playlist = path.join(dir, "playlist.m3u8");
+  if (fs.existsSync(playlist)) {
+    let lastRel: string | null = null;
+    for (const line of fs.readFileSync(playlist, "utf8").split("\n")) {
+      const trimmed = line.trim();
+      if (trimmed && !trimmed.startsWith("#") && trimmed.endsWith(".ts")) {
+        lastRel = path.basename(trimmed);
+      }
+    }
+    if (lastRel) {
+      const full = path.join(dir, lastRel);
+      if (fs.existsSync(full)) return full;
+    }
   }
 
   let newest: { full: string; mtime: number } | null = null;
-  for (const name of fs.readdirSync(entry.dir)) {
+  for (const name of fs.readdirSync(dir)) {
     if (!name.endsWith(".ts")) continue;
-    const full = path.join(entry.dir, name);
-    const st = fs.statSync(full);
-    if (!newest || st.mtimeMs > newest.mtime) newest = { full, mtime: st.mtimeMs };
+    const full = path.join(dir, name);
+    try {
+      const st = fs.statSync(full);
+      if (!newest || st.mtimeMs > newest.mtime) newest = { full, mtime: st.mtimeMs };
+    } catch {
+      /* ignore */
+    }
   }
   return newest?.full ?? null;
 }
 
 function ffmpegPath(): string | null {
-  if (ffmpegStatic && typeof ffmpegStatic === "string") return ffmpegStatic;
+  if (ffmpegStatic && typeof ffmpegStatic === "string" && fs.existsSync(ffmpegStatic)) {
+    return ffmpegStatic;
+  }
+  for (const candidate of ["/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg", "ffmpeg"]) {
+    if (candidate === "ffmpeg" || fs.existsSync(candidate)) return candidate;
+  }
   return null;
 }
 

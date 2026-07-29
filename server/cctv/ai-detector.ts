@@ -13,11 +13,11 @@ const IOU_THRESHOLD = 0.45;
 
 const MIN_CONF: Record<string, number> = {
   person: 0.55,
-  // Keep distant cars possible, but block weak false alarms (~35–40%).
-  car: 0.45,
-  motorcycle: 0.45,
-  bus: 0.45,
-  truck: 0.45,
+  // Real field vehicles often land ~40–55%; keep above the noisy 35–39% junk.
+  car: 0.40,
+  motorcycle: 0.40,
+  bus: 0.42,
+  truck: 0.42,
 };
 
 /** Person boxes below this need two consecutive samples (see ai-worker). */
@@ -97,9 +97,18 @@ async function getSession(): Promise<ort.InferenceSession> {
   return sessionPromise;
 }
 
+function resolveFfmpegBin(): string {
+  if (ffmpegStatic && typeof ffmpegStatic === "string" && fs.existsSync(ffmpegStatic)) {
+    return ffmpegStatic;
+  }
+  for (const candidate of ["/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg"]) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  throw new Error("FFmpeg is not available");
+}
+
 export async function grabRtspJpeg(rtspUrl: string, timeoutMs = 8_000): Promise<Buffer> {
-  const bin = ffmpegStatic && typeof ffmpegStatic === "string" ? ffmpegStatic : null;
-  if (!bin) throw new Error("FFmpeg is not available");
+  const bin = resolveFfmpegBin();
 
   return new Promise((resolve, reject) => {
     const args = [
@@ -163,8 +172,7 @@ export async function grabRtspJpeg(rtspUrl: string, timeoutMs = 8_000): Promise<
 }
 
 export async function grabMpegTsJpeg(segmentPath: string, timeoutMs = 5_000): Promise<Buffer> {
-  const bin = ffmpegStatic && typeof ffmpegStatic === "string" ? ffmpegStatic : null;
-  if (!bin) throw new Error("FFmpeg is not available");
+  const bin = resolveFfmpegBin();
 
   return new Promise((resolve, reject) => {
     const args = [
@@ -443,8 +451,9 @@ async function grabFrameJpeg(rtspUrl: string, hlsSegment: string | null): Promis
   if (hlsSegment) {
     try {
       const st = fs.statSync(hlsSegment);
-      // Prefer HLS when segment is fresh; stale segments mis-align with live view.
-      if (Date.now() - st.mtimeMs <= 4_000) {
+      // HLS segments are ~2–4s; allow a wider window so AI does not fall back to
+      // unauthenticated RTSP (401) while the live viewer is still healthy.
+      if (Date.now() - st.mtimeMs <= 12_000) {
         return await grabMpegTsJpeg(hlsSegment);
       }
     } catch {
