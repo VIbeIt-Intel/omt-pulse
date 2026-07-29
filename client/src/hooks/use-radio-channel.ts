@@ -86,6 +86,11 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** People on this channel (includes you). */
+function roomPeopleCount(room: Room): number {
+  return room.remoteParticipants.size + 1;
+}
+
 /** Stable per-tab id so two browser tabs do not kick each other off LiveKit. */
 function getRadioTabDeviceId(): string {
   const key = "omt-radio-tab-id";
@@ -483,7 +488,7 @@ export function useRadioChannel(commandId: number | null) {
 
       const updateParticipants = () => {
         if (!isActiveRoom()) return;
-        setListenerCount(room.remoteParticipants.size);
+        setListenerCount(roomPeopleCount(room));
       };
       room.on(RoomEvent.ParticipantConnected, updateParticipants);
       room.on(RoomEvent.ParticipantDisconnected, updateParticipants);
@@ -577,7 +582,7 @@ export function useRadioChannel(commandId: number | null) {
         setConnecting(false);
         setError(null);
         setSpeakerReady(shared.canPlaybackAudio);
-        setListenerCount(shared.remoteParticipants.size);
+        setListenerCount(roomPeopleCount(shared));
         await refreshFloor();
         if (!pollRef.current) {
           pollRef.current = setInterval(() => {
@@ -675,7 +680,7 @@ export function useRadioChannel(commandId: number | null) {
 
           setConnected(true);
           setSpeakerReady(room.canPlaybackAudio);
-          setListenerCount(room.remoteParticipants.size);
+          setListenerCount(roomPeopleCount(room));
           autoReconnectCountRef.current = 0;
           try {
             await room.startAudio();
