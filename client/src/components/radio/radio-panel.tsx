@@ -73,7 +73,7 @@ export function RadioPanel({
       ? `${radio.remoteTalking} talking`
       : busy && radio.floor
         ? `${radio.floor.displayName} has the floor`
-        : radio.connecting || channelsLoading || (enabled && commandId == null)
+        : radio.connecting || channelsLoading || (enabled && commandId == null) || (enabled && commandId != null && !radio.connected && !radio.error)
           ? "Connecting radio…"
           : radio.connected
             ? radio.speakerReady

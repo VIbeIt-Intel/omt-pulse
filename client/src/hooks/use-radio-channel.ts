@@ -441,6 +441,9 @@ export function useRadioChannel(commandId: number | null) {
   }, [refreshMicPermission]);
 
   useEffect(() => {
+    // Don't mount a null-channel session that only tears down.
+    if (commandId == null) return;
+
     let cancelled = false;
     let activeRoom: Room | null = null;
     let intentionalLeave = false;
@@ -550,9 +553,9 @@ export function useRadioChannel(commandId: number | null) {
       }
       sharedRadio.holders += 1;
 
+      // Waiting for channel list — do not teardown (that killed first-open Central join).
       if (cancelled || commandId == null) {
-        intentionalLeave = true;
-        await teardown();
+        sharedRadio.holders = Math.max(0, sharedRadio.holders - 1);
         return;
       }
 
@@ -584,9 +587,16 @@ export function useRadioChannel(commandId: number | null) {
         return;
       }
 
-      intentionalLeave = true;
-      await teardown();
-      intentionalLeave = false;
+      // Tear down only when switching channel, forcing retry, or prior join is dead.
+      if (
+        forceReconnect ||
+        (sharedRadio.room && sharedRadio.commandId !== commandId) ||
+        (sharedRadio.room && sharedRadio.room.state !== ConnectionState.Connected)
+      ) {
+        intentionalLeave = true;
+        await teardown();
+        intentionalLeave = false;
+      }
       if (cancelled || commandId == null || effectGen !== radioEffectGeneration) return;
 
       setConnecting(true);
@@ -649,9 +659,20 @@ export function useRadioChannel(commandId: number | null) {
       if (lastErr && !cancelled && effectGen === radioEffectGeneration) {
         setError(friendlyRadioError(lastErr));
         setConnected(false);
+        setConnecting(false);
+        // First-open can lose the race once; auto-retry like a channel switch.
+        if (autoReconnectCountRef.current < 2) {
+          autoReconnectCountRef.current += 1;
+          const retryFor = commandId;
+          window.setTimeout(() => {
+            if (commandIdRef.current === retryFor) {
+              setReconnectTick((n) => n + 1);
+            }
+          }, 800);
+        }
+      } else if (!cancelled && effectGen === radioEffectGeneration) {
+        setConnecting(false);
       }
-      if (!cancelled && effectGen === radioEffectGeneration) setConnecting(false);
-    }
 
     void run();
     return () => {
