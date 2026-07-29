@@ -246,6 +246,8 @@ export function useRadioChannel(commandId: number | null) {
   const roomRef = useRef<Room | null>(null);
   const micRef = useRef<LocalAudioTrack | null>(null);
   const holdingRef = useRef(false);
+  /** True only while the PTT button is physically held (sync; beats async floor/mic setup). */
+  const pttWantedRef = useRef(false);
   const commandIdRef = useRef(commandId);
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -369,6 +371,8 @@ export function useRadioChannel(commandId: number | null) {
   }, []);
 
   const stopTransmit = useCallback(async () => {
+    // Clear first so an in-flight startTransmit aborts after its next await.
+    pttWantedRef.current = false;
     holdingRef.current = false;
     stopHeartbeat();
     try {
@@ -767,17 +771,51 @@ export function useRadioChannel(commandId: number | null) {
     const id = commandIdRef.current;
     if (id == null || !roomRef.current) return;
     if (holdingRef.current) return;
+
+    // Hold-to-talk only: must stay pressed through floor + mic setup.
+    pttWantedRef.current = true;
     setError(null);
+
+    const abortIfReleased = async (opts?: { releaseFloor?: boolean; mute?: boolean }) => {
+      if (pttWantedRef.current) return false;
+      holdingRef.current = false;
+      setTransmitting(false);
+      stopHeartbeat();
+      if (opts?.mute && micRef.current) {
+        try {
+          await micRef.current.mute();
+        } catch {
+          /* ignore */
+        }
+      }
+      if (opts?.releaseFloor) {
+        try {
+          await radioFetch("POST", "/api/radio/floor/release", { commandId: id });
+        } catch {
+          /* ignore */
+        }
+        await refreshFloor();
+      }
+      return true;
+    };
+
     await unlockSpeaker();
+    if (await abortIfReleased()) return;
 
     try {
       const data = await radioFetch<{ holder: FloorHolderInfo }>("POST", "/api/radio/floor", {
         commandId: id,
       });
+      if (await abortIfReleased({ releaseFloor: true })) return;
       setFloor(data.holder);
+
       const mic = await ensureMicPublished();
+      if (await abortIfReleased({ releaseFloor: true, mute: true })) return;
+
       holdingRef.current = true;
       await mic.unmute();
+      if (await abortIfReleased({ releaseFloor: true, mute: true })) return;
+
       setTransmitting(true);
       stopHeartbeat();
       heartbeatRef.current = setInterval(() => {
@@ -787,6 +825,7 @@ export function useRadioChannel(commandId: number | null) {
       }, 4000);
     } catch (err) {
       holdingRef.current = false;
+      pttWantedRef.current = false;
       setTransmitting(false);
       const withHolder = err as Error & { holder?: FloorHolderInfo };
       if (withHolder.holder) setFloor(withHolder.holder);
