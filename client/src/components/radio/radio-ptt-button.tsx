@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Radio } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
  * Hold-to-talk PTT: transmit only while the pointer/finger is held down; release to stop.
- * Not click-to-toggle — a quick tap should not leave the mic open.
  */
 export function RadioPttButton({
   disabled,
@@ -25,30 +24,38 @@ export function RadioPttButton({
 }) {
   const holdingRef = useRef(false);
   const pointerIdRef = useRef<number | null>(null);
+  const onPressStartRef = useRef(onPressStart);
+  const onPressEndRef = useRef(onPressEnd);
+  onPressStartRef.current = onPressStart;
+  onPressEndRef.current = onPressEnd;
+
+  // Immediate visual feedback while floor/mic setup is still running.
+  const [pressed, setPressed] = useState(false);
 
   const endHold = useCallback(() => {
     if (!holdingRef.current) return;
     holdingRef.current = false;
     pointerIdRef.current = null;
-    onPressEnd();
-  }, [onPressEnd]);
+    setPressed(false);
+    onPressEndRef.current();
+  }, []);
 
   const beginHold = useCallback(
     (e: React.PointerEvent<HTMLButtonElement>) => {
       if (disabled || busy || holdingRef.current) return;
-      // Primary button / touch / pen only.
       if (e.pointerType === "mouse" && e.button !== 0) return;
       e.preventDefault();
       holdingRef.current = true;
       pointerIdRef.current = e.pointerId;
+      setPressed(true);
       try {
         e.currentTarget.setPointerCapture(e.pointerId);
       } catch {
         /* ignore */
       }
-      onPressStart();
+      onPressStartRef.current();
     },
-    [busy, disabled, onPressStart],
+    [busy, disabled],
   );
 
   const endHoldFromPointer = useCallback(
@@ -64,36 +71,42 @@ export function RadioPttButton({
     const onVisibility = () => {
       if (document.visibilityState === "hidden") endHold();
     };
-    const onKeyUp = (e: KeyboardEvent) => {
-      if (e.key === " " || e.key === "Enter") endHold();
+    const onWindowPointerUp = (e: PointerEvent) => {
+      if (!holdingRef.current) return;
+      if (pointerIdRef.current != null && e.pointerId !== pointerIdRef.current) return;
+      endHold();
     };
     window.addEventListener("blur", onBlur);
     document.addEventListener("visibilitychange", onVisibility);
-    window.addEventListener("keyup", onKeyUp);
+    // Safety net if the button misses pointerup (scroll / capture quirks).
+    window.addEventListener("pointerup", onWindowPointerUp);
+    window.addEventListener("pointercancel", onWindowPointerUp);
     return () => {
       window.removeEventListener("blur", onBlur);
       document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("pointerup", onWindowPointerUp);
+      window.removeEventListener("pointercancel", onWindowPointerUp);
       if (holdingRef.current) {
         holdingRef.current = false;
         pointerIdRef.current = null;
-        onPressEnd();
+        onPressEndRef.current();
       }
     };
-  }, [endHold, onPressEnd]);
+  }, [endHold]);
+
+  const active = transmitting || pressed;
 
   return (
     <button
       type="button"
       disabled={disabled || (busy && !transmitting)}
       data-testid="button-radio-ptt"
-      aria-pressed={transmitting}
+      aria-pressed={active}
       className={cn(
         "select-none touch-manipulation rounded-2xl px-6 py-5 font-bold text-base transition-colors",
         "flex flex-col items-center justify-center gap-1.5 min-h-[5.5rem] w-full",
-        // Avoid long-press callout / text selection on Android WebView.
         "[-webkit-user-select:none] [-webkit-touch-callout:none]",
-        transmitting
+        active
           ? "bg-emerald-500 text-white shadow-lg shadow-emerald-900/40"
           : busy
             ? "bg-amber-600/80 text-white cursor-not-allowed"
@@ -105,7 +118,8 @@ export function RadioPttButton({
       onPointerDown={beginHold}
       onPointerUp={endHoldFromPointer}
       onPointerCancel={endHoldFromPointer}
-      onLostPointerCapture={endHoldFromPointer}
+      // Do NOT end on lostpointercapture — it often fires right after setPointerCapture
+      // and was aborting hold-to-talk before the mic could open.
       onContextMenu={(e) => e.preventDefault()}
       onClick={(e) => e.preventDefault()}
       onKeyDown={(e) => {
@@ -114,7 +128,8 @@ export function RadioPttButton({
         e.preventDefault();
         if (disabled || busy || holdingRef.current) return;
         holdingRef.current = true;
-        onPressStart();
+        setPressed(true);
+        onPressStartRef.current();
       }}
       onKeyUp={(e) => {
         if (e.key !== " " && e.key !== "Enter") return;
@@ -122,13 +137,15 @@ export function RadioPttButton({
         endHold();
       }}
     >
-      <Radio className={cn("h-7 w-7", transmitting && "animate-pulse")} />
+      <Radio className={cn("h-7 w-7", active && "animate-pulse")} />
       <span>
         {transmitting
           ? "On air — release to stop"
-          : busy
-            ? "Channel busy"
-            : label}
+          : pressed
+            ? "Opening mic…"
+            : busy
+              ? "Channel busy"
+              : label}
       </span>
     </button>
   );
