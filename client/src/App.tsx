@@ -16,6 +16,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
+import { PersistentRadioDock } from "@/components/radio/persistent-radio-dock";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ConnectivityBadge } from "@/components/connectivity-badge";
@@ -37,6 +38,7 @@ import LiveMonitorPage from "@/pages/live-monitor";
 import CommandDashboard from "@/pages/command-dashboard";
 import CommandsPage from "@/pages/commands";
 import FleetPage from "@/pages/fleet";
+import CctvPage from "@/pages/cctv";
 import AccessControlPage from "@/pages/access-control";
 import PatrolPage from "@/pages/patrol";
 import WorkstationsAdminPage from "@/pages/workstations-admin";
@@ -988,6 +990,11 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
                   <FleetPage />
                 </RoleGuard>
               </Route>
+              <Route path="/cctv">
+                <RoleGuard role={user.role} allowed={["administrator", "supervisor", "control_room"]}>
+                  <CctvPage />
+                </RoleGuard>
+              </Route>
               <Route path="/access-control">
                 <RoleGuard role={user.role} allowed={["administrator", "supervisor", "control_room", "reporter", "access_controller"]}>
                   <AccessControlPage userRole={user.role} />
@@ -1013,6 +1020,7 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
               <Route component={NotFound} />
             </Switch>
           </main>
+          <PersistentRadioDock />
         </div>
       </div>
       <PermissionPrimerModal />
