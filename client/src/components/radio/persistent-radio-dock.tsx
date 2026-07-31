@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { RadioPanel } from "@/components/radio/radio-panel";
+import { cn } from "@/lib/utils";
 
 /** Idle after expand before snapping back to the slim bar. */
 const AUTO_COLLAPSE_MS = 8000;
@@ -80,7 +81,12 @@ export function PersistentRadioDock() {
   return (
     <div
       ref={dockRef}
-      className="shrink-0 border-t border-emerald-500/20 bg-[#0d141c]/95 backdrop-blur-sm px-3 py-1.5 pb-[max(0.35rem,env(safe-area-inset-bottom))] z-40"
+      className={cn(
+        "shrink-0 border-t border-emerald-500/15 bg-[#0d141c]/95 backdrop-blur-sm z-40",
+        collapsed
+          ? "px-2 py-1 pb-[max(0.25rem,env(safe-area-inset-bottom))]"
+          : "px-3 py-1.5 pb-[max(0.35rem,env(safe-area-inset-bottom))]",
+      )}
       data-testid="persistent-radio-dock"
       data-collapsed={collapsed ? "true" : "false"}
     >

@@ -13,6 +13,7 @@ export function RadioPttButton({
   onPressEnd,
   className,
   label = "Hold to talk",
+  compact = false,
 }: {
   disabled?: boolean;
   transmitting: boolean;
@@ -21,6 +22,8 @@ export function RadioPttButton({
   onPressEnd: () => void;
   className?: string;
   label?: string;
+  /** Slim dock control — icon + short label, not a full-width hero button. */
+  compact?: boolean;
 }) {
   const holdingRef = useRef(false);
   const pointerIdRef = useRef<number | null>(null);
@@ -95,6 +98,19 @@ export function RadioPttButton({
   }, [endHold]);
 
   const active = transmitting || pressed;
+  const displayLabel = transmitting
+    ? compact
+      ? "On air"
+      : "On air — release to stop"
+    : pressed
+      ? compact
+        ? "…"
+        : "Opening mic…"
+      : busy
+        ? compact
+          ? "Busy"
+          : "Channel busy"
+        : label;
 
   return (
     <button
@@ -103,16 +119,20 @@ export function RadioPttButton({
       data-testid="button-radio-ptt"
       aria-pressed={active}
       className={cn(
-        "select-none touch-manipulation rounded-2xl px-6 py-5 font-bold text-base transition-colors",
-        "flex flex-col items-center justify-center gap-1.5 min-h-[5.5rem] w-full",
+        "select-none touch-manipulation font-semibold transition-colors",
         "[-webkit-user-select:none] [-webkit-touch-callout:none]",
+        compact
+          ? "rounded-md h-8 px-2.5 gap-1.5 text-[11px] inline-flex items-center justify-center shrink-0 min-w-[4.5rem]"
+          : "rounded-2xl px-6 py-5 font-bold text-base flex flex-col items-center justify-center gap-1.5 min-h-[5.5rem] w-full",
         active
-          ? "bg-emerald-500 text-white shadow-lg shadow-emerald-900/40"
+          ? "bg-emerald-500 text-white shadow-md shadow-emerald-900/30"
           : busy
             ? "bg-amber-600/80 text-white cursor-not-allowed"
             : disabled
-              ? "bg-muted text-muted-foreground cursor-not-allowed"
-              : "bg-slate-800 text-slate-100 hover:bg-slate-700 border border-emerald-500/40",
+              ? "bg-slate-800/80 text-slate-500 cursor-not-allowed border border-slate-700/60"
+              : compact
+                ? "bg-slate-800 text-slate-100 hover:bg-slate-700 border border-emerald-500/35"
+                : "bg-slate-800 text-slate-100 hover:bg-slate-700 border border-emerald-500/40",
         className,
       )}
       onPointerDown={beginHold}
@@ -137,16 +157,8 @@ export function RadioPttButton({
         endHold();
       }}
     >
-      <Radio className={cn("h-7 w-7", active && "animate-pulse")} />
-      <span>
-        {transmitting
-          ? "On air — release to stop"
-          : pressed
-            ? "Opening mic…"
-            : busy
-              ? "Channel busy"
-              : label}
-      </span>
+      <Radio className={cn(compact ? "h-3.5 w-3.5" : "h-7 w-7", active && "animate-pulse")} />
+      <span className={cn(compact && "leading-none")}>{displayLabel}</span>
     </button>
   );
 }

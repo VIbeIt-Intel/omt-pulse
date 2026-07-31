@@ -177,74 +177,77 @@ export function RadioPanel({
   if (dock && collapsed) {
     const toneClass =
       connectionStatus.tone === "live"
-        ? "border-emerald-500/40 bg-emerald-950/30"
+        ? "border-emerald-500/35 bg-[#0f1a14]"
         : connectionStatus.tone === "talk"
-          ? "border-amber-500/40 bg-amber-950/25"
+          ? "border-amber-500/40 bg-[#1a160f]"
           : connectionStatus.tone === "wait"
-            ? "border-sky-500/40 bg-sky-950/20"
-            : "border-red-500/40 bg-red-950/20";
+            ? "border-sky-500/35 bg-[#0f161c]"
+            : "border-red-500/35 bg-[#1a1111]";
+
+    const detail =
+      radio.remoteTalking || radio.transmitting || isConnecting || !radio.connected
+        ? statusLine
+        : channelLabel;
 
     return (
       <div
-        className={cn("rounded-lg border px-2 py-1.5", toneClass, className)}
+        className={cn(
+          "rounded-md border px-1.5 py-1 overflow-hidden",
+          toneClass,
+          className,
+        )}
         data-testid="radio-dock"
         data-collapsed="true"
         data-radio-status={connectionStatus.label.toLowerCase()}
       >
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 min-h-8">
           <button
             type="button"
-            className="min-w-0 flex-1 flex items-center gap-2 text-left rounded-md hover:bg-white/5 -ml-0.5 pl-0.5 py-0.5"
+            className="min-w-0 flex-1 flex items-center gap-1.5 text-left rounded px-1 py-0.5 hover:bg-white/[0.04]"
             aria-label="Expand radio"
             data-testid="button-radio-expand"
             onClick={() => onCollapsedChange?.(false)}
           >
-            <ChevronUp className="h-4 w-4 shrink-0 text-emerald-400" />
-            <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-400">
-              <Radio className="h-3.5 w-3.5 shrink-0" />
-              <span className="truncate">Radio</span>
-              <span
-                className={cn(
-                  "inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-                  statusPillClass,
-                )}
-                data-testid="radio-dock-status"
-              >
-                {connectionStatus.tone === "wait" ? (
-                  <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
-                ) : (
-                  <span
-                    className={cn(
-                      "h-1.5 w-1.5 rounded-full",
-                      statusDotClass,
-                      (connectionStatus.tone === "live" || connectionStatus.tone === "talk") &&
-                        "animate-pulse",
-                    )}
-                    aria-hidden
-                  />
-                )}
-                {connectionStatus.label}
+            <ChevronUp className="h-3.5 w-3.5 shrink-0 text-emerald-400/90" />
+            <Radio className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
+            <span className="text-[11px] font-semibold text-emerald-400 shrink-0">Radio</span>
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide shrink-0",
+                statusPillClass,
+              )}
+              data-testid="radio-dock-status"
+            >
+              {connectionStatus.tone === "wait" ? (
+                <Loader2 className="h-2.5 w-2.5 animate-spin" aria-hidden />
+              ) : (
+                <span
+                  className={cn(
+                    "h-1.5 w-1.5 rounded-full",
+                    statusDotClass,
+                    (connectionStatus.tone === "live" || connectionStatus.tone === "talk") &&
+                      "animate-pulse",
+                  )}
+                  aria-hidden
+                />
+              )}
+              {connectionStatus.label}
+            </span>
+            {radio.connected ? (
+              <span className="hidden sm:inline-flex items-center gap-0.5 text-[10px] text-slate-500 tabular-nums shrink-0">
+                <Users className="h-3 w-3" />
+                {radio.listenerCount}
               </span>
-              {radio.connected ? (
-                <span className="inline-flex items-center gap-0.5 text-[10px] font-normal text-muted-foreground tabular-nums">
-                  <Users className="h-3 w-3" />
-                  {radio.listenerCount}
-                </span>
-              ) : null}
-            </div>
-            <p className="truncate text-[10px] text-muted-foreground leading-tight">
-              {radio.remoteTalking || radio.transmitting || isConnecting || !radio.connected
-                ? statusLine
-                : channelLabel}
-            </p>
-            </div>
+            ) : null}
+            <span className="min-w-0 flex-1 truncate text-[10px] text-slate-500">
+              {detail}
+            </span>
           </button>
           {radio.connected && !radio.speakerReady ? (
             <Button
               type="button"
               size="sm"
-              className="h-9 shrink-0 gap-1 bg-amber-600 hover:bg-amber-500 text-white px-2"
+              className="h-8 shrink-0 gap-1 bg-amber-600 hover:bg-amber-500 text-white px-2 text-[11px]"
               data-testid="button-radio-enable-speaker"
               onClick={() => void radio.unlockSpeaker()}
             >
