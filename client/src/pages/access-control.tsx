@@ -87,6 +87,7 @@ export default function AccessControlPage({ userRole }: AccessControlPageProps) 
     <div className="flex flex-col h-full overflow-hidden">
       <div className={cn("shrink-0 pt-3 pb-3", OPS_PAGE_SHELL)}>
         <PageHero
+          compact
           eyebrow="Access Control"
           badge={pageView === "overview" ? "Overview" : "Gate desk"}
           total={canUseDesk ? inside.length : activeDestinations.length}

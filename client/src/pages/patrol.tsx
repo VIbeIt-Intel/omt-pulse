@@ -289,6 +289,7 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
     <div className="flex flex-col h-full overflow-hidden">
       <div className={cn(OPS_PAGE_SHELL, "shrink-0 pt-3 pb-3")}>
         <PageHero
+          compact
           eyebrow="Patrol"
           badge={isManager ? "Manager" : "Field"}
           total={routes.length}

@@ -75,16 +75,16 @@ export function PageHero({
       <div
         className={cn(
           "relative",
-          compact ? "px-4 py-3.5 sm:px-5" : "px-5 py-5 sm:px-7 sm:py-6",
+          compact ? "px-3.5 py-2.5 sm:px-4 sm:py-3" : "px-5 py-5 sm:px-7 sm:py-6",
         )}
       >
-        <div className={cn("flex flex-wrap items-start justify-between gap-x-4 gap-y-2", compact ? "mb-2" : "mb-3")}>
+        <div className={cn("flex flex-wrap items-start justify-between gap-x-3 gap-y-1.5", compact ? "mb-1.5" : "mb-3")}>
           <div className="flex items-center gap-2 min-w-0">
             {leading}
             <p
               className={cn(
                 "font-semibold uppercase tracking-[0.08em] text-primary truncate",
-                compact ? "text-sm sm:text-base" : "text-base sm:text-lg",
+                compact ? "text-xs sm:text-sm" : "text-base sm:text-lg",
               )}
               data-testid={titleTestId}
             >
@@ -106,20 +106,25 @@ export function PageHero({
             {emptyMessage}
           </p>
         ) : (
-          <div className={cn("flex flex-col gap-4", compact ? "lg:gap-5" : "lg:flex-row lg:items-end lg:gap-10")}>
+          <div className={cn("flex flex-col", compact ? "gap-2 lg:gap-3" : "gap-4 lg:flex-row lg:items-end lg:gap-10")}>
             {hasLeadMetric ? (
-              <div className="shrink-0 min-w-[5.5rem]">
+              <div className={cn("shrink-0", compact ? "min-w-[4rem]" : "min-w-[5.5rem]")}>
                 <p
                   className={cn(
                     "font-semibold tracking-tight tabular-nums text-foreground/90 leading-none",
-                    compact ? "text-2xl" : "text-2xl sm:text-3xl",
+                    compact ? "text-xl" : "text-2xl sm:text-3xl",
                   )}
                   data-testid={totalTestId}
                 >
                   {total}
                 </p>
                 {totalLabel ? (
-                  <p className="mt-1.5 text-xs font-medium uppercase tracking-[0.1em] text-muted-foreground">
+                  <p
+                    className={cn(
+                      "font-medium uppercase tracking-[0.1em] text-muted-foreground",
+                      compact ? "mt-1 text-[10px]" : "mt-1.5 text-xs",
+                    )}
+                  >
                     {totalLabel}
                   </p>
                 ) : null}
@@ -131,13 +136,18 @@ export function PageHero({
                 <p
                   className={cn(
                     "font-semibold tracking-tight text-foreground leading-tight",
-                    compact ? "text-lg" : "text-xl sm:text-2xl",
+                    compact ? "text-base" : "text-xl sm:text-2xl",
                   )}
                 >
                   {title}
                 </p>
                 {description ? (
-                  <p className="mt-1 text-sm text-muted-foreground leading-snug max-w-2xl">
+                  <p
+                    className={cn(
+                      "text-muted-foreground leading-snug max-w-2xl",
+                      compact ? "mt-0.5 text-xs" : "mt-1 text-sm",
+                    )}
+                  >
                     {description}
                   </p>
                 ) : null}
@@ -145,13 +155,16 @@ export function PageHero({
             ) : null}
 
             {!hasTitleLead && description && hasLeadMetric ? (
-              <p className="text-sm text-muted-foreground lg:hidden">{description}</p>
+              <p className={cn("text-muted-foreground lg:hidden", compact ? "text-xs" : "text-sm")}>
+                {description}
+              </p>
             ) : null}
 
             {insights.length > 0 ? (
               <div
                 className={cn(
-                  "flex-1 grid gap-3 sm:gap-5",
+                  "flex-1 grid",
+                  compact ? "gap-2 sm:gap-3" : "gap-3 sm:gap-5",
                   insights.length === 1
                     ? "grid-cols-1"
                     : insights.length === 2
@@ -164,13 +177,18 @@ export function PageHero({
               >
                 {insights.map((item) => (
                   <div key={item.label} className="min-w-0">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground mb-1">
+                    <p
+                      className={cn(
+                        "font-semibold uppercase tracking-[0.1em] text-muted-foreground mb-0.5",
+                        compact ? "text-[10px]" : "text-[11px] mb-1",
+                      )}
+                    >
                       {item.label}
                     </p>
                     <p
                       className={cn(
                         "font-semibold tracking-tight text-foreground truncate",
-                        compact ? "text-sm" : "text-sm sm:text-base",
+                        compact ? "text-xs sm:text-sm" : "text-sm sm:text-base",
                       )}
                       title={typeof item.value === "string" ? item.value : undefined}
                     >
