@@ -47,12 +47,22 @@ export function RadioPttButton({
     (e: React.PointerEvent<HTMLButtonElement>) => {
       if (disabled || busy || holdingRef.current) return;
       if (e.pointerType === "mouse" && e.button !== 0) return;
+      // Stop parent dock/expand handlers from stealing the gesture.
       e.preventDefault();
+      e.stopPropagation();
       holdingRef.current = true;
       pointerIdRef.current = e.pointerId;
       setPressed(true);
       try {
         e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+      // Haptic cue on native/WebView when available — confirms press registered.
+      try {
+        if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+          navigator.vibrate(12);
+        }
       } catch {
         /* ignore */
       }
@@ -64,6 +74,8 @@ export function RadioPttButton({
   const endHoldFromPointer = useCallback(
     (e: React.PointerEvent<HTMLButtonElement>) => {
       if (pointerIdRef.current != null && e.pointerId !== pointerIdRef.current) return;
+      e.preventDefault();
+      e.stopPropagation();
       endHold();
     },
     [endHold],
@@ -119,19 +131,20 @@ export function RadioPttButton({
       data-testid="button-radio-ptt"
       aria-pressed={active}
       className={cn(
-        "select-none touch-manipulation font-semibold transition-colors",
-        "[-webkit-user-select:none] [-webkit-touch-callout:none]",
+        "select-none font-semibold transition-colors",
+        // None (not manipulation): stops Android WebView scroll/zoom stealing the hold.
+        "[touch-action:none] [-webkit-user-select:none] [-webkit-touch-callout:none]",
         compact
-          ? "rounded-md h-8 px-2.5 gap-1.5 text-[11px] inline-flex items-center justify-center shrink-0 min-w-[4.5rem]"
+          ? "rounded-xl h-11 px-3.5 gap-2 text-sm inline-flex items-center justify-center shrink-0 min-w-[6.25rem] shadow-sm"
           : "rounded-2xl px-6 py-5 font-bold text-base flex flex-col items-center justify-center gap-1.5 min-h-[5.5rem] w-full",
         active
-          ? "bg-emerald-500 text-white shadow-md shadow-emerald-900/30"
+          ? "bg-emerald-500 text-white shadow-md shadow-emerald-900/30 scale-[1.02]"
           : busy
             ? "bg-amber-600/80 text-white cursor-not-allowed"
             : disabled
               ? "bg-slate-800/80 text-slate-500 cursor-not-allowed border border-slate-700/60"
               : compact
-                ? "bg-slate-800 text-slate-100 hover:bg-slate-700 border border-emerald-500/35"
+                ? "bg-emerald-700 text-white hover:bg-emerald-600 active:bg-emerald-500 border border-emerald-400/40"
                 : "bg-slate-800 text-slate-100 hover:bg-slate-700 border border-emerald-500/40",
         className,
       )}
@@ -141,7 +154,10 @@ export function RadioPttButton({
       // Do NOT end on lostpointercapture — it often fires right after setPointerCapture
       // and was aborting hold-to-talk before the mic could open.
       onContextMenu={(e) => e.preventDefault()}
-      onClick={(e) => e.preventDefault()}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }}
       onKeyDown={(e) => {
         if (e.key !== " " && e.key !== "Enter") return;
         if (e.repeat) return;
@@ -157,8 +173,8 @@ export function RadioPttButton({
         endHold();
       }}
     >
-      <Radio className={cn(compact ? "h-3.5 w-3.5" : "h-7 w-7", active && "animate-pulse")} />
-      <span className={cn(compact && "leading-none")}>{displayLabel}</span>
+      <Radio className={cn(compact ? "h-5 w-5" : "h-7 w-7", active && "animate-pulse")} />
+      <span className={cn(compact && "leading-none font-bold tracking-wide")}>{displayLabel}</span>
     </button>
   );
 }
