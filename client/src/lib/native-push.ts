@@ -8,10 +8,15 @@ export { PENDING_PUSH_URL_KEY };
 export const PUSH_DEEPLINK_EVENT = "omt:push-deeplink";
 
 let nativePushListenersReady = false;
-let patrolChannelReady = false;
 
 /** Dedicated Android channel that plays the loud patrol alert tone. */
 export const PATROL_NOTIFICATION_CHANNEL_ID = "patrol_alerts";
+
+/** Dedicated Android channel for chat — separate from panic / live / patrol. */
+export const CHAT_NOTIFICATION_CHANNEL_ID = "omt_chat";
+
+let patrolChannelReady = false;
+let chatChannelReady = false;
 
 /**
  * Create the high-importance patrol notification channel (Android only).
@@ -39,6 +44,27 @@ export async function ensurePatrolNotificationChannel(): Promise<void> {
     patrolChannelReady = true;
   } catch {
     /* channel creation is best-effort; falls back to the default channel sound */
+  }
+}
+
+/** Create the chat notification channel (Android only) — default message sound. */
+export async function ensureChatNotificationChannel(): Promise<void> {
+  if (chatChannelReady) return;
+  if (!Capacitor.isNativePlatform()) return;
+  if (Capacitor.getPlatform() !== "android") return;
+  try {
+    await PushNotifications.createChannel({
+      id: CHAT_NOTIFICATION_CHANNEL_ID,
+      name: "Chat messages",
+      description: "Direct and group chat messages in OMT Pulse",
+      importance: 4,
+      visibility: 1,
+      vibration: true,
+      lights: true,
+    });
+    chatChannelReady = true;
+  } catch {
+    /* best-effort */
   }
 }
 
@@ -132,6 +158,7 @@ export function initNativePushListeners(): void {
   nativePushListenersReady = true;
 
   void ensurePatrolNotificationChannel();
+  void ensureChatNotificationChannel();
 
   void PushNotifications.addListener(
     "pushNotificationActionPerformed",

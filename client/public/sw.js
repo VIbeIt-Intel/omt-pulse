@@ -1,4 +1,4 @@
-const CACHE_NAME = "omt-v262";
+const CACHE_NAME = "omt-v263";
 
 // When the page asks us to nuke everything (after a new deploy), wipe all
 // caches and tell every controlled tab to reload. The page also unregisters
@@ -222,8 +222,27 @@ self.addEventListener("push", (event) => {
     return;
   }
 
+  // Chat — distinct from panic / live (unique tag per message so they stack).
+  if (data.type === "chat_message") {
+    const chatTag = data.messageId
+      ? `chat-${data.messageId}`
+      : `chat-${Date.now()}`;
+    event.waitUntil(
+      self.registration.showNotification(data.title ?? "Chat", {
+        body: data.body ?? "New message",
+        icon: "/icon-192.png",
+        badge: "/icon-192.png",
+        tag: chatTag,
+        renotify: true,
+        requireInteraction: false,
+        vibrate: [120, 80, 120],
+        data: { url: data.url ?? "/chat" },
+      })
+    );
+    return;
+  }
+
   const isPanic = data.type === "panic";
-  const isChat = data.type === "chat_message";
 
   event.waitUntil(
     self.registration.showNotification(data.title ?? "🚨 Live Incident", {
@@ -231,11 +250,9 @@ self.addEventListener("push", (event) => {
       icon: "/icon-192.png",
       badge: isPanic ? "/panic-dot.png" : "/icon-192.png",
       tag: isPanic ? `panic-${Date.now()}` : `incident-${data.incidentId || Date.now()}`,
-      requireInteraction: !isChat,
+      requireInteraction: true,
       vibrate: isPanic
         ? [600, 150, 600, 150, 600, 150, 1000]
-        : isChat
-        ? [100]
         : [300, 100, 300, 100, 600],
       // data is required so notificationclick can read the deep-link URL.
       data: { url: data.url ?? "/" },

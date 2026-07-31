@@ -456,6 +456,10 @@ const PATROL_OVERDUE_NOTIFY_ROLES = ["administrator", "supervisor", "control_roo
 // Must match PATROL_NOTIFICATION_CHANNEL_ID / raw sound name on the device.
 const PATROL_ALERT_CHANNEL = "patrol_alerts";
 const PATROL_ALERT_SOUND = "patrol_alert";
+/** Must match CHAT_NOTIFICATION_CHANNEL_ID on the device. */
+const CHAT_ALERT_CHANNEL = "omt_chat";
+/** Chat pushes stay deliverable longer than the old 60s TTL. */
+const CHAT_PUSH = { urgency: "high" as const, TTL: 3600 };
 
 async function dispatchPatrolPush(req: PatrolPushRequest): Promise<void> {
   const detailUrl = `/patrol?routeId=${req.routeId}`;
@@ -5712,33 +5716,51 @@ export async function registerRoutes(
         const sender = await storage.getUserById(senderId);
         const senderName = sender ? `${sender.firstName} ${sender.lastName}`.trim() : "Someone";
         const preview = chatContentPreview(trimmedContent);
-        const title = finalRecipientId ? `💬 ${senderName}` : `💬 ${senderName} · General`;
-        const payload = JSON.stringify({ type: "chat_message", title, body: preview, url: "/chat" });
-        const pushOpts = { TTL: 60 };
+        const title = finalRecipientId
+          ? `Chat · ${senderName}`
+          : `Chat · ${senderName} · General`;
+        const messageId = String(msg.id);
+        const payload = JSON.stringify({
+          type: "chat_message",
+          title,
+          body: preview,
+          url: "/chat",
+          messageId,
+        });
 
         if (finalRecipientId) {
           const dmNotifUrl = `/chat?dm=${senderId}`;
-          const fcmData = { type: "chat_message", url: dmNotifUrl };
+          const fcmData = {
+            type: "chat_message",
+            url: dmNotifUrl,
+            messageId,
+            thread: `dm-${senderId}`,
+          };
 
           // DM — Web Push (PWA browsers without native FCM)
           const subs = await storage.getPushSubscriptionsByUser(finalRecipientId);
           await Promise.allSettled(subs.map(async (sub) => {
             try {
-              await webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, payload, pushOpts);
+              await webpush.sendNotification(
+                { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+                payload,
+                CHAT_PUSH,
+              );
             } catch (err: unknown) {
               const code = typeof err === "object" && err !== null && "statusCode" in err ? (err as { statusCode: number }).statusCode : 0;
               if (code === 410 || code === 404) storage.deletePushSubscription(sub.endpoint).catch(() => {});
             }
           }));
 
-          // FCM — native Android/iOS (APK); same path as panic / live incident
+          // FCM — native Android/iOS (APK); dedicated chat channel + unique tag per message
           const fcmSubs = await storage.getFcmTokensByUser(finalRecipientId);
           if (fcmSubs.length > 0) {
             await sendFcmBatch(fcmSubs.map((s) => s.token), {
               title,
               body: preview,
               data: fcmData,
-              notificationTag: `chat-dm-${senderId}`,
+              notificationTag: `chat-dm-${senderId}-${messageId}`,
+              channelId: CHAT_ALERT_CHANNEL,
             });
           }
 
@@ -5751,13 +5773,22 @@ export async function registerRoutes(
           }).catch(() => {});
         } else {
           const groupNotifUrl = "/chat?type=group";
-          const fcmData = { type: "chat_message", url: groupNotifUrl };
+          const fcmData = {
+            type: "chat_message",
+            url: groupNotifUrl,
+            messageId,
+            thread: "group",
+          };
 
           // Group — Web Push (PWA browsers without native FCM)
           const subs = dedupeByEndpoint(await storage.getPushSubscriptionsByOrg(orgId, senderId));
           await Promise.allSettled(subs.map(async (sub) => {
             try {
-              await webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, payload, pushOpts);
+              await webpush.sendNotification(
+                { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+                payload,
+                CHAT_PUSH,
+              );
             } catch (err: unknown) {
               const code = typeof err === "object" && err !== null && "statusCode" in err ? (err as { statusCode: number }).statusCode : 0;
               if (code === 410 || code === 404) storage.deletePushSubscription(sub.endpoint).catch(() => {});
@@ -5771,7 +5802,8 @@ export async function registerRoutes(
               title,
               body: preview,
               data: fcmData,
-              notificationTag: "chat-group",
+              notificationTag: `chat-group-${messageId}`,
+              channelId: CHAT_ALERT_CHANNEL,
             });
           }
 
