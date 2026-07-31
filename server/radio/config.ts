@@ -23,3 +23,14 @@ export function radioRoomName(orgId: string, commandId: number): string {
   const safeOrg = orgId.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 48) || "org";
   return `omt-${safeOrg}-g-${commandId}`;
 }
+
+function safeIdPart(id: string): string {
+  return id.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 28) || "user";
+}
+
+/** Stable 1:1 LiveKit room for two users in an org (order-independent). */
+export function privateRadioRoomName(orgId: string, userA: string, userB: string): string {
+  const safeOrg = orgId.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 40) || "org";
+  const [a, b] = [safeIdPart(userA), safeIdPart(userB)].sort();
+  return `omt-${safeOrg}-p-${a}-${b}`;
+}

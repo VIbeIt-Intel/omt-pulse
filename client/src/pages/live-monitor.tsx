@@ -35,6 +35,8 @@ import {
   Navigation,
   UserPlus,
   Users,
+  MessageSquare,
+  Radio,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
@@ -44,6 +46,7 @@ import { cn } from "@/lib/utils";
 import { GeoLocationSheet, type GeoMapView } from "@/components/incident-location-sheet";
 import { CoordinateLink } from "@/components/coordinate-link";
 import { ControlRoomMap } from "@/components/control-room-map";
+import { usePrivateRadioActions } from "@/components/radio/private-radio-host";
 import type { Location } from "@shared/schema";
 
 type LiveResponderSummary = {
@@ -653,6 +656,62 @@ function LiveIncidentCard({
   );
 }
 
+function ResponderContactActions({
+  userId,
+  incidentId,
+  disabled,
+}: {
+  userId: string | null | undefined;
+  incidentId: number;
+  disabled?: boolean;
+}) {
+  const [, navigate] = useLocation();
+  const { toast } = useToast();
+  const privateRadio = usePrivateRadioActions();
+  const [starting, setStarting] = useState(false);
+
+  if (!userId || disabled) return null;
+
+  return (
+    <div className="mt-1.5 flex gap-1.5">
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        className="h-7 flex-1 text-[10px] px-1.5 gap-1 border-slate-600"
+        data-testid={`button-message-responder-${incidentId}-${userId}`}
+        onClick={() => navigate(`/chat?dm=${encodeURIComponent(userId)}`)}
+      >
+        <MessageSquare className="h-3 w-3" />
+        Message
+      </Button>
+      <Button
+        type="button"
+        size="sm"
+        className="h-7 flex-1 text-[10px] px-1.5 gap-1 bg-violet-700 hover:bg-violet-600 text-white"
+        data-testid={`button-private-talk-${incidentId}-${userId}`}
+        disabled={starting || privateRadio.callActive}
+        onClick={() => {
+          setStarting(true);
+          void privateRadio
+            .startCall(userId, incidentId)
+            .catch((err) => {
+              toast({
+                title: "Private radio failed",
+                description: err instanceof Error ? err.message : "Could not start private talk",
+                variant: "destructive",
+              });
+            })
+            .finally(() => setStarting(false));
+        }}
+      >
+        {starting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Radio className="h-3 w-3" />}
+        Private talk
+      </Button>
+    </div>
+  );
+}
+
 function ResponseTeamPanel({
   incident,
   primaryName,
@@ -660,6 +719,7 @@ function ResponseTeamPanel({
   incident: LiveIncident;
   primaryName: string;
 }) {
+  const { data: me } = useQuery<{ id: string }>({ queryKey: ["/api/auth/me"] });
   const target = getIncidentTarget(incident);
   const joiners = (incident.responders ?? []).filter((r) => r.userId !== incident.userId);
   const enRoute = joiners.filter((r) => !r.arrivedAt).length;
@@ -709,6 +769,11 @@ function ResponseTeamPanel({
               <span className="text-[10px] font-medium text-amber-400 shrink-0">No GPS</span>
             )}
           </div>
+          <ResponderContactActions
+            userId={incident.userId}
+            incidentId={incident.id}
+            disabled={!!me?.id && incident.userId === me.id}
+          />
         </li>
 
         {joiners.map((r) => {
@@ -763,6 +828,11 @@ function ResponseTeamPanel({
                   </span>
                 )}
               </div>
+              <ResponderContactActions
+                userId={r.userId}
+                incidentId={incident.id}
+                disabled={!!me?.id && r.userId === me.id}
+              />
             </li>
           );
         })}

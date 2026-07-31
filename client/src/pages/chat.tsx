@@ -351,6 +351,41 @@ export default function ChatPage() {
     refetchInterval: 5000,
   });
 
+  const { data: orgUsers = [] } = useQuery<OrgUser[]>({
+    queryKey: ["/api/chat/users"],
+  });
+
+  // Deep link from Live Monitor: /chat?dm=<userId>
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const dmId = params.get("dm")?.trim();
+      if (!dmId || !me || dmId === me.id) return;
+
+      const fromConvo = conversations.find((c) => c.recipientId === dmId);
+      const fromUsers = orgUsers.find((u) => u.id === dmId);
+      const name = fromConvo
+        ? `${fromConvo.recipientFirstName ?? ""} ${fromConvo.recipientLastName ?? ""}`.trim()
+        : fromUsers
+          ? `${fromUsers.firstName} ${fromUsers.lastName}`.trim()
+          : "Direct message";
+      if (!fromConvo && !fromUsers) return;
+
+      setActiveConvo({
+        type: "dm",
+        recipientId: dmId,
+        recipientName: name || "Direct message",
+        recipientAvatarUrl: fromConvo?.recipientAvatarUrl ?? fromUsers?.avatarUrl ?? null,
+      });
+      setShowThread(true);
+      params.delete("dm");
+      const next = `${window.location.pathname}${params.toString() ? `?${params}` : ""}`;
+      window.history.replaceState({}, "", next);
+    } catch {
+      /* ignore */
+    }
+  }, [me, conversations, orgUsers]);
+
   const messagesQueryKey = activeConvo.type === "group"
     ? ["/api/chat/messages", "group"]
     : ["/api/chat/messages", "dm", activeConvo.recipientId];

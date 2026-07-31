@@ -17,6 +17,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { PersistentRadioDock } from "@/components/radio/persistent-radio-dock";
+import { PrivateRadioHost } from "@/components/radio/private-radio-host";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ConnectivityBadge } from "@/components/connectivity-badge";
@@ -1021,6 +1022,7 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
             </Switch>
           </main>
           <PersistentRadioDock />
+          <PrivateRadioHost />
         </div>
       </div>
       <PermissionPrimerModal />
