@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Loader2, Mic, Radio, Settings, Users, Volume2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Loader2, Mic, Radio, Settings, Users, Volume2 } from "lucide-react";
 import {
   useRadioChannel,
   useRadioChannels,
@@ -23,11 +23,16 @@ export function RadioPanel({
   compact = false,
   /** Sticky dock for field home — always listening, big PTT, minimal chrome. */
   dock = false,
+  /** Slim bar when docked; radio stays connected either way. */
+  collapsed = false,
+  onCollapsedChange,
   defaultCommandId,
 }: {
   className?: string;
   compact?: boolean;
   dock?: boolean;
+  collapsed?: boolean;
+  onCollapsedChange?: (collapsed: boolean) => void;
   /** Prefer this group when present in the channel list. */
   defaultCommandId?: number | null;
 }) {
@@ -83,6 +88,25 @@ export function RadioPanel({
     void radio.unlockSpeaker();
   }, [radio.connected, radio.remoteTalking, radio.speakerReady, radio.unlockSpeaker]);
 
+  // Keep dock collapsed while traffic happens — status pill shows Incoming / On air.
+  // Auto-expand was overcrowding phones; users expand manually for channel changes.
+
+  const selectedChannel = channels.find((c) => c.id === commandId);
+  const channelLabel = selectedChannel
+    ? `${selectedChannel.name}${selectedChannel.isCentral ? " (Central)" : ""}`
+    : "Select channel";
+
+  const isConnecting = radio.connecting || channelsLoading || (enabled && commandId == null);
+  const connectionStatus = radio.transmitting
+    ? { label: "On air", tone: "live" as const }
+    : radio.remoteTalking
+      ? { label: "Incoming", tone: "talk" as const }
+      : isConnecting
+        ? { label: "Connecting", tone: "wait" as const }
+        : radio.connected
+          ? { label: "Online", tone: "live" as const }
+          : { label: "Offline", tone: "bad" as const };
+
   const statusLine = radio.transmitting
     ? "You are on air — release to stop"
     : radio.remoteTalking && !radio.speakerReady
@@ -91,15 +115,33 @@ export function RadioPanel({
       ? `${radio.remoteTalking} talking`
       : busy && radio.floor
         ? `${radio.floor.displayName} has the floor`
-        : radio.connecting || channelsLoading || (enabled && commandId == null)
-          ? "Connecting radio…"
+        : isConnecting
+          ? "Connecting…"
           : radio.connected
             ? radio.speakerReady
-              ? "Live — hold to talk"
-              : "Live — tap Enable speaker to hear"
+              ? "Online — hold to talk"
+              : "Online — tap Enable speaker to hear"
             : radio.error
-              ? "Radio connection failed"
-              : "Radio offline";
+              ? radio.error
+              : "Offline — tap Retry to reconnect";
+
+  const statusPillClass =
+    connectionStatus.tone === "live"
+      ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+      : connectionStatus.tone === "talk"
+        ? "bg-amber-500/25 text-amber-200 border border-amber-500/35"
+        : connectionStatus.tone === "wait"
+          ? "bg-sky-500/20 text-sky-200 border border-sky-500/35"
+          : "bg-red-500/20 text-red-300 border border-red-500/35";
+
+  const statusDotClass =
+    connectionStatus.tone === "live"
+      ? "bg-emerald-400"
+      : connectionStatus.tone === "talk"
+        ? "bg-amber-400"
+        : connectionStatus.tone === "wait"
+          ? "bg-sky-400"
+          : "bg-red-400";
 
   if (available === null) {
     if (dock) return null;
@@ -132,29 +174,161 @@ export function RadioPanel({
     );
   }
 
+  if (dock && collapsed) {
+    const toneClass =
+      connectionStatus.tone === "live"
+        ? "border-emerald-500/40 bg-emerald-950/30"
+        : connectionStatus.tone === "talk"
+          ? "border-amber-500/40 bg-amber-950/25"
+          : connectionStatus.tone === "wait"
+            ? "border-sky-500/40 bg-sky-950/20"
+            : "border-red-500/40 bg-red-950/20";
+
+    return (
+      <div
+        className={cn("rounded-lg border px-2 py-1.5", toneClass, className)}
+        data-testid="radio-dock"
+        data-collapsed="true"
+        data-radio-status={connectionStatus.label.toLowerCase()}
+      >
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="min-w-0 flex-1 flex items-center gap-2 text-left rounded-md hover:bg-white/5 -ml-0.5 pl-0.5 py-0.5"
+            aria-label="Expand radio"
+            data-testid="button-radio-expand"
+            onClick={() => onCollapsedChange?.(false)}
+          >
+            <ChevronUp className="h-4 w-4 shrink-0 text-emerald-400" />
+            <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-400">
+              <Radio className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">Radio</span>
+              <span
+                className={cn(
+                  "inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                  statusPillClass,
+                )}
+                data-testid="radio-dock-status"
+              >
+                {connectionStatus.tone === "wait" ? (
+                  <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+                ) : (
+                  <span
+                    className={cn(
+                      "h-1.5 w-1.5 rounded-full",
+                      statusDotClass,
+                      (connectionStatus.tone === "live" || connectionStatus.tone === "talk") &&
+                        "animate-pulse",
+                    )}
+                    aria-hidden
+                  />
+                )}
+                {connectionStatus.label}
+              </span>
+              {radio.connected ? (
+                <span className="inline-flex items-center gap-0.5 text-[10px] font-normal text-muted-foreground tabular-nums">
+                  <Users className="h-3 w-3" />
+                  {radio.listenerCount}
+                </span>
+              ) : null}
+            </div>
+            <p className="truncate text-[10px] text-muted-foreground leading-tight">
+              {radio.remoteTalking || radio.transmitting || isConnecting || !radio.connected
+                ? statusLine
+                : channelLabel}
+            </p>
+            </div>
+          </button>
+          {radio.connected && !radio.speakerReady ? (
+            <Button
+              type="button"
+              size="sm"
+              className="h-9 shrink-0 gap-1 bg-amber-600 hover:bg-amber-500 text-white px-2"
+              data-testid="button-radio-enable-speaker"
+              onClick={() => void radio.unlockSpeaker()}
+            >
+              <Volume2 className="h-3.5 w-3.5" />
+              Hear
+            </Button>
+          ) : (
+            <RadioPttButton
+              disabled={!radio.connected || radio.connecting || needsMicAllow}
+              transmitting={radio.transmitting}
+              busy={busy}
+              compact
+              label="Hold"
+              onPressStart={() => {
+                void radio.unlockSpeaker();
+                void radio.startTransmit();
+              }}
+              onPressEnd={() => void radio.stopTransmit()}
+            />
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn(
         "rounded-xl border border-emerald-500/30 bg-emerald-950/20",
-        dock ? "p-3 space-y-2 shadow-lg shadow-black/20" : compact ? "p-3 space-y-2.5" : "p-4 space-y-3",
+        dock ? "p-2 sm:p-3 space-y-1.5 sm:space-y-2 shadow-lg shadow-black/20" : compact ? "p-3 space-y-2.5" : "p-4 space-y-3",
         className,
       )}
       data-testid={dock ? "radio-dock" : "radio-panel"}
+      data-collapsed={dock ? "false" : undefined}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="flex items-center gap-2 text-sm font-semibold text-emerald-400">
+          <div className="flex items-center gap-2 text-sm font-semibold text-emerald-400 flex-wrap">
             <Radio className="h-4 w-4 shrink-0" />
             {dock ? "Radio" : "Group radio"}
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                statusPillClass,
+              )}
+              data-testid="radio-dock-status"
+            >
+              {connectionStatus.tone === "wait" ? (
+                <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+              ) : (
+                <span
+                  className={cn(
+                    "h-1.5 w-1.5 rounded-full",
+                    statusDotClass,
+                    (connectionStatus.tone === "live" || connectionStatus.tone === "talk") &&
+                      "animate-pulse",
+                  )}
+                  aria-hidden
+                />
+              )}
+              {connectionStatus.label}
+            </span>
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">{statusLine}</p>
         </div>
-        {radio.connected ? (
-          <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground tabular-nums shrink-0">
-            <Users className="h-3.5 w-3.5" />
-            {radio.listenerCount}
-          </span>
-        ) : null}
+        <div className="flex items-center gap-2 shrink-0">
+          {radio.connected ? (
+            <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground tabular-nums">
+              <Users className="h-3.5 w-3.5" />
+              {radio.listenerCount}
+            </span>
+          ) : null}
+          {dock && onCollapsedChange ? (
+            <button
+              type="button"
+              className="rounded-md p-1.5 text-muted-foreground hover:bg-emerald-500/10 hover:text-emerald-400"
+              aria-label="Collapse radio"
+              data-testid="button-radio-collapse"
+              onClick={() => onCollapsedChange(true)}
+            >
+              <ChevronDown className="h-4 w-4" />
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {channelsLoading ? (
@@ -221,7 +395,7 @@ export function RadioPanel({
               variant="secondary"
               className={cn(
                 "w-full gap-2 bg-amber-600 hover:bg-amber-500 text-white",
-                dock ? "h-12 text-sm font-semibold" : "h-11",
+                dock ? "h-10 text-sm font-semibold" : "h-11",
               )}
               data-testid="button-radio-enable-speaker"
               onClick={() => void radio.unlockSpeaker()}
@@ -237,7 +411,8 @@ export function RadioPanel({
             disabled={!radio.connected || radio.connecting || needsMicAllow}
             transmitting={radio.transmitting}
             busy={busy}
-            className={dock ? "min-h-[4.25rem] py-3" : undefined}
+            compact={dock}
+            className={dock ? "w-full min-h-11" : undefined}
             label="Hold to talk"
             onPressStart={() => {
               void radio.unlockSpeaker();
@@ -266,11 +441,7 @@ export function RadioPanel({
                 Retry radio connection
               </Button>
             </div>
-          ) : dock ? (
-            <p className="text-[10px] text-muted-foreground/80">
-              Hold to talk, release to stop. Radio stays on across the app — audio is never saved.
-            </p>
-          ) : (
+          ) : dock ? null : (
             <p className="text-[10px] text-muted-foreground/80">
               Hold the button to transmit, release to stop. Mic stays allowed after the first Android
               Allow (same as voice notes). Audio is never saved.
