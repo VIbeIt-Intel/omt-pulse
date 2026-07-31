@@ -102,6 +102,28 @@ function liveIncidentNotifyRoles(severity: string | null | undefined): string[] 
     : ["administrator", "supervisor", "control_room", "reporter"];
 }
 
+/**
+ * Audience for panic / live-incident alerts: the incident's Pulse Group plus
+ * every Central group in the org (control room always hears field alerts).
+ * Returns undefined only when no primary command is known (org-wide fallback).
+ */
+async function alertAudienceCommandIds(
+  orgId: string,
+  primaryCommandId: number | null | undefined,
+): Promise<number[] | undefined> {
+  if (primaryCommandId == null) return undefined;
+  const ids = new Set<number>([primaryCommandId]);
+  try {
+    const commands = await storage.getCommands(orgId);
+    for (const c of commands) {
+      if (c.isCentral) ids.add(c.id);
+    }
+  } catch {
+    /* keep primary only */
+  }
+  return Array.from(ids);
+}
+
 async function sendFcmBatch(
   tokens: string[],
   payload: {
@@ -206,13 +228,15 @@ function shouldSendNavigatingPush(incidentId: number, sig: string): boolean {
 async function dispatchLiveIncidentPush(orgId: string, triggerUserId: string, incident: Incident) {
   console.log("[PUSH] dispatchLiveIncidentPush called for incident", incident.id, "by user", triggerUserId);
   // Yellow severity is a low-priority alert — only administrators are notified.
-  // Orange and red notify all roles so reporters can join their colleagues.
+  // Orange and red notify field + dispatch roles so colleagues can join.
   // Creator is excluded in all cases via triggerUserId.
-  const TARGET_ROLES = incident.severity === "yellow"
-    ? ["administrator"]
-    : ["administrator", "supervisor", "control_room", "reporter"];
-  const subs = await storage.getPushSubscriptionsByOrg(orgId, triggerUserId, TARGET_ROLES, undefined);
-  console.log(`[PUSH] Found ${subs.length} subscriptions for org ${orgId} (triggered by ${triggerUserId})`);
+  // Scope: incident Pulse Group + Central (not the whole organisation).
+  const TARGET_ROLES = liveIncidentNotifyRoles(incident.severity);
+  const commandIds = await alertAudienceCommandIds(orgId, incident.commandId);
+  const subs = await storage.getPushSubscriptionsByOrg(orgId, triggerUserId, TARGET_ROLES, commandIds);
+  console.log(
+    `[PUSH] Found ${subs.length} subscriptions for org ${orgId} commands=${commandIds?.join(",") ?? "all"} (triggered by ${triggerUserId})`,
+  );
 
   const reporter = await storage.getUserById(triggerUserId);
   const fullName = reporter ? `${reporter.firstName} ${reporter.lastName}`.trim() : "A user";
@@ -277,44 +301,58 @@ async function dispatchLiveIncidentPush(orgId: string, triggerUserId: string, in
     );
   }
 
-  // FCM fan-out — native Android/iOS devices
+  // FCM fan-out — native Android/iOS devices (same group + Central scope)
   const fcmTag = liveIncidentFcmTag(incident.id);
-  storage.getFcmTokensByOrg(orgId, triggerUserId, TARGET_ROLES).then((fcmSubs) => {
+  try {
+    const fcmSubs = await storage.getFcmTokensByOrg(orgId, triggerUserId, TARGET_ROLES, commandIds);
     if (fcmSubs.length > 0) {
-      sendFcmBatch(fcmSubs.map((s) => s.token), {
+      await sendFcmBatch(fcmSubs.map((s) => s.token), {
         title,
         body,
         data: { type: "incident_started", incidentId: String(incident.id), url: joinUrl },
         notificationTag: fcmTag,
       }).catch(() => {});
+      for (const s of fcmSubs) {
+        if (pushedUserIds.has(s.userId)) continue;
+        pushedUserIds.add(s.userId);
+        storage.createNotificationLog({
+          organizationId: orgId,
+          userId: s.userId,
+          title,
+          body,
+          url: joinUrl,
+          incidentId: incident.id,
+        }).catch(() => {});
+      }
     }
-  }).catch(() => {});
+  } catch { /* best-effort */ }
 
-  // Write notification-log entries for admins/supervisors who have no push
-  // subscription so they still see the alert in the notification bell.
-  (async () => {
-    try {
-      const allActive = await storage.getActiveUsersByOrg(orgId);
-      const noPushUsers = allActive.filter(
-        (u) =>
-          u.id !== triggerUserId &&
-          TARGET_ROLES.includes(u.role ?? "") &&
-          !pushedUserIds.has(u.id)
-      );
-      await Promise.allSettled(
-        noPushUsers.map((u) =>
-          storage.createNotificationLog({
-            organizationId: orgId,
-            userId: u.id,
-            title,
-            body,
-            url: joinUrl,
-            incidentId: incident.id,
-          }).catch(() => {})
-        )
-      );
-    } catch { /* best-effort */ }
-  })();
+  // In-app bell for eligible group members who have no push subscription.
+  try {
+    const allActive = await storage.getActiveUsersByOrg(orgId);
+    const commandMemberIds = commandIds
+      ? await storage.getUserIdsInCommands(orgId, commandIds)
+      : null;
+    const noPushUsers = allActive.filter(
+      (u) =>
+        u.id !== triggerUserId &&
+        TARGET_ROLES.includes(u.role ?? "") &&
+        !pushedUserIds.has(u.id) &&
+        (!commandMemberIds || commandMemberIds.has(u.id)),
+    );
+    await Promise.allSettled(
+      noPushUsers.map((u) =>
+        storage.createNotificationLog({
+          organizationId: orgId,
+          userId: u.id,
+          title,
+          body,
+          url: joinUrl,
+          incidentId: incident.id,
+        }).catch(() => {})
+      )
+    );
+  } catch { /* best-effort */ }
 }
 
 async function dispatchFleetAlertPush(
@@ -802,6 +840,7 @@ async function dispatchLiveIncidentCloseFcm(
   joinerUserIds: string[] = [],
 ): Promise<void> {
   const roles = liveIncidentNotifyRoles(incident.severity);
+  const commandIds = await alertAudienceCommandIds(orgId, incident.commandId);
   const tag = liveIncidentFcmTag(incident.id);
   const title = `✅ Live Incident Closed — ${opts.fullName}`;
   const body = opts.durationMin != null
@@ -810,7 +849,7 @@ async function dispatchLiveIncidentCloseFcm(
   const incidentUrl = `/occurrence-book?incident=${incident.id}`;
 
   const [orgTokens, ...joinerTokenLists] = await Promise.all([
-    storage.getFcmTokensByOrg(orgId, undefined, roles),
+    storage.getFcmTokensByOrg(orgId, undefined, roles, commandIds),
     ...joinerUserIds.map((uid) => storage.getFcmTokensByUser(uid)),
   ]);
   const tokenSet = new Set<string>();
@@ -3203,8 +3242,16 @@ export async function registerRoutes(
       : "/live-incident";
     const payload = JSON.stringify({ type: "panic", title, body, incidentId: panicIncidentId, url: notifUrl });
 
-    const allSubs = await storage.getPushSubscriptionsByOrg(orgId, userId, undefined, undefined);
+    // Scope: panicker's Pulse Group + Central — all roles in those groups (exclude panicker).
+    const panicAudienceCommandIds = await alertAudienceCommandIds(orgId, panicCommandId);
+    const allSubs = await storage.getPushSubscriptionsByOrg(
+      orgId,
+      userId,
+      undefined,
+      panicAudienceCommandIds,
+    );
     let sent = 0;
+    const pushedUserIds = new Set<string>();
     await Promise.allSettled(
       dedupeByEndpoint(allSubs).map(async (sub) => {
         try {
@@ -3214,12 +3261,14 @@ export async function registerRoutes(
             URGENT_PUSH,
           );
           sent++;
+          pushedUserIds.add(sub.userId);
           storage.createNotificationLog({
             organizationId: orgId,
             userId: sub.userId,
             title,
             body,
             url: notifUrl,
+            incidentId: panicIncidentId ?? undefined,
           }).catch(() => {});
         } catch (err: unknown) {
           const statusCode = typeof err === "object" && err !== null && "statusCode" in err
@@ -3232,16 +3281,57 @@ export async function registerRoutes(
         }
       })
     );
-    // FCM fan-out — native Android/iOS devices (all roles, exclude panicker)
-    storage.getFcmTokensByOrg(orgId, userId).then((fcmSubs) => {
+    // FCM fan-out — native Android/iOS devices in the same group + Central
+    try {
+      const fcmSubs = await storage.getFcmTokensByOrg(orgId, userId, undefined, panicAudienceCommandIds);
       if (fcmSubs.length > 0) {
-        sendFcmBatch(fcmSubs.map((s) => s.token), {
+        await sendFcmBatch(fcmSubs.map((s) => s.token), {
           title,
           body,
           data: { type: "panic", incidentId: String(panicIncidentId ?? ""), url: notifUrl },
         }).catch(() => {});
+        for (const s of fcmSubs) {
+          sent++;
+          if (pushedUserIds.has(s.userId)) continue;
+          pushedUserIds.add(s.userId);
+          storage.createNotificationLog({
+            organizationId: orgId,
+            userId: s.userId,
+            title,
+            body,
+            url: notifUrl,
+            incidentId: panicIncidentId ?? undefined,
+          }).catch(() => {});
+        }
       }
-    }).catch(() => {});
+    } catch { /* best-effort */ }
+
+    // In-app bell for group (+ Central) members without a push subscription.
+    try {
+      const allActive = await storage.getActiveUsersByOrg(orgId);
+      const commandMemberIds = panicAudienceCommandIds
+        ? await storage.getUserIdsInCommands(orgId, panicAudienceCommandIds)
+        : null;
+      const noPushUsers = allActive.filter(
+        (u) =>
+          u.id !== userId &&
+          !pushedUserIds.has(u.id) &&
+          (!commandMemberIds || commandMemberIds.has(u.id)),
+      );
+      await Promise.allSettled(
+        noPushUsers.map((u) =>
+          storage.createNotificationLog({
+            organizationId: orgId,
+            userId: u.id,
+            title,
+            body,
+            url: notifUrl,
+            incidentId: panicIncidentId ?? undefined,
+          }).catch(() => {}),
+        ),
+      );
+    } catch { /* best-effort */ }
+
     storage.createAuditLog({
       organizationId: orgId,
       userId,
@@ -3251,7 +3341,11 @@ export async function registerRoutes(
       description: `${fullName} triggered a panic alert${hasCoords ? ` from ${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}` : " (location unavailable)"}`,
       changes: hasCoords ? { location: { from: null, to: { lat, lng } } } : undefined,
     }).catch(() => {});
-    res.json({ sent, found: allSubs.length });
+    res.json({
+      sent,
+      found: allSubs.length,
+      commandIds: panicAudienceCommandIds ?? null,
+    });
   });
 
   app.post("/api/incidents", async (req, res) => {
