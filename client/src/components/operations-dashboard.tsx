@@ -47,6 +47,15 @@ import {
   vehicleDisplayName,
 } from "@/lib/fleet-intelligence";
 import { USER_ROLE_LABELS } from "@/lib/user-roles";
+import { GeoMapPreview } from "@/components/incident-location-sheet";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { useToast } from "@/hooks/use-toast";
 
 type Period = "day" | "week";
 
@@ -245,6 +254,26 @@ function teamStatusPillClass(status: ReturnType<typeof teamMemberStatus>): strin
     return "bg-emerald-500/12 text-emerald-300 ring-1 ring-inset ring-emerald-500/25";
   }
   return "bg-slate-700/40 text-slate-400 ring-1 ring-inset ring-slate-600/40";
+}
+
+function mapsUrl(lat: number, lng: number): string {
+  return `https://www.google.com/maps?q=${lat},${lng}`;
+}
+
+function formatCoords(lat: number, lng: number): string {
+  return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+}
+
+function formatTeamPositionAt(value: string | Date | null | undefined): string {
+  if (!value) return "Unknown time";
+  const d = new Date(value);
+  if (!Number.isFinite(d.getTime())) return "Unknown time";
+  return d.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function userIdsAtLocation(
@@ -621,9 +650,11 @@ export function OperationsDashboard({
   onPanic,
 }: Props) {
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const [highlightId, setHighlightId] = useState<number | null>(null);
   const [clock, setClock] = useState(() => new Date());
   const [lastRefresh, setLastRefresh] = useState(() => new Date());
+  const [selectedTeamMember, setSelectedTeamMember] = useState<DashboardUserSummary | null>(null);
   const [selectedFacility, setSelectedFacility] = useState<string>(() => {
     if (typeof window === "undefined") return "all";
     return localStorage.getItem(OPS_FACILITY_STORAGE_KEY) ?? "all";
@@ -902,6 +933,7 @@ export function OperationsDashboard({
   );
 
   return (
+    <>
     <div
       className="flex flex-col h-full min-h-0 bg-[#0f1419] text-slate-100"
       data-testid="operations-dashboard"
@@ -1101,19 +1133,23 @@ export function OperationsDashboard({
                     const activityLabel = user.isLive ? "Live now" : formatTeamLastActivity(lastActivityAt);
                     const activityStale = isTeamActivityStale(user);
                     const isLongIdle = activityStale && !user.isLive;
+                    const hasPosition = user.lastLat != null && user.lastLng != null;
                     const initials =
                       `${user.firstName?.charAt(0) ?? ""}${user.lastName?.charAt(0) ?? ""}`.toUpperCase() ||
                       "?";
                     return (
-                      <li
-                        key={user.id}
-                        className={cn(
-                          "px-3 py-2.5 border-l-2 transition-colors",
-                          isLongIdle
-                            ? "bg-amber-950/20 border-l-amber-600/60 hover:bg-amber-950/30"
-                            : "border-l-transparent hover:bg-slate-800/35",
-                        )}
-                      >
+                      <li key={user.id}>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedTeamMember(user)}
+                          className={cn(
+                            "w-full text-left px-3 py-2.5 border-l-2 transition-colors cursor-pointer focus-visible:outline-none focus-visible:bg-slate-800/50",
+                            isLongIdle
+                              ? "bg-amber-950/20 border-l-amber-600/60 hover:bg-amber-950/30"
+                              : "border-l-transparent hover:bg-slate-800/35",
+                          )}
+                          data-testid={`ops-team-row-${user.id}`}
+                        >
                         <div className="flex items-center gap-2.5 min-w-0">
                           <div
                             className={cn(
@@ -1151,6 +1187,9 @@ export function OperationsDashboard({
                               >
                                 {statusLabel}
                               </span>
+                              {hasPosition ? (
+                                <MapPin className="h-3 w-3 shrink-0 text-emerald-500/80" aria-hidden />
+                              ) : null}
                             </div>
                           </div>
                           <div className="shrink-0 w-[76px] text-right">
@@ -1173,15 +1212,27 @@ export function OperationsDashboard({
                             )}
                           </div>
                           {user.isLive && user.liveIncidentId && (
-                            <button
-                              type="button"
+                            <span
+                              role="link"
+                              tabIndex={0}
                               className="text-[10px] font-medium text-emerald-400 hover:text-emerald-300 hover:underline shrink-0"
-                              onClick={() => onOpenLiveMonitor(user.liveIncidentId!)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onOpenLiveMonitor(user.liveIncidentId!);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  onOpenLiveMonitor(user.liveIncidentId!);
+                                }
+                              }}
                             >
                               Live
-                            </button>
+                            </span>
                           )}
                         </div>
+                        </button>
                       </li>
                     );
                   })}
@@ -1540,5 +1591,138 @@ export function OperationsDashboard({
         </div>
       </div>
     </div>
+
+      <Sheet
+        open={!!selectedTeamMember}
+        onOpenChange={(open) => {
+          if (!open) setSelectedTeamMember(null);
+        }}
+      >
+        <SheetContent
+          side="right"
+          className="w-full sm:max-w-md border-slate-800 bg-[#111820] text-slate-100"
+          data-testid="ops-team-member-sheet"
+        >
+          {selectedTeamMember ? (
+            <>
+              <SheetHeader className="text-left space-y-1">
+                <SheetTitle className="text-slate-50">
+                  {selectedTeamMember.firstName} {selectedTeamMember.lastName}
+                </SheetTitle>
+                <SheetDescription className="text-slate-400">
+                  {teamRoleLabel(selectedTeamMember.role)} ·{" "}
+                  {teamStatusLabel(teamMemberStatus(selectedTeamMember))}
+                </SheetDescription>
+              </SheetHeader>
+
+              <div className="mt-5 space-y-4">
+                <div className="rounded-lg border border-slate-700/70 bg-slate-900/50 px-3 py-2.5 space-y-1.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                    Last activity
+                  </p>
+                  <p className="text-sm text-slate-200">
+                    {selectedTeamMember.isLive
+                      ? "Live now"
+                      : formatTeamLastActivity(teamLastActivityAt(selectedTeamMember))}
+                  </p>
+                </div>
+
+                {selectedTeamMember.lastLat != null && selectedTeamMember.lastLng != null ? (
+                  <>
+                    <div className="rounded-lg border border-slate-700/70 bg-slate-900/50 px-3 py-2.5 space-y-1.5">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                        Last / current location
+                      </p>
+                      <p className="text-sm font-mono text-slate-100 tabular-nums">
+                        {formatCoords(selectedTeamMember.lastLat, selectedTeamMember.lastLng)}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        {formatTeamPositionAt(
+                          selectedTeamMember.lastPositionAt ?? selectedTeamMember.lastSeenAt,
+                        )}
+                      </p>
+                    </div>
+
+                    <div className="overflow-hidden rounded-lg border border-slate-700/70">
+                      <GeoMapPreview
+                        lat={selectedTeamMember.lastLat}
+                        lng={selectedTeamMember.lastLng}
+                        label={`${selectedTeamMember.firstName} ${selectedTeamMember.lastName}`}
+                        open={!!selectedTeamMember}
+                        className="min-h-[240px] rounded-none border-0 bg-slate-900"
+                        testId="ops-team-member-map"
+                      />
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        className="gap-1.5"
+                        onClick={() => {
+                          window.open(
+                            mapsUrl(selectedTeamMember.lastLat!, selectedTeamMember.lastLng!),
+                            "_blank",
+                            "noopener,noreferrer",
+                          );
+                        }}
+                        data-testid="ops-team-open-maps"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                        Open in Maps
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="border-slate-600 bg-transparent text-slate-200 hover:bg-slate-800"
+                        onClick={async () => {
+                          const text = formatCoords(
+                            selectedTeamMember.lastLat!,
+                            selectedTeamMember.lastLng!,
+                          );
+                          try {
+                            await navigator.clipboard.writeText(text);
+                            toast({ title: "Coordinates copied", description: text });
+                          } catch {
+                            toast({
+                              title: "Could not copy",
+                              description: text,
+                              variant: "destructive",
+                            });
+                          }
+                        }}
+                        data-testid="ops-team-copy-coords"
+                      >
+                        Copy coordinates
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="rounded-lg border border-dashed border-slate-700/80 bg-slate-900/40 px-3 py-4 text-sm text-slate-400">
+                    No GPS position recorded for this member yet.
+                  </div>
+                )}
+
+                {selectedTeamMember.isLive && selectedTeamMember.liveIncidentId != null ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="w-full gap-1.5"
+                    onClick={() => {
+                      const incidentId = selectedTeamMember.liveIncidentId!;
+                      setSelectedTeamMember(null);
+                      onOpenLiveMonitor(incidentId);
+                    }}
+                    data-testid="ops-team-open-live"
+                  >
+                    <Radio className="h-4 w-4" />
+                    Open live incident
+                  </Button>
+                ) : null}
+              </div>
+            </>
+          ) : null}
+        </SheetContent>
+      </Sheet>
+    </>
   );
 }

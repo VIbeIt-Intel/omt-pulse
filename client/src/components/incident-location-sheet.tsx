@@ -9,6 +9,7 @@ import {
 import { CustomMapLayerView } from "@/components/custom-map-layer-view";
 import { loadGoogleMaps } from "@/lib/google-maps-loader";
 import { resolveIncidentCoords } from "@/lib/incident-display";
+import { cn } from "@/lib/utils";
 import { MapPin, Loader2 } from "lucide-react";
 
 type Props = {
@@ -21,16 +22,20 @@ type Props = {
   locations: Location[];
 };
 
-function GeoMapPreview({
+export function GeoMapPreview({
   lat,
   lng,
   label,
   open,
+  className,
+  testId = "incident-location-geo-map",
 }: {
   lat: number;
   lng: number;
   label: string;
   open: boolean;
+  className?: string;
+  testId?: string;
 }) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<google.maps.Map | null>(null);
@@ -96,7 +101,12 @@ function GeoMapPreview({
 
   if (error) {
     return (
-      <div className="flex h-full min-h-[280px] items-center justify-center rounded-lg border bg-muted/30 px-4 text-center text-sm text-muted-foreground">
+      <div
+        className={cn(
+          "flex h-full min-h-[280px] items-center justify-center rounded-lg border bg-muted/30 px-4 text-center text-sm text-muted-foreground",
+          className,
+        )}
+      >
         Map unavailable — {lat.toFixed(5)}, {lng.toFixed(5)}
       </div>
     );
@@ -104,7 +114,12 @@ function GeoMapPreview({
 
   if (!ready) {
     return (
-      <div className="flex h-full min-h-[280px] items-center justify-center rounded-lg border bg-muted/30">
+      <div
+        className={cn(
+          "flex h-full min-h-[280px] items-center justify-center rounded-lg border bg-muted/30",
+          className,
+        )}
+      >
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     );
@@ -113,8 +128,8 @@ function GeoMapPreview({
   return (
     <div
       ref={mapRef}
-      className="h-full min-h-[280px] w-full rounded-lg border shadow-sm"
-      data-testid="incident-location-geo-map"
+      className={cn("h-full min-h-[280px] w-full rounded-lg border shadow-sm", className)}
+      data-testid={testId}
     />
   );
 }
