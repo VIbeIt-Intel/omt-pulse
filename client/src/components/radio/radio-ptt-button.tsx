@@ -135,7 +135,7 @@ export function RadioPttButton({
         // None (not manipulation): stops Android WebView scroll/zoom stealing the hold.
         "[touch-action:none] [-webkit-user-select:none] [-webkit-touch-callout:none]",
         compact
-          ? "rounded-xl h-11 px-3.5 gap-2 text-sm inline-flex items-center justify-center shrink-0 min-w-[6.25rem] shadow-sm"
+          ? "rounded-xl h-14 px-4 gap-2 text-base inline-flex items-center justify-center shrink-0 min-w-[7.75rem] shadow-md"
           : "rounded-2xl px-6 py-5 font-bold text-base flex flex-col items-center justify-center gap-1.5 min-h-[5.5rem] w-full",
         active
           ? "bg-emerald-500 text-white shadow-md shadow-emerald-900/30 scale-[1.02]"
@@ -144,7 +144,7 @@ export function RadioPttButton({
             : disabled
               ? "bg-slate-800/80 text-slate-500 cursor-not-allowed border border-slate-700/60"
               : compact
-                ? "bg-emerald-700 text-white hover:bg-emerald-600 active:bg-emerald-500 border border-emerald-400/40"
+                ? "bg-emerald-600 text-white hover:bg-emerald-500 active:bg-emerald-400 border-2 border-emerald-300/50"
                 : "bg-slate-800 text-slate-100 hover:bg-slate-700 border border-emerald-500/40",
         className,
       )}
@@ -173,8 +173,8 @@ export function RadioPttButton({
         endHold();
       }}
     >
-      <Radio className={cn(compact ? "h-5 w-5" : "h-7 w-7", active && "animate-pulse")} />
-      <span className={cn(compact && "leading-none font-bold tracking-wide")}>{displayLabel}</span>
+      <Radio className={cn(compact ? "h-6 w-6" : "h-7 w-7", active && "animate-pulse")} />
+      <span className={cn(compact && "leading-none font-extrabold tracking-wide")}>{displayLabel}</span>
     </button>
   );
 }

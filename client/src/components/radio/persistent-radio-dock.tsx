@@ -102,7 +102,7 @@ export function PersistentRadioDock() {
       className={cn(
         "shrink-0 border-t border-emerald-500/15 bg-[#0d141c]/95 backdrop-blur-sm z-40",
         collapsed
-          ? "px-2 py-1.5 pb-[max(0.4rem,env(safe-area-inset-bottom))]"
+          ? "px-2.5 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
           : "px-3 py-1.5 pb-[max(0.35rem,env(safe-area-inset-bottom))]",
       )}
       data-testid="persistent-radio-dock"
