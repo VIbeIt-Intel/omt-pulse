@@ -1,4 +1,4 @@
-const CACHE_NAME = "omt-v263";
+const CACHE_NAME = "omt-v264";
 
 // When the page asks us to nuke everything (after a new deploy), wipe all
 // caches and tell every controlled tab to reload. The page also unregisters
@@ -242,19 +242,48 @@ self.addEventListener("push", (event) => {
     return;
   }
 
-  const isPanic = data.type === "panic";
+  // Panic / SOS — sticky, strong vibrate, unique tag.
+  if (data.type === "panic") {
+    event.waitUntil(
+      self.registration.showNotification(data.title ?? "🆘 PANIC", {
+        body: data.body ?? "Someone needs immediate assistance.",
+        icon: "/icon-192.png",
+        badge: "/panic-dot.png",
+        tag: data.incidentId ? `panic-${data.incidentId}` : `panic-${Date.now()}`,
+        renotify: true,
+        requireInteraction: true,
+        vibrate: [600, 150, 600, 150, 600, 150, 1000],
+        data: { url: data.url ?? "/live-incident" },
+      })
+    );
+    return;
+  }
+
+  // Live incident started — sticky, distinct from panic/chat.
+  if (data.type === "incident_started") {
+    event.waitUntil(
+      self.registration.showNotification(data.title ?? "Live Incident", {
+        body: data.body ?? "A live incident has been triggered.",
+        icon: "/icon-192.png",
+        badge: "/icon-192.png",
+        tag: data.incidentId ? `incident-${data.incidentId}` : `incident-${Date.now()}`,
+        renotify: true,
+        requireInteraction: true,
+        vibrate: [400, 120, 400, 120, 700, 120, 700],
+        data: { url: data.url ?? "/" },
+      })
+    );
+    return;
+  }
 
   event.waitUntil(
-    self.registration.showNotification(data.title ?? "🚨 Live Incident", {
-      body: data.body ?? "A live incident has been triggered.",
+    self.registration.showNotification(data.title ?? "OMT Pulse", {
+      body: data.body ?? "You have a new alert.",
       icon: "/icon-192.png",
-      badge: isPanic ? "/panic-dot.png" : "/icon-192.png",
-      tag: isPanic ? `panic-${Date.now()}` : `incident-${data.incidentId || Date.now()}`,
+      badge: "/icon-192.png",
+      tag: data.incidentId ? `alert-${data.incidentId}` : `alert-${Date.now()}`,
       requireInteraction: true,
-      vibrate: isPanic
-        ? [600, 150, 600, 150, 600, 150, 1000]
-        : [300, 100, 300, 100, 600],
-      // data is required so notificationclick can read the deep-link URL.
+      vibrate: [300, 100, 300],
       data: { url: data.url ?? "/" },
     })
   );

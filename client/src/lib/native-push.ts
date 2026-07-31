@@ -15,8 +15,16 @@ export const PATROL_NOTIFICATION_CHANNEL_ID = "patrol_alerts";
 /** Dedicated Android channel for chat — separate from panic / live / patrol. */
 export const CHAT_NOTIFICATION_CHANNEL_ID = "omt_chat";
 
+/** Max-urgency SOS channel — loud tone, never miss. */
+export const PANIC_NOTIFICATION_CHANNEL_ID = "omt_panic";
+
+/** High-urgency live incident channel — distinct from chat/panic. */
+export const LIVE_NOTIFICATION_CHANNEL_ID = "omt_live";
+
 let patrolChannelReady = false;
 let chatChannelReady = false;
+let panicChannelReady = false;
+let liveChannelReady = false;
 
 /**
  * Create the high-importance patrol notification channel (Android only).
@@ -63,6 +71,50 @@ export async function ensureChatNotificationChannel(): Promise<void> {
       lights: true,
     });
     chatChannelReady = true;
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** Panic / SOS — max importance + loud custom tone. */
+export async function ensurePanicNotificationChannel(): Promise<void> {
+  if (panicChannelReady) return;
+  if (!Capacitor.isNativePlatform()) return;
+  if (Capacitor.getPlatform() !== "android") return;
+  try {
+    await PushNotifications.createChannel({
+      id: PANIC_NOTIFICATION_CHANNEL_ID,
+      name: "Panic / SOS",
+      description: "Emergency panic alerts — keep enabled at full volume",
+      importance: 5,
+      visibility: 1,
+      sound: "panic_alert.wav",
+      vibration: true,
+      lights: true,
+    });
+    panicChannelReady = true;
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** Live incident start — high importance + distinct alert tone. */
+export async function ensureLiveNotificationChannel(): Promise<void> {
+  if (liveChannelReady) return;
+  if (!Capacitor.isNativePlatform()) return;
+  if (Capacitor.getPlatform() !== "android") return;
+  try {
+    await PushNotifications.createChannel({
+      id: LIVE_NOTIFICATION_CHANNEL_ID,
+      name: "Live incidents",
+      description: "Live incident started alerts — keep enabled",
+      importance: 5,
+      visibility: 1,
+      sound: "live_alert.wav",
+      vibration: true,
+      lights: true,
+    });
+    liveChannelReady = true;
   } catch {
     /* best-effort */
   }
@@ -159,6 +211,8 @@ export function initNativePushListeners(): void {
 
   void ensurePatrolNotificationChannel();
   void ensureChatNotificationChannel();
+  void ensurePanicNotificationChannel();
+  void ensureLiveNotificationChannel();
 
   void PushNotifications.addListener(
     "pushNotificationActionPerformed",

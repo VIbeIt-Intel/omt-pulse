@@ -311,6 +311,8 @@ async function dispatchLiveIncidentPush(orgId: string, triggerUserId: string, in
         body,
         data: { type: "incident_started", incidentId: String(incident.id), url: joinUrl },
         notificationTag: fcmTag,
+        channelId: LIVE_ALERT_CHANNEL,
+        sound: LIVE_ALERT_SOUND,
       }).catch(() => {});
       for (const s of fcmSubs) {
         if (pushedUserIds.has(s.userId)) continue;
@@ -458,6 +460,12 @@ const PATROL_ALERT_CHANNEL = "patrol_alerts";
 const PATROL_ALERT_SOUND = "patrol_alert";
 /** Must match CHAT_NOTIFICATION_CHANNEL_ID on the device. */
 const CHAT_ALERT_CHANNEL = "omt_chat";
+/** Must match PANIC_NOTIFICATION_CHANNEL_ID / raw sound on the device. */
+const PANIC_ALERT_CHANNEL = "omt_panic";
+const PANIC_ALERT_SOUND = "panic_alert";
+/** Must match LIVE_NOTIFICATION_CHANNEL_ID / raw sound on the device. */
+const LIVE_ALERT_CHANNEL = "omt_live";
+const LIVE_ALERT_SOUND = "live_alert";
 /** Chat pushes stay deliverable longer than the old 60s TTL. */
 const CHAT_PUSH = { urgency: "high" as const, TTL: 3600 };
 
@@ -873,6 +881,8 @@ async function dispatchLiveIncidentCloseFcm(
       url: incidentUrl,
     },
     notificationTag: tag,
+    channelId: LIVE_ALERT_CHANNEL,
+    sound: LIVE_ALERT_SOUND,
   });
 }
 
@@ -2915,6 +2925,8 @@ export async function registerRoutes(
             title,
             body,
             data: { type: "incident_started", url: "/live-monitor" },
+            channelId: LIVE_ALERT_CHANNEL,
+            sound: LIVE_ALERT_SOUND,
           }).catch(() => {});
         }
       }).catch(() => {});
@@ -3293,6 +3305,9 @@ export async function registerRoutes(
           title,
           body,
           data: { type: "panic", incidentId: String(panicIncidentId ?? ""), url: notifUrl },
+          notificationTag: panicIncidentId != null ? `panic-${panicIncidentId}` : `panic-${Date.now()}`,
+          channelId: PANIC_ALERT_CHANNEL,
+          sound: PANIC_ALERT_SOUND,
         }).catch(() => {});
         for (const s of fcmSubs) {
           sent++;
