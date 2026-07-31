@@ -766,6 +766,7 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
   // }
 
   return (
+    <PrivateRadioHost>
     <SidebarProvider style={style as React.CSSProperties}>
       <div className="flex h-screen w-full">
         <AppSidebar user={user} onLogout={() => logoutMutation.mutate()} avatarPreview={avatarPreview} />
@@ -1022,11 +1023,11 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
             </Switch>
           </main>
           <PersistentRadioDock />
-          <PrivateRadioHost />
         </div>
       </div>
       <PermissionPrimerModal />
     </SidebarProvider>
+    </PrivateRadioHost>
   );
 }
 
