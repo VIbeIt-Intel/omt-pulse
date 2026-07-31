@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo, type ReactNode } from "react";
-import { Loader2, MessageSquare, PhoneOff, Radio, Volume2, X } from "lucide-react";
+import { MessageSquare, PhoneOff, Volume2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { RadioPttButton } from "@/components/radio/radio-ptt-button";
 import { usePrivateRadio } from "@/hooks/use-private-radio";
@@ -36,62 +36,25 @@ export function PrivateRadioHost({ children }: { children?: ReactNode }) {
     [radio.startCall, radio.call],
   );
 
-  const showOverlay =
-    !!radio.call &&
-    (radio.call.status === "active" ||
-      radio.connected ||
-      radio.connecting ||
-      (radio.call.role === "caller" && radio.call.status === "ringing"));
+  const showOverlay = !!radio.call;
 
-  const showIncoming =
-    !!radio.call &&
-    radio.call.role === "callee" &&
-    radio.call.status === "ringing" &&
-    !radio.connected &&
-    !radio.connecting;
+  const statusText = radio.connecting
+    ? "Connecting private channel…"
+    : radio.call?.role === "caller" && radio.call.status === "ringing"
+      ? "Opening private channel to field unit…"
+      : radio.transmitting
+        ? "You are on air — release to stop"
+        : radio.remoteTalking
+          ? `${radio.remoteTalking} talking`
+          : radio.connected
+            ? radio.speakerReady
+              ? "Live — hold to talk (private)"
+              : "Live — tap Enable speaker to hear"
+            : "Private channel";
 
   return (
     <PrivateRadioCtx.Provider value={api}>
       {children}
-
-      {showIncoming ? (
-        <div
-          className="fixed inset-x-0 top-0 z-[80] px-3 pt-[max(0.75rem,env(safe-area-inset-top))]"
-          data-testid="private-radio-incoming"
-        >
-          <div className="mx-auto max-w-lg rounded-xl border border-emerald-500/40 bg-[#0f1a14] shadow-2xl shadow-black/50 px-4 py-3">
-            <div className="flex items-start gap-3">
-              <div className="mt-0.5 rounded-full bg-emerald-500/20 p-2 text-emerald-300">
-                <Radio className="h-5 w-5 animate-pulse" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-emerald-300">Private radio</p>
-                <p className="text-sm text-slate-100 truncate">{radio.call!.peerName}</p>
-                <p className="text-xs text-slate-400 mt-0.5">Control room wants to talk to you only</p>
-              </div>
-            </div>
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <Button
-                variant="outline"
-                className="h-10"
-                data-testid="button-private-radio-decline"
-                onClick={() => void radio.declineCall(radio.call!.id)}
-              >
-                Decline
-              </Button>
-              <Button
-                className="h-10 bg-emerald-600 hover:bg-emerald-500 text-white"
-                data-testid="button-private-radio-accept"
-                disabled={radio.connecting}
-                onClick={() => void radio.acceptCall(radio.call!.id)}
-              >
-                {radio.connecting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                Accept
-              </Button>
-            </div>
-          </div>
-        </div>
-      ) : null}
 
       {showOverlay ? (
         <div
@@ -107,26 +70,12 @@ export function PrivateRadioHost({ children }: { children?: ReactNode }) {
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <p className="text-[10px] font-bold uppercase tracking-wide text-violet-300">
-                  Private radio · you + {radio.call!.peerName.split(" ")[0]}
+                  Private radio · forced open
                 </p>
                 <p className="text-sm font-semibold text-slate-100 truncate">
                   {radio.call!.peerName}
                 </p>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  {radio.connecting
-                    ? "Connecting…"
-                    : radio.call!.status === "ringing" && radio.call!.role === "caller"
-                      ? "Ringing… waiting for answer"
-                      : radio.transmitting
-                        ? "You are on air — release to stop"
-                        : radio.remoteTalking
-                          ? `${radio.remoteTalking} talking`
-                          : radio.connected
-                            ? radio.speakerReady
-                              ? "Connected — hold to talk"
-                              : "Connected — tap Enable speaker"
-                            : "Private channel"}
-                </p>
+                <p className="text-xs text-slate-400 mt-0.5">{statusText}</p>
               </div>
               <button
                 type="button"
@@ -183,7 +132,7 @@ export function PrivateRadioHost({ children }: { children?: ReactNode }) {
               </Button>
             </div>
             <p className="text-[10px] text-slate-500 text-center">
-              Only you and {radio.call!.peerName.split(" ")[0]} hear this. Group radio stays separate.
+              Auto-connected for ops. Only you and {radio.call!.peerName.split(" ")[0]} hear this.
             </p>
           </div>
         </div>

@@ -462,7 +462,10 @@ export function usePrivateRadio() {
     }
   }, [teardownRoom]);
 
+  const autoJoinAttemptRef = useRef<string | null>(null);
+
   // Poll for incoming / peer-ended calls.
+  // Security dispatch: callees auto-join — no Accept/Decline step.
   useEffect(() => {
     let cancelled = false;
     const tick = async () => {
@@ -474,6 +477,7 @@ export function usePrivateRadio() {
         if (cancelled) return;
         const remote = data.call;
         if (!remote) {
+          autoJoinAttemptRef.current = null;
           if (callIdRef.current && !connecting) {
             // Peer ended.
             callIdRef.current = null;
@@ -483,10 +487,21 @@ export function usePrivateRadio() {
           }
           return;
         }
-        // Incoming ring for callee who hasn't joined yet.
-        if (remote.role === "callee" && remote.status === "ringing" && !callIdRef.current) {
+        // Incoming private radio — force-connect for field units.
+        if (
+          remote.role === "callee" &&
+          (remote.status === "ringing" || remote.status === "active") &&
+          !callIdRef.current &&
+          autoJoinAttemptRef.current !== remote.id
+        ) {
+          autoJoinAttemptRef.current = remote.id;
           setCall(remote);
           setPrivateRadioBusy(true);
+          try {
+            await acceptCall(remote.id);
+          } catch {
+            autoJoinAttemptRef.current = null;
+          }
           return;
         }
         // Keep status in sync while connected.
@@ -498,12 +513,12 @@ export function usePrivateRadio() {
       }
     };
     void tick();
-    const t = window.setInterval(tick, 2000);
+    const t = window.setInterval(tick, 1500);
     return () => {
       cancelled = true;
       window.clearInterval(t);
     };
-  }, [connecting, teardownRoom]);
+  }, [acceptCall, connecting, teardownRoom]);
 
   useEffect(() => {
     if (!callIdRef.current || !connected) return;
