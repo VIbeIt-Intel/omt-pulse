@@ -200,10 +200,10 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
   }, [device]);
 
   const { data: history, isLoading: historyLoading } = useQuery<HistoryResponse>({
-    queryKey: ["/api/trackers", deviceId, "positions", "7d"],
+    queryKey: ["/api/trackers", deviceId, "positions", "30d"],
     queryFn: async () => {
       const res = await fetch(
-        `/api/trackers/${deviceId}/positions?hours=168&limit=2000`,
+        `/api/trackers/${deviceId}/positions?hours=720&limit=8000`,
         { credentials: "include" },
       );
       if (!res.ok) throw new Error("Failed to load history");
@@ -292,8 +292,8 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
       toast({ title: "Nothing to export", description: "No GPS points in this period.", variant: "destructive" });
       return;
     }
-    const periodLabel = scope === "day" ? activeDay?.label ?? activeDayKey ?? "Selected day" : "Last 7 days";
-    const periodKey = scope === "day" ? activeDayKey ?? "day" : "7d";
+    const periodLabel = scope === "day" ? activeDay?.label ?? activeDayKey ?? "Selected day" : "Last 30 days";
+    const periodKey = scope === "day" ? activeDayKey ?? "day" : "30d";
     const opts = {
       device,
       vehicleTitle: vehicleTitle(device),
@@ -538,7 +538,7 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
                 <p className="text-sm font-medium">Route map</p>
               </div>
               <div className="flex items-center gap-2">
-                <p className="text-xs text-muted-foreground hidden sm:inline">Last 7 days</p>
+                <p className="text-xs text-muted-foreground hidden sm:inline">Last 30 days</p>
                 {!historyLoading && (history?.positions?.length ?? 0) > 0 && (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -555,10 +555,10 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
                         CSV — selected day
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => exportTrip("week", "xlsx")}>
-                        Excel — last 7 days
+                        Excel — last 30 days
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => exportTrip("week", "csv")}>
-                        CSV — last 7 days
+                        CSV — last 30 days
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>

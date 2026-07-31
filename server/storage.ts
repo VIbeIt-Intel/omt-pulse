@@ -2364,7 +2364,7 @@ export class DatabaseStorage implements IStorage {
     orgId: string,
     opts?: { limit?: number; since?: Date },
   ): Promise<TrackerPositionSummary[]> {
-    const limit = Math.min(Math.max(opts?.limit ?? 200, 1), 2000);
+    const limit = Math.min(Math.max(opts?.limit ?? 200, 1), 10000);
     const conditions = [
       eq(trackerPositions.deviceId, deviceId),
       eq(trackerPositions.organizationId, orgId),
