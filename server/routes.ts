@@ -4650,8 +4650,18 @@ export async function registerRoutes(
       contractRef, contractStartDate, contractRenewalDate,
       rateAdmin, rateSupervisor, rateReporter, rateAccessController, rateControlRoom, ratePatrolUser,
       storageLimitGb, billingNotes,
+      retentionAccessLogsDays, retentionPatrolTrackDays, retentionPatrolCheckpointDays,
+      retentionTrackerPositionsDays, retentionCctvAiEventsDays,
       sendWelcomeEmail,
     } = req.body;
+
+    const parseRetentionDays = (v: unknown): number | null | undefined => {
+      if (v === undefined) return undefined;
+      if (v === null || v === "") return null;
+      const n = Number(v);
+      if (!Number.isFinite(n) || n < 1) return null;
+      return Math.min(Math.floor(n), 3650);
+    };
 
     if (!orgName || typeof orgName !== "string") return res.status(400).json({ message: "Organisation name is required" });
     if (!adminFirstName || !adminLastName) return res.status(400).json({ message: "Administrator first and last name are required" });
@@ -4707,6 +4717,11 @@ export async function registerRoutes(
       ratePatrolUser: ratePatrolUser != null ? Math.round(Number(ratePatrolUser) * 100) : null,
       storageLimitGb: storageLimitGb != null ? Number(storageLimitGb) : null,
       billingNotes: billingNotes?.trim() || null,
+      retentionAccessLogsDays: parseRetentionDays(retentionAccessLogsDays) ?? null,
+      retentionPatrolTrackDays: parseRetentionDays(retentionPatrolTrackDays) ?? null,
+      retentionPatrolCheckpointDays: parseRetentionDays(retentionPatrolCheckpointDays) ?? null,
+      retentionTrackerPositionsDays: parseRetentionDays(retentionTrackerPositionsDays) ?? null,
+      retentionCctvAiEventsDays: parseRetentionDays(retentionCctvAiEventsDays) ?? null,
     } as any);
 
     const user = await storage.createUser({
@@ -4805,7 +4820,17 @@ export async function registerRoutes(
       contractRef, contractStartDate, contractRenewalDate,
       rateAdmin, rateSupervisor, rateReporter, rateAccessController, rateControlRoom, ratePatrolUser,
       storageLimitGb, billingNotes,
+      retentionAccessLogsDays, retentionPatrolTrackDays, retentionPatrolCheckpointDays,
+      retentionTrackerPositionsDays, retentionCctvAiEventsDays,
     } = req.body;
+
+    const parseRetentionDays = (v: unknown): number | null | undefined => {
+      if (v === undefined) return undefined;
+      if (v === null || v === "") return null;
+      const n = Number(v);
+      if (!Number.isFinite(n) || n < 1) return null;
+      return Math.min(Math.floor(n), 3650);
+    };
 
     const patch: Record<string, unknown> = {};
     if (name !== undefined) patch.name = name.trim();
@@ -4857,6 +4882,11 @@ export async function registerRoutes(
     if (ratePatrolUser !== undefined) patch.ratePatrolUser = ratePatrolUser != null ? Math.round(Number(ratePatrolUser) * 100) : null;
     if (storageLimitGb !== undefined) patch.storageLimitGb = storageLimitGb != null ? Number(storageLimitGb) : null;
     if (billingNotes !== undefined) patch.billingNotes = billingNotes?.trim() || null;
+    if (retentionAccessLogsDays !== undefined) patch.retentionAccessLogsDays = parseRetentionDays(retentionAccessLogsDays) ?? null;
+    if (retentionPatrolTrackDays !== undefined) patch.retentionPatrolTrackDays = parseRetentionDays(retentionPatrolTrackDays) ?? null;
+    if (retentionPatrolCheckpointDays !== undefined) patch.retentionPatrolCheckpointDays = parseRetentionDays(retentionPatrolCheckpointDays) ?? null;
+    if (retentionTrackerPositionsDays !== undefined) patch.retentionTrackerPositionsDays = parseRetentionDays(retentionTrackerPositionsDays) ?? null;
+    if (retentionCctvAiEventsDays !== undefined) patch.retentionCctvAiEventsDays = parseRetentionDays(retentionCctvAiEventsDays) ?? null;
 
     if (Object.keys(patch).length === 0) return res.status(400).json({ message: "No fields to update" });
 

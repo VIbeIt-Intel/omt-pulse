@@ -23,6 +23,7 @@ import { appInviteUrl } from "@shared/app-url";
 import { formatOrgAddress } from "@shared/org-address";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
+import { DEFAULT_RETENTION_DAYS } from "@shared/retention";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -59,6 +60,11 @@ type ArchonOrg = {
   primaryContactLastName: string | null;
   primaryContactEmail: string | null;
   primaryContactPhone: string | null;
+  retentionAccessLogsDays: number | null;
+  retentionPatrolTrackDays: number | null;
+  retentionPatrolCheckpointDays: number | null;
+  retentionTrackerPositionsDays: number | null;
+  retentionCctvAiEventsDays: number | null;
   userCounts: UserCounts;
   incidentCount: number;
   lastActivityAt: string | null;
@@ -278,6 +284,11 @@ type EditContractForm = {
   ratePatrolUser: string;
   storageLimitGb: string;
   billingNotes: string;
+  retentionAccessLogsDays: string;
+  retentionPatrolTrackDays: string;
+  retentionPatrolCheckpointDays: string;
+  retentionTrackerPositionsDays: string;
+  retentionCctvAiEventsDays: string;
 };
 
 function orgToEditForm(org: ArchonOrg): EditContractForm {
@@ -307,6 +318,11 @@ function orgToEditForm(org: ArchonOrg): EditContractForm {
     ratePatrolUser: org.ratePatrolUser != null ? String(org.ratePatrolUser / 100) : "",
     storageLimitGb: org.storageLimitGb != null ? String(org.storageLimitGb) : "",
     billingNotes: org.billingNotes ?? "",
+    retentionAccessLogsDays: org.retentionAccessLogsDays != null ? String(org.retentionAccessLogsDays) : "",
+    retentionPatrolTrackDays: org.retentionPatrolTrackDays != null ? String(org.retentionPatrolTrackDays) : "",
+    retentionPatrolCheckpointDays: org.retentionPatrolCheckpointDays != null ? String(org.retentionPatrolCheckpointDays) : "",
+    retentionTrackerPositionsDays: org.retentionTrackerPositionsDays != null ? String(org.retentionTrackerPositionsDays) : "",
+    retentionCctvAiEventsDays: org.retentionCctvAiEventsDays != null ? String(org.retentionCctvAiEventsDays) : "",
   };
 }
 
@@ -855,6 +871,11 @@ export default function ArchonDashboard() {
         ratePatrolUser: f.ratePatrolUser !== "" ? Number(f.ratePatrolUser) : null,
         storageLimitGb: f.storageLimitGb !== "" ? Number(f.storageLimitGb) : null,
         billingNotes: f.billingNotes || null,
+        retentionAccessLogsDays: f.retentionAccessLogsDays !== "" ? Number(f.retentionAccessLogsDays) : null,
+        retentionPatrolTrackDays: f.retentionPatrolTrackDays !== "" ? Number(f.retentionPatrolTrackDays) : null,
+        retentionPatrolCheckpointDays: f.retentionPatrolCheckpointDays !== "" ? Number(f.retentionPatrolCheckpointDays) : null,
+        retentionTrackerPositionsDays: f.retentionTrackerPositionsDays !== "" ? Number(f.retentionTrackerPositionsDays) : null,
+        retentionCctvAiEventsDays: f.retentionCctvAiEventsDays !== "" ? Number(f.retentionCctvAiEventsDays) : null,
       },
     });
   }
@@ -1475,6 +1496,37 @@ export default function ArchonDashboard() {
                 <FieldRow label="Billing notes">
                   <Textarea className="bg-white/5 border-white/20 text-white placeholder:text-white/30 text-sm min-h-16 resize-none" value={editContractForm.billingNotes} onChange={(e) => setEditContractForm(f => f && ({ ...f, billingNotes: e.target.value }))} data-testid="input-editcontract-notes" />
                 </FieldRow>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-white/60 text-xs font-semibold uppercase tracking-widest border-b border-white/10 pb-1">POPIA retention (days)</p>
+                <p className="text-white/40 text-[11px] leading-relaxed">
+                  Leave blank to use platform defaults. Incident evidence and audit logs are not auto-deleted.
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  {([
+                    ["retentionAccessLogsDays", "Access / visitor logs", DEFAULT_RETENTION_DAYS.accessLogs],
+                    ["retentionPatrolTrackDays", "Patrol GPS tracks", DEFAULT_RETENTION_DAYS.patrolTrackPoints],
+                    ["retentionPatrolCheckpointDays", "Patrol check-ins", DEFAULT_RETENTION_DAYS.patrolCheckpointLogs],
+                    ["retentionTrackerPositionsDays", "Fleet GPS history", DEFAULT_RETENTION_DAYS.trackerPositions],
+                    ["retentionCctvAiEventsDays", "CCTV AI events", DEFAULT_RETENTION_DAYS.cctvAiEvents],
+                  ] as const).map(([key, label, def]) => (
+                    <div key={key}>
+                      <Label className="text-white/50 text-xs mb-1 block">{label}</Label>
+                      <Input
+                        className={inputStyle}
+                        type="number"
+                        min="1"
+                        max="3650"
+                        step="1"
+                        placeholder={`Default ${def}`}
+                        value={editContractForm[key]}
+                        onChange={(e) => setEditContractForm((f) => f && ({ ...f, [key]: e.target.value }))}
+                        data-testid={`input-editcontract-${key}`}
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
 
               <DialogFooter>

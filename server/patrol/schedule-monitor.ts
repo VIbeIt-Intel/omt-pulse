@@ -10,20 +10,12 @@ import {
   pickDispatchUser,
 } from "./schedule-storage";
 import { isInQuietHours } from "./schedule-timing";
-import { purgeOldPatrolTrackPoints } from "./storage";
-
-let lastTrackPurgeAt = 0;
 
 export async function evaluatePatrolSchedules(): Promise<void> {
   const now = new Date();
   await expireStaleDispatches(now);
 
-  // Purge breadcrumb GPS older than retention (~daily).
-  if (Date.now() - lastTrackPurgeAt > 24 * 60 * 60 * 1000) {
-    lastTrackPurgeAt = Date.now();
-    const n = await purgeOldPatrolTrackPoints().catch(() => 0);
-    if (n > 0) console.log(`[patrol-schedule] purged ${n} old track points`);
-  }
+  // GPS breadcrumb retention is handled by server/retention (POPIA purge monitor).
 
   const due = await listDueSchedules(now);
   for (const schedule of due) {

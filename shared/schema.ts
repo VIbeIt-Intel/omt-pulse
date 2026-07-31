@@ -38,6 +38,12 @@ export const organizations = pgTable("organizations", {
   primaryContactLastName: text("primary_contact_last_name"),
   primaryContactEmail: text("primary_contact_email"),
   primaryContactPhone: text("primary_contact_phone"),
+  /** POPIA retention overrides (days). Null = platform defaults in shared/retention.ts */
+  retentionAccessLogsDays: integer("retention_access_logs_days"),
+  retentionPatrolTrackDays: integer("retention_patrol_track_days"),
+  retentionPatrolCheckpointDays: integer("retention_patrol_checkpoint_days"),
+  retentionTrackerPositionsDays: integer("retention_tracker_positions_days"),
+  retentionCctvAiEventsDays: integer("retention_cctv_ai_events_days"),
 });
 
 export const insertOrganizationSchema = createInsertSchema(organizations).omit({ id: true, createdAt: true });
