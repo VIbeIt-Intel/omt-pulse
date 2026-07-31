@@ -34,6 +34,7 @@ import {
   Tag,
   Navigation,
   UserPlus,
+  Users,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
@@ -123,6 +124,68 @@ function getResponderName(inc: LiveIncident): string {
 
 function isPanicIncident(inc: LiveIncident): boolean {
   return (inc.categoryName ?? "").toLowerCase().includes("panic");
+}
+
+function pickLatLng(
+  lat: number | string | null | undefined,
+  lng: number | string | null | undefined,
+): { lat: number; lng: number } | null {
+  if (lat == null || lng == null) return null;
+  const la = Number(lat);
+  const ln = Number(lng);
+  if (!Number.isFinite(la) || !Number.isFinite(ln)) return null;
+  return { lat: la, lng: ln };
+}
+
+function haversineKm(
+  a: { lat: number; lng: number },
+  b: { lat: number; lng: number },
+): number {
+  const R = 6371;
+  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+  const dLng = ((b.lng - a.lng) * Math.PI) / 180;
+  const lat1 = (a.lat * Math.PI) / 180;
+  const lat2 = (b.lat * Math.PI) / 180;
+  const x =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+}
+
+function fmtDistanceKm(km: number): string {
+  if (km < 1) return `${Math.round(km * 1000)} m`;
+  return km < 10 ? `${km.toFixed(1)} km` : `${Math.round(km)} km`;
+}
+
+/** Rough road ETA — straight-line × 1.25 at ~55 km/h. */
+function estimateDriveMinutes(km: number): number {
+  const roadKm = km * 1.25;
+  return Math.max(1, Math.round((roadKm / 55) * 60));
+}
+
+function getIncidentTarget(inc: LiveIncident): { lat: number; lng: number } | null {
+  if (isPanicIncident(inc)) {
+    return (
+      pickLatLng(inc.destinationLat, inc.destinationLng) ??
+      pickLatLng(inc.latitude, inc.longitude) ??
+      pickLatLng(inc.responderLat, inc.responderLng)
+    );
+  }
+  return (
+    pickLatLng(inc.destinationLat, inc.destinationLng) ??
+    pickLatLng(inc.latitude, inc.longitude) ??
+    pickLatLng(inc.responderLat, inc.responderLng)
+  );
+}
+
+function formatEtaLine(
+  from: { lat: number; lng: number } | null,
+  target: { lat: number; lng: number } | null,
+): string | null {
+  if (!from || !target) return null;
+  const km = haversineKm(from, target);
+  if (!Number.isFinite(km)) return null;
+  return `${fmtDistanceKm(km)} · ~${estimateDriveMinutes(km)} min`;
 }
 
 function getMarkerColor(inc: LiveIncident): string {
@@ -488,50 +551,6 @@ function LiveIncidentCard({
           </p>
         )}
 
-        {(() => {
-          const joiners = (incident.responders ?? []).filter((r) => r.userId !== incident.userId);
-          if (joiners.length === 0) return null;
-          return (
-            <div className="rounded-md border border-border bg-muted/30 px-2.5 py-2 mt-1" data-testid={`list-responders-${incident.id}`}>
-              <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold mb-1.5">
-                Responders ({joiners.length})
-              </p>
-              <ul className="space-y-1">
-                {joiners.map((r) => {
-                  const respName = `${r.firstName} ${r.lastName}`.trim() || "Responder";
-                  let statusEl;
-                  if (r.arrivedAt) {
-                    statusEl = (
-                      <span className="text-[10px] font-semibold text-green-600 dark:text-green-400 shrink-0" data-testid={`responder-status-${incident.id}-${r.userId}`}>
-                        ✅ Arrived {formatTime(r.arrivedAt)}
-                      </span>
-                    );
-                  } else if (r.lastPositionAt) {
-                    const stale = (Date.now() - new Date(r.lastPositionAt).getTime()) > 180000;
-                    statusEl = (
-                      <span className={`text-[10px] font-medium shrink-0 ${stale ? "text-red-500" : "text-blue-600 dark:text-blue-400"}`} data-testid={`responder-status-${incident.id}-${r.userId}`}>
-                        📍 En route · GPS {formatTime(r.lastPositionAt)}{stale ? " (stale)" : ""}
-                      </span>
-                    );
-                  } else {
-                    statusEl = (
-                      <span className="text-[10px] font-medium text-amber-600 dark:text-amber-400 shrink-0" data-testid={`responder-status-${incident.id}-${r.userId}`}>
-                        ⏳ Joined {formatTime(r.joinedAt)} · no GPS
-                      </span>
-                    );
-                  }
-                  return (
-                    <li key={r.id} className="flex items-center justify-between gap-2 text-xs" data-testid={`responder-row-${incident.id}-${r.userId}`}>
-                      <span className="truncate font-medium">{respName}</span>
-                      {statusEl}
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          );
-        })()}
-
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
           <span className="flex items-center gap-1">
             <Clock className="h-3 w-3" />
@@ -628,6 +647,132 @@ function LiveIncidentCard({
           {incident.isEscalated ? "Done" : "Escalate"}
         </Button>
       </div>
+
+      <ResponseTeamPanel incident={incident} primaryName={name} />
+    </div>
+  );
+}
+
+function ResponseTeamPanel({
+  incident,
+  primaryName,
+}: {
+  incident: LiveIncident;
+  primaryName: string;
+}) {
+  const target = getIncidentTarget(incident);
+  const joiners = (incident.responders ?? []).filter((r) => r.userId !== incident.userId);
+  const enRoute = joiners.filter((r) => !r.arrivedAt).length;
+  const onScene = joiners.filter((r) => !!r.arrivedAt).length;
+  const primaryPos = pickLatLng(incident.responderLat, incident.responderLng);
+  const primaryEta = !incident.responderArrivedAt
+    ? formatEtaLine(primaryPos, target)
+    : null;
+
+  return (
+    <div
+      className="rounded-md border border-slate-700/70 bg-slate-950/40 px-2.5 py-2 space-y-2"
+      data-testid={`list-responders-${incident.id}`}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold flex items-center gap-1.5">
+          <Users className="h-3 w-3" />
+          Response team
+        </p>
+        <p className="text-[10px] text-slate-500 tabular-nums">
+          {joiners.length === 0
+            ? "0 joined"
+            : `${onScene} on scene · ${enRoute} en route`}
+        </p>
+      </div>
+
+      <ul className="space-y-1.5">
+        <li
+          className="rounded border border-slate-800/80 bg-slate-900/50 px-2 py-1.5"
+          data-testid={`responder-row-${incident.id}-primary`}
+        >
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-slate-100 truncate">{primaryName}</p>
+              <p className="text-[10px] text-slate-500">Field unit / caller</p>
+            </div>
+            {incident.responderArrivedAt ? (
+              <span className="text-[10px] font-semibold text-emerald-400 shrink-0">
+                On scene · {formatTime(incident.responderArrivedAt)}
+              </span>
+            ) : primaryPos ? (
+              <span className="text-[10px] font-medium text-sky-400 shrink-0 text-right">
+                Live GPS
+                {primaryEta ? <span className="block text-slate-400 font-normal">{primaryEta}</span> : null}
+              </span>
+            ) : (
+              <span className="text-[10px] font-medium text-amber-400 shrink-0">No GPS</span>
+            )}
+          </div>
+        </li>
+
+        {joiners.map((r) => {
+          const respName = `${r.firstName} ${r.lastName}`.trim() || "Responder";
+          const pos = pickLatLng(r.lastLat, r.lastLng);
+          const eta = !r.arrivedAt ? formatEtaLine(pos, target) : null;
+          const stale =
+            !!r.lastPositionAt &&
+            Date.now() - new Date(r.lastPositionAt).getTime() > 180000;
+
+          return (
+            <li
+              key={r.id}
+              className="rounded border border-slate-800/80 bg-slate-900/35 px-2 py-1.5"
+              data-testid={`responder-row-${incident.id}-${r.userId}`}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-slate-100 truncate">{respName}</p>
+                  <p className="text-[10px] text-slate-500">
+                    Joined {formatTime(r.joinedAt)}
+                    {r.destinationName ? ` · → ${r.destinationName}` : ""}
+                  </p>
+                </div>
+                {r.arrivedAt ? (
+                  <span
+                    className="text-[10px] font-semibold text-emerald-400 shrink-0"
+                    data-testid={`responder-status-${incident.id}-${r.userId}`}
+                  >
+                    Arrived · {formatTime(r.arrivedAt)}
+                  </span>
+                ) : pos && r.lastPositionAt ? (
+                  <span
+                    className={cn(
+                      "text-[10px] font-medium shrink-0 text-right",
+                      stale ? "text-red-400" : "text-sky-400",
+                    )}
+                    data-testid={`responder-status-${incident.id}-${r.userId}`}
+                  >
+                    En route{stale ? " · GPS stale" : ""}
+                    {eta ? <span className="block text-slate-300 font-semibold">{eta}</span> : null}
+                    <span className="block text-slate-500 font-normal">
+                      GPS {formatTime(r.lastPositionAt)}
+                    </span>
+                  </span>
+                ) : (
+                  <span
+                    className="text-[10px] font-medium text-amber-400 shrink-0"
+                    data-testid={`responder-status-${incident.id}-${r.userId}`}
+                  >
+                    Joined · no GPS
+                  </span>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+
+      {joiners.length === 0 ? (
+        <p className="text-[11px] text-slate-500 leading-snug px-0.5" data-testid={`text-no-responders-${incident.id}`}>
+          No responders joined yet. When someone taps Respond, their name, distance, and ETA appear here.
+        </p>
+      ) : null}
     </div>
   );
 }
