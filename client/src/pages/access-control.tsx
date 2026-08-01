@@ -23,6 +23,7 @@ import {
 } from "@/lib/access-destinations-cache";
 import { BarChart3, DoorOpen, LogOut, Plus } from "lucide-react";
 import { FieldPageHeading } from "@/components/field-page-heading";
+import { PageHero } from "@/components/page-hero";
 import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import { cn } from "@/lib/utils";
 
@@ -78,54 +79,81 @@ export default function AccessControlPage({ userRole }: AccessControlPageProps) 
     }
   }, [tab, qc]);
 
+  const deskSubtitle = "Scan people & vehicles in, then check them out";
   const subtitle =
     pageView === "overview"
       ? "Live occupancy, analytics, and visit audit log"
-      : canUseDesk
-        ? `${inside.length} on site · ${activeDestinations.length} destination${activeDestinations.length === 1 ? "" : "s"}`
-        : "Scan people & vehicles in, then check them out";
+      : deskSubtitle;
+
+  const headerActions = (
+    <>
+      {showOverview && canUseDesk && (
+        <Button
+          type="button"
+          variant={pageView === "overview" ? "default" : "outline"}
+          size="sm"
+          className="h-8"
+          onClick={() => setPageView("overview")}
+        >
+          <BarChart3 className="h-4 w-4 mr-1" />
+          Overview
+        </Button>
+      )}
+      {canUseDesk && !isDeskOnly && (
+        <Button
+          type="button"
+          variant={pageView === "desk" ? "default" : "outline"}
+          size="sm"
+          className="h-8"
+          onClick={() => setPageView("desk")}
+        >
+          <DoorOpen className="h-4 w-4 mr-1" />
+          Gate desk
+        </Button>
+      )}
+      {isAdmin && (
+        <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => setDestSheetOpen(true)}>
+          <Plus className="h-4 w-4 mr-1" />
+          Destinations
+        </Button>
+      )}
+    </>
+  );
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-background text-foreground">
-      <div className={cn("shrink-0 pt-3 pb-2", OPS_PAGE_SHELL)}>
+      <div className={cn("shrink-0 pt-3 pb-2 md:pb-3", OPS_PAGE_SHELL)}>
+        {/* Phones: slim title. Desktop control room keeps the full hero. */}
         <FieldPageHeading
+          className="md:hidden"
           title="Access Control"
           badge={pageView === "overview" ? "Overview" : "Gate desk"}
-          meta={subtitle}
-          actions={
-            <>
-              {showOverview && canUseDesk && (
-                <Button
-                  type="button"
-                  variant={pageView === "overview" ? "default" : "outline"}
-                  size="sm"
-                  className="h-8"
-                  onClick={() => setPageView("overview")}
-                >
-                  <BarChart3 className="h-4 w-4 mr-1" />
-                  Overview
-                </Button>
-              )}
-              {canUseDesk && !isDeskOnly && (
-                <Button
-                  type="button"
-                  variant={pageView === "desk" ? "default" : "outline"}
-                  size="sm"
-                  className="h-8"
-                  onClick={() => setPageView("desk")}
-                >
-                  <DoorOpen className="h-4 w-4 mr-1" />
-                  Desk
-                </Button>
-              )}
-              {isAdmin && (
-                <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => setDestSheetOpen(true)}>
-                  <Plus className="h-4 w-4 mr-1" />
-                  Destinations
-                </Button>
-              )}
-            </>
+          meta={
+            pageView === "overview"
+              ? subtitle
+              : canUseDesk
+                ? `${inside.length} on site · ${activeDestinations.length} destination${activeDestinations.length === 1 ? "" : "s"}`
+                : subtitle
           }
+          actions={headerActions}
+        />
+        <PageHero
+          className="hidden md:block"
+          eyebrow="Access Control"
+          badge={pageView === "overview" ? "Overview" : "Gate desk"}
+          total={canUseDesk ? inside.length : activeDestinations.length}
+          totalLabel={canUseDesk ? "On site" : "Destinations"}
+          emptyMessage={
+            !canUseDesk && activeDestinations.length === 0
+              ? "No active destinations configured yet."
+              : undefined
+          }
+          description={subtitle}
+          actions={headerActions}
+          insights={[
+            { label: "Mode", value: pageView === "overview" ? "Analytics" : "Operations" },
+            { label: "Destinations", value: String(activeDestinations.length) },
+          ]}
         />
       </div>
 
