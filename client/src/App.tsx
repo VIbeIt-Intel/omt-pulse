@@ -931,7 +931,7 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
           <BatteryOptimizationHint />
           <PanicAlertSiren currentUserId={user.id} />
           {(user.role === "administrator" || user.isSuperadmin) && <SetupWizardController />}
-          <main className="flex-1 overflow-hidden">
+          <main className="flex-1 overflow-hidden bg-background text-foreground">
             <Switch>
               <Route path="/occurrence-book" component={OccurrenceBook} />
               <Route path="/" component={CommandDashboard} />

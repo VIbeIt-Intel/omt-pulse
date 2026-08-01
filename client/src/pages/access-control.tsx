@@ -21,8 +21,8 @@ import {
   cacheAccessDestinations,
   readCachedAccessDestinations,
 } from "@/lib/access-destinations-cache";
-import { BarChart3, DoorOpen, LogOut, Plus, ShieldCheck } from "lucide-react";
-import { PageHero } from "@/components/page-hero";
+import { BarChart3, DoorOpen, LogOut, Plus } from "lucide-react";
+import { FieldPageHeading } from "@/components/field-page-heading";
 import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import { cn } from "@/lib/utils";
 
@@ -81,23 +81,17 @@ export default function AccessControlPage({ userRole }: AccessControlPageProps) 
   const subtitle =
     pageView === "overview"
       ? "Live occupancy, analytics, and visit audit log"
-      : "Scan people & vehicles in, then check them out";
+      : canUseDesk
+        ? `${inside.length} on site · ${activeDestinations.length} destination${activeDestinations.length === 1 ? "" : "s"}`
+        : "Scan people & vehicles in, then check them out";
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      <div className={cn("shrink-0 pt-3 pb-3", OPS_PAGE_SHELL)}>
-        <PageHero
-          compact
-          eyebrow="Access Control"
+    <div className="flex flex-col h-full overflow-hidden bg-background text-foreground">
+      <div className={cn("shrink-0 pt-3 pb-2", OPS_PAGE_SHELL)}>
+        <FieldPageHeading
+          title="Access Control"
           badge={pageView === "overview" ? "Overview" : "Gate desk"}
-          total={canUseDesk ? inside.length : activeDestinations.length}
-          totalLabel={canUseDesk ? "On site" : "Destinations"}
-          emptyMessage={
-            !canUseDesk && activeDestinations.length === 0
-              ? "No active destinations configured yet."
-              : undefined
-          }
-          description={subtitle}
+          meta={subtitle}
           actions={
             <>
               {showOverview && canUseDesk && (
@@ -121,7 +115,7 @@ export default function AccessControlPage({ userRole }: AccessControlPageProps) 
                   onClick={() => setPageView("desk")}
                 >
                   <DoorOpen className="h-4 w-4 mr-1" />
-                  Gate desk
+                  Desk
                 </Button>
               )}
               {isAdmin && (
@@ -132,10 +126,6 @@ export default function AccessControlPage({ userRole }: AccessControlPageProps) 
               )}
             </>
           }
-          insights={[
-            { label: "Mode", value: pageView === "overview" ? "Analytics" : "Operations" },
-            { label: "Destinations", value: String(activeDestinations.length) },
-          ]}
         />
       </div>
 
@@ -149,12 +139,12 @@ export default function AccessControlPage({ userRole }: AccessControlPageProps) 
           onValueChange={(v) => setTab(v as "checkin" | "checkout")}
           className="flex flex-col flex-1 min-h-0"
         >
-          <TabsList className="mx-4 mt-3 grid w-auto grid-cols-2 shrink-0">
-            <TabsTrigger value="checkin" className="gap-1.5">
+          <TabsList className="mx-4 mt-2 grid w-auto grid-cols-2 shrink-0 h-11">
+            <TabsTrigger value="checkin" className="gap-1.5 text-muted-foreground data-[state=active]:text-foreground">
               <DoorOpen className="h-4 w-4" />
               Check in
             </TabsTrigger>
-            <TabsTrigger value="checkout" className="gap-1.5">
+            <TabsTrigger value="checkout" className="gap-1.5 text-muted-foreground data-[state=active]:text-foreground">
               <LogOut className="h-4 w-4" />
               Check out
               {inside.length > 0 && (
@@ -165,7 +155,7 @@ export default function AccessControlPage({ userRole }: AccessControlPageProps) 
             </TabsTrigger>
           </TabsList>
 
-          <div className="flex-1 overflow-y-auto px-4 pt-4">
+          <div className="flex-1 overflow-y-auto px-4 pt-3 bg-background">
             {isLoading ? (
               <div className="space-y-3">
                 <Skeleton className="h-10 w-full" />

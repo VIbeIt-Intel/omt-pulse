@@ -203,45 +203,53 @@ export function RadioPanel({
         <div className="flex items-center gap-2.5 min-h-14">
           <button
             type="button"
-            className="min-w-0 flex-1 flex items-center gap-1.5 text-left rounded-md px-1 py-1.5 hover:bg-white/[0.04]"
-            aria-label="Expand radio"
+            className="min-w-0 flex-1 flex items-start gap-1.5 text-left rounded-md px-1 py-1 hover:bg-white/[0.04]"
+            aria-label={`Expand radio — ${detail}`}
             data-testid="button-radio-expand"
             onClick={() => onCollapsedChange?.(false)}
           >
-            <ChevronUp className="h-4 w-4 shrink-0 text-emerald-400/90" />
-            <Radio className="h-4 w-4 shrink-0 text-emerald-400" />
-            <span className="text-xs font-semibold text-emerald-400 shrink-0">Radio</span>
-            <span
-              className={cn(
-                "inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide shrink-0",
-                statusPillClass,
-              )}
-              data-testid="radio-dock-status"
-            >
-              {connectionStatus.tone === "wait" ? (
-                <Loader2 className="h-2.5 w-2.5 animate-spin" aria-hidden />
-              ) : (
+            <ChevronUp className="h-4 w-4 shrink-0 text-emerald-400/90 mt-0.5" />
+            <div className="min-w-0 flex-1 space-y-0.5">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <Radio className="h-4 w-4 shrink-0 text-emerald-400" />
+                <span className="text-xs font-semibold text-emerald-400 shrink-0">Radio</span>
                 <span
                   className={cn(
-                    "h-1.5 w-1.5 rounded-full",
-                    statusDotClass,
-                    (connectionStatus.tone === "live" || connectionStatus.tone === "talk") &&
-                      "animate-pulse",
+                    "inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide shrink-0",
+                    statusPillClass,
                   )}
-                  aria-hidden
-                />
-              )}
-              {connectionStatus.label}
-            </span>
-            {radio.connected ? (
-              <span className="hidden sm:inline-flex items-center gap-0.5 text-[10px] text-slate-500 tabular-nums shrink-0">
-                <Users className="h-3 w-3" />
-                {radio.listenerCount}
-              </span>
-            ) : null}
-            <span className="min-w-0 flex-1 truncate text-[10px] text-slate-500">
-              {detail}
-            </span>
+                  data-testid="radio-dock-status"
+                >
+                  {connectionStatus.tone === "wait" ? (
+                    <Loader2 className="h-2.5 w-2.5 animate-spin" aria-hidden />
+                  ) : (
+                    <span
+                      className={cn(
+                        "h-1.5 w-1.5 rounded-full",
+                        statusDotClass,
+                        (connectionStatus.tone === "live" || connectionStatus.tone === "talk") &&
+                          "animate-pulse",
+                      )}
+                      aria-hidden
+                    />
+                  )}
+                  {connectionStatus.label}
+                </span>
+                {radio.connected ? (
+                  <span className="inline-flex items-center gap-0.5 text-[10px] text-slate-400 tabular-nums shrink-0">
+                    <Users className="h-3 w-3" />
+                    {radio.listenerCount}
+                  </span>
+                ) : null}
+              </div>
+              <p
+                className="truncate text-[11px] font-medium text-slate-100 leading-tight pl-0.5"
+                data-testid="radio-dock-channel"
+                title={detail}
+              >
+                {detail}
+              </p>
+            </div>
           </button>
           {radio.connected && !radio.speakerReady ? (
             <Button

@@ -326,8 +326,8 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
             type="button"
             variant="outline"
             className={cn(
-              "h-10 justify-start gap-2 font-normal",
-              mode === "walk_in" && "border-primary/50 bg-muted font-medium",
+              "h-10 justify-start gap-2 font-normal bg-secondary text-secondary-foreground border-border",
+              mode === "walk_in" && "border-primary bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground font-medium",
             )}
             onClick={() => setModeAndReset("walk_in")}
           >
@@ -338,8 +338,8 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
             type="button"
             variant="outline"
             className={cn(
-              "h-10 justify-start gap-2 font-normal",
-              mode === "vehicle" && "border-primary/50 bg-muted font-medium",
+              "h-10 justify-start gap-2 font-normal bg-secondary text-secondary-foreground border-border",
+              mode === "vehicle" && "border-primary bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground font-medium",
             )}
             onClick={() => setModeAndReset("vehicle")}
           >
@@ -359,8 +359,9 @@ export function AccessEntryForm({ destinations, onCreated }: AccessEntryFormProp
               variant="outline"
               size="sm"
               className={cn(
-                "h-9 px-3 text-sm font-normal",
-                category === cat && "border-primary/50 bg-muted font-medium",
+                "h-9 px-3 text-sm font-normal bg-secondary text-secondary-foreground border-border",
+                category === cat &&
+                  "border-primary bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground font-medium",
               )}
               onClick={() => setCategory(cat)}
             >

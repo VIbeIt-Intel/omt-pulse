@@ -15,7 +15,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { requestLocationAccess } from "@/lib/request-location-access";
 import { flushPendingPatrolTracks } from "@/lib/patrol-tracking";
 import { cn } from "@/lib/utils";
-import { PageHero } from "@/components/page-hero";
+import { FieldPageHeading } from "@/components/field-page-heading";
 import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import {
   AlertTriangle,
@@ -237,7 +237,7 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
             Location must be on. The app will ask for GPS if needed.
           </p>
         </div>
-        <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2.5 text-[11px] text-amber-100/90 leading-relaxed">
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-[11px] text-amber-950 dark:text-amber-100 leading-relaxed">
           Turn on phone Location before you start. If it’s off, we’ll open settings for you.
         </div>
         <ul className="space-y-2">
@@ -250,12 +250,12 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
               <li
                 key={route.id}
                 className={cn(
-                  "flex items-center justify-between gap-3 rounded-xl border bg-card/40 px-4 py-3.5",
-                  highlighted && "border-primary/60 bg-primary/5",
+                  "flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3.5 text-card-foreground",
+                  highlighted && "border-primary/60 bg-primary/10",
                 )}
               >
                 <div className="min-w-0">
-                  <p className="font-medium text-sm">{route.name}</p>
+                  <p className="font-medium text-sm text-foreground">{route.name}</p>
                   {pending ? (
                     <p className="text-xs text-primary font-medium mt-0.5">
                       {pending.status === "overdue" ? "Overdue — start now" : "Due now — start patrol"}
@@ -286,25 +286,20 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
   }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      <div className={cn(OPS_PAGE_SHELL, "shrink-0 pt-3 pb-3")}>
-        <PageHero
-          compact
-          eyebrow="Patrol"
+    <div className="flex flex-col h-full overflow-hidden bg-background text-foreground">
+      <div className={cn(OPS_PAGE_SHELL, "shrink-0 pt-3 pb-2")}>
+        <FieldPageHeading
+          title="Patrol"
           badge={isManager ? "Manager" : "Field"}
-          total={routes.length}
-          totalLabel={routes.length === 1 ? "Route" : "Routes"}
-          emptyMessage={
-            isManager
-              ? "No routes yet — add a route to get started."
-              : "No patrol routes assigned yet."
+          meta={
+            routes.length === 0
+              ? isManager
+                ? "No routes yet — add a route to get started."
+                : "No patrol routes assigned yet."
+              : `${routes.length} ${routes.length === 1 ? "route" : "routes"} · ${
+                  isManager ? "Routes · Run · History" : "Follow & clock"
+                }`
           }
-          insights={[
-            {
-              label: "Focus",
-              value: isManager ? "Routes · Run · History" : "Follow & clock",
-            },
-          ]}
         />
       </div>
 
