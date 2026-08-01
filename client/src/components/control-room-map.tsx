@@ -308,6 +308,8 @@ type ControlRoomMapProps = {
   /** Show fleet/team side panels (desktop live monitor). */
   showSidePanels?: boolean;
   darkTheme?: boolean;
+  /** Slim embed for dashboard cards — no layer chips / map chrome. */
+  compact?: boolean;
 };
 
 export function ControlRoomMap({
@@ -321,6 +323,7 @@ export function ControlRoomMap({
   className,
   showSidePanels = true,
   darkTheme = true,
+  compact = false,
 }: ControlRoomMapProps) {
   const { toast } = useToast();
   const [layerMode, setLayerMode] = useState<MapLayerMode>("all");
@@ -515,29 +518,31 @@ export function ControlRoomMap({
     return `${trackers.length} units`;
   }, [movingCount, liveTrackers.length, trackers.length]);
 
-  const showPanels = showSidePanels && layerMode !== "incidents";
+  const showPanels = !compact && showSidePanels && layerMode !== "incidents";
 
   return (
     <div className={cn("flex flex-1 min-h-0 overflow-hidden", className)}>
       <div className="flex-1 min-w-0 relative flex flex-col bg-[#0a0e14]">
-        <div className="absolute top-3 left-3 z-20 flex rounded-lg border border-slate-600/80 bg-slate-900/95 backdrop-blur-sm p-0.5 shadow-lg">
-          {(["all", "incidents", "team-fleet"] as const).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              onClick={() => setLayerMode(mode)}
-              className={cn(
-                "px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wide rounded-md transition-colors",
-                layerMode === mode
-                  ? "bg-emerald-600 text-white"
-                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800",
-              )}
-              data-testid={`map-layer-${mode}`}
-            >
-              {LAYER_LABELS[mode]}
-            </button>
-          ))}
-        </div>
+        {!compact && (
+          <div className="absolute top-3 left-3 z-20 flex rounded-lg border border-slate-600/80 bg-slate-900/95 backdrop-blur-sm p-0.5 shadow-lg">
+            {(["all", "incidents", "team-fleet"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setLayerMode(mode)}
+                className={cn(
+                  "px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wide rounded-md transition-colors",
+                  layerMode === mode
+                    ? "bg-emerald-600 text-white"
+                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-800",
+                )}
+                data-testid={`map-layer-${mode}`}
+              >
+                {LAYER_LABELS[mode]}
+              </button>
+            ))}
+          </div>
+        )}
 
         <LiveIncidentsMap
           incidents={mapIncidents}
@@ -558,7 +563,7 @@ export function ControlRoomMap({
           testId={testId}
           darkTheme={darkTheme}
           initialZoom={SA_MAP_DEFAULT.zoom}
-          showMapControls
+          showMapControls={!compact}
         />
       </div>
 

@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/select";
 import { PanicBanner, type PanicAlert } from "@/components/panic-banner";
 import { type LiveIncidentMapItem } from "@/components/live-incidents-map";
+import { ControlRoomMap } from "@/components/control-room-map";
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
 import {
@@ -1433,17 +1434,46 @@ export function OperationsDashboard({
               </span>
             }
           />
-          <div className="flex-1 overflow-y-auto ops-scroll">
+          <div
+            className="relative h-[200px] sm:h-[220px] shrink-0 border-b border-slate-800/80 bg-[#0a0e14]"
+            data-testid="ops-live-overview-map"
+          >
+            <ControlRoomMap
+              compact
+              darkTheme
+              showSidePanels={false}
+              incidents={queueItems}
+              locations={
+                selectedLocationId != null
+                  ? groupLocations.filter((l) => l.id === selectedLocationId)
+                  : groupLocations
+              }
+              highlightId={highlightId}
+              onHighlightId={setHighlightId}
+              onOpenLiveMonitor={onOpenLiveMonitor}
+              onIncidentMarkerClick={(id) => {
+                setHighlightId(id);
+                onOpenLiveMonitor(id);
+              }}
+              className="absolute inset-0"
+              testId="ops-live-overview-map-canvas"
+            />
+          </div>
+          <div className="flex-1 overflow-y-auto ops-scroll min-h-0">
             {!showQueue ? (
-              <div className="flex flex-col items-center justify-center h-full gap-3 px-6 py-10 text-center">
-                <CheckCircle2 className="h-10 w-10 text-emerald-500/80" />
-                <p className="font-semibold text-sm text-slate-300">All clear</p>
-                <p className="text-xs text-slate-500">No active live incidents. Team and fleet are on Live Monitor.</p>
+              <div className="flex flex-col items-center justify-center gap-2 px-4 py-5 text-center">
+                <div className="flex items-center gap-2 text-emerald-400/90">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  <p className="font-semibold text-sm text-slate-300">All clear</p>
+                </div>
+                <p className="text-[11px] text-slate-500 leading-snug max-w-[260px]">
+                  Overview shows sites, team GPS, and fleet. Tap Open Live Monitor for the full map.
+                </p>
                 <Button
                   type="button"
                   size="sm"
                   variant="secondary"
-                  className="mt-2 h-8 text-xs gap-1 bg-slate-800 border-slate-600"
+                  className="mt-1 h-8 text-xs gap-1 bg-slate-800 border-slate-600"
                   onClick={() => onOpenLiveMonitor()}
                 >
                   <ExternalLink className="h-3.5 w-3.5" />
