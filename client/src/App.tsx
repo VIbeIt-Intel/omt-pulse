@@ -902,10 +902,14 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
 
           {/* Slim back-button header — all secondary pages */}
           {location !== "/dashboard" && location !== "/live-incident" && location !== "/live-severity" && location !== "/live-monitor" && !location.startsWith("/chat") && location !== "/" && location !== "/occurrence-book" && (
-          <header className="flex items-center px-2 border-b shrink-0 h-14" data-testid="header-secondary">
+          <header
+            className="flex items-center px-2 border-b border-border bg-background text-foreground shrink-0 h-12 z-40"
+            data-testid="header-secondary"
+          >
             <button
+              type="button"
               onClick={() => window.history.back()}
-              className="flex items-center justify-center h-9 w-9 rounded-md hover:bg-accent transition-colors"
+              className="flex items-center justify-center h-10 w-10 rounded-md text-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
               aria-label="Go back"
               data-testid="button-back"
             >

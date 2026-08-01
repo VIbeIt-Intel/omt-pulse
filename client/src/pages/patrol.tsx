@@ -293,6 +293,7 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
         <FieldPageHeading
           className="md:hidden"
           title="Patrol"
+          icon={Footprints}
           badge={isManager ? "Manager" : "Field"}
           meta={
             routes.length === 0

@@ -21,7 +21,7 @@ import {
   cacheAccessDestinations,
   readCachedAccessDestinations,
 } from "@/lib/access-destinations-cache";
-import { BarChart3, DoorOpen, LogOut, Plus } from "lucide-react";
+import { BarChart3, DoorOpen, LogOut, Plus, ShieldCheck } from "lucide-react";
 import { FieldPageHeading } from "@/components/field-page-heading";
 import { PageHero } from "@/components/page-hero";
 import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
@@ -127,6 +127,7 @@ export default function AccessControlPage({ userRole }: AccessControlPageProps) 
         <FieldPageHeading
           className="md:hidden"
           title="Access Control"
+          icon={ShieldCheck}
           badge={pageView === "overview" ? "Overview" : "Gate desk"}
           meta={
             pageView === "overview"
