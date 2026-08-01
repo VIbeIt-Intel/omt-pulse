@@ -1435,7 +1435,7 @@ export function OperationsDashboard({
             }
           />
           <div
-            className="relative h-[200px] sm:h-[220px] shrink-0 border-b border-slate-800/80 bg-[#0a0e14]"
+            className="relative flex-1 min-h-[260px] bg-[#0a0e14]"
             data-testid="ops-live-overview-map"
           >
             <ControlRoomMap
@@ -1459,105 +1459,121 @@ export function OperationsDashboard({
               testId="ops-live-overview-map-canvas"
             />
           </div>
-          <div className="flex-1 overflow-y-auto ops-scroll min-h-0">
+          <div className="shrink-0 border-t border-slate-800/80 bg-[#131a22]">
             {!showQueue ? (
-              <div className="flex flex-col items-center justify-center gap-2 px-4 py-5 text-center">
-                <div className="flex items-center gap-2 text-emerald-400/90">
-                  <CheckCircle2 className="h-4 w-4 shrink-0" />
-                  <p className="font-semibold text-sm text-slate-300">All clear</p>
+              <div className="flex items-center justify-between gap-3 px-3 py-2.5">
+                <div className="min-w-0 flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500/90" />
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-slate-200">All clear</p>
+                    <p className="text-[10px] text-slate-500 truncate">
+                      Sites, team GPS & fleet on map
+                    </p>
+                  </div>
                 </div>
-                <p className="text-[11px] text-slate-500 leading-snug max-w-[260px]">
-                  Overview shows sites, team GPS, and fleet. Tap Open Live Monitor for the full map.
-                </p>
                 <Button
                   type="button"
                   size="sm"
                   variant="secondary"
-                  className="mt-1 h-8 text-xs gap-1 bg-slate-800 border-slate-600"
+                  className="h-8 shrink-0 text-xs gap-1 bg-slate-800 border-slate-600"
                   onClick={() => onOpenLiveMonitor()}
                 >
                   <ExternalLink className="h-3.5 w-3.5" />
-                  Open Live Monitor
+                  Live Monitor
                 </Button>
               </div>
             ) : (
-              <ul>
-                {queueItems.map((inc) => {
-                  const locText =
-                    inc.destinationName ||
-                    inc.locationName ||
-                    (inc.locationId ? locations.find((l) => l.id === inc.locationId)?.name : null) ||
-                    "Location pending";
-                  const starterName = formatStarterName(inc);
-                  const joinerCount = (inc.responders ?? []).filter((r) => r.userId !== inc.userId && !r.arrivedAt).length;
-                  const gpsAge = formatGpsAge(inc.responderPositionUpdatedAt);
-                  const isHighlighted = highlightId === inc.id;
-                  const isPanic = (inc.categoryName ?? "").toLowerCase().includes("panic");
+              <>
+                <ul className="max-h-[150px] overflow-y-auto ops-scroll">
+                  {queueItems.map((inc) => {
+                    const locText =
+                      inc.destinationName ||
+                      inc.locationName ||
+                      (inc.locationId ? locations.find((l) => l.id === inc.locationId)?.name : null) ||
+                      "Location pending";
+                    const starterName = formatStarterName(inc);
+                    const joinerCount = (inc.responders ?? []).filter((r) => r.userId !== inc.userId && !r.arrivedAt).length;
+                    const gpsAge = formatGpsAge(inc.responderPositionUpdatedAt);
+                    const isHighlighted = highlightId === inc.id;
+                    const isPanic = (inc.categoryName ?? "").toLowerCase().includes("panic");
 
-                  return (
-                    <li key={inc.id} className="border-b border-slate-800/80">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setHighlightId(inc.id);
-                          onOpenLiveMonitor(inc.id);
-                        }}
-                        className={cn(
-                          "w-full text-left px-3 py-3 hover:bg-slate-800/60 transition-colors",
-                          severityRowAccent(inc.severity, isPanic),
-                          isHighlighted && "bg-slate-700/50 ring-1 ring-inset ring-emerald-500/40",
-                        )}
-                        data-testid={`ops-queue-row-${inc.id}`}
-                      >
-                        <div className="flex items-start justify-between gap-1">
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              {isPanic && <Siren className="h-3.5 w-3.5 text-red-400 shrink-0" />}
-                              <p className="font-semibold text-sm text-slate-100 truncate">
-                                {inc.categoryName ?? "Incident"}
+                    return (
+                      <li key={inc.id} className="border-b border-slate-800/80">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setHighlightId(inc.id);
+                            onOpenLiveMonitor(inc.id);
+                          }}
+                          className={cn(
+                            "w-full text-left px-3 py-2.5 hover:bg-slate-800/60 transition-colors",
+                            severityRowAccent(inc.severity, isPanic),
+                            isHighlighted && "bg-slate-700/50 ring-1 ring-inset ring-emerald-500/40",
+                          )}
+                          data-testid={`ops-queue-row-${inc.id}`}
+                        >
+                          <div className="flex items-start justify-between gap-1">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                {isPanic && <Siren className="h-3.5 w-3.5 text-red-400 shrink-0" />}
+                                <p className="font-semibold text-sm text-slate-100 truncate">
+                                  {inc.categoryName ?? "Incident"}
+                                </p>
+                                {inc.severity && inc.severity !== "none" && (
+                                  <span
+                                    className={cn(
+                                      "inline-flex items-center gap-1 rounded border px-1 py-0 text-[8px] font-bold uppercase",
+                                      severityBadgeClass(inc.severity),
+                                    )}
+                                  >
+                                    {inc.severity}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[10px] text-slate-500 mt-0.5">#{inc.id}</p>
+                              {starterName && (
+                                <p className="text-xs text-slate-300 mt-1 truncate">{starterName}</p>
+                              )}
+                              <p className="text-[11px] text-slate-500 truncate mt-0.5 flex items-center gap-1">
+                                <MapPin className="h-3 w-3 shrink-0 text-slate-600" />
+                                {locText}
                               </p>
-                              {inc.severity && inc.severity !== "none" && (
-                                <span
-                                  className={cn(
-                                    "inline-flex items-center gap-1 rounded border px-1 py-0 text-[8px] font-bold uppercase",
-                                    severityBadgeClass(inc.severity),
-                                  )}
-                                >
-                                  {inc.severity}
-                                </span>
-                              )}
+                              <div className="mt-1.5 flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] text-slate-500">
+                                {inc.liveStartedAt && (
+                                  <span className="inline-flex items-center gap-0.5">
+                                    <Clock className="h-3 w-3" />
+                                    {formatGpsAge(inc.liveStartedAt)}
+                                  </span>
+                                )}
+                                {gpsAge && <span>GPS {gpsAge}</span>}
+                                {joinerCount > 0 && (
+                                  <span className="text-emerald-500/90 inline-flex items-center gap-0.5">
+                                    <Users className="h-3 w-3" />
+                                    {joinerCount}
+                                  </span>
+                                )}
+                              </div>
                             </div>
-                            <p className="text-[10px] text-slate-500 mt-0.5">#{inc.id}</p>
-                            {starterName && (
-                              <p className="text-xs text-slate-300 mt-1 truncate">{starterName}</p>
-                            )}
-                            <p className="text-[11px] text-slate-500 truncate mt-0.5 flex items-center gap-1">
-                              <MapPin className="h-3 w-3 shrink-0 text-slate-600" />
-                              {locText}
-                            </p>
-                            <div className="mt-1.5 flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] text-slate-500">
-                              {inc.liveStartedAt && (
-                                <span className="inline-flex items-center gap-0.5">
-                                  <Clock className="h-3 w-3" />
-                                  {formatGpsAge(inc.liveStartedAt)}
-                                </span>
-                              )}
-                              {gpsAge && <span>GPS {gpsAge}</span>}
-                              {joinerCount > 0 && (
-                                <span className="text-emerald-500/90 inline-flex items-center gap-0.5">
-                                  <Users className="h-3 w-3" />
-                                  {joinerCount}
-                                </span>
-                              )}
-                            </div>
+                            <ChevronRight className="h-4 w-4 text-slate-600 shrink-0" />
                           </div>
-                          <ChevronRight className="h-4 w-4 text-slate-600 shrink-0" />
-                        </div>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+                <div className="flex justify-end px-3 py-2 border-t border-slate-800/80">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    className="h-8 text-xs gap-1 bg-slate-800 border-slate-600"
+                    onClick={() => onOpenLiveMonitor()}
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    Live Monitor
+                  </Button>
+                </div>
+              </>
             )}
           </div>
         </div>

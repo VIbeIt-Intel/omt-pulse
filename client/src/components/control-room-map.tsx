@@ -564,6 +564,7 @@ export function ControlRoomMap({
           darkTheme={darkTheme}
           initialZoom={SA_MAP_DEFAULT.zoom}
           showMapControls={!compact}
+          preferActivityFit={compact}
         />
       </div>
 

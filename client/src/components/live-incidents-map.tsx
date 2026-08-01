@@ -629,6 +629,8 @@ type Props = {
   initialCenter?: google.maps.LatLngLiteral;
   initialZoom?: number;
   darkTheme?: boolean;
+  /** Fit viewport to incidents + team + fleet + sites (dashboard overview). */
+  preferActivityFit?: boolean;
 };
 
 /** Subdued dark basemap for control-room dashboards. */
@@ -664,6 +666,7 @@ export function LiveIncidentsMap({
   initialCenter = SA_MAP_DEFAULT,
   initialZoom = SA_MAP_DEFAULT.zoom,
   darkTheme = false,
+  preferActivityFit = false,
 }: Props) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<google.maps.Map | null>(null);
@@ -1165,6 +1168,9 @@ export function LiveIncidentsMap({
       }
     }
 
+    // Activity-fit (team/fleet/sites) is handled in a dedicated effect when preferActivityFit.
+    if (preferActivityFit) return;
+
     if (hasBounds) {
       const signature = incidents
         .map((i) => i.id)
@@ -1190,7 +1196,7 @@ export function LiveIncidentsMap({
         map.setZoom(initialZoomRef.current);
       }
     }
-  }, [incidents, mapsReady, onIncidentMarkerClick]);
+  }, [incidents, mapsReady, onIncidentMarkerClick, preferActivityFit]);
 
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -1398,6 +1404,80 @@ export function LiveIncidentsMap({
       setTimeout(() => google.maps.event.removeListener(listener), 2000);
     }
   }, [focusedPremiseId, premises, mapsReady]);
+
+  // Dashboard overview: zoom to active people / fleet / sites (not country-wide SA).
+  useEffect(() => {
+    if (!preferActivityFit || !mapsReady) return;
+    const map = mapInstanceRef.current;
+    if (!map || userViewportLockedRef.current || focusedPremiseId) return;
+
+    const bounds = new google.maps.LatLngBounds();
+    let count = 0;
+    const parts: string[] = [];
+
+    for (const inc of incidents) {
+      const lat = inc.responderLat ?? inc.latitude;
+      const lng = inc.responderLng ?? inc.longitude;
+      if (lat == null || lng == null) continue;
+      bounds.extend({ lat, lng });
+      count += 1;
+      parts.push(`i:${inc.id}:${lat.toFixed(3)},${lng.toFixed(3)}`);
+    }
+    for (const user of onlineUsers) {
+      bounds.extend({ lat: user.lat, lng: user.lng });
+      count += 1;
+      parts.push(`u:${user.id}:${user.lat.toFixed(3)},${user.lng.toFixed(3)}`);
+    }
+    for (const tracker of trackers) {
+      bounds.extend({ lat: tracker.lat, lng: tracker.lng });
+      count += 1;
+      parts.push(`t:${tracker.id}:${tracker.lat.toFixed(3)},${tracker.lng.toFixed(3)}`);
+    }
+    for (const premise of premises) {
+      bounds.extend({ lat: premise.lat, lng: premise.lng });
+      count += 1;
+      parts.push(`p:${premise.id}`);
+    }
+
+    if (count === 0) {
+      if (lastFitSignatureRef.current !== "__empty_activity__") {
+        lastFitSignatureRef.current = "__empty_activity__";
+        map.setCenter(initialCenterRef.current);
+        map.setZoom(initialZoomRef.current);
+      }
+      return;
+    }
+
+    const signature = parts.sort().join("|");
+    if (signature === lastFitSignatureRef.current) return;
+    lastFitSignatureRef.current = signature;
+
+    try {
+      if (count === 1) {
+        const c = bounds.getCenter();
+        map.setCenter(c);
+        map.setZoom(14);
+      } else {
+        map.fitBounds(bounds, 48);
+        const listener = google.maps.event.addListenerOnce(map, "bounds_changed", () => {
+          const z = map.getZoom() ?? 0;
+          if (z > 15) map.setZoom(15);
+          if (z < 11) map.setZoom(11);
+        });
+        setTimeout(() => google.maps.event.removeListener(listener), 2000);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [
+    preferActivityFit,
+    mapsReady,
+    incidents,
+    onlineUsers,
+    trackers,
+    premises,
+    focusedPremiseId,
+  ]);
 
   useEffect(() => {
     if (highlightId == null) return;
