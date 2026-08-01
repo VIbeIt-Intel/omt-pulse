@@ -656,6 +656,8 @@ export function OperationsDashboard({
   const [clock, setClock] = useState(() => new Date());
   const [lastRefresh, setLastRefresh] = useState(() => new Date());
   const [selectedTeamMember, setSelectedTeamMember] = useState<DashboardUserSummary | null>(null);
+  /** Team row → focus that person on the Live Incidents overview map. */
+  const [mapFocusUserId, setMapFocusUserId] = useState<string | null>(null);
   const [selectedFacility, setSelectedFacility] = useState<string>(() => {
     if (typeof window === "undefined") return "all";
     return localStorage.getItem(OPS_FACILITY_STORAGE_KEY) ?? "all";
@@ -871,6 +873,30 @@ export function OperationsDashboard({
   }, [siteFleet]);
   const siteMonitorLoading =
     kpiLoading || trackersLoading || assignmentsLoading || commandAssignmentsLoading;
+  const mapFocusUser = useMemo(
+    () => siteTeam.find((u) => u.id === mapFocusUserId) ?? null,
+    [siteTeam, mapFocusUserId],
+  );
+
+  function focusTeamMemberOnMap(user: DashboardUserSummary) {
+    if (user.isLive && user.liveIncidentId != null) {
+      setMapFocusUserId(null);
+      setHighlightId(user.liveIncidentId);
+      setSelectedTeamMember(null);
+      return;
+    }
+    if (user.lastLat != null && user.lastLng != null) {
+      setHighlightId(null);
+      setMapFocusUserId(user.id);
+      setSelectedTeamMember(null);
+      return;
+    }
+    toast({
+      title: "No GPS yet",
+      description: `${user.firstName} has no recorded position to show on the map.`,
+    });
+    setSelectedTeamMember(user);
+  }
   const showGroupSelector =
     !!commandsData && (commandsData.canSeeAll || commandsData.commands.length > 1);
   const activeGroupValue =
@@ -1142,10 +1168,12 @@ export function OperationsDashboard({
                       <li key={user.id}>
                         <button
                           type="button"
-                          onClick={() => setSelectedTeamMember(user)}
+                          onClick={() => focusTeamMemberOnMap(user)}
                           className={cn(
                             "w-full text-left px-3 py-2.5 border-l-2 transition-colors cursor-pointer focus-visible:outline-none focus-visible:bg-slate-800/50",
-                            isLongIdle
+                            mapFocusUserId === user.id
+                              ? "bg-emerald-950/40 border-l-emerald-400 ring-1 ring-inset ring-emerald-500/30"
+                              : isLongIdle
                               ? "bg-amber-950/20 border-l-amber-600/60 hover:bg-amber-950/30"
                               : "border-l-transparent hover:bg-slate-800/35",
                           )}
@@ -1449,9 +1477,12 @@ export function OperationsDashboard({
                   : groupLocations
               }
               highlightId={highlightId}
+              highlightUserId={mapFocusUserId}
+              focusUser={mapFocusUser}
               onHighlightId={setHighlightId}
               onOpenLiveMonitor={onOpenLiveMonitor}
               onIncidentMarkerClick={(id) => {
+                setMapFocusUserId(null);
                 setHighlightId(id);
                 onOpenLiveMonitor(id);
               }}

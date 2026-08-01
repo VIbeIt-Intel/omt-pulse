@@ -616,6 +616,7 @@ type Props = {
   premises?: PremiseMapMarker[];
   highlightId?: number | null;
   highlightTrackerId?: number | null;
+  highlightUserId?: string | null;
   highlightPremiseId?: string | null;
   focusedPremiseId?: string | null;
   onIncidentMarkerClick?: (incidentId: number) => void;
@@ -654,6 +655,7 @@ export function LiveIncidentsMap({
   premises = [],
   highlightId,
   highlightTrackerId,
+  highlightUserId,
   highlightPremiseId,
   focusedPremiseId,
   onIncidentMarkerClick,
@@ -1493,6 +1495,7 @@ export function LiveIncidentsMap({
     const map = mapInstanceRef.current;
     const marker = vehicleMarkersRef.current.get(highlightTrackerId);
     if (!map || !marker) return;
+    userViewportLockedRef.current = true;
     map.panTo(marker.getPosition()!);
     if ((map.getZoom() ?? 0) < 14) map.setZoom(14);
     const iw = infoWindowRef.current;
@@ -1502,6 +1505,32 @@ export function LiveIncidentsMap({
       iw.open(map, marker);
     }
   }, [highlightTrackerId, trackers]);
+
+  useEffect(() => {
+    if (highlightUserId == null) return;
+    const map = mapInstanceRef.current;
+    if (!map || !mapsReady) return;
+
+    const marker = teamMarkersRef.current.get(highlightUserId);
+    if (marker) {
+      userViewportLockedRef.current = true;
+      map.panTo(marker.getPosition()!);
+      if ((map.getZoom() ?? 0) < 14) map.setZoom(14);
+      const iw = infoWindowRef.current;
+      const content = teamInfoRef.current.get(highlightUserId);
+      if (iw && content) {
+        iw.setContent(content);
+        iw.open(map, marker);
+      }
+      return;
+    }
+
+    const user = onlineUsers.find((u) => u.id === highlightUserId);
+    if (!user) return;
+    userViewportLockedRef.current = true;
+    map.panTo({ lat: user.lat, lng: user.lng });
+    if ((map.getZoom() ?? 0) < 14) map.setZoom(14);
+  }, [highlightUserId, onlineUsers, mapsReady]);
 
   useEffect(() => {
     if (highlightPremiseId == null) return;

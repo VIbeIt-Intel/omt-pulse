@@ -300,6 +300,10 @@ type ControlRoomMapProps = {
   incidents: LiveIncidentMapItem[];
   locations?: Location[];
   highlightId?: number | null;
+  /** Focus a team member pin on the map (dashboard Team row click). */
+  highlightUserId?: string | null;
+  /** Include this user on the map even if outside the “online” GPS window. */
+  focusUser?: DashboardUserSummary | null;
   onHighlightId?: (id: number | null) => void;
   onIncidentMarkerClick?: (id: number) => void;
   onOpenLiveMonitor?: (incidentId?: number) => void;
@@ -316,6 +320,8 @@ export function ControlRoomMap({
   incidents,
   locations = [],
   highlightId: highlightIdProp,
+  highlightUserId = null,
+  focusUser = null,
   onHighlightId,
   onIncidentMarkerClick,
   onOpenLiveMonitor,
@@ -464,9 +470,10 @@ export function ControlRoomMap({
 
   const onlineMapUsers = useMemo((): OnlineUserMapMarker[] => {
     if (layerMode === "incidents") return [];
-    return teamUsers
-      .filter(hasMapPosition)
-      .map((u) => ({
+    const byId = new Map<string, OnlineUserMapMarker>();
+    for (const u of teamUsers) {
+      if (!hasMapPosition(u)) continue;
+      byId.set(u.id, {
         id: u.id,
         firstName: u.firstName,
         lastName: u.lastName,
@@ -475,8 +482,28 @@ export function ControlRoomMap({
         lastPositionAt: u.lastPositionAt
           ? new Date(u.lastPositionAt).toISOString()
           : null,
-      }));
-  }, [teamUsers, layerMode]);
+      });
+    }
+    // Keep a selected Team row on the map even if they’re outside the online window.
+    if (
+      focusUser
+      && focusUser.lastLat != null
+      && focusUser.lastLng != null
+      && !focusUser.isLive
+    ) {
+      byId.set(focusUser.id, {
+        id: focusUser.id,
+        firstName: focusUser.firstName,
+        lastName: focusUser.lastName,
+        lat: focusUser.lastLat,
+        lng: focusUser.lastLng,
+        lastPositionAt: focusUser.lastPositionAt
+          ? new Date(focusUser.lastPositionAt).toISOString()
+          : null,
+      });
+    }
+    return Array.from(byId.values());
+  }, [teamUsers, layerMode, focusUser]);
 
   const trackerMapMarkers = useMemo((): TrackerMapMarker[] => {
     if (layerMode === "incidents") return [];
@@ -551,6 +578,7 @@ export function ControlRoomMap({
           premises={premises}
           highlightId={highlightId}
           highlightTrackerId={highlightTrackerId}
+          highlightUserId={highlightUserId}
           highlightPremiseId={selectedPremiseId}
           focusedPremiseId={selectedPremiseId}
           onIncidentMarkerClick={(id) => {
