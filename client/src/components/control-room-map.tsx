@@ -36,6 +36,8 @@ export type MapLayerMode = "all" | "incidents" | "team-fleet";
 type ResponderFilter = "all" | "responding" | "available";
 
 const ONLINE_WINDOW_MS = 30 * 60 * 1000;
+/** Match Site Monitor Team pills — recent presence, not just a stale GPS pin. */
+const DUTY_AVAILABLE_MS = 3 * 60 * 1000;
 
 function formatGpsAge(ts: string | null | undefined): string | null {
   if (!ts) return null;
@@ -48,6 +50,11 @@ function formatGpsAge(ts: string | null | undefined): string | null {
 function isUserOnline(lastSeenAt: string | Date | null | undefined): boolean {
   if (!lastSeenAt) return false;
   return Date.now() - new Date(lastSeenAt).getTime() < ONLINE_WINDOW_MS;
+}
+
+function isUserDutyAvailable(lastSeenAt: string | Date | null | undefined): boolean {
+  if (!lastSeenAt) return false;
+  return Date.now() - new Date(lastSeenAt).getTime() < DUTY_AVAILABLE_MS;
 }
 
 function hasMapPosition(user: DashboardUserSummary): boolean {
@@ -86,7 +93,7 @@ function responderStatus(
   incidents: LiveIncidentMapItem[] = [],
 ): "responding" | "available" | "off-duty" {
   if (user.isLive && !isPanickerOnOwnSos(user, incidents)) return "responding";
-  if (isUserOnline(user.lastSeenAt)) return "available";
+  if (isUserDutyAvailable(user.lastSeenAt)) return "available";
   return "off-duty";
 }
 
@@ -482,6 +489,7 @@ export function ControlRoomMap({
         lastPositionAt: u.lastPositionAt
           ? new Date(u.lastPositionAt).toISOString()
           : null,
+        dutyStatus: responderStatus(u, incidents),
       });
     }
     // Keep a selected Team row on the map even if they’re outside the online window.
@@ -500,10 +508,11 @@ export function ControlRoomMap({
         lastPositionAt: focusUser.lastPositionAt
           ? new Date(focusUser.lastPositionAt).toISOString()
           : null,
+        dutyStatus: responderStatus(focusUser, incidents),
       });
     }
     return Array.from(byId.values());
-  }, [teamUsers, layerMode, focusUser]);
+  }, [teamUsers, layerMode, focusUser, incidents]);
 
   const trackerMapMarkers = useMemo((): TrackerMapMarker[] => {
     if (layerMode === "incidents") return [];

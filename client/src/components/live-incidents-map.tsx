@@ -21,6 +21,8 @@ export type OnlineUserMapMarker = {
   lat: number;
   lng: number;
   lastPositionAt: string | null;
+  /** Match Site Monitor: available = recent activity, off-duty = stale. */
+  dutyStatus?: "responding" | "available" | "off-duty";
 };
 
 export type TrackerMapMarker = {
@@ -310,14 +312,61 @@ function buildPremiseInfoHtml(premise: PremiseMapMarker, darkTheme: boolean): st
   </div>`;
 }
 
-function makeTeamMarkerIcon(firstName: string, lastName: string): google.maps.Icon {
+function teamDutyVisual(status: OnlineUserMapMarker["dutyStatus"]): {
+  label: string;
+  stroke: string;
+  glow: string;
+  pillBg: string;
+  pillBorder: string;
+  pillText: string;
+  lightText: string;
+} {
+  if (status === "responding") {
+    return {
+      label: "Responding",
+      stroke: "#fb923c",
+      glow: "#f97316",
+      pillBg: "rgba(249,115,22,0.12)",
+      pillBorder: "rgba(251,146,60,0.35)",
+      pillText: "#fdba74",
+      lightText: "#ea580c",
+    };
+  }
+  if (status === "available") {
+    return {
+      label: "Available",
+      stroke: "#34d399",
+      glow: "#10b981",
+      pillBg: "rgba(16,185,129,0.1)",
+      pillBorder: "rgba(52,211,153,0.3)",
+      pillText: "#6ee7b7",
+      lightText: "#059669",
+    };
+  }
+  return {
+    label: "Off duty",
+    stroke: "#f87171",
+    glow: "#ef4444",
+    pillBg: "rgba(239,68,68,0.12)",
+    pillBorder: "rgba(248,113,113,0.4)",
+    pillText: "#fca5a5",
+    lightText: "#dc2626",
+  };
+}
+
+function makeTeamMarkerIcon(
+  firstName: string,
+  lastName: string,
+  dutyStatus: OnlineUserMapMarker["dutyStatus"] = "available",
+): google.maps.Icon {
   const initials =
     `${(firstName.charAt(0) || "").toUpperCase()}${(lastName.charAt(0) || "").toUpperCase()}` || "?";
+  const visual = teamDutyVisual(dutyStatus);
   const size = 38;
   const cx = size / 2;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-    <circle cx="${cx}" cy="${cx}" r="16" fill="#10b981" opacity="0.12"/>
-    <circle cx="${cx}" cy="${cx}" r="13" fill="#0c1220" stroke="#34d399" stroke-width="1.75"/>
+    <circle cx="${cx}" cy="${cx}" r="16" fill="${visual.glow}" opacity="0.12"/>
+    <circle cx="${cx}" cy="${cx}" r="13" fill="#0c1220" stroke="${visual.stroke}" stroke-width="1.75"/>
     <text x="${cx}" y="${cx + 4}" text-anchor="middle" font-family="system-ui,-apple-system,sans-serif" font-size="10.5" font-weight="700" fill="#ecfdf5" letter-spacing="0.5">${initials}</text>
   </svg>`;
   return {
@@ -327,21 +376,27 @@ function makeTeamMarkerIcon(firstName: string, lastName: string): google.maps.Ic
   };
 }
 
-function buildTeamInfoHtml(name: string, gpsTime: string, darkTheme: boolean): string {
+function buildTeamInfoHtml(
+  name: string,
+  gpsTime: string,
+  darkTheme: boolean,
+  dutyStatus: OnlineUserMapMarker["dutyStatus"] = "available",
+): string {
   const safeName = escapeMapHtml(name);
+  const visual = teamDutyVisual(dutyStatus);
   if (darkTheme) {
     return `<div class="omt-map-iw-card" style="background:#0c1220;border:1px solid #2d3a4f;border-radius:10px;padding:11px 13px;min-width:176px;box-shadow:0 10px 28px rgba(0,0,0,0.5);font-family:system-ui,-apple-system,sans-serif;">
       <p style="margin:0 0 8px;font-size:13px;font-weight:600;color:#f1f5f9;letter-spacing:-0.01em;line-height:1.3">${safeName}</p>
-      <div style="display:inline-flex;align-items:center;gap:5px;padding:3px 8px 3px 6px;border-radius:999px;background:rgba(16,185,129,0.1);border:1px solid rgba(52,211,153,0.3);margin-bottom:7px">
-        <span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:#34d399;box-shadow:0 0 6px rgba(52,211,153,0.8)"></span>
-        <span style="font-size:9px;font-weight:700;color:#6ee7b7;text-transform:uppercase;letter-spacing:0.08em">On duty</span>
+      <div style="display:inline-flex;align-items:center;gap:5px;padding:3px 8px 3px 6px;border-radius:999px;background:${visual.pillBg};border:1px solid ${visual.pillBorder};margin-bottom:7px">
+        <span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:${visual.stroke};box-shadow:0 0 6px ${visual.glow}"></span>
+        <span style="font-size:9px;font-weight:700;color:${visual.pillText};text-transform:uppercase;letter-spacing:0.08em">${escapeMapHtml(visual.label)}</span>
       </div>
       <p style="margin:0;font-size:10px;color:#64748b;font-variant-numeric:tabular-nums">GPS · ${escapeMapHtml(gpsTime)}</p>
     </div>`;
   }
   return `<div style="min-width:160px;font-family:system-ui,sans-serif;font-size:13px;line-height:1.5;padding:2px 0">
     <div style="font-weight:700;margin-bottom:4px;font-size:14px;color:#111827">${safeName}</div>
-    <div style="color:#059669;font-size:11px;font-weight:600">On duty</div>
+    <div style="color:${visual.lightText};font-size:11px;font-weight:600">${escapeMapHtml(visual.label)}</div>
     <div style="color:#6b7280;font-size:11px">GPS · ${escapeMapHtml(gpsTime)}</div>
   </div>`;
 }
@@ -1222,11 +1277,12 @@ export function LiveIncidentsMap({
       const updated = user.lastPositionAt
         ? formatTime(user.lastPositionAt)
         : "Recently";
-      const html = buildTeamInfoHtml(name, updated, darkTheme);
+      const dutyStatus = user.dutyStatus ?? "available";
+      const html = buildTeamInfoHtml(name, updated, darkTheme, dutyStatus);
       teamInfo.set(user.id, html);
 
       const existing = teamMap.get(user.id);
-      const icon = makeTeamMarkerIcon(user.firstName, user.lastName);
+      const icon = makeTeamMarkerIcon(user.firstName, user.lastName, dutyStatus);
       if (existing) {
         existing.setPosition(pos);
         existing.setIcon(icon);

@@ -254,7 +254,7 @@ function teamStatusPillClass(status: ReturnType<typeof teamMemberStatus>): strin
   if (status === "available") {
     return "bg-emerald-500/12 text-emerald-300 ring-1 ring-inset ring-emerald-500/25";
   }
-  return "bg-slate-700/40 text-slate-400 ring-1 ring-inset ring-slate-600/40";
+  return "bg-red-500/15 text-red-300 ring-1 ring-inset ring-red-500/35";
 }
 
 function mapsUrl(lat: number, lng: number): string {
