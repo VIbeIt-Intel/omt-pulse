@@ -3,18 +3,18 @@
 import { useState } from "react";
 import {
   AlertTriangle,
+  Building2,
   Car,
-  CheckCircle2,
   ChevronRight,
   CirclePause,
   Download,
-  Footprints,
   Gauge,
   MapPinned,
   Mic,
   Play,
   Radio,
   Route,
+  Shield,
   Siren,
   Timer,
   User,
@@ -349,214 +349,283 @@ function FleetRoutesPresentation({ compact = false }: { compact?: boolean }) {
   );
 }
 
-const CR_TEAM = [
-  { name: "Patroller 1", status: "On patrol", ago: "Live GPS", tone: "text-emerald-400" },
-  { name: "Sipho Dlamini", status: "Responding", ago: "2 min ago", tone: "text-orange-400" },
-  { name: "Aisha Patel", status: "Available", ago: "Just now", tone: "text-emerald-400" },
-  { name: "Johan Botha", status: "Gate desk", ago: "Active", tone: "text-sky-400" },
-  { name: "Thandi Mokoena", status: "On patrol", ago: "Live GPS", tone: "text-emerald-400" },
-];
-
-const CR_FLEET = [
-  { name: "Toyota Hilux", status: "Moving", tone: "text-emerald-400 bg-emerald-950/40 border-emerald-700/40" },
-  { name: "Ford Figo", status: "Idle", tone: "text-amber-300 bg-amber-950/40 border-amber-700/40" },
-  { name: "Isuzu D-Max", status: "Moving", tone: "text-emerald-400 bg-emerald-950/40 border-emerald-700/40" },
-  { name: "VW Polo", status: "Idle", tone: "text-amber-300 bg-amber-950/40 border-amber-700/40" },
-];
-
-const CR_OCCURRENCES = [
-  { type: "Panic", detail: "Estate North · Acknowledged", time: "14:12", bad: true },
-  { type: "Intrusion", detail: "Gate 2 · Patrol en route", time: "13:48", bad: true },
-  { type: "Access", detail: "Contractor check-in · Unit 4", time: "13:05", bad: false },
-  { type: "Patrol", detail: "Route B complete · 12 checkpoints", time: "12:40", bad: false },
-  { type: "Fleet", detail: "Speed alert · Hilux cleared", time: "11:55", bad: false },
-];
-
-/** Filled Control Room mock for marketing / ads — not a live tenancy. */
+/** Mirrors real OperationsDashboard layout/colours — sample data for ads only. */
 export function ControlRoomPresentation({ compact = false }: { compact?: boolean }) {
-  const stats = [
-    { label: "Active incidents", value: "2", accent: "text-orange-400" },
-    { label: "Panics today", value: "1", accent: "text-red-400" },
-    { label: "Logged today", value: "18", accent: "text-foreground" },
-    { label: "Closed today", value: "16", accent: "text-emerald-400" },
+  const team = [
+    { name: "Sipho Dlamini", role: "Patrol", status: "Responding", ago: "Live now", initials: "SD", live: true },
+    { name: "Aisha Patel", role: "Responder", status: "Available", ago: "1m ago", initials: "AP", live: false },
+    { name: "Johan Botha", role: "Access", status: "Available", ago: "3m ago", initials: "JB", live: false },
+    { name: "Thandi Mokoena", role: "Patrol", status: "On duty", ago: "Live now", initials: "TM", live: true },
+    { name: "Patroller 1", role: "Patrol", status: "Available", ago: "8m ago", initials: "P1", live: false },
+  ];
+  const fleet = [
+    { name: "Toyota Hilux", plate: "HH12GP GP", status: "Moving", speed: "54 km/h" },
+    { name: "Ford Figo", plate: "CF80YN GP", status: "Idle", speed: "0 km/h" },
+    { name: "Isuzu D-Max", plate: "JD45MP GP", status: "Moving", speed: "38 km/h" },
+    { name: "VW Polo", plate: "CA99ZN GP", status: "Idle", speed: "0 km/h" },
+    { name: "Nissan NP200", plate: "FS21BL GP", status: "Offline", speed: "—" },
+  ];
+  const todayRows = [
+    { cat: "Panic", who: "Sipho Dlamini", where: "Estate North", time: "14:12", sev: "red" as const },
+    { cat: "Intrusion", who: "Gate camera", where: "Gate 2", time: "13:48", sev: "orange" as const },
+    { cat: "Access", who: "Johan Botha", where: "Unit 4", time: "13:05", sev: "slate" as const },
+    { cat: "Patrol", who: "Thandi Mokoena", where: "Route B", time: "12:40", sev: "slate" as const },
+  ];
+  const weekRows = [
+    { cat: "Panic", who: "Sipho Dlamini", where: "Estate North", time: "14:12", sev: "red" as const },
+    { cat: "Other", who: "Patroller 1", where: "Tierpoort", time: "Yesterday", sev: "slate" as const },
+    { cat: "Panic", who: "Aisha Patel", where: "Clubhouse", time: "Mon", sev: "red" as const },
+    { cat: "Other", who: "Johan Botha", where: "Gate 1", time: "Mon", sev: "slate" as const },
   ];
 
-  return (
-    <div
-      className={cn(
-        "rounded-xl border border-border bg-[#0b0f14] text-foreground shadow-inner",
-        compact ? "p-3 sm:p-4" : "p-4 sm:p-5",
-      )}
-    >
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-bold tracking-wide text-primary">CONTROL ROOM</span>
-          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-400">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-            Online
-          </span>
-        </div>
-        <span className="rounded-md border border-border bg-muted/40 px-2 py-1 text-[10px] font-medium text-muted-foreground">
-          Presentation sample
-        </span>
-      </div>
+  const teamShow = compact ? team.slice(0, 3) : team;
+  const fleetShow = compact ? fleet.slice(0, 3) : fleet;
+  const todayShow = compact ? todayRows.slice(0, 2) : todayRows;
+  const weekShow = compact ? weekRows.slice(0, 2) : weekRows;
 
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-orange-500/30 bg-orange-500/10 px-3 py-2">
-        <div className="flex items-center gap-2 text-sm font-semibold text-orange-200">
-          <MapPinned className="h-4 w-4 text-orange-400" />
-          2 live incidents · Estate North & Gate 2
-        </div>
-        <span className="rounded-md bg-sky-500/20 px-2 py-1 text-[10px] font-semibold text-sky-300">
+  return (
+    <div className="overflow-hidden rounded-xl border border-slate-700/80 bg-[#0f1419] text-slate-100 shadow-inner">
+      {/* Status strip — matches ops dashboard */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-amber-900/50 bg-amber-950/85 px-3 py-2 sm:px-4">
+        <span className="relative flex h-3 w-3 shrink-0">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-70" />
+          <span className="relative inline-flex h-3 w-3 rounded-full bg-red-500" />
+        </span>
+        <p className="text-sm font-bold tracking-wide text-slate-100">2 Live Incidents</p>
+        <span className="text-[11px] tabular-nums text-slate-400">14:22:08</span>
+        <span className="text-slate-500">|</span>
+        <span className="text-[11px] font-medium text-slate-400">Central / Head Office</span>
+        <span className="ml-auto inline-flex items-center gap-1 rounded-md border border-slate-600 bg-slate-800/90 px-2 py-1 text-[10px] font-semibold text-slate-100">
           Live Monitor
         </span>
       </div>
 
-      <div className={cn("mb-3 grid gap-3", compact ? "grid-cols-1" : "lg:grid-cols-[1.1fr_1fr]")}>
-        <div className="rounded-xl border border-border/80 bg-card/40 p-3">
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-700/80 bg-[#141b24] px-3 py-2.5 sm:px-4">
+        <div className="flex items-center gap-2">
+          <Shield className="h-5 w-5 text-emerald-500" />
+          <div>
+            <h2 className="text-sm font-bold uppercase tracking-wide text-slate-200">Control Room</h2>
+            <p className="text-[11px] text-slate-500">Operations · Presentation sample</p>
+          </div>
+        </div>
+        <span className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-3 py-2 text-sm font-bold text-white shadow-lg shadow-red-900/40">
+          <Siren className="h-4 w-4" />
+          Panic / SOS
+        </span>
+      </div>
+
+      {/* Group radio (as on marketing Control Room shot) */}
+      <div className="border-b border-slate-800/80 bg-[#111820] px-3 py-2.5 sm:px-4">
+        <div className="rounded-xl border border-slate-700/70 bg-[#131a22] p-3">
           <div className="mb-2 flex items-center justify-between gap-2">
-            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary">
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-400">
               <Radio className="h-3.5 w-3.5" />
               Group radio
             </span>
-            <span className="text-[10px] text-muted-foreground">3 listening</span>
+            <span className="text-[10px] text-slate-500">3 online</span>
           </div>
-          <p className="mb-2 text-[11px] text-muted-foreground">Central / Head Office</p>
-          <div className="flex items-center justify-center rounded-xl border border-border bg-[#12181f] py-5">
-            <div className="inline-flex items-center gap-2 text-sm font-semibold text-foreground/90">
-              <Mic className="h-4 w-4 text-primary" />
+          <p className="mb-2 text-[11px] text-slate-400">Central / Head Office (Central)</p>
+          <div className="flex items-center justify-center rounded-xl border border-slate-700 bg-[#0f1419] py-4">
+            <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-100">
+              <Mic className="h-4 w-4 text-emerald-400" />
               Tap to talk
-            </div>
+            </span>
           </div>
-          <p className="mt-2 text-center text-[10px] text-muted-foreground">
-            Live audio · never saved
+          <p className="mt-1.5 text-center text-[10px] text-slate-500">
+            Mic stays allowed after the first Android Allow. Audio is never saved.
           </p>
         </div>
+      </div>
 
-        <div className="grid grid-cols-2 gap-2">
-          {stats.map((s) => (
-            <div key={s.label} className="rounded-xl border border-border/80 bg-card/40 px-3 py-2.5">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                {s.label}
-              </p>
-              <p className={cn("mt-1 text-2xl font-bold tabular-nums leading-none", s.accent)}>
-                {s.value}
-              </p>
+      {/* KPI row */}
+      <div className="border-b border-slate-800/80 bg-[#111820] px-3 py-2.5 sm:px-4">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {[
+            { label: "Active Incidents", value: "2", hint: "open live monitor", accent: "text-orange-300" },
+            { label: "Panics Today", value: "1", hint: "since midnight", accent: "text-red-300" },
+            { label: "Logged Today", value: "18", hint: "occurrences today", accent: "text-slate-100" },
+            { label: "Closed Today", value: "16", hint: "no longer live", accent: "text-sky-300" },
+          ].map((k) => (
+            <div key={k.label} className="rounded-xl border border-slate-700/70 bg-[#131a22] px-3 py-2.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{k.label}</p>
+              <p className={cn("mt-1 text-2xl font-bold tabular-nums leading-none", k.accent)}>{k.value}</p>
+              <p className="mt-1 text-[10px] text-slate-600">{k.hint}</p>
             </div>
           ))}
         </div>
       </div>
 
-      <div className={cn("mb-3 grid gap-3", compact ? "grid-cols-1" : "md:grid-cols-2")}>
-        <div className="rounded-xl border border-border/80 bg-card/30 p-3">
-          <div className="mb-2 flex items-center justify-between">
-            <p className="text-xs font-semibold">Site monitor · Team</p>
-            <span className="text-[10px] text-muted-foreground">{CR_TEAM.length} online</span>
-          </div>
-          <div className="space-y-1.5">
-            {(compact ? CR_TEAM.slice(0, 3) : CR_TEAM).map((m) => (
-              <div
-                key={m.name}
-                className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-[#12181f] px-2.5 py-1.5"
-              >
-                <div className="min-w-0">
-                  <p className="truncate text-xs font-semibold">{m.name}</p>
-                  <p className={cn("text-[10px]", m.tone)}>{m.status}</p>
-                </div>
-                <span className="shrink-0 text-[10px] text-muted-foreground">{m.ago}</span>
-              </div>
-            ))}
-          </div>
+      {/* Site Monitor */}
+      <div className="border-b border-slate-800/80 bg-[#111820]">
+        <div className="flex items-center justify-between gap-2 border-b border-indigo-900/40 bg-indigo-950/35 px-3 py-1.5 sm:px-4">
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-indigo-200">
+            <Building2 className="h-3.5 w-3.5" />
+            Site Monitor
+          </span>
+          <span className="text-[10px] text-slate-500">All Groups · All sites</span>
         </div>
-
-        <div className="rounded-xl border border-border/80 bg-card/30 p-3">
-          <div className="mb-2 flex items-center justify-between">
-            <p className="text-xs font-semibold">Site monitor · Fleet</p>
-            <span className="text-[10px] text-muted-foreground">{CR_FLEET.length} vehicles</span>
+        <div className={cn("grid gap-px bg-slate-800/40", compact ? "grid-cols-1" : "grid-cols-2")}>
+          <div className="bg-[#131a22]">
+            <div className="flex items-center justify-between border-b border-emerald-900/30 bg-emerald-950/20 px-3 py-1.5">
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-emerald-300">
+                <User className="h-3 w-3" /> Team
+              </span>
+              <span className="text-[10px] text-slate-500">{team.length}</span>
+            </div>
+            <ul className="divide-y divide-slate-800/80">
+              {teamShow.map((m) => (
+                <li key={m.name} className="flex items-center gap-2.5 px-3 py-2">
+                  <div
+                    className={cn(
+                      "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ring-1",
+                      m.live
+                        ? "bg-slate-800 text-orange-200/90 ring-orange-800/40"
+                        : "bg-slate-800 text-emerald-200/90 ring-emerald-800/40",
+                    )}
+                  >
+                    {m.initials}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[13px] font-semibold text-slate-100">{m.name}</p>
+                    <div className="mt-0.5 flex items-center gap-1.5">
+                      <span className="text-[10px] text-slate-500">{m.role}</span>
+                      <span
+                        className={cn(
+                          "rounded-full px-1.5 py-0.5 text-[9px] font-medium",
+                          m.live ? "bg-orange-500/20 text-orange-300" : "bg-emerald-500/15 text-emerald-300",
+                        )}
+                      >
+                        {m.status}
+                      </span>
+                      {m.live && <MapPinned className="h-3 w-3 text-emerald-500/80" />}
+                    </div>
+                  </div>
+                  <span className="w-[64px] shrink-0 text-right text-[10px] tabular-nums text-slate-500">
+                    {m.ago}
+                  </span>
+                </li>
+              ))}
+            </ul>
           </div>
-          <div className="space-y-1.5">
-            {CR_FLEET.map((v) => (
-              <div
-                key={v.name}
-                className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-[#12181f] px-2.5 py-1.5"
-              >
-                <div className="inline-flex min-w-0 items-center gap-2">
-                  <Car className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span className="truncate text-xs font-semibold">{v.name}</span>
-                </div>
-                <span className={cn("rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase", v.tone)}>
-                  {v.status}
-                </span>
-              </div>
-            ))}
+
+          <div className="bg-[#131a22]">
+            <div className="flex items-center justify-between border-b border-sky-900/30 bg-sky-950/20 px-3 py-1.5">
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-sky-300">
+                <Car className="h-3 w-3" /> Fleet
+              </span>
+              <span className="text-[10px] text-slate-500">
+                {fleet.length} Total · 2 Moving · 2 Idle · 1 Offline
+              </span>
+            </div>
+            <ul className="divide-y divide-slate-800/80">
+              {fleetShow.map((v) => (
+                <li key={v.plate} className="flex items-center gap-2.5 px-3 py-2">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-700 bg-slate-900">
+                    <Car className="h-4 w-4 text-slate-400" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <p className="truncate text-[13px] font-semibold text-slate-100">{v.name}</p>
+                      <span
+                        className={cn(
+                          "rounded-full border px-1.5 py-0.5 text-[9px] font-bold uppercase",
+                          v.status === "Moving" && "border-emerald-700/50 bg-emerald-950/40 text-emerald-300",
+                          v.status === "Idle" && "border-amber-700/50 bg-amber-950/40 text-amber-300",
+                          v.status === "Offline" && "border-slate-600 bg-slate-900 text-slate-400",
+                        )}
+                      >
+                        {v.status}
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-[10px] text-slate-500">
+                      {v.plate} · {v.speed}
+                    </p>
+                  </div>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-slate-600" />
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
       </div>
 
-      <div className={cn("grid gap-3", compact ? "grid-cols-1" : "md:grid-cols-2")}>
-        <div className="rounded-xl border border-orange-500/25 bg-orange-500/5 p-3">
-          <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-orange-200">
-            <Siren className="h-3.5 w-3.5" />
-            Live incidents
+      {/* Bottom panels */}
+      <div className={cn("grid gap-px bg-slate-800/40", compact ? "grid-cols-1" : "md:grid-cols-3")}>
+        <div className="bg-[#131a22]">
+          <div className="border-b border-orange-900/40 bg-orange-950/30 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-orange-200">
+            Live Incidents
           </div>
-          <div className="space-y-1.5">
-            <div className="rounded-lg border border-orange-500/30 bg-[#12181f] px-2.5 py-2">
-              <p className="text-xs font-semibold">Panic · Estate North</p>
-              <p className="text-[10px] text-muted-foreground">2 responders · ETA 4 min</p>
+          <div className="space-y-1.5 p-2">
+            <div className="rounded-lg border border-l-[3px] border-slate-700/80 border-l-red-500 bg-red-950/40 px-2.5 py-2">
+              <p className="text-[12px] font-semibold text-slate-100">Panic · Estate North</p>
+              <p className="text-[10px] text-slate-400">Sipho Dlamini · 2 responders</p>
             </div>
-            <div className="rounded-lg border border-border/60 bg-[#12181f] px-2.5 py-2">
-              <p className="text-xs font-semibold">Intrusion · Gate 2</p>
-              <p className="text-[10px] text-muted-foreground">Patrol Unit 1 joined</p>
+            <div className="rounded-lg border border-l-[3px] border-slate-700/80 border-l-orange-500 bg-orange-950/20 px-2.5 py-2">
+              <p className="text-[12px] font-semibold text-slate-100">Intrusion · Gate 2</p>
+              <p className="text-[10px] text-slate-400">Thandi Mokoena joined</p>
             </div>
           </div>
         </div>
 
-        <div className="rounded-xl border border-border/80 bg-card/30 p-3">
-          <div className="mb-2 flex items-center justify-between">
-            <p className="text-xs font-semibold">Today&apos;s occurrences</p>
-            <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400">
-              <CheckCircle2 className="h-3 w-3" />
-              18 logged
-            </span>
+        <div className="bg-[#131a22]">
+          <div className="flex items-center justify-between border-b border-sky-900/40 bg-sky-950/25 px-3 py-1.5">
+            <span className="text-[10px] font-bold uppercase tracking-wide text-sky-200">Today&apos;s Occurrences</span>
+            <span className="text-[10px] text-slate-500">Full book</span>
           </div>
-          <div className="space-y-1.5">
-            {(compact ? CR_OCCURRENCES.slice(0, 3) : CR_OCCURRENCES).map((o) => (
-              <div
-                key={`${o.type}-${o.time}`}
-                className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-[#12181f] px-2.5 py-1.5"
-              >
+          <ul className="divide-y divide-slate-800/80">
+            {todayShow.map((r) => (
+              <li key={`${r.cat}-${r.time}`} className="flex items-center justify-between gap-2 px-3 py-2">
                 <div className="min-w-0">
-                  <div className="flex items-center gap-1.5">
+                  <span
+                    className={cn(
+                      "rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase",
+                      r.sev === "red" && "border-red-500/40 bg-red-500/20 text-red-300",
+                      r.sev === "orange" && "border-orange-500/40 bg-orange-500/20 text-orange-300",
+                      r.sev === "slate" && "border-slate-500/40 bg-slate-600/50 text-slate-300",
+                    )}
+                  >
+                    {r.cat}
+                  </span>
+                  <p className="mt-1 truncate text-[11px] text-slate-300">
+                    {r.who} · {r.where}
+                  </p>
+                </div>
+                <span className="shrink-0 text-[10px] tabular-nums text-slate-500">{r.time}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {!compact && (
+          <div className="bg-[#131a22]">
+            <div className="border-b border-violet-900/40 bg-violet-950/30 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-violet-200">
+              This Week
+            </div>
+            <ul className="divide-y divide-slate-800/80">
+              {weekShow.map((r) => (
+                <li key={`${r.cat}-${r.time}-${r.who}`} className="flex items-center justify-between gap-2 px-3 py-2">
+                  <div className="min-w-0">
                     <span
                       className={cn(
-                        "rounded px-1.5 py-0.5 text-[9px] font-bold uppercase",
-                        o.bad ? "bg-red-500/20 text-red-300" : "bg-sky-500/15 text-sky-300",
+                        "rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase",
+                        r.sev === "red" && "border-red-500/40 bg-red-500/20 text-red-300",
+                        r.sev === "slate" && "border-slate-500/40 bg-slate-600/50 text-slate-300",
                       )}
                     >
-                      {o.type}
+                      {r.cat}
                     </span>
-                    <span className="truncate text-[11px] text-muted-foreground">{o.detail}</span>
+                    <p className="mt-1 truncate text-[11px] text-slate-300">
+                      {r.who} · {r.where}
+                    </p>
                   </div>
-                </div>
-                <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">{o.time}</span>
-              </div>
-            ))}
+                  <span className="shrink-0 text-[10px] text-slate-500">{r.time}</span>
+                </li>
+              ))}
+            </ul>
           </div>
-        </div>
+        )}
       </div>
-
-      {!compact && (
-        <div className="mt-3 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
-          <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-1">
-            <Footprints className="h-3 w-3" /> Patrol live
-          </span>
-          <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-1">
-            <Radio className="h-3 w-3" /> Radio channel open
-          </span>
-          <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-1">
-            <Siren className="h-3 w-3" /> Panic / SOS ready
-          </span>
-        </div>
-      )}
     </div>
   );
 }
