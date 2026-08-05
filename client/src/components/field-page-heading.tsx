@@ -9,16 +9,21 @@ export function FieldPageHeading({
   badge,
   meta,
   actions,
+  leading,
   className,
   testId = "field-page-heading",
+  titleTestId,
 }: {
   title: string;
   icon?: LucideIcon;
   badge?: ReactNode;
   meta?: ReactNode;
   actions?: ReactNode;
+  /** Optional control before the icon (e.g. back button). */
+  leading?: ReactNode;
   className?: string;
   testId?: string;
+  titleTestId?: string;
 }) {
   return (
     <div
@@ -26,6 +31,7 @@ export function FieldPageHeading({
       data-testid={testId}
     >
       <div className="min-w-0 flex-1 flex items-start gap-2.5">
+        {leading}
         {Icon ? (
           <span
             className="mt-0.5 shrink-0 inline-flex h-9 w-9 items-center justify-center rounded-lg border border-primary/35 bg-primary/15 text-primary"
@@ -36,7 +42,10 @@ export function FieldPageHeading({
         ) : null}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 min-w-0 flex-wrap">
-            <h1 className="text-lg font-semibold tracking-tight text-foreground truncate">
+            <h1
+              className="text-lg font-semibold tracking-tight text-foreground truncate"
+              data-testid={titleTestId}
+            >
               {title}
             </h1>
             {badge != null && badge !== false ? (
@@ -46,11 +55,17 @@ export function FieldPageHeading({
             ) : null}
           </div>
           {meta != null ? (
-            <p className="mt-0.5 text-xs text-muted-foreground leading-snug">{meta}</p>
+            <p className="mt-0.5 text-xs text-muted-foreground leading-snug line-clamp-2">
+              {meta}
+            </p>
           ) : null}
         </div>
       </div>
-      {actions ? <div className="shrink-0 flex flex-wrap items-center gap-1.5">{actions}</div> : null}
+      {actions ? (
+        <div className="shrink-0 flex flex-wrap items-center justify-end gap-1.5 [&_button]:h-8 [&_button]:px-2.5 [&_button]:text-xs">
+          {actions}
+        </div>
+      ) : null}
     </div>
   );
 }

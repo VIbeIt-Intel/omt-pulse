@@ -135,8 +135,10 @@ export default function AccessControlPage({ userRole }: AccessControlPageProps) 
           description={subtitle}
           actions={headerActions}
           insights={[
-            { label: "Mode", value: pageView === "overview" ? "Analytics" : "Operations" },
-            { label: "Destinations", value: String(activeDestinations.length) },
+            {
+              label: activeDestinations.length === 1 ? "destination" : "destinations",
+              value: activeDestinations.length,
+            },
           ]}
         />
       </div>
