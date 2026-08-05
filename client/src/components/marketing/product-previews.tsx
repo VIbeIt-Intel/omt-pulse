@@ -1,6 +1,6 @@
 /** Product screenshots + presentation mocks for omtpulse.com */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import {
@@ -10,11 +10,13 @@ import {
   CirclePause,
   Download,
   Gauge,
+  Mic,
   Play,
   Radio,
   Route,
   Timer,
   User,
+  Users,
   WifiOff,
   X,
   Expand,
@@ -26,11 +28,22 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
+type LightboxKind =
+  | "image"
+  | "phone"
+  | "fleet-mock"
+  | "routes-mock"
+  | "analytics-mock"
+  | "analytics-map-mock"
+  | "control-room-mock"
+  | "live-monitor-mock"
+  | "radio-mock";
+
 type LightboxItem = {
   src?: string;
   alt: string;
   caption: string;
-  kind?: "image" | "phone" | "fleet-mock" | "routes-mock" | "analytics-mock" | "analytics-map-mock";
+  kind?: LightboxKind;
 };
 
 /** Matches marketing/mobile-dashboard.png (460×928). */
@@ -101,21 +114,48 @@ function WideScreenshot({ src, alt, label, onExpand }: {
   onExpand: () => void;
 }) {
   return (
-    <figure className="flex flex-col gap-3">
+    <figure className="flex h-full flex-col gap-3">
       <button
         type="button"
         onClick={onExpand}
-        className="group relative overflow-hidden rounded-2xl border border-border bg-card shadow-lg shadow-primary/10 text-left transition hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+        className="group relative aspect-[16/10] w-full overflow-hidden rounded-2xl border border-border bg-card shadow-lg shadow-primary/10 text-left transition hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
         aria-label={`Expand ${label}`}
       >
         <img
           src={src}
           alt={alt}
-          className="w-full object-cover object-top"
+          className="absolute inset-0 h-full w-full object-cover object-top"
           loading="lazy"
           decoding="async"
         />
         <span className="pointer-events-none absolute bottom-3 right-3 inline-flex items-center gap-1 rounded-full bg-background/90 px-2 py-1 text-[10px] font-medium text-muted-foreground opacity-0 shadow transition group-hover:opacity-100">
+          <Expand className="h-3 w-3" /> Expand
+        </span>
+      </button>
+      <figcaption className="text-center text-sm font-medium text-foreground">{label}</figcaption>
+    </figure>
+  );
+}
+
+function WideMockCard({
+  label,
+  onExpand,
+  children,
+}: {
+  label: string;
+  onExpand: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <figure className="flex h-full flex-col gap-3">
+      <button
+        type="button"
+        onClick={onExpand}
+        className="group relative aspect-[16/10] w-full overflow-hidden rounded-2xl border border-border bg-card text-left shadow-lg shadow-primary/10 transition hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+        aria-label={`Expand ${label}`}
+      >
+        <div className="absolute inset-0 overflow-hidden">{children}</div>
+        <span className="pointer-events-none absolute bottom-3 right-3 z-[2] inline-flex items-center gap-1 rounded-full bg-background/90 px-2 py-1 text-[10px] font-medium text-muted-foreground opacity-0 shadow transition group-hover:opacity-100">
           <Expand className="h-3 w-3" /> Expand
         </span>
       </button>
@@ -686,43 +726,239 @@ function AnalyticsMapPresentation({ compact = false }: { compact?: boolean }) {
   );
 }
 
-const PREVIEWS = [
-  {
-    id: "control-room",
-    label: "Control Room",
-    src: "/marketing/control-room-busy.png",
-    alt: "OMT Pulse Control Room with live incidents, site monitor team and fleet",
-    wide: true,
-  },
-  {
-    id: "live-monitor",
-    label: "Live Monitor",
-    src: "/marketing/live-monitor.png",
-    alt: "OMT Pulse Live Monitor — incidents, team and fleet on one ops map",
-    wide: true,
-  },
-  {
-    id: "radio",
-    label: "Group radio (PTT)",
-    src: "/marketing/group-radio.png",
-    alt: "Group radio push-to-talk — tap to talk, live audio never saved",
-    wide: true,
-  },
-  {
-    id: "cameras",
-    label: "Cameras / CCTV",
-    src: "/marketing/cameras-cctv.png",
-    alt: "OMT Pulse Cameras — live CCTV feed with zone and AI controls",
-    wide: true,
-  },
-  {
-    id: "field-home",
-    label: "Field app home",
-    src: "/marketing/mobile-dashboard.png",
-    alt: "OMT Pulse field home — Panic/SOS, patrol, live incident, access control and report",
-    wide: false,
-  },
-] as const;
+const CR_TEAM = [
+  { name: "Jaco Cronje", role: "Control Room", status: "Available", tone: "bg-emerald-400", ago: "Live now" },
+  { name: "Patroller 1", role: "Armed response", status: "On patrol", tone: "bg-emerald-400", ago: "Live GPS" },
+  { name: "Anton Kruger", role: "Supervisor", status: "Available", tone: "bg-emerald-400", ago: "2m ago" },
+  { name: "Sipho Dlamini", role: "Response", status: "Responding", tone: "bg-orange-400", ago: "Live now" },
+  { name: "Aisha Patel", role: "Patrol", status: "On patrol", tone: "bg-emerald-400", ago: "Live GPS" },
+  { name: "Thandi Mokoena", role: "Gate desk", status: "Available", tone: "bg-emerald-400", ago: "1m ago" },
+  { name: "Johan Botha", role: "Escort", status: "Moving", tone: "bg-sky-400", ago: "Live GPS" },
+  { name: "Lucas Steyn", role: "Patrol", status: "Off duty", tone: "bg-slate-500", ago: "Off shift" },
+];
+
+const CR_FLEET = [
+  { name: "Toyota Hilux", plate: "HH12GP GP", status: "MOVING", speed: "54 km/h", moving: true },
+  { name: "Isuzu D-Max", plate: "JD45MP GP", status: "MOVING", speed: "38 km/h", moving: true },
+  { name: "Ford Figo", plate: "CF80YN GP", status: "IDLE", speed: "0 km/h", moving: false },
+  { name: "VW Polo", plate: "CA99ZN GP", status: "IDLE", speed: "0 km/h", moving: false },
+  { name: "Toyota Quantum", plate: "NP33KZ GP", status: "MOVING", speed: "41 km/h", moving: true },
+  { name: "Nissan NP200", plate: "FS21BL GP", status: "OFFLINE", speed: "—", moving: false },
+];
+
+/** Busy Control Room board — marketing sample units only. */
+function ControlRoomOpsPresentation({ compact = false }: { compact?: boolean }) {
+  const team = compact ? CR_TEAM.slice(0, 5) : CR_TEAM;
+  const fleet = compact ? CR_FLEET.slice(0, 4) : CR_FLEET;
+
+  return (
+    <div className={cn("h-full overflow-hidden bg-[#0b0f14] text-foreground", compact ? "p-2.5" : "p-3 sm:p-4")}>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-xs font-bold tracking-wide text-primary sm:text-sm">CONTROL ROOM</p>
+          <p className="text-[10px] text-muted-foreground">8 on duty · 3 vehicles moving · sample data</p>
+        </div>
+        <span className="rounded-md border border-emerald-700/50 bg-emerald-950/50 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">
+          All clear
+        </span>
+      </div>
+      <div className="mb-2 grid grid-cols-4 gap-1.5">
+        {[
+          { label: "Active", value: "1" },
+          { label: "Panics", value: "1" },
+          { label: "Logged", value: "14" },
+          { label: "Closed", value: "11" },
+        ].map((k) => (
+          <div key={k.label} className="rounded-lg border border-border/70 bg-card/40 px-2 py-1.5 text-center">
+            <p className="text-sm font-bold tabular-nums sm:text-base">{k.value}</p>
+            <p className="text-[9px] uppercase tracking-wide text-muted-foreground">{k.label}</p>
+          </div>
+        ))}
+      </div>
+      <div className="grid h-[calc(100%-4.5rem)] min-h-0 grid-cols-2 gap-2">
+        <div className="min-h-0 overflow-hidden rounded-lg border border-border/70 bg-card/30">
+          <div className="flex items-center gap-1.5 border-b border-border/60 px-2 py-1.5">
+            <Users className="h-3 w-3 text-primary" />
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Team · {team.length}</span>
+          </div>
+          <div className="max-h-full space-y-0.5 overflow-hidden p-1.5">
+            {team.map((m) => (
+              <div key={m.name} className="flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[10px]">
+                <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", m.tone)} />
+                <span className="min-w-0 flex-1 truncate font-medium">{m.name}</span>
+                <span className="hidden shrink-0 text-muted-foreground sm:inline">{m.status}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="min-h-0 overflow-hidden rounded-lg border border-border/70 bg-card/30">
+          <div className="flex items-center gap-1.5 border-b border-border/60 px-2 py-1.5">
+            <Car className="h-3 w-3 text-primary" />
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Fleet · {fleet.length}</span>
+          </div>
+          <div className="space-y-0.5 p-1.5">
+            {fleet.map((v) => (
+              <div key={v.plate} className="flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[10px]">
+                <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", v.moving ? "bg-emerald-400" : v.status === "OFFLINE" ? "bg-slate-500" : "bg-amber-400")} />
+                <span className="min-w-0 flex-1 truncate font-medium">{v.name}</span>
+                <span className={cn("shrink-0 rounded px-1 py-px text-[9px] font-bold", v.moving ? "text-emerald-300" : "text-muted-foreground")}>
+                  {v.status}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const LM_UNITS: { lat: number; lng: number; kind: "person" | "vehicle" | "incident"; label: string }[] = [
+  { lat: -25.7479, lng: 28.2293, kind: "person", label: "Jaco" },
+  { lat: -25.82, lng: 28.42, kind: "incident", label: "Panic" },
+  { lat: -25.86, lng: 28.19, kind: "vehicle", label: "Hilux" },
+  { lat: -25.9, lng: 28.15, kind: "person", label: "Sipho" },
+  { lat: -25.78, lng: 28.28, kind: "vehicle", label: "D-Max" },
+  { lat: -26.05, lng: 28.1, kind: "person", label: "Aisha" },
+  { lat: -25.93, lng: 28.25, kind: "vehicle", label: "Quantum" },
+  { lat: -25.85, lng: 28.35, kind: "person", label: "Thandi" },
+  { lat: -26.12, lng: 28.05, kind: "person", label: "Johan" },
+  { lat: -25.76, lng: 28.38, kind: "vehicle", label: "Figo" },
+];
+
+function LiveMonitorOpsPresentation({ compact = false }: { compact?: boolean }) {
+  const mapRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<L.Map | null>(null);
+
+  useEffect(() => {
+    if (!mapRef.current || mapInstanceRef.current) return;
+
+    const map = L.map(mapRef.current, {
+      zoomControl: false,
+      attributionControl: false,
+      dragging: false,
+      scrollWheelZoom: false,
+      doubleClickZoom: false,
+      boxZoom: false,
+      keyboard: false,
+      touchZoom: false,
+    });
+
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+      subdomains: "abcd",
+      maxZoom: 19,
+    }).addTo(map);
+
+    for (const u of LM_UNITS) {
+      const fill =
+        u.kind === "incident" ? "#ef4444" : u.kind === "vehicle" ? "#22d3ee" : "#34d399";
+      L.circleMarker([u.lat, u.lng], {
+        radius: u.kind === "incident" ? 9 : 7,
+        color: "#0b0f14",
+        weight: 2,
+        fillColor: fill,
+        fillOpacity: 0.95,
+      }).addTo(map);
+    }
+
+    const bounds = L.latLngBounds(LM_UNITS.map((u) => [u.lat, u.lng] as [number, number]));
+    map.fitBounds(bounds.pad(0.28));
+    mapInstanceRef.current = map;
+
+    const invalidate = () => map.invalidateSize();
+    const t1 = window.setTimeout(invalidate, 80);
+    const t2 = window.setTimeout(invalidate, 320);
+    window.addEventListener("resize", invalidate);
+
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+      window.removeEventListener("resize", invalidate);
+      map.remove();
+      mapInstanceRef.current = null;
+    };
+  }, []);
+
+  const people = LM_UNITS.filter((u) => u.kind === "person").length;
+  const vehicles = LM_UNITS.filter((u) => u.kind === "vehicle").length;
+
+  return (
+    <div className={cn("flex h-full flex-col overflow-hidden bg-[#0b0f14] text-foreground", compact ? "p-2" : "p-3")}>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-xs font-bold tracking-wide text-primary sm:text-sm">LIVE MONITOR</p>
+          <p className="text-[10px] text-muted-foreground">
+            1 active · {people} personnel · {vehicles} vehicles
+          </p>
+        </div>
+        <div className="flex gap-1">
+          <span className="rounded-md bg-primary/90 px-2 py-0.5 text-[9px] font-semibold text-primary-foreground">ALL</span>
+          <span className="rounded-md bg-muted/50 px-2 py-0.5 text-[9px] text-muted-foreground">INCIDENTS</span>
+          <span className="rounded-md bg-muted/50 px-2 py-0.5 text-[9px] text-muted-foreground">TEAM &amp; FLEET</span>
+        </div>
+      </div>
+      <div className="relative min-h-0 flex-1 overflow-hidden rounded-lg border border-border/70">
+        <div ref={mapRef} className="absolute inset-0 bg-[#0b1220]" aria-hidden />
+        {!compact && (
+          <div className="pointer-events-none absolute bottom-2 left-2 z-[1] flex flex-wrap gap-1.5">
+            <span className="inline-flex items-center gap-1 rounded-md bg-background/90 px-1.5 py-0.5 text-[9px] shadow">
+              <span className="h-2 w-2 rounded-full bg-emerald-400" /> Personnel
+            </span>
+            <span className="inline-flex items-center gap-1 rounded-md bg-background/90 px-1.5 py-0.5 text-[9px] shadow">
+              <span className="h-2 w-2 rounded-full bg-cyan-400" /> Vehicles
+            </span>
+            <span className="inline-flex items-center gap-1 rounded-md bg-background/90 px-1.5 py-0.5 text-[9px] shadow">
+              <span className="h-2 w-2 rounded-full bg-red-500" /> Incident
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const RADIO_LISTENERS = [
+  { name: "Jaco Cronje", role: "Control" },
+  { name: "Patroller 1", role: "Field" },
+  { name: "Sipho Dlamini", role: "Response" },
+  { name: "Aisha Patel", role: "Patrol" },
+  { name: "Thandi Mokoena", role: "Gate" },
+  { name: "Johan Botha", role: "Escort" },
+];
+
+function RadioOpsPresentation({ compact = false }: { compact?: boolean }) {
+  const listeners = compact ? RADIO_LISTENERS.slice(0, 4) : RADIO_LISTENERS;
+  return (
+    <div className={cn("flex h-full flex-col overflow-hidden bg-[#0b0f14] text-foreground", compact ? "p-2.5" : "p-3 sm:p-4")}>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div>
+          <p className="text-xs font-bold tracking-wide text-primary sm:text-sm">GROUP RADIO</p>
+          <p className="text-[10px] text-muted-foreground">Central / Head Office · live PTT</p>
+        </div>
+        <span className="inline-flex items-center gap-1 rounded-full border border-emerald-700/50 bg-emerald-950/40 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> ONLINE · {listeners.length}
+        </span>
+      </div>
+      <div className="mb-2 min-h-0 flex-1 space-y-1 overflow-hidden rounded-lg border border-border/70 bg-card/30 p-2">
+        <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">On channel</p>
+        {listeners.map((l) => (
+          <div key={l.name} className="flex items-center gap-2 rounded-md px-1.5 py-1 text-[11px]">
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/20 text-[9px] font-bold text-primary">
+              {l.name.split(" ").map((p) => p[0]).join("").slice(0, 2)}
+            </span>
+            <span className="min-w-0 flex-1 truncate font-medium">{l.name}</span>
+            <span className="shrink-0 text-[10px] text-muted-foreground">{l.role}</span>
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center gap-2 rounded-xl border border-emerald-700/40 bg-emerald-950/30 px-3 py-2.5">
+        <Mic className="h-4 w-4 text-emerald-300" />
+        <span className="text-xs font-semibold text-emerald-200">Hold to talk</span>
+        <span className="ml-auto text-[10px] text-muted-foreground">Audio never saved</span>
+      </div>
+    </div>
+  );
+}
 
 export function ProductPreviewsSection() {
   const [lightbox, setLightbox] = useState<LightboxItem | null>(null);
@@ -736,27 +972,71 @@ export function ProductPreviewsSection() {
             Control Room, Live Monitor, radio and CCTV on the desk — SOS and response in the field.
           </p>
         </div>
-        <div className="grid gap-10 lg:grid-cols-2 lg:gap-8">
-          {PREVIEWS.filter((p) => p.wide).map(({ id, label, src, alt }) => (
-            <WideScreenshot
-              key={id}
-              src={src}
-              alt={alt}
-              label={label}
-              onExpand={() => setLightbox({ src, alt, caption: label, kind: "image" })}
-            />
-          ))}
+        <div className="grid items-stretch gap-6 sm:gap-8 lg:grid-cols-2">
+          <WideMockCard
+            label="Control Room"
+            onExpand={() =>
+              setLightbox({
+                alt: "Control Room with team and fleet units",
+                caption: "Control Room — team, fleet and live ops board",
+                kind: "control-room-mock",
+              })
+            }
+          >
+            <ControlRoomOpsPresentation compact />
+          </WideMockCard>
+          <WideMockCard
+            label="Live Monitor"
+            onExpand={() =>
+              setLightbox({
+                alt: "Live Monitor with personnel and vehicles on map",
+                caption: "Live Monitor — personnel, vehicles and incidents",
+                kind: "live-monitor-mock",
+              })
+            }
+          >
+            <LiveMonitorOpsPresentation compact />
+          </WideMockCard>
+          <WideMockCard
+            label="Group radio (PTT)"
+            onExpand={() =>
+              setLightbox({
+                alt: "Group radio with listeners on channel",
+                caption: "Group radio — live PTT with units on channel",
+                kind: "radio-mock",
+              })
+            }
+          >
+            <RadioOpsPresentation compact />
+          </WideMockCard>
+          <WideScreenshot
+            src="/marketing/cameras-cctv.png"
+            alt="OMT Pulse Cameras — live CCTV feed with zone and AI controls"
+            label="Cameras / CCTV"
+            onExpand={() =>
+              setLightbox({
+                src: "/marketing/cameras-cctv.png",
+                alt: "OMT Pulse Cameras — live CCTV feed with zone and AI controls",
+                caption: "Cameras / CCTV",
+                kind: "image",
+              })
+            }
+          />
         </div>
         <div className="mt-14 flex justify-center">
-          {PREVIEWS.filter((p) => !p.wide).map(({ id, label, src, alt }) => (
-            <PhoneScreenshot
-              key={id}
-              src={src}
-              alt={alt}
-              label={label}
-              onExpand={() => setLightbox({ src, alt, caption: label, kind: "phone" })}
-            />
-          ))}
+          <PhoneScreenshot
+            src="/marketing/mobile-dashboard.png"
+            alt="OMT Pulse field home — Panic/SOS, patrol, live incident, access control and report"
+            label="Field app home"
+            onExpand={() =>
+              setLightbox({
+                src: "/marketing/mobile-dashboard.png",
+                alt: "OMT Pulse field home — Panic/SOS, patrol, live incident, access control and report",
+                caption: "Field app home",
+                kind: "phone",
+              })
+            }
+          />
         </div>
       </div>
       <ScreenshotLightbox item={lightbox} onClose={() => setLightbox(null)} />
@@ -776,10 +1056,14 @@ const GALLERY: LightboxItem[] = [
     kind: "analytics-map-mock",
   },
   {
-    src: "/marketing/live-monitor.png",
-    alt: "Live Monitor map with active incident and responder tracking",
-    caption: "Live Monitor — incidents, team and fleet on one map",
-    kind: "image",
+    alt: "Live Monitor with personnel, vehicles and an active incident on the map",
+    caption: "Live Monitor — personnel, vehicles and incidents",
+    kind: "live-monitor-mock",
+  },
+  {
+    alt: "Control Room with team and fleet units for presentation",
+    caption: "Control Room — team and fleet units on one board",
+    kind: "control-room-mock",
   },
   {
     src: "/marketing/cameras-cctv.png",
@@ -818,38 +1102,21 @@ const GALLERY: LightboxItem[] = [
 ];
 
 function GalleryPreview({ item }: { item: LightboxItem }) {
-  if (item.kind === "fleet-mock") {
-    return (
-      <div className="relative max-h-[280px] overflow-hidden sm:max-h-[320px]">
-        <FleetBoardPresentation compact />
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-card to-transparent" />
-      </div>
-    );
-  }
-  if (item.kind === "routes-mock") {
-    return (
-      <div className="relative max-h-[280px] overflow-hidden sm:max-h-[320px]">
-        <FleetRoutesPresentation compact />
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-card to-transparent" />
-      </div>
-    );
-  }
-  if (item.kind === "analytics-mock") {
-    return (
-      <div className="relative max-h-[280px] overflow-hidden sm:max-h-[320px]">
-        <AnalyticsChartsPresentation compact />
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-card to-transparent" />
-      </div>
-    );
-  }
-  if (item.kind === "analytics-map-mock") {
-    return (
-      <div className="relative max-h-[280px] overflow-hidden sm:max-h-[320px]">
-        <AnalyticsMapPresentation compact />
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-card to-transparent" />
-      </div>
-    );
-  }
+  const wrap = (node: ReactNode) => (
+    <div className="relative aspect-[16/10] overflow-hidden">
+      <div className="absolute inset-0">{node}</div>
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-card to-transparent" />
+    </div>
+  );
+
+  if (item.kind === "fleet-mock") return wrap(<FleetBoardPresentation compact />);
+  if (item.kind === "routes-mock") return wrap(<FleetRoutesPresentation compact />);
+  if (item.kind === "analytics-mock") return wrap(<AnalyticsChartsPresentation compact />);
+  if (item.kind === "analytics-map-mock") return wrap(<AnalyticsMapPresentation compact />);
+  if (item.kind === "control-room-mock") return wrap(<ControlRoomOpsPresentation compact />);
+  if (item.kind === "live-monitor-mock") return wrap(<LiveMonitorOpsPresentation compact />);
+  if (item.kind === "radio-mock") return wrap(<RadioOpsPresentation compact />);
+
   return (
     <img
       src={item.src}
@@ -937,6 +1204,12 @@ function ScreenshotLightbox({
           <AnalyticsChartsPresentation />
         ) : item?.kind === "analytics-map-mock" ? (
           <AnalyticsMapPresentation />
+        ) : item?.kind === "control-room-mock" ? (
+          <ControlRoomOpsPresentation />
+        ) : item?.kind === "live-monitor-mock" ? (
+          <LiveMonitorOpsPresentation />
+        ) : item?.kind === "radio-mock" ? (
+          <RadioOpsPresentation />
         ) : item?.kind === "phone" && item.src ? (
           <div
             className="mx-auto overflow-hidden rounded-[1.75rem] border-[3px] border-border bg-[#0b0f14] p-1.5 shadow-lg shadow-primary/15"
