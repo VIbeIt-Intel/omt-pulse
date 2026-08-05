@@ -30,6 +30,7 @@ export type TrackerDeviceSummary = {
   vehicleModel: string | null;
   vehicleRegistration: string | null;
   vehiclePhotoUrl: string | null;
+  simPhone: string | null;
   assignedUserId: string | null;
   assignedUserName: string | null;
   notes: string | null;
@@ -2177,6 +2178,7 @@ export class DatabaseStorage implements IStorage {
     vehicleModel: string | null;
     vehicleRegistration: string | null;
     vehiclePhotoUrl: string | null;
+    simPhone: string | null;
     assignedUserId: string | null;
     assignedFirstName: string | null;
     assignedLastName: string | null;
@@ -2218,6 +2220,7 @@ export class DatabaseStorage implements IStorage {
       vehicleModel: r.vehicleModel,
       vehicleRegistration: r.vehicleRegistration,
       vehiclePhotoUrl: r.vehiclePhotoUrl,
+      simPhone: r.simPhone,
       assignedUserId: r.assignedUserId,
       assignedUserName: assignedUserName || null,
       notes: r.notes,
@@ -2248,6 +2251,7 @@ export class DatabaseStorage implements IStorage {
       vehicleModel: trackerDevices.vehicleModel,
       vehicleRegistration: trackerDevices.vehicleRegistration,
       vehiclePhotoUrl: trackerDevices.vehiclePhotoUrl,
+      simPhone: trackerDevices.simPhone,
       assignedUserId: trackerDevices.assignedUserId,
       assignedFirstName: users.firstName,
       assignedLastName: users.lastName,
@@ -2337,11 +2341,13 @@ export class DatabaseStorage implements IStorage {
     id: number,
     orgId: string,
     patch: {
+      imei?: string;
       label?: string | null;
       vehicleMake?: string | null;
       vehicleModel?: string | null;
       vehicleRegistration?: string | null;
       vehiclePhotoUrl?: string | null;
+      simPhone?: string | null;
       assignedUserId?: string | null;
       commandId?: number | null;
       notes?: string | null;
@@ -2350,6 +2356,17 @@ export class DatabaseStorage implements IStorage {
   ): Promise<TrackerDeviceSummary | undefined> {
     const existing = await this.getTrackerDeviceById(id, orgId);
     if (!existing) return undefined;
+
+    if (patch.imei && patch.imei !== existing.imei) {
+      const clash = await db
+        .select({ id: trackerDevices.id })
+        .from(trackerDevices)
+        .where(eq(trackerDevices.imei, patch.imei))
+        .limit(1);
+      if (clash[0] && clash[0].id !== id) {
+        throw new Error("IMEI_IN_USE");
+      }
+    }
 
     await db
       .update(trackerDevices)

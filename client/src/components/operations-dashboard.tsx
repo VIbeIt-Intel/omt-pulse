@@ -91,6 +91,7 @@ export type TrackerDeviceSummary = {
   vehicleModel: string | null;
   vehicleRegistration: string | null;
   vehiclePhotoUrl: string | null;
+  simPhone?: string | null;
   assignedUserId: string | null;
   assignedUserName: string | null;
   notes: string | null;

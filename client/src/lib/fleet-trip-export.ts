@@ -62,6 +62,7 @@ function buildSummaryRows(opts: FleetTripExportOptions): (string | number)[][] {
     ["Model", opts.device.vehicleModel ?? ""],
     ["Registration", opts.device.vehicleRegistration ?? ""],
     ["IMEI", opts.device.imei],
+    ["SIM phone", opts.device.simPhone ?? ""],
     ["Assigned to", opts.device.assignedUserName ?? ""],
     ["Group", opts.device.commandName ?? ""],
     ["GPS points", points.length],

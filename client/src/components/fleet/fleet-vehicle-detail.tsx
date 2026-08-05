@@ -177,6 +177,8 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
     vehicleModel: "",
     vehicleRegistration: "",
     vehiclePhotoUrl: null as string | null,
+    imei: "",
+    simPhone: "",
     assignedUserId: "",
     commandId: "",
     notes: "",
@@ -190,6 +192,8 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
       vehicleModel: device.vehicleModel ?? "",
       vehicleRegistration: device.vehicleRegistration ?? "",
       vehiclePhotoUrl: device.vehiclePhotoUrl ?? null,
+      imei: device.imei ?? "",
+      simPhone: device.simPhone ?? "",
       assignedUserId: device.assignedUserId ?? "",
       commandId: device.commandId != null ? String(device.commandId) : "",
       notes: device.notes ?? "",
@@ -317,7 +321,13 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
         }
         lastMileageKm = Math.round(km * 10) / 10;
       }
+      const imei = form.imei.trim().replace(/[\s-]/g, "");
+      if (!/^\d{10,20}$/.test(imei)) {
+        throw new Error("IMEI must be 10–20 digits");
+      }
       await apiRequest("PATCH", `/api/trackers/${deviceId}`, {
+        imei,
+        simPhone: form.simPhone.trim() || null,
         label: form.label || null,
         vehicleMake: form.vehicleMake || null,
         vehicleModel: form.vehicleModel || null,
@@ -382,7 +392,10 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
               {device.vehicleRegistration || "No registration"}
               {device.assignedUserName ? ` · ${device.assignedUserName}` : ""}
             </p>
-            <p className="text-[10px] text-muted-foreground font-mono">IMEI {device.imei}</p>
+            <p className="text-[10px] text-muted-foreground font-mono">
+              IMEI {device.imei}
+              {device.simPhone ? ` · SIM ${device.simPhone}` : ""}
+            </p>
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -867,6 +880,42 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+            </div>
+            <div className="rounded-lg border border-border/70 bg-muted/20 p-3 space-y-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Tracker &amp; SIM
+                </p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  Hardware IMEI and the phone number of the SIM card in the tracker.
+                </p>
+              </div>
+              <div className="grid sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="fleet-imei">IMEI</Label>
+                  <Input
+                    id="fleet-imei"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    className="font-mono"
+                    value={form.imei}
+                    onChange={(e) => setForm((f) => ({ ...f, imei: e.target.value }))}
+                    placeholder="15-digit tracker IMEI"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="fleet-sim-phone">SIM phone number</Label>
+                  <Input
+                    id="fleet-sim-phone"
+                    type="tel"
+                    inputMode="tel"
+                    autoComplete="tel"
+                    value={form.simPhone}
+                    onChange={(e) => setForm((f) => ({ ...f, simPhone: e.target.value }))}
+                    placeholder="e.g. +27 82 123 4567"
+                  />
+                </div>
               </div>
             </div>
             <div className="space-y-1.5">

@@ -4475,6 +4475,13 @@ export async function registerRoutes(
 
     const body = req.body as Record<string, unknown>;
     const patch: Parameters<typeof storage.updateTrackerDevice>[2] = {};
+    if ("imei" in body) {
+      const raw = typeof body.imei === "string" ? body.imei.trim().replace(/[\s-]/g, "") : "";
+      if (!/^\d{10,20}$/.test(raw)) {
+        return res.status(400).json({ message: "IMEI must be 10–20 digits" });
+      }
+      patch.imei = raw;
+    }
     if ("label" in body) patch.label = typeof body.label === "string" ? body.label.trim() || null : null;
     if ("vehicleMake" in body) patch.vehicleMake = typeof body.vehicleMake === "string" ? body.vehicleMake.trim() || null : null;
     if ("vehicleModel" in body) patch.vehicleModel = typeof body.vehicleModel === "string" ? body.vehicleModel.trim() || null : null;
@@ -4492,6 +4499,23 @@ export async function registerRoutes(
         patch.vehiclePhotoUrl = url || null;
       } else {
         patch.vehiclePhotoUrl = null;
+      }
+    }
+    if ("simPhone" in body) {
+      if (body.simPhone === null || body.simPhone === "") {
+        patch.simPhone = null;
+      } else if (typeof body.simPhone === "string") {
+        const phone = body.simPhone.trim().replace(/\s+/g, " ");
+        if (phone.length > 32) {
+          return res.status(400).json({ message: "SIM phone number is too long" });
+        }
+        // Allow +, digits, spaces, and common separators used for SA numbers.
+        if (!/^\+?[\d\s().-]{7,32}$/.test(phone)) {
+          return res.status(400).json({ message: "Enter a valid SIM phone number" });
+        }
+        patch.simPhone = phone;
+      } else {
+        patch.simPhone = null;
       }
     }
     if ("assignedUserId" in body) {
@@ -4520,8 +4544,15 @@ export async function registerRoutes(
       patch.commandId = cmdId;
     }
 
-    const updated = await storage.updateTrackerDevice(id, orgId, patch);
-    res.json(updated);
+    try {
+      const updated = await storage.updateTrackerDevice(id, orgId, patch);
+      res.json(updated);
+    } catch (err) {
+      if (err instanceof Error && err.message === "IMEI_IN_USE") {
+        return res.status(409).json({ message: "That IMEI is already registered on another vehicle" });
+      }
+      throw err;
+    }
   });
 
   app.get("/api/trackers/:id/positions", async (req, res) => {

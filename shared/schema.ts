@@ -522,6 +522,8 @@ export const trackerDevices = pgTable("tracker_devices", {
   vehicleModel: text("vehicle_model"),
   vehicleRegistration: text("vehicle_registration"),
   vehiclePhotoUrl: text("vehicle_photo_url"),
+  /** MSISDN / phone number of the tracker SIM card (for SMS config / contact). */
+  simPhone: text("sim_phone"),
   assignedUserId: varchar("assigned_user_id").references(() => users.id, { onDelete: "set null" }),
   notes: text("notes"),
   lastLat: doublePrecision("last_lat"),
