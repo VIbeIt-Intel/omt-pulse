@@ -36,7 +36,6 @@ import {
   Route as RouteIcon,
   Signal,
   UserRound,
-  Layers,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -1460,32 +1459,9 @@ export function OperationsDashboard({
             tone="orange"
             testId="ops-live-panel-header"
             right={
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setLiveMapType((t) => (t === "roadmap" ? "hybrid" : "roadmap"))
-                  }
-                  className={cn(
-                    "inline-flex items-center gap-1 h-7 px-2 rounded-md text-[10px] font-bold uppercase tracking-wide border transition-colors shrink-0",
-                    liveMapType === "hybrid"
-                      ? "bg-emerald-700/90 text-white border-emerald-600/50"
-                      : "bg-slate-800 text-slate-100 border-slate-500 hover:bg-slate-700",
-                  )}
-                  title={
-                    liveMapType === "hybrid"
-                      ? "Switch to map view"
-                      : "Satellite imagery with road and place labels"
-                  }
-                  data-testid="ops-live-toggle-satellite"
-                >
-                  <Layers className="h-3 w-3" />
-                  {liveMapType === "hybrid" ? "Map" : "Satellite"}
-                </button>
-                <span className="text-[11px] font-bold text-orange-200 tabular-nums shrink-0">
-                  {queueItems.length} active
-                </span>
-              </div>
+              <span className="text-[11px] font-bold text-orange-200 tabular-nums shrink-0">
+                {queueItems.length} active
+              </span>
             }
           />
           <div
