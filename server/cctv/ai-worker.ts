@@ -22,6 +22,18 @@ const VEHICLE_ALERT_COOLDOWN_MS = 20_000;
 const STALE_MS = 12_000;
 /** Boxes with IoU below this are treated as a different vehicle. */
 const DISTINCT_VEHICLE_IOU = 0.28;
+/**
+ * Also treat as the same vehicle if centres are close (parked-car box jitter
+ * often drops IoU below DISTINCT_VEHICLE_IOU and falsely looks “new”).
+ */
+const SAME_VEHICLE_CENTER_DIST = 0.07;
+/**
+ * Remember recent vehicle positions so a parked car that briefly drops out of
+ * detection does not create another alert when it reappears.
+ */
+const STATIONARY_MEMORY_MS = 10 * 60_000;
+/** Require this centre movement (frame fraction) before a known vehicle alerts again. */
+const VEHICLE_MOVE_ALERT_DIST = 0.045;
 
 type LatestState = {
   detections: CctvAiDetection[];
@@ -29,14 +41,24 @@ type LatestState = {
   error?: string;
 };
 
+type RememberedVehicle = {
+  det: CctvAiDetection;
+  lastSeenAt: number;
+  lastAlertAt: number;
+};
+
 const latestByCamera = new Map<number, LatestState>();
 const lastPersonAlertAt = new Map<number, number>();
 const lastVehicleAlertAt = new Map<number, number>();
-/** Vehicles seen on the previous successful tick (for new-vehicle detection). */
-const prevVehiclesByCamera = new Map<number, CctvAiDetection[]>();
+/** Longer memory so stationary cars are not re-alerted. */
+const vehicleMemoryByCamera = new Map<number, RememberedVehicle[]>();
+/** Until this timestamp, only seed vehicle memory (no alerts) — skips already-parked cars on start. */
+const vehicleSeedUntilByCamera = new Map<number, number>();
 const hadPerson = new Map<number, boolean>();
 /** Low-confidence person must appear on consecutive ticks before we show/alert. */
 const personConfirmPending = new Map<number, CctvAiDetection[]>();
+/** After AI starts (or state clears), ignore vehicle alerts while seeding parked cars. */
+const VEHICLE_SEED_MS = 25_000;
 
 let started = false;
 let tickRunning = false;
@@ -44,6 +66,20 @@ let timer: ReturnType<typeof setInterval> | null = null;
 
 function isVehicle(d: CctvAiDetection): boolean {
   return d.label !== "person";
+}
+
+function boxCenter(d: CctvAiDetection): { x: number; y: number } {
+  return { x: d.x + d.w / 2, y: d.y + d.h / 2 };
+}
+
+function centerDist(a: CctvAiDetection, b: CctvAiDetection): number {
+  const ac = boxCenter(a);
+  const bc = boxCenter(b);
+  return Math.hypot(ac.x - bc.x, ac.y - bc.y);
+}
+
+function sameVehicleBox(a: CctvAiDetection, b: CctvAiDetection): boolean {
+  return iou(a, b) >= DISTINCT_VEHICLE_IOU || centerDist(a, b) <= SAME_VEHICLE_CENTER_DIST;
 }
 
 export function getLatestCctvAiDetections(cameraId: number): LatestState | null {
@@ -59,7 +95,8 @@ export function clearCctvAiCameraState(cameraId: number): void {
   latestByCamera.delete(cameraId);
   lastPersonAlertAt.delete(cameraId);
   lastVehicleAlertAt.delete(cameraId);
-  prevVehiclesByCamera.delete(cameraId);
+  vehicleMemoryByCamera.delete(cameraId);
+  vehicleSeedUntilByCamera.delete(cameraId);
   hadPerson.delete(cameraId);
   personConfirmPending.delete(cameraId);
 }
@@ -121,12 +158,61 @@ function bestOf(dets: CctvAiDetection[]): CctvAiDetection | null {
   return [...dets].sort((a, b) => b.confidence - a.confidence)[0] ?? null;
 }
 
-/** Vehicles that don't overlap a previous tick's vehicles (new car in frame). */
-function findNewVehicles(
-  prev: CctvAiDetection[],
-  now: CctvAiDetection[],
+/**
+ * Alert only for vehicles that newly appear (after seed) or clearly move.
+ * Parked / stationary cars that stay in roughly the same place are ignored.
+ */
+function findAlertableVehicles(
+  cameraId: number,
+  nowVehicles: CctvAiDetection[],
+  nowMs: number,
 ): CctvAiDetection[] {
-  return now.filter((v) => prev.every((p) => iou(p, v) < DISTINCT_VEHICLE_IOU));
+  if (!vehicleSeedUntilByCamera.has(cameraId)) {
+    vehicleSeedUntilByCamera.set(cameraId, nowMs + VEHICLE_SEED_MS);
+  }
+  const seeding = nowMs < (vehicleSeedUntilByCamera.get(cameraId) ?? 0);
+
+  const memory = (vehicleMemoryByCamera.get(cameraId) ?? []).filter(
+    (m) => nowMs - m.lastSeenAt <= STATIONARY_MEMORY_MS,
+  );
+  const alertable: CctvAiDetection[] = [];
+  const nextMemory: RememberedVehicle[] = [];
+
+  for (const v of nowVehicles) {
+    const matchIdx = memory.findIndex((m) => sameVehicleBox(m.det, v));
+    if (matchIdx < 0) {
+      if (seeding) {
+        // Learn already-parked cars without creating an alert.
+        nextMemory.push({ det: v, lastSeenAt: nowMs, lastAlertAt: 0 });
+      } else {
+        // Brand-new in this area after seed — treat as arrival.
+        alertable.push(v);
+        nextMemory.push({ det: v, lastSeenAt: nowMs, lastAlertAt: nowMs });
+      }
+      continue;
+    }
+    const prev = memory[matchIdx]!;
+    memory.splice(matchIdx, 1);
+    const moved = centerDist(prev.det, v) >= VEHICLE_MOVE_ALERT_DIST;
+    if (!seeding && moved && nowMs - prev.lastAlertAt >= VEHICLE_ALERT_COOLDOWN_MS) {
+      alertable.push(v);
+      nextMemory.push({ det: v, lastSeenAt: nowMs, lastAlertAt: nowMs });
+    } else {
+      // Stationary (or tiny jitter) — refresh memory, do not alert.
+      nextMemory.push({
+        det: v,
+        lastSeenAt: nowMs,
+        lastAlertAt: prev.lastAlertAt,
+      });
+    }
+  }
+
+  // Keep unmatched recent memory briefly so a one-tick miss does not clear it.
+  for (const leftover of memory) {
+    if (nowMs - leftover.lastSeenAt <= 15_000) nextMemory.push(leftover);
+  }
+  vehicleMemoryByCamera.set(cameraId, nextMemory);
+  return alertable;
 }
 
 async function emitAlert(
@@ -221,14 +307,11 @@ async function processCamera(camera: Awaited<ReturnType<typeof listAiEnabledCame
       }
     }
 
-    // Vehicle: rising edge OR a distinct new box vs previous tick (2nd car while 1st still there).
-    const prevVehicles = prevVehiclesByCamera.get(camera.id) ?? [];
-    const newVehicles = findNewVehicles(prevVehicles, vehicles);
-    prevVehiclesByCamera.set(camera.id, vehicles);
-
-    if (newVehicles.length > 0) {
+    // Vehicle: alert on newly appearing or clearly moving cars only — ignore parked/stationary.
+    const alertVehicles = findAlertableVehicles(camera.id, vehicles, now);
+    if (alertVehicles.length > 0) {
       const last = lastVehicleAlertAt.get(camera.id) ?? 0;
-      const best = bestOf(newVehicles);
+      const best = bestOf(alertVehicles);
       if (best && now - last >= VEHICLE_ALERT_COOLDOWN_MS) {
         await emitAlert(camera, jpeg, best);
         lastVehicleAlertAt.set(camera.id, now);
@@ -242,7 +325,6 @@ async function processCamera(camera: Awaited<ReturnType<typeof listAiEnabledCame
       error: message,
     });
     hadPerson.set(camera.id, false);
-    prevVehiclesByCamera.set(camera.id, []);
     personConfirmPending.delete(camera.id);
     console.warn(`[cctv-ai] camera ${camera.id}:`, message);
   }
