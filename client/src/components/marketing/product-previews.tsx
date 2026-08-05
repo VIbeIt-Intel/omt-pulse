@@ -1287,18 +1287,19 @@ export function ProductPreviewsSection() {
           >
             <ControlRoomOpsPresentation compact />
           </WideMockCard>
-          <WideMockCard
+          <WideScreenshot
+            src="/marketing/live-monitor.jpg"
+            alt="OMT Pulse Live Monitor — active theft response with GPS tracking on Pretoria map"
             label="Live Monitor"
             onExpand={() =>
               setLightbox({
-                alt: "Live Monitor with personnel and vehicles on map",
-                caption: "Live Monitor — personnel, vehicles and incidents",
-                kind: "live-monitor-mock",
+                src: "/marketing/live-monitor.jpg",
+                alt: "OMT Pulse Live Monitor — active theft response with GPS tracking on Pretoria map",
+                caption: "Live Monitor — live response, GPS track and units on the map",
+                kind: "image",
               })
             }
-          >
-            <LiveMonitorOpsPresentation compact />
-          </WideMockCard>
+          />
           <WideMockCard
             label="Group radio (PTT)"
             onExpand={() =>
@@ -1357,9 +1358,10 @@ const GALLERY: LightboxItem[] = [
     kind: "analytics-map-mock",
   },
   {
-    alt: "Live Monitor with personnel, vehicles and an active incident on the map",
-    caption: "Live Monitor — personnel, vehicles and incidents",
-    kind: "live-monitor-mock",
+    src: "/marketing/live-monitor.jpg",
+    alt: "Live Monitor with active theft response and GPS tracking on Pretoria map",
+    caption: "Live Monitor — live response, GPS track and units on the map",
+    kind: "image",
   },
   {
     alt: "Control Room with team and fleet units for presentation",
@@ -1391,12 +1393,6 @@ const GALLERY: LightboxItem[] = [
     alt: "Fleet routes presentation — daily travel map, trip log and playback controls",
     caption: "Fleet routes — daily travel, trips and playback",
     kind: "routes-mock",
-  },
-  {
-    src: "/marketing/turn-by-turn-nav.png",
-    alt: "Turn-by-turn navigation during a live incident response",
-    caption: "Field navigation — turn-by-turn while responding live",
-    kind: "image",
   },
 ];
 
