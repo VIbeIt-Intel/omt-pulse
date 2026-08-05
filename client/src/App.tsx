@@ -1,6 +1,6 @@
 import { Switch, Route, useLocation, Link } from "wouter";
 import { canAccessPatrolModule } from "@shared/user-roles";
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useLayoutEffect, useState, useRef, useCallback } from "react";
 import {
   type NativePushStatus,
   enableNativePush,
@@ -1060,6 +1060,21 @@ function UnauthenticatedApp() {
   );
 }
 
+/** Keep the public marketing route dark while auth is resolving. */
+function MarketingDarkGate() {
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    root.dataset.forceTheme = "dark";
+    root.classList.remove("light");
+    root.classList.add("dark");
+  }, []);
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background">
+      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+    </div>
+  );
+}
+
 // Marketing landing page wrapper — public, no auth, no PWA install gate.
 function PublicLanding() {
   return <LandingPage />;
@@ -1165,11 +1180,7 @@ function RootRouter() {
   // Visitor at "/" with no session → marketing landing page, no install gate.
   if (location === "/" && !user) {
     if (isLoading) {
-      return (
-        <div className="min-h-screen flex items-center justify-center bg-background">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
-      );
+      return <MarketingDarkGate />;
     }
     return <PublicLanding />;
   }

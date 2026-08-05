@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useLayoutEffect } from "react";
 import { Link } from "wouter";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -269,8 +269,25 @@ function useLandingSEO() {
   }, []);
 }
 
+/** Public marketing site is dark-only — does not change the in-app theme preference. */
+function useForceMarketingDark() {
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    root.dataset.forceTheme = "dark";
+    root.classList.remove("light");
+    root.classList.add("dark");
+    return () => {
+      delete root.dataset.forceTheme;
+      const stored = localStorage.getItem("ob-theme");
+      root.classList.remove("light", "dark");
+      root.classList.add(stored === "dark" ? "dark" : "light");
+    };
+  }, []);
+}
+
 export default function LandingPage() {
   useLandingSEO();
+  useForceMarketingDark();
   const { toast } = useToast();
   const [form, setForm] = useState({
     name: "",
