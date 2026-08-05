@@ -64,7 +64,7 @@ import {
   resolveNavFieldPhase,
 } from "@/components/live-incident-navigation";
 import { probePanicLocation } from "@/lib/panic-send";
-import { acquirePanicLocation, hasPanicCoordinates } from "@/lib/panic-location";
+import { hasPanicCoordinates } from "@/lib/panic-location";
 import { requestLocationAccess } from "@/lib/request-location-access";
 import { normalizeAudioMimeType } from "@/lib/attachment-kind";
 import {
@@ -1232,41 +1232,55 @@ export default function LiveIncidentPage() {
     trackingStartedAtRef.current = 0;
   }
 
+  async function ensureLiveLocationAccess(opts?: {
+    /** Block start/nav until we have coordinates (not just settings opened). */
+    requireFix?: boolean;
+  }): Promise<{ ok: true; lat?: number; lng?: number } | { ok: false }> {
+    const { result, message, lat, lng } = await requestLocationAccess({
+      permissionHint: locationPermission,
+      probeMode: "settle",
+    });
+    if (result === "granted") {
+      if (lat != null && lng != null) {
+        const p = { lat, lng };
+        lastPosRef.current = p;
+        setUserLoc(p);
+        if (isNative && capMapRef.current) {
+          void capMapRef.current.setUserLocation(lat, lng);
+        }
+      }
+      return { ok: true, lat, lng };
+    }
+    if (result === "settings-opened") {
+      toast({
+        title: "Turn on Location",
+        description: message || "Enable Location, return here, then try again.",
+      });
+      return { ok: false };
+    }
+    toast({
+      title: result === "denied" ? "Location blocked" : "Location required",
+      description: message,
+      variant: "destructive",
+    });
+    if (opts?.requireFix) return { ok: false };
+    return { ok: false };
+  }
+
   async function handleRequestMapLocation() {
     if (mapLocationRequesting) return;
     setMapLocationRequesting(true);
     try {
-      const { result, message, lat, lng } = await requestLocationAccess({
-        permissionHint: locationPermission,
-      });
-      if (result === "granted") {
-        const incId = currentIncidentId;
-        if (lat != null && lng != null) {
-          const p = { lat, lng };
-          lastPosRef.current = p;
-          setUserLoc(p);
-          if (isNative && capMapRef.current) {
-            void capMapRef.current.setUserLocation(lat, lng);
-          }
-        }
-        if (incId != null) startTracking(incId);
-        toast({
-          title: lat != null && lng != null ? "Location on" : "Acquiring GPS",
-          description:
-            lat != null && lng != null
-              ? message
-              : "Permission granted — waiting for your first GPS fix.",
-        });
-        return;
-      }
-      if (result === "settings-opened") {
-        toast({ title: "Opening Settings", description: message });
-        return;
-      }
+      const access = await ensureLiveLocationAccess();
+      if (!access.ok) return;
+      const incId = currentIncidentId;
+      if (incId != null) startTracking(incId);
       toast({
-        title: result === "denied" ? "Location blocked" : "Turn on GPS",
-        description: message,
-        variant: "destructive",
+        title: access.lat != null && access.lng != null ? "Location on" : "Acquiring GPS",
+        description:
+          access.lat != null && access.lng != null
+            ? "GPS is on — tracking your position."
+            : "Permission granted — waiting for your first GPS fix.",
       });
     } finally {
       setMapLocationRequesting(false);
@@ -3158,7 +3172,9 @@ export default function LiveIncidentPage() {
       cap.drawRoute(originToUse, { lat: dlat, lng: dlng }, skipFitBounds || navModeRef.current)
         .then(result => {
           if (gen !== drawRouteGenRef.current) return;
-          if (!result) return;
+          if (!result) {
+            throw new Error("DirectionsService:EMPTY_RESULT");
+          }
           applyGuidedRouteResult(
             result.steps as unknown as google.maps.DirectionsStep[],
             result.distance,
@@ -3177,9 +3193,13 @@ export default function LiveIncidentPage() {
               lastDirectionsToastAtRef.current = now;
               toast({
                 title: 'Could not compute driving route',
-                description: 'Try starting navigation again.',
+                description: 'Switching to direct guidance (distance & bearing).',
                 variant: 'destructive',
               });
+            }
+            // Don't leave the UI stuck on "Loading route…" / black map.
+            if (navModeRef.current && activeNavStyleRef.current === "guided") {
+              switchToDirectNav("Turn-by-turn unavailable — using direct guidance.");
             }
           }
         });
@@ -3232,6 +3252,18 @@ export default function LiveIncidentPage() {
         } else {
           map.setCenter({ lat: dlat, lng: dlng });
           map.setZoom(13);
+          if (navModeRef.current && activeNavStyleRef.current === "guided") {
+            const now = Date.now();
+            if (now - lastDirectionsToastAtRef.current > 30_000) {
+              lastDirectionsToastAtRef.current = now;
+              toast({
+                title: "Could not compute driving route",
+                description: "Switching to direct guidance (distance & bearing).",
+                variant: "destructive",
+              });
+            }
+            switchToDirectNav("Turn-by-turn unavailable — using direct guidance.");
+          }
         }
       }
     );
@@ -3241,6 +3273,12 @@ export default function LiveIncidentPage() {
     if (starting || liveId !== null) return;
     try {
       setStarting(true);
+      // Location off / blocked → open phone Location settings (same as Patrol).
+      // Do not create a live incident until GPS can run.
+      const access = await ensureLiveLocationAccess({ requireFix: true });
+      if (!access.ok || access.lat == null || access.lng == null) {
+        return;
+      }
       const now = new Date();
       const storedSeverity = (() => { try { return localStorage.getItem("omt_live_severity_sel"); } catch { return null; } })() as "red" | "orange" | "yellow" | null;
       const storedCatId = retryWithoutCategory ? null : (() => { try { return localStorage.getItem("omt_live_category_sel"); } catch { return null; } })();
@@ -3296,6 +3334,18 @@ export default function LiveIncidentPage() {
         variant: "destructive",
       });
       return;
+    }
+    // Location off → open settings before entering NAVIGATING (avoids blank map / no route).
+    if (
+      !lastPosRef.current
+      || gpsStatus === "denied"
+      || gpsStatus === "unavailable"
+      || locationPermission === "denied"
+    ) {
+      const access = await ensureLiveLocationAccess({ requireFix: true });
+      if (!access.ok || access.lat == null || access.lng == null) {
+        return;
+      }
     }
     try {
       setDispatching(true);
@@ -3402,18 +3452,13 @@ export default function LiveIncidentPage() {
     let origin = lastPosRef.current;
     if (!origin) {
       setAcquiringJoinerGps(true);
-      const probe = await acquirePanicLocation();
+      const access = await ensureLiveLocationAccess({ requireFix: true });
       setAcquiringJoinerGps(false);
-      if (!hasPanicCoordinates(probe)) {
+      if (!access.ok || access.lat == null || access.lng == null) {
         setJoinerGpsBlocked(true);
-        toast({
-          title: "Turn on location to navigate",
-          description: "Navigation needs your live position. Enable Location for OMT Pulse, then tap Navigate again.",
-          variant: "destructive",
-        });
         return;
       }
-      origin = { lat: probe.lat, lng: probe.lng };
+      origin = { lat: access.lat, lng: access.lng };
       lastPosRef.current = origin;
     }
     setJoinerGpsBlocked(false);
@@ -3700,11 +3745,54 @@ export default function LiveIncidentPage() {
   // Keep currentStepIndexRef in sync so the step-tracking interval can read the latest step index.
   useEffect(() => { currentStepIndexRef.current = currentStepIndex; }, [currentStepIndex]);
 
+  // If guided nav never receives steps (Directions hung / denied / JS API race),
+  // retry once then fall back to direct guidance so the phone isn't stuck on
+  // "Loading route…" over a blank map.
+  useEffect(() => {
+    if (!navMode || activeNavStyle !== "guided") return;
+    if (steps.length > 0) return;
+    let cancelled = false;
+    const retryId = window.setTimeout(() => {
+      if (cancelled || stepsRef.current.length > 0) return;
+      const dest = destPositionRef.current;
+      const origin = lastPosRef.current;
+      if (dest && origin) {
+        drawRoute(dest.lat, dest.lng, origin, true);
+      }
+    }, 4_000);
+    const fallbackId = window.setTimeout(() => {
+      if (cancelled || stepsRef.current.length > 0) return;
+      if (isNative && !nativeMapFailed) {
+        // Native hole can stay black when tiles/route never settle — flip to web map.
+        setNativeMapFailed(true);
+        setNativeMapStatus("error");
+        setNativeMapErrorMsg("Guided route timed out — using web map");
+      }
+      switchToDirectNav("Turn-by-turn route timed out — showing direct guidance.");
+    }, 12_000);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(retryId);
+      window.clearTimeout(fallbackId);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navMode, activeNavStyle, steps.length, isNative, nativeMapFailed]);
+
   // When navMode activates: scroll to top, apply navigation perspective (tilt + heading-up).
   // When navMode deactivates: reset map to default top-down view and resize.
   useEffect(() => {
     if (navMode && scrollContainerRef.current) {
       scrollContainerRef.current.scrollTop = 0;
+    }
+    // Nav layout change often moves the host; force a bounds sync so the native
+    // MapView isn't left painted in a stale/zero rect (blank black map).
+    if (navMode && isNative && capMapRef.current) {
+      window.setTimeout(() => {
+        void capMapRef.current?.syncBounds?.();
+      }, 120);
+      window.setTimeout(() => {
+        void capMapRef.current?.syncBounds?.();
+      }, 500);
     }
     // ── Native (Capacitor) camera + step seeding ────────────────────────────────
     if (isNative && capMapRef.current && mapsReady) {

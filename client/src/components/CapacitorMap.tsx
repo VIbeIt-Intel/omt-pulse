@@ -401,8 +401,26 @@ const CapacitorMap = forwardRef<CapacitorMapHandle, CapacitorMapProps>(
       // Capacitor WebView. The polyline is then drawn on the NATIVE Capacitor map.
       async drawRoute(origin, destination, skipFitBounds = false) {
         const map = mapRef.current;
-        if (!map) return null;
-        if (typeof window === 'undefined' || !window.google?.maps) return null;
+        if (!map) throw new Error("DirectionsService:NATIVE_MAP_NOT_READY");
+        // Directions uses the JS API (not the native SDK). Wait briefly if the
+        // script is still booting — returning null used to leave nav stuck on
+        // "Loading route…" with no toast.
+        if (typeof window === "undefined") {
+          throw new Error("DirectionsService:NO_WINDOW");
+        }
+        if (!window.google?.maps?.DirectionsService) {
+          const { loadGoogleMaps } = await import("@/lib/google-maps-loader");
+          try {
+            await loadGoogleMaps({ timeoutMs: 20_000 });
+          } catch (e) {
+            throw new Error(
+              `DirectionsService:JS_API_NOT_READY:${e instanceof Error ? e.message : String(e)}`,
+            );
+          }
+        }
+        if (!window.google?.maps?.DirectionsService) {
+          throw new Error("DirectionsService:JS_API_NOT_READY");
+        }
 
         // Remove previous polylines
         if (polyIdsRef.current.length) {
