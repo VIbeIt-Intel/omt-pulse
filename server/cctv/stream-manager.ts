@@ -110,17 +110,19 @@ function waitForPlaylist(dir: string, timeoutMs: number): Promise<void> {
 function hlsOutputArgs(outDir: string): { segmentPattern: string; playlistPath: string; args: string[] } {
   const segmentPattern = path.join(outDir, "seg_%03d.ts");
   const playlistPath = path.join(outDir, "playlist.m3u8");
+  // 2s segments without independent_segments: with -c:v copy, 1s + independent_segments
+  // often splits mid-GOP and browsers paint a corrupted bottom macroblock band.
   const args = [
     "-f",
     "hls",
     "-hls_time",
-    "1",
+    "2",
     "-hls_list_size",
-    "3",
+    "4",
     "-hls_segment_type",
     "mpegts",
     "-hls_flags",
-    "delete_segments+append_list+omit_endlist+independent_segments",
+    "delete_segments+append_list+omit_endlist",
     "-hls_segment_filename",
     segmentPattern,
     playlistPath,
@@ -149,7 +151,9 @@ function videoEncodeArgs(
   streamQuality: CctvStreamQuality,
 ): string[] {
   if (mode === "copy") {
-    return ["-c:v", "copy"];
+    // Annex-B NALs are required for MPEG-TS HLS. Without this, some camera
+    // bitstreams decode with a smeared/corrupt band along the bottom of the frame.
+    return ["-c:v", "copy", "-bsf:v", "h264_mp4toannexb"];
   }
 
   const vf = videoFilters(streamRotation, streamQuality);

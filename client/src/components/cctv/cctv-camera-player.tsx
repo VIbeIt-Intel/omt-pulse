@@ -159,10 +159,11 @@ export function CctvCameraPlayer({
     async function attachHlsJs() {
       const hls = new Hls({
         enableWorker: true,
-        lowLatencyMode: true,
-        liveSyncDurationCount: 1,
-        liveMaxLatencyDurationCount: 3,
-        maxLiveSyncPlaybackRate: 1.5,
+        // Keep near-live without chasing the edge so hard that partial segments tear.
+        lowLatencyMode: false,
+        liveSyncDurationCount: 2,
+        liveMaxLatencyDurationCount: 5,
+        maxLiveSyncPlaybackRate: 1.2,
       });
       hlsRef.current = hls;
       hls.loadSource(playlistUrl);
