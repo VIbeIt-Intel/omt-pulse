@@ -29,7 +29,11 @@ import {
   FileCheck2,
 } from "lucide-react";
 import omtLogo from "@/assets/omt-logo-v2.png";
-import { FieldGallerySection, ProductPreviewsSection } from "@/components/marketing/product-previews";
+import {
+  ControlRoomPresentation,
+  FieldGallerySection,
+  ProductPreviewsSection,
+} from "@/components/marketing/product-previews";
 import { INTELAFRI_URL } from "@/lib/site-links";
 
 const WHATSAPP_NUMBER = "27675351325";
@@ -307,16 +311,12 @@ export default function LandingPage() {
               <div className="relative w-full max-w-xl">
                 <div className="absolute -inset-4 -z-10 rounded-3xl bg-primary/15 blur-2xl" />
                 <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-xl shadow-primary/10">
-                  <img
-                    src="/marketing/control-room.png"
-                    alt="OMT Pulse Control Room — group radio, site monitor, fleet and live overview"
-                    className="w-full object-cover object-top"
-                    loading="eager"
-                    decoding="async"
-                  />
+                  <div className="max-h-[420px] overflow-hidden">
+                    <ControlRoomPresentation compact />
+                  </div>
                 </div>
                 <p className="mt-4 text-center text-xs text-muted-foreground">
-                  Real product — Control Room with live radio and site monitor
+                  Control Room — radio, live incidents, team &amp; fleet at a glance
                 </p>
               </div>
             </div>
