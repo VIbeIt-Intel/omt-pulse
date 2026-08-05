@@ -20,6 +20,8 @@ import {
   WifiOff,
   X,
   Expand,
+  Footprints,
+  Camera,
 } from "lucide-react";
 import {
   Dialog,
@@ -37,7 +39,9 @@ type LightboxKind =
   | "analytics-map-mock"
   | "control-room-mock"
   | "live-monitor-mock"
-  | "radio-mock";
+  | "radio-mock"
+  | "cameras-mock"
+  | "patrol-mock";
 
 type LightboxItem = {
   src?: string;
@@ -960,6 +964,271 @@ function RadioOpsPresentation({ compact = false }: { compact?: boolean }) {
   );
 }
 
+const CCTV_CAMERAS = [
+  { name: "Merweville Unit 2 Field", status: "Live", zone: true, ai: true },
+  { name: "Gate 1 Entrance", status: "Live", zone: true, ai: true },
+  { name: "Clubhouse North", status: "Live", zone: false, ai: true },
+  { name: "Perimeter East", status: "Live", zone: true, ai: false },
+  { name: "Parking Bay B", status: "Idle", zone: false, ai: false },
+  { name: "Warehouse Dock", status: "Live", zone: true, ai: true },
+];
+
+/** Multi-camera CCTV board — marketing sample. */
+function CamerasOpsPresentation({ compact = false }: { compact?: boolean }) {
+  const cams = compact ? CCTV_CAMERAS.slice(0, 4) : CCTV_CAMERAS;
+  const tiles = cams.slice(0, 4);
+
+  return (
+    <div className={cn("flex h-full flex-col overflow-hidden bg-[#0b0f14] text-foreground", compact ? "p-2" : "p-3")}>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-xs font-bold tracking-wide text-primary sm:text-sm">CAMERAS</p>
+          <p className="text-[10px] text-muted-foreground">{CCTV_CAMERAS.length} cameras · 5 live · sample board</p>
+        </div>
+        <span className="rounded-md border border-primary/40 bg-primary/15 px-2 py-0.5 text-[10px] font-semibold text-primary">
+          + Add camera
+        </span>
+      </div>
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,0.9fr)_minmax(0,1.6fr)] gap-2">
+        <div className="min-h-0 space-y-1 overflow-hidden rounded-lg border border-border/70 bg-card/30 p-1.5">
+          <p className="px-1 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Cameras ({cams.length})
+          </p>
+          {cams.map((c, i) => (
+            <div
+              key={c.name}
+              className={cn(
+                "flex items-center gap-1.5 rounded-md px-1.5 py-1.5 text-[10px]",
+                i === 0 ? "border border-primary/50 bg-primary/10" : "bg-muted/20",
+              )}
+            >
+              <Camera className="h-3 w-3 shrink-0 text-primary" />
+              <span className="min-w-0 flex-1 truncate font-medium">{c.name}</span>
+              <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", c.status === "Live" ? "bg-emerald-400" : "bg-slate-500")} />
+            </div>
+          ))}
+        </div>
+        <div className="grid min-h-0 grid-cols-2 grid-rows-2 gap-1.5">
+          {tiles.map((c, i) => {
+            const feedTone = [
+              "from-zinc-700 via-zinc-900 to-black",
+              "from-emerald-950 via-slate-900 to-black",
+              "from-slate-700 via-slate-900 to-black",
+              "from-sky-950 via-slate-900 to-black",
+            ][i % 4];
+            return (
+              <div
+                key={c.name}
+                className="relative overflow-hidden rounded-lg border border-border/70 bg-[#111827]"
+              >
+                <div className={cn("absolute inset-0 bg-gradient-to-br opacity-90", feedTone)} />
+                {/* faux night-scan lines */}
+                <div
+                  className="absolute inset-0 opacity-30"
+                  style={{
+                    backgroundImage:
+                      "repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.04) 2px, rgba(255,255,255,0.04) 3px)",
+                  }}
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-transparent to-black/45" />
+                <div className="absolute left-1.5 top-1.5 flex gap-1">
+                  {c.zone && (
+                    <span className="rounded bg-sky-600/90 px-1 py-px text-[8px] font-bold text-white">ZONE</span>
+                  )}
+                  {c.ai && (
+                    <span className="rounded bg-emerald-600/90 px-1 py-px text-[8px] font-bold text-white">AI</span>
+                  )}
+                </div>
+                <div className="absolute right-1.5 top-1.5 flex items-center gap-1 rounded bg-black/60 px-1 py-px text-[8px] font-semibold text-emerald-300">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                  REC
+                </div>
+                <div className="absolute bottom-1.5 left-1.5 right-1.5">
+                  <p className="truncate text-[9px] font-semibold text-white drop-shadow">{c.name}</p>
+                  <p className="text-[8px] text-emerald-300">{c.status}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const PATROL_CHECKS = [
+  { n: 1, name: "Gate house", time: "18:02", ok: true },
+  { n: 2, name: "Clubhouse", time: "18:19", ok: true },
+  { n: 3, name: "Perimeter East", time: "18:34", ok: true },
+  { n: 4, name: "Warehouse", time: "18:51", ok: true },
+  { n: 5, name: "Parking B", time: "19:08", ok: true },
+  { n: 6, name: "Unit 12 loop", time: "19:22", ok: true },
+  { n: 7, name: "Sports field", time: "19:37", ok: true },
+  { n: 8, name: "Gate house", time: "19:44", ok: true },
+];
+
+const PATROL_PLANNED: [number, number][] = [
+  [-25.858, 28.188],
+  [-25.861, 28.195],
+  [-25.866, 28.201],
+  [-25.872, 28.198],
+  [-25.875, 28.19],
+  [-25.87, 28.182],
+  [-25.864, 28.18],
+  [-25.858, 28.188],
+];
+
+const PATROL_TRACK: [number, number][] = [
+  [-25.8582, 28.1881],
+  [-25.8595, 28.191],
+  [-25.8612, 28.1948],
+  [-25.864, 28.1985],
+  [-25.8675, 28.2005],
+  [-25.871, 28.198],
+  [-25.8735, 28.193],
+  [-25.8748, 28.189],
+  [-25.872, 28.1835],
+  [-25.867, 28.1805],
+  [-25.862, 28.1815],
+  [-25.8585, 28.1875],
+];
+
+/** Completed patrol report with realistic map track — marketing sample. */
+function PatrolOpsPresentation({ compact = false }: { compact?: boolean }) {
+  const mapRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<L.Map | null>(null);
+  const checks = compact ? PATROL_CHECKS.slice(0, 5) : PATROL_CHECKS;
+
+  useEffect(() => {
+    if (!mapRef.current || mapInstanceRef.current) return;
+
+    const map = L.map(mapRef.current, {
+      zoomControl: false,
+      attributionControl: false,
+      dragging: false,
+      scrollWheelZoom: false,
+      doubleClickZoom: false,
+      boxZoom: false,
+      keyboard: false,
+      touchZoom: false,
+    });
+
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+      subdomains: "abcd",
+      maxZoom: 19,
+    }).addTo(map);
+
+    L.polyline(PATROL_PLANNED, {
+      color: "#60a5fa",
+      weight: 3,
+      opacity: 0.75,
+      dashArray: "6 6",
+    }).addTo(map);
+
+    L.polyline(PATROL_TRACK, {
+      color: "#34d399",
+      weight: 4,
+      opacity: 0.95,
+      lineCap: "round",
+      lineJoin: "round",
+    }).addTo(map);
+
+    PATROL_PLANNED.forEach((ll, i) => {
+      L.circleMarker(ll, {
+        radius: 6,
+        color: "#0b0f14",
+        weight: 2,
+        fillColor: "#3b82f6",
+        fillOpacity: 1,
+      }).addTo(map);
+      L.marker(ll, {
+        interactive: false,
+        icon: L.divIcon({
+          className: "",
+          html: `<div style="color:#fff;font:700 9px system-ui;text-shadow:0 1px 2px #000;margin-top:-5px;text-align:center;width:14px">${i + 1}</div>`,
+          iconSize: [14, 14],
+          iconAnchor: [7, 7],
+        }),
+      }).addTo(map);
+    });
+
+    const bounds = L.latLngBounds([...PATROL_PLANNED, ...PATROL_TRACK]);
+    map.fitBounds(bounds.pad(0.2));
+    mapInstanceRef.current = map;
+
+    const invalidate = () => map.invalidateSize();
+    const t1 = window.setTimeout(invalidate, 80);
+    const t2 = window.setTimeout(invalidate, 320);
+    window.addEventListener("resize", invalidate);
+
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+      window.removeEventListener("resize", invalidate);
+      map.remove();
+      mapInstanceRef.current = null;
+    };
+  }, []);
+
+  return (
+    <div className={cn("flex h-full flex-col overflow-hidden bg-[#0b0f14] text-foreground", compact ? "p-2" : "p-3")}>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-start gap-2">
+          <Footprints className="mt-0.5 h-4 w-4 text-primary" />
+          <div>
+            <p className="text-xs font-bold tracking-wide text-primary sm:text-sm">MERWEVILLE PATROL</p>
+            <p className="text-[10px] text-muted-foreground">Patroller 1 · Completed · Toyota Hilux HH12GP GP</p>
+          </div>
+        </div>
+        <span className="rounded-md border border-border bg-muted/40 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+          PDF
+        </span>
+      </div>
+      <div className="mb-2 grid grid-cols-4 gap-1.5">
+        {[
+          { label: "Duration", value: "1h 42m" },
+          { label: "Distance", value: "4.8 km" },
+          { label: "Checkpoints", value: "8/8" },
+          { label: "Track pts", value: "412" },
+        ].map((s) => (
+          <div key={s.label} className="rounded-lg border border-border/70 bg-card/40 px-2 py-1.5 text-center">
+            <p className="text-xs font-bold tabular-nums sm:text-sm">{s.value}</p>
+            <p className="text-[8px] uppercase tracking-wide text-muted-foreground">{s.label}</p>
+          </div>
+        ))}
+      </div>
+      <div className={cn("grid min-h-0 flex-1 gap-2", compact ? "grid-cols-1" : "grid-cols-[1.4fr_1fr]")}>
+        <div className="relative min-h-[7rem] overflow-hidden rounded-lg border border-border/70">
+          <div ref={mapRef} className="absolute inset-0 bg-[#0b1220]" aria-hidden />
+          <div className="pointer-events-none absolute bottom-1.5 left-1.5 z-[1] flex gap-1">
+            <span className="rounded bg-background/90 px-1.5 py-0.5 text-[8px] font-semibold shadow">
+              <Play className="mr-0.5 inline h-2.5 w-2.5 text-primary" /> Play route
+            </span>
+            <span className="rounded bg-background/80 px-1.5 py-0.5 text-[8px] text-muted-foreground shadow">
+              Green = actual · Blue = planned
+            </span>
+          </div>
+        </div>
+        {!compact && (
+          <div className="min-h-0 space-y-1 overflow-hidden rounded-lg border border-border/70 bg-card/30 p-2">
+            <p className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">Checkpoint log</p>
+            {checks.map((c) => (
+              <div key={c.n} className="flex items-center gap-2 text-[10px]">
+                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-blue-500/90 text-[8px] font-bold text-white">
+                  {c.n}
+                </span>
+                <span className="min-w-0 flex-1 truncate font-medium">{c.name}</span>
+                <span className="tabular-nums text-muted-foreground">{c.time}</span>
+                <span className="text-emerald-400">✓</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function ProductPreviewsSection() {
   const [lightbox, setLightbox] = useState<LightboxItem | null>(null);
 
@@ -1009,19 +1278,18 @@ export function ProductPreviewsSection() {
           >
             <RadioOpsPresentation compact />
           </WideMockCard>
-          <WideScreenshot
-            src="/marketing/cameras-cctv.png"
-            alt="OMT Pulse Cameras — live CCTV feed with zone and AI controls"
+          <WideMockCard
             label="Cameras / CCTV"
             onExpand={() =>
               setLightbox({
-                src: "/marketing/cameras-cctv.png",
-                alt: "OMT Pulse Cameras — live CCTV feed with zone and AI controls",
-                caption: "Cameras / CCTV",
-                kind: "image",
+                alt: "Multi-camera CCTV board with live feeds",
+                caption: "Cameras / CCTV — multi-camera Control Room board",
+                kind: "cameras-mock",
               })
             }
-          />
+          >
+            <CamerasOpsPresentation compact />
+          </WideMockCard>
         </div>
         <div className="mt-14 flex justify-center">
           <PhoneScreenshot
@@ -1066,21 +1334,19 @@ const GALLERY: LightboxItem[] = [
     kind: "control-room-mock",
   },
   {
-    src: "/marketing/cameras-cctv.png",
-    alt: "Cameras page with live CCTV feed and zone controls",
-    caption: "Cameras / CCTV — live feeds from Control Room",
-    kind: "image",
+    alt: "Multi-camera CCTV board with live feeds and AI/zone badges",
+    caption: "Cameras / CCTV — multi-camera Control Room board",
+    kind: "cameras-mock",
+  },
+  {
+    alt: "Completed Merweville patrol with GPS track and checkpoint log",
+    caption: "Patrol — completed route, checkpoints and GPS track",
+    kind: "patrol-mock",
   },
   {
     src: "/marketing/incident-docket.png",
     alt: "Incident docket with panic status, live timeline and evidence",
     caption: "Incident docket — timeline, GPS and evidence trail",
-    kind: "image",
-  },
-  {
-    src: "/marketing/patrol-report.png",
-    alt: "Patrol report with checkpoints, route map and playback",
-    caption: "Patrol — checkpoints, route map and PDF report",
     kind: "image",
   },
   {
@@ -1116,6 +1382,8 @@ function GalleryPreview({ item }: { item: LightboxItem }) {
   if (item.kind === "control-room-mock") return wrap(<ControlRoomOpsPresentation compact />);
   if (item.kind === "live-monitor-mock") return wrap(<LiveMonitorOpsPresentation compact />);
   if (item.kind === "radio-mock") return wrap(<RadioOpsPresentation compact />);
+  if (item.kind === "cameras-mock") return wrap(<CamerasOpsPresentation compact />);
+  if (item.kind === "patrol-mock") return wrap(<PatrolOpsPresentation compact />);
 
   return (
     <img
@@ -1210,6 +1478,10 @@ function ScreenshotLightbox({
           <LiveMonitorOpsPresentation />
         ) : item?.kind === "radio-mock" ? (
           <RadioOpsPresentation />
+        ) : item?.kind === "cameras-mock" ? (
+          <CamerasOpsPresentation />
+        ) : item?.kind === "patrol-mock" ? (
+          <PatrolOpsPresentation />
         ) : item?.kind === "phone" && item.src ? (
           <div
             className="mx-auto overflow-hidden rounded-[1.75rem] border-[3px] border-border bg-[#0b0f14] p-1.5 shadow-lg shadow-primary/15"
