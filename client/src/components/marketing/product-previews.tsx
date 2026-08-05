@@ -1,6 +1,8 @@
 /** Product screenshots + presentation mocks for omtpulse.com */
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
 import {
   AlertTriangle,
   Car,
@@ -31,6 +33,9 @@ type LightboxItem = {
   kind?: "image" | "fleet-mock" | "routes-mock";
 };
 
+/** Matches marketing/mobile-dashboard.png (460×928). */
+const PHONE_FRAME_ASPECT = "460 / 928";
+
 function PhoneScreenshot({ src, alt, label, onExpand }: {
   src: string;
   alt: string;
@@ -42,14 +47,17 @@ function PhoneScreenshot({ src, alt, label, onExpand }: {
       <button
         type="button"
         onClick={onExpand}
-        className="group relative w-full max-w-[300px] rounded-[1.75rem] border-[3px] border-foreground/10 bg-card p-2 shadow-lg shadow-primary/10 text-left transition hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+        className="group relative w-full max-w-[300px] rounded-[1.75rem] border-[3px] border-border bg-[#0b0f14] p-1.5 shadow-lg shadow-primary/10 text-left transition hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
         aria-label={`Expand ${label}`}
       >
-        <div className="overflow-hidden rounded-[1.35rem] border border-border bg-[#0b0f14] aspect-[9/19.5] flex items-center justify-center">
+        <div
+          className="relative w-full overflow-hidden rounded-[1.25rem] bg-[#0b0f14]"
+          style={{ aspectRatio: PHONE_FRAME_ASPECT }}
+        >
           <img
             src={src}
             alt={alt}
-            className="h-full w-full object-contain object-top"
+            className="absolute inset-0 h-full w-full object-cover object-top"
             loading="lazy"
             decoding="async"
           />
@@ -213,6 +221,158 @@ const PRESENTATION_TRIPS = [
   { n: 8, time: "14:12 – 15:01", km: "38.4 km", color: "#c084fc" },
 ];
 
+/** Sample day routes along Pretoria → Centurion → Johannesburg corridor (marketing only). */
+const PRESENTATION_ROUTE_PATHS: { color: string; latlngs: [number, number][] }[] = [
+  {
+    color: "#f97316",
+    latlngs: [
+      [-25.7479, 28.2293],
+      [-25.762, 28.218],
+      [-25.78, 28.205],
+      [-25.805, 28.195],
+      [-25.83, 28.19],
+    ],
+  },
+  {
+    color: "#22d3ee",
+    latlngs: [
+      [-25.83, 28.19],
+      [-25.86, 28.189],
+      [-25.89, 28.175],
+      [-25.94, 28.15],
+      [-25.99, 28.12],
+    ],
+  },
+  {
+    color: "#a78bfa",
+    latlngs: [
+      [-25.99, 28.12],
+      [-26.04, 28.1],
+      [-26.09, 28.08],
+      [-26.14, 28.06],
+      [-26.2041, 28.0473],
+    ],
+  },
+  {
+    color: "#34d399",
+    latlngs: [
+      [-25.86, 28.189],
+      [-25.87, 28.22],
+      [-25.875, 28.255],
+      [-25.86, 28.29],
+      [-25.84, 28.31],
+    ],
+  },
+  {
+    color: "#fb7185",
+    latlngs: [
+      [-26.05, 28.1],
+      [-26.08, 28.14],
+      [-26.11, 28.18],
+      [-26.13, 28.22],
+      [-26.12, 28.26],
+    ],
+  },
+  {
+    color: "#fbbf24",
+    latlngs: [
+      [-25.78, 28.205],
+      [-25.8, 28.24],
+      [-25.82, 28.27],
+      [-25.85, 28.3],
+      [-25.88, 28.32],
+    ],
+  },
+];
+
+function PresentationRouteMap({ compact = false }: { compact?: boolean }) {
+  const mapRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<L.Map | null>(null);
+
+  useEffect(() => {
+    if (!mapRef.current || mapInstanceRef.current) return;
+
+    const map = L.map(mapRef.current, {
+      zoomControl: false,
+      attributionControl: false,
+      dragging: false,
+      scrollWheelZoom: false,
+      doubleClickZoom: false,
+      boxZoom: false,
+      keyboard: false,
+      touchZoom: false,
+    });
+
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+      subdomains: "abcd",
+      maxZoom: 19,
+    }).addTo(map);
+
+    const layers: L.Layer[] = [];
+    for (const route of PRESENTATION_ROUTE_PATHS) {
+      layers.push(
+        L.polyline(route.latlngs, {
+          color: route.color,
+          weight: 3.5,
+          opacity: 0.92,
+          lineCap: "round",
+          lineJoin: "round",
+        }).addTo(map),
+      );
+    }
+
+    const start = PRESENTATION_ROUTE_PATHS[0].latlngs[0];
+    const end = PRESENTATION_ROUTE_PATHS[2].latlngs[PRESENTATION_ROUTE_PATHS[2].latlngs.length - 1];
+    layers.push(
+      L.circleMarker(start, {
+        radius: 6,
+        color: "#052e16",
+        weight: 2,
+        fillColor: "#22c55e",
+        fillOpacity: 1,
+      }).addTo(map),
+    );
+    layers.push(
+      L.circleMarker(end, {
+        radius: 6,
+        color: "#450a0a",
+        weight: 2,
+        fillColor: "#ef4444",
+        fillOpacity: 1,
+      }).addTo(map),
+    );
+
+    const bounds = L.latLngBounds(PRESENTATION_ROUTE_PATHS.flatMap((r) => r.latlngs));
+    map.fitBounds(bounds.pad(0.12));
+    mapInstanceRef.current = map;
+
+    const invalidate = () => map.invalidateSize();
+    const t1 = window.setTimeout(invalidate, 80);
+    const t2 = window.setTimeout(invalidate, 320);
+    window.addEventListener("resize", invalidate);
+
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+      window.removeEventListener("resize", invalidate);
+      map.remove();
+      mapInstanceRef.current = null;
+    };
+  }, []);
+
+  return (
+    <div className={cn("relative w-full", compact ? "h-40" : "h-56 sm:h-64")}>
+      <div ref={mapRef} className="absolute inset-0 z-0 bg-[#0b1220]" aria-hidden />
+      <div className="pointer-events-none absolute bottom-2 left-2 z-[1] flex items-center gap-2">
+        <span className="inline-flex items-center gap-1 rounded-md bg-background/90 px-2 py-1 text-[10px] font-semibold shadow">
+          <Play className="h-3 w-3 text-primary" /> Play route
+        </span>
+        <span className="rounded-md bg-background/80 px-2 py-1 text-[10px] text-muted-foreground shadow">1x</span>
+      </div>
+    </div>
+  );
+}
+
 function FleetRoutesPresentation({ compact = false }: { compact?: boolean }) {
   const trips = compact ? PRESENTATION_TRIPS.slice(0, 5) : PRESENTATION_TRIPS;
 
@@ -265,60 +425,7 @@ function FleetRoutesPresentation({ compact = false }: { compact?: boolean }) {
           </span>
         </div>
 
-        {/* Crisp SVG route map (no blurry screenshot) */}
-        <div className={cn("relative w-full", compact ? "h-40" : "h-56 sm:h-64")}>
-          <svg viewBox="0 0 640 280" className="h-full w-full" aria-hidden>
-            <defs>
-              <linearGradient id="fleetMapFade" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#0f172a" />
-                <stop offset="100%" stopColor="#020617" />
-              </linearGradient>
-            </defs>
-            <rect width="640" height="280" fill="url(#fleetMapFade)" />
-            {/* Grid / roads */}
-            {Array.from({ length: 8 }).map((_, i) => (
-              <line
-                key={`h-${i}`}
-                x1="0"
-                y1={30 + i * 32}
-                x2="640"
-                y2={30 + i * 32}
-                stroke="#1e293b"
-                strokeWidth="1"
-              />
-            ))}
-            {Array.from({ length: 10 }).map((_, i) => (
-              <line
-                key={`v-${i}`}
-                x1={40 + i * 64}
-                y1="0"
-                x2={40 + i * 64}
-                y2="280"
-                stroke="#1e293b"
-                strokeWidth="1"
-              />
-            ))}
-            <text x="48" y="36" fill="#64748b" fontSize="11" fontFamily="system-ui,sans-serif">Pretoria</text>
-            <text x="420" y="88" fill="#64748b" fontSize="11" fontFamily="system-ui,sans-serif">Centurion</text>
-            <text x="500" y="200" fill="#64748b" fontSize="11" fontFamily="system-ui,sans-serif">Johannesburg</text>
-            {/* Trip polylines */}
-            <polyline fill="none" stroke="#f97316" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" points="60,220 120,180 180,160 220,140" />
-            <polyline fill="none" stroke="#22d3ee" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" points="220,140 280,120 340,100 400,90" />
-            <polyline fill="none" stroke="#a78bfa" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" points="400,90 460,110 520,150 560,190" />
-            <polyline fill="none" stroke="#34d399" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" points="180,200 260,190 320,170 380,160 440,170" />
-            <polyline fill="none" stroke="#fb7185" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" points="100,100 160,130 210,150 250,180" />
-            {/* Start / stop markers */}
-            <circle cx="60" cy="220" r="6" fill="#22c55e" stroke="#052e16" strokeWidth="2" />
-            <circle cx="560" cy="190" r="6" fill="#ef4444" stroke="#450a0a" strokeWidth="2" />
-            <circle cx="320" cy="170" r="5" fill="#fbbf24" stroke="#422006" strokeWidth="2" />
-          </svg>
-          <div className="absolute bottom-2 left-2 flex items-center gap-2">
-            <span className="inline-flex items-center gap-1 rounded-md bg-background/90 px-2 py-1 text-[10px] font-semibold shadow">
-              <Play className="h-3 w-3 text-primary" /> Play route
-            </span>
-            <span className="rounded-md bg-background/80 px-2 py-1 text-[10px] text-muted-foreground shadow">1x</span>
-          </div>
-        </div>
+        <PresentationRouteMap compact={compact} />
       </div>
 
       <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
