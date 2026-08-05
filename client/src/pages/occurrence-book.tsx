@@ -511,7 +511,9 @@ export default function OccurrenceBook() {
             <>
               {!isOwnIncidentUser && (
                 <Button size="sm" className="shrink-0 h-8" onClick={() => { setEditingIncident(null); setDialogOpen(true); }} data-testid="button-new-incident">
-                  <Plus className="h-4 w-4 mr-1.5" /> Report incident
+                  <Plus className="h-4 w-4 mr-1.5" />
+                  <span className="md:hidden">Report</span>
+                  <span className="hidden md:inline">Report incident</span>
                 </Button>
               )}
               {isFieldReporter(currentUser?.role ?? "") && <ConnectivityBadge className="shrink-0" />}

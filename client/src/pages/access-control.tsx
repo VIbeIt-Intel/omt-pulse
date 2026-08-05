@@ -124,7 +124,14 @@ export default function AccessControlPage({ userRole }: AccessControlPageProps) 
       <div className={cn("shrink-0 pt-3 pb-2 md:pb-3", OPS_PAGE_SHELL)}>
         <PageHero
           eyebrow="Access Control"
-          badge={pageView === "overview" ? "Overview" : "Gate desk"}
+          // When mode toggles are in actions, skip badge so phones don't show a duplicate chip.
+          badge={
+            showOverview && canUseDesk
+              ? undefined
+              : pageView === "overview"
+                ? "Overview"
+                : "Gate desk"
+          }
           total={canUseDesk ? inside.length : activeDestinations.length}
           totalLabel={canUseDesk ? "On site" : "Destinations"}
           emptyMessage={

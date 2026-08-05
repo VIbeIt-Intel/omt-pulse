@@ -26,11 +26,8 @@ export function FieldPageHeading({
   titleTestId?: string;
 }) {
   return (
-    <div
-      className={cn("flex items-start justify-between gap-3", className)}
-      data-testid={testId}
-    >
-      <div className="min-w-0 flex-1 flex items-start gap-2.5">
+    <div className={cn("flex flex-col gap-2.5", className)} data-testid={testId}>
+      <div className="flex items-start gap-2.5 min-w-0">
         {leading}
         {Icon ? (
           <span
@@ -41,7 +38,7 @@ export function FieldPageHeading({
           </span>
         ) : null}
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 min-w-0 flex-wrap">
+          <div className="flex items-center gap-2 min-w-0">
             <h1
               className="text-lg font-semibold tracking-tight text-foreground truncate"
               data-testid={titleTestId}
@@ -62,7 +59,7 @@ export function FieldPageHeading({
         </div>
       </div>
       {actions ? (
-        <div className="shrink-0 flex flex-wrap items-center justify-end gap-1.5 [&_button]:h-8 [&_button]:px-2.5 [&_button]:text-xs">
+        <div className="flex flex-wrap items-center gap-1.5 w-full [&_button]:h-8 [&_button]:px-2.5 [&_button]:text-xs [&_a]:inline-flex">
           {actions}
         </div>
       ) : null}

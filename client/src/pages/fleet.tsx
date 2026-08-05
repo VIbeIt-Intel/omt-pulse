@@ -105,12 +105,15 @@ export default function FleetPage() {
               {!selected && isAdmin && (
                 <Button variant="outline" size="sm" className="h-8" onClick={() => setDefaultsOpen(true)}>
                   <Settings2 className="h-4 w-4 mr-1" />
-                  Alert defaults
+                  <span className="md:hidden">Alerts</span>
+                  <span className="hidden md:inline">Alert defaults</span>
                 </Button>
               )}
               <Link href="/dashboard">
                 <Button variant="outline" size="sm" className="h-8">
-                  Control Room <ChevronRight className="h-4 w-4 ml-1" />
+                  <span className="md:hidden">Control</span>
+                  <span className="hidden md:inline">Control Room</span>
+                  <ChevronRight className="h-4 w-4 ml-1" />
                 </Button>
               </Link>
             </>
