@@ -31,7 +31,6 @@ import {
   Camera,
   ClipboardList,
   Building2,
-  PhoneCall,
 } from "lucide-react";
 import omtLogo from "@/assets/omt-logo-v2.png";
 import { FieldGallerySection, ProductPreviewsSection } from "@/components/marketing/product-previews";
@@ -45,30 +44,6 @@ const HERO_TRUST = [
   { icon: FileCheck2, label: "POPIA-aligned" },
   { icon: Layers, label: "Multi-tenant Pulse Groups" },
   { icon: ShieldCheck, label: "Built for security ops" },
-];
-
-const HIGHLIGHTS = [
-  {
-    icon: ShieldAlert,
-    title: "Panic / SOS",
-    body: "One tap from the field. Control Room and nearby units get live GPS instantly — no radio hunt, no delay.",
-    image: "/marketing/live-monitor.jpg",
-    imageAlt: "Live Monitor with active incident response",
-  },
-  {
-    icon: MapPinned,
-    title: "Live Monitor",
-    body: "One ops map for incidents, personnel and fleet. Join, track GPS, escalate and close from the desk.",
-    image: "/marketing/live-monitor.jpg",
-    imageAlt: "Live Monitor ops map",
-  },
-  {
-    icon: BookOpenCheck,
-    title: "Occurrence Book",
-    body: "Every action logged with who, when and where. Searchable history and Excel export for audits and dockets.",
-    image: "/marketing/control-room-busy.png",
-    imageAlt: "Control Room and occurrence activity",
-  },
 ];
 
 const FEATURES = [
@@ -238,9 +213,9 @@ function useLandingSEO() {
     };
 
     const TITLE =
-      "OMT Pulse — Control Room ops for South African security teams";
+      "OMT Pulse — Live Control Room ops for security teams";
     const DESC =
-      "OMT Pulse unifies Control Room and field: live group radio, panic SOS, Live Monitor, occurrence book, fleet GPS, access control, patrol and CCTV — SA-hosted and POPIA-aligned.";
+      "One system for Control Room and field: live radio, panic SOS, Live Monitor, occurrence book, fleet GPS, access, patrol and CCTV. Hosted in South Africa and POPIA-aligned.";
     const URL = typeof window !== "undefined" ? window.location.origin : "https://omtpulse.com";
 
     document.title = TITLE;
@@ -350,7 +325,7 @@ export default function LandingPage() {
             </a>
             <a href="#contact" className="ml-1 hidden sm:inline">
               <Button size="sm" data-testid="button-nav-demo">
-                Book a demo
+                Request a demo
               </Button>
             </a>
             <Link href="/login">
@@ -365,63 +340,62 @@ export default function LandingPage() {
       {/* Hero */}
       <section className="relative overflow-hidden border-b border-border/60">
         <div className="pointer-events-none absolute inset-0 -z-10">
-          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_hsl(var(--primary)/0.14),_transparent_55%)]" />
-          <div className="absolute inset-0 bg-gradient-to-b from-background via-background to-card/40" />
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_hsl(var(--primary)/0.12),_transparent_50%)]" />
+          <div className="absolute inset-0 bg-gradient-to-b from-background via-background to-card/30" />
         </div>
-        <div className="mx-auto max-w-6xl px-4 pb-14 pt-12 sm:px-6 sm:pb-20 sm:pt-16">
-          <div className="grid items-center gap-12 lg:grid-cols-2 lg:gap-14">
+        <div className="mx-auto max-w-6xl px-4 pb-16 pt-14 sm:px-6 sm:pb-24 sm:pt-20">
+          <div className="grid items-center gap-14 lg:grid-cols-2 lg:gap-16">
             <div className="text-center lg:text-left">
-              <p className="mb-5 inline-flex items-center gap-2 rounded-full border border-border bg-card/70 px-3 py-1 text-xs font-medium text-muted-foreground">
+              <p className="mb-6 inline-flex items-center gap-2 rounded-full border border-border bg-card/70 px-3 py-1 text-xs font-medium text-muted-foreground">
                 <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-                Control Room + field app — one connected ops system
+                For South African security operations
               </p>
               <h1
-                className="mb-5 text-4xl font-bold leading-[1.1] tracking-tight sm:text-5xl lg:text-[3.35rem]"
+                className="mb-4 text-4xl font-bold leading-[1.12] tracking-tight sm:text-5xl lg:text-[3.15rem]"
                 data-testid="text-hero-title"
               >
-                The ops stack that keeps Control Room and field{" "}
-                <span className="text-primary">on the same map.</span>
+                Control Room and field —{" "}
+                <span className="text-primary">one live ops system.</span>
               </h1>
               <p
-                className="mb-8 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg lg:mx-0 mx-auto"
+                className="mb-8 max-w-lg text-base leading-relaxed text-muted-foreground sm:text-lg lg:mx-0 mx-auto"
                 data-testid="text-hero-subtitle"
               >
-                Live radio, one-tap panic, Live Monitor, occurrence book, fleet GPS, access,
-                patrol and CCTV — built for South African security sites that need clarity under pressure.
+                Radio, panic SOS, Live Monitor and occurrence logging in one stack — so desk and field stay aligned under pressure.
               </p>
               <div className="flex flex-col items-center justify-center gap-3 sm:flex-row lg:justify-start">
                 <a href="#contact">
                   <Button size="lg" className="w-full sm:w-auto" data-testid="button-cta-contact">
-                    Book a demo
+                    Request a demo
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>
                 </a>
-                <a href="#product">
-                  <Button size="lg" variant="outline" className="w-full sm:w-auto" data-testid="button-cta-product">
-                    See the product
+                <a
+                  href={`https://wa.me/${WHATSAPP_NUMBER}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <Button size="lg" variant="outline" className="w-full sm:w-auto" data-testid="button-cta-whatsapp">
+                    <MessageCircle className="mr-2 h-4 w-4" />
+                    Contact us on WhatsApp
                   </Button>
                 </a>
               </div>
               <p className="mt-4 text-xs text-muted-foreground lg:text-left text-center">
-                Access is by invitation. Request a demo and we&apos;ll set up your trial.
+                Invitation-only access. We&apos;ll arrange a walkthrough and trial for your sites.
               </p>
-              <div className="mt-8 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:gap-3">
+              <div className="mt-9 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 border-t border-border/70 pt-6 lg:justify-start">
                 {HERO_TRUST.map(({ icon: Icon, label }) => (
-                  <div
-                    key={label}
-                    className="flex items-center gap-2 rounded-xl border border-border/80 bg-card/50 px-2.5 py-2 text-left"
-                  >
+                  <div key={label} className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
                     <Icon className="h-3.5 w-3.5 shrink-0 text-primary" />
-                    <span className="text-[11px] font-medium leading-tight text-muted-foreground sm:text-xs">
-                      {label}
-                    </span>
+                    <span className="font-medium">{label}</span>
                   </div>
                 ))}
               </div>
             </div>
             <div className="flex justify-center lg:justify-end">
               <div className="relative w-full max-w-xl">
-                <div className="absolute -inset-3 -z-10 rounded-3xl bg-primary/12 blur-2xl" />
+                <div className="absolute -inset-3 -z-10 rounded-3xl bg-primary/10 blur-2xl" />
                 <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-2xl shadow-primary/10">
                   <img
                     src="/marketing/control-room-busy.png"
@@ -442,81 +416,23 @@ export default function LandingPage() {
 
       <ProductPreviewsSection />
 
-      {/* Ops pillars */}
-      <section className="border-y border-border bg-card/25">
-        <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-20">
-          <div className="mb-10 max-w-2xl">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-primary">
-              Core response
-            </p>
-            <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">
-              Panic, Live Monitor and the Occurrence Book — connected
-            </h2>
-            <p className="mt-2 text-sm text-muted-foreground sm:text-base">
-              The three surfaces every shift depends on: raise the alarm, see the response, keep the record.
-            </p>
-          </div>
-          <div className="grid gap-5 lg:grid-cols-3">
-            {HIGHLIGHTS.map(({ icon: Icon, title, body, image, imageAlt }) => (
-              <div
-                key={title}
-                className="group overflow-hidden rounded-2xl border border-border bg-background shadow-sm transition hover:border-primary/35"
-              >
-                <div className="aspect-[16/10] overflow-hidden border-b border-border bg-[#0b0f14]">
-                  <img
-                    src={image}
-                    alt={imageAlt}
-                    className="h-full w-full object-cover object-top transition duration-500 group-hover:scale-[1.02]"
-                    loading="lazy"
-                    decoding="async"
-                  />
-                </div>
-                <div className="p-5 sm:p-6">
-                  <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                    <Icon className="h-5 w-5" />
-                  </div>
-                  <h3 className="mb-1.5 text-lg font-semibold">{title}</h3>
-                  <p className="text-sm leading-relaxed text-muted-foreground">{body}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="mt-8 text-center">
-            <a href="#contact">
-              <Button data-testid="button-cta-highlights">
-                Book a demo
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Button>
-            </a>
-          </div>
-        </div>
-      </section>
-
       <FieldGallerySection />
 
       {/* Features */}
-      <section id="features" className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24">
-        <div className="mb-12 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-end">
-          <div className="max-w-2xl">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-primary">
-              Platform
-            </p>
-            <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">
-              Everything on shift — one system
-            </h2>
-            <p className="mt-2 text-sm text-muted-foreground sm:text-base">
-              From the Control Room desk to the officer&apos;s phone. Modules stay linked so radio,
-              SOS, maps and logs never drift apart.
-            </p>
-          </div>
-          <a href="#contact" className="shrink-0">
-            <Button variant="outline" data-testid="button-cta-features">
-              Request access
-              <ArrowRight className="ml-2 h-4 w-4" />
-            </Button>
-          </a>
+      <section id="features" className="border-t border-border/60">
+        <div className="mx-auto max-w-6xl px-4 py-20 sm:px-6 sm:py-28">
+        <div className="mb-12 max-w-2xl">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-primary">
+            Platform
+          </p>
+          <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">
+            Modules your shift actually runs
+          </h2>
+          <p className="mt-2 text-sm text-muted-foreground sm:text-base">
+            From Control Room desk to field phone — every module below stays connected in one system.
+          </p>
         </div>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {FEATURES.map(({ icon: Icon, title, body }) => (
             <div
               key={title}
@@ -531,11 +447,12 @@ export default function LandingPage() {
             </div>
           ))}
         </div>
+        </div>
       </section>
 
       {/* Who it's for */}
-      <section id="audiences" className="border-y border-border bg-card/30">
-        <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-20">
+      <section id="audiences" className="border-y border-border bg-card/25">
+        <div className="mx-auto max-w-6xl px-4 py-20 sm:px-6 sm:py-24">
           <div className="mb-10 max-w-2xl">
             <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-primary">
               Built for operators
@@ -566,14 +483,14 @@ export default function LandingPage() {
       </section>
 
       {/* How it works */}
-      <section id="how-it-works" className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-20">
-        <div className="mb-10 text-center">
+      <section id="how-it-works" className="mx-auto max-w-6xl px-4 py-20 sm:px-6 sm:py-24">
+        <div className="mb-12 text-center">
           <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-primary">
             Onboarding
           </p>
           <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">How it works</h2>
           <p className="mx-auto mt-2 max-w-2xl text-sm text-muted-foreground sm:text-base">
-            A clear path from first conversation to live ops — without a six-month IT project.
+            From first conversation to live ops — without a long IT project.
           </p>
         </div>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -639,8 +556,8 @@ export default function LandingPage() {
                 <Building2 className="mb-4 h-8 w-8 text-primary" />
                 <h3 className="mb-2 text-lg font-semibold">Starting with early operators</h3>
                 <p className="text-sm leading-relaxed text-muted-foreground">
-                  We&apos;re onboarding South African security and estate teams. Book a demo to see
-                  the live product — we won&apos;t show fake reviews or invented case studies.
+                  We&apos;re onboarding South African security and estate teams. Request a demo to
+                  see the live product on your use cases.
                 </p>
                 <div className="mt-6 rounded-xl border border-border bg-background/80 px-4 py-3 text-sm text-muted-foreground">
                   Prefer email?{" "}
@@ -694,19 +611,19 @@ export default function LandingPage() {
 
       {/* Final CTA band */}
       <section className="border-y border-border bg-primary/10">
-        <div className="mx-auto flex max-w-6xl flex-col items-start justify-between gap-6 px-4 py-12 sm:flex-row sm:items-center sm:px-6 sm:py-14">
+        <div className="mx-auto flex max-w-6xl flex-col items-start justify-between gap-6 px-4 py-14 sm:flex-row sm:items-center sm:px-6 sm:py-16">
           <div className="max-w-xl">
             <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">
-              Ready to see Pulse on your sites?
+              Next step: a short walkthrough
             </h2>
             <p className="mt-2 text-sm text-muted-foreground sm:text-base">
-              Book a demo or send a message — we respond within one business day.
+              Tell us your sites and team size — we respond within one business day.
             </p>
           </div>
           <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
             <a href="#contact" className="w-full sm:w-auto">
               <Button size="lg" className="w-full" data-testid="button-cta-final">
-                Book a demo
+                Request a demo
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             </a>
@@ -717,8 +634,8 @@ export default function LandingPage() {
               className="w-full sm:w-auto"
             >
               <Button size="lg" variant="outline" className="w-full" data-testid="button-cta-final-wa">
-                <PhoneCall className="mr-2 h-4 w-4" />
-                WhatsApp sales
+                <MessageCircle className="mr-2 h-4 w-4" />
+                Contact us on WhatsApp
               </Button>
             </a>
           </div>
@@ -726,27 +643,28 @@ export default function LandingPage() {
       </section>
 
       {/* Contact */}
-      <section id="contact" className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24">
-        <div className="mb-10 text-center">
+      <section id="contact" className="border-b border-border/60 bg-card/20">
+        <div className="mx-auto max-w-6xl px-4 py-20 sm:px-6 sm:py-28">
+        <div className="mb-12 max-w-2xl">
           <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-primary">
-            Contact
+            Get in touch
           </p>
           <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">
-            Request a demo or access
+            Request a demo
           </h2>
           <p className="mt-2 text-sm text-muted-foreground sm:text-base">
-            Demo requests, pricing and on-site rollouts — we&apos;ll respond within one business day.
+            Use the form, email or WhatsApp — same sales inbox. We&apos;ll reply within one business day.
           </p>
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-3">
-          <div className="rounded-2xl border border-border bg-card p-6 sm:p-8 lg:col-span-1">
+        <div className="grid gap-6 lg:grid-cols-5">
+          <div className="rounded-2xl border border-border bg-card p-6 sm:p-8 lg:col-span-3">
             <div className="mb-4 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
               <ArrowRight className="h-5 w-5" />
             </div>
-            <h3 className="mb-1 text-lg font-semibold">Send us a message</h3>
+            <h3 className="mb-1 text-lg font-semibold">Send a demo request</h3>
             <p className="mb-5 text-sm text-muted-foreground">
-              Tell us about your sites and team — we&apos;ll be in touch.
+              Sites, team size and what you need to solve — we&apos;ll come back with next steps.
             </p>
             {sent ? (
               <div
@@ -846,53 +764,56 @@ export default function LandingPage() {
             )}
           </div>
 
-          <div className="flex flex-col rounded-2xl border border-border bg-card p-6 sm:p-8">
-            <div className="mb-4 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
-              <Mail className="h-5 w-5" />
+          <div className="flex flex-col gap-6 lg:col-span-2">
+            <div className="flex flex-1 flex-col rounded-2xl border border-border bg-card p-6 sm:p-8">
+              <div className="mb-4 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <Mail className="h-5 w-5" />
+              </div>
+              <h3 className="mb-1 text-lg font-semibold">Email us</h3>
+              <p className="mb-5 text-sm text-muted-foreground">
+                Reach sales directly — replies usually within a few hours on business days.
+              </p>
+              <div className="mb-6 break-all text-sm font-medium text-foreground" data-testid="text-email-address">
+                {SALES_EMAIL}
+              </div>
+              <a
+                href={`mailto:${SALES_EMAIL}?subject=${encodeURIComponent("OMT Pulse — enquiry")}`}
+                className="mt-auto"
+                data-testid="link-email"
+              >
+                <Button size="lg" variant="outline" className="w-full">
+                  <Mail className="mr-2 h-4 w-4" />
+                  Open email
+                </Button>
+              </a>
             </div>
-            <h3 className="mb-1 text-lg font-semibold">Email us</h3>
-            <p className="mb-5 text-sm text-muted-foreground">
-              Reach sales directly — replies usually within a few hours on business days.
-            </p>
-            <div className="mb-6 break-all text-sm font-medium text-foreground" data-testid="text-email-address">
-              {SALES_EMAIL}
-            </div>
-            <a
-              href={`mailto:${SALES_EMAIL}?subject=${encodeURIComponent("OMT Pulse — enquiry")}`}
-              className="mt-auto"
-              data-testid="link-email"
-            >
-              <Button size="lg" variant="outline" className="w-full">
-                <Mail className="mr-2 h-4 w-4" />
-                Open email
-              </Button>
-            </a>
-          </div>
 
-          <div className="flex flex-col rounded-2xl border border-border bg-card p-6 sm:p-8">
-            <div className="mb-4 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
-              <MessageCircle className="h-5 w-5" />
+            <div className="flex flex-1 flex-col rounded-2xl border border-border bg-card p-6 sm:p-8">
+              <div className="mb-4 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <MessageCircle className="h-5 w-5" />
+              </div>
+              <h3 className="mb-1 text-lg font-semibold">WhatsApp us</h3>
+              <p className="mb-5 text-sm text-muted-foreground">
+                Quick questions and demo bookings — message us on WhatsApp.
+              </p>
+              <div className="mb-6 text-sm font-medium text-foreground" data-testid="text-whatsapp-number">
+                +27 67 535 1325
+              </div>
+              <a
+                href={`https://wa.me/${WHATSAPP_NUMBER}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-auto"
+                data-testid="link-whatsapp"
+              >
+                <Button size="lg" variant="outline" className="w-full">
+                  <MessageCircle className="mr-2 h-4 w-4" />
+                  Open WhatsApp
+                </Button>
+              </a>
             </div>
-            <h3 className="mb-1 text-lg font-semibold">WhatsApp us</h3>
-            <p className="mb-5 text-sm text-muted-foreground">
-              Quick questions and demo bookings — message us on WhatsApp.
-            </p>
-            <div className="mb-6 text-sm font-medium text-foreground" data-testid="text-whatsapp-number">
-              +27 67 535 1325
-            </div>
-            <a
-              href={`https://wa.me/${WHATSAPP_NUMBER}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-auto"
-              data-testid="link-whatsapp"
-            >
-              <Button size="lg" variant="outline" className="w-full">
-                <MessageCircle className="mr-2 h-4 w-4" />
-                Open WhatsApp
-              </Button>
-            </a>
           </div>
+        </div>
         </div>
       </section>
 

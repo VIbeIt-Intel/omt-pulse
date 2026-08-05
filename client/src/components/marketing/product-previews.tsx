@@ -1273,8 +1273,8 @@ export function ProductPreviewsSection() {
             Product
           </p>
           <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">See it in action</h2>
-          <p className="mx-auto mt-2 max-w-2xl text-sm text-muted-foreground sm:text-base">
-            Control Room, Live Monitor, radio and CCTV on the desk — SOS and response in the field.
+          <p className="mx-auto mt-2 max-w-xl text-sm text-muted-foreground sm:text-base">
+            Desk and field views from the live product — tap any card to expand.
           </p>
         </div>
         <div className="grid items-stretch gap-6 sm:gap-8 lg:grid-cols-2">
