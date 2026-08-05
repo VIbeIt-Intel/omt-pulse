@@ -680,6 +680,11 @@ type Props = {
   className?: string;
   testId?: string;
   showMapControls?: boolean;
+  /** Show the Satellite / Map toggle over the map (default true). */
+  showSatelliteControl?: boolean;
+  /** Controlled map type — omit to manage locally. */
+  mapType?: "roadmap" | "hybrid";
+  onMapTypeChange?: (mapType: "roadmap" | "hybrid") => void;
   overlay?: ReactNode;
   /** Default map centre when no incidents (control room: South Africa). */
   initialCenter?: google.maps.LatLngLiteral;
@@ -688,6 +693,8 @@ type Props = {
   /** Fit viewport to incidents + team + fleet + sites (dashboard overview). */
   preferActivityFit?: boolean;
 };
+
+export type LiveIncidentsMapType = "roadmap" | "hybrid";
 
 /** Subdued dark basemap for control-room dashboards. */
 const CONTROL_ROOM_MAP_STYLES: google.maps.MapTypeStyle[] = [
@@ -719,6 +726,9 @@ export function LiveIncidentsMap({
   className,
   testId = "map-live-incidents",
   showMapControls = false,
+  showSatelliteControl = true,
+  mapType: mapTypeProp,
+  onMapTypeChange,
   overlay,
   initialCenter = SA_MAP_DEFAULT,
   initialZoom = SA_MAP_DEFAULT.zoom,
@@ -761,7 +771,13 @@ export function LiveIncidentsMap({
   const [mapsErrorMsg, setMapsErrorMsg] = useState<string | null>(null);
   const [mapsLoadAttempt, setMapsLoadAttempt] = useState(0);
   const [showTraffic, setShowTraffic] = useState(false);
-  const [mapType, setMapType] = useState<"roadmap" | "hybrid">("roadmap");
+  const [mapTypeInternal, setMapTypeInternal] = useState<"roadmap" | "hybrid">("roadmap");
+  const mapType = mapTypeProp ?? mapTypeInternal;
+  const setMapType = (next: "roadmap" | "hybrid" | ((prev: "roadmap" | "hybrid") => "roadmap" | "hybrid")) => {
+    const value = typeof next === "function" ? next(mapType) : next;
+    if (mapTypeProp === undefined) setMapTypeInternal(value);
+    onMapTypeChange?.(value);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -1680,38 +1696,48 @@ export function LiveIncidentsMap({
           )}
         </div>
       )}
-      {showMapControls && (
-        <div className="absolute top-2 right-2 flex flex-col gap-1.5 z-10">
-          <button
-            type="button"
-            onClick={() => setMapType((t) => (t === "roadmap" ? "hybrid" : "roadmap"))}
-            className={controlBtnClass(mapType === "hybrid")}
-            title="Satellite imagery with road and place labels"
-            data-testid="button-toggle-satellite"
-          >
-            <Layers className="h-3.5 w-3.5" />
-            {mapType === "hybrid" ? "Hybrid" : "Map"}
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowTraffic((v) => !v)}
-            className={controlBtnClass(showTraffic)}
-            title="Toggle traffic layer"
-            data-testid="button-toggle-traffic"
-          >
-            <Car className="h-3.5 w-3.5" />
-            Traffic
-          </button>
-          <button
-            type="button"
-            onClick={resetToDefaultView}
-            className={controlBtnClass(false)}
-            title="Centre map on South Africa"
-            data-testid="button-reset-map-view"
-          >
-            <Crosshair className="h-3.5 w-3.5" />
-            Reset view
-          </button>
+      {(showSatelliteControl || showMapControls) && (
+        <div className="absolute top-2 right-2 flex flex-col gap-1.5 z-[40] pointer-events-auto">
+          {showSatelliteControl && (
+            <button
+              type="button"
+              onClick={() => setMapType((t) => (t === "roadmap" ? "hybrid" : "roadmap"))}
+              className={controlBtnClass(mapType === "hybrid")}
+              title={
+                mapType === "hybrid"
+                  ? "Switch to map view"
+                  : "Satellite imagery with road and place labels"
+              }
+              data-testid="button-toggle-satellite"
+            >
+              <Layers className="h-3.5 w-3.5" />
+              {mapType === "hybrid" ? "Map" : "Satellite"}
+            </button>
+          )}
+          {showMapControls && (
+            <>
+              <button
+                type="button"
+                onClick={() => setShowTraffic((v) => !v)}
+                className={controlBtnClass(showTraffic)}
+                title="Toggle traffic layer"
+                data-testid="button-toggle-traffic"
+              >
+                <Car className="h-3.5 w-3.5" />
+                Traffic
+              </button>
+              <button
+                type="button"
+                onClick={resetToDefaultView}
+                className={controlBtnClass(false)}
+                title="Centre map on South Africa"
+                data-testid="button-reset-map-view"
+              >
+                <Crosshair className="h-3.5 w-3.5" />
+                Reset view
+              </button>
+            </>
+          )}
         </div>
       )}
       {overlay}

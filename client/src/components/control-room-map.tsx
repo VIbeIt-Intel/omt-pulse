@@ -321,6 +321,9 @@ type ControlRoomMapProps = {
   darkTheme?: boolean;
   /** Slim embed for dashboard cards — no layer chips / map chrome. */
   compact?: boolean;
+  mapType?: "roadmap" | "hybrid";
+  onMapTypeChange?: (mapType: "roadmap" | "hybrid") => void;
+  showSatelliteControl?: boolean;
 };
 
 export function ControlRoomMap({
@@ -337,6 +340,9 @@ export function ControlRoomMap({
   showSidePanels = true,
   darkTheme = true,
   compact = false,
+  mapType,
+  onMapTypeChange,
+  showSatelliteControl = true,
 }: ControlRoomMapProps) {
   const { toast } = useToast();
   const [layerMode, setLayerMode] = useState<MapLayerMode>("all");
@@ -601,6 +607,9 @@ export function ControlRoomMap({
           darkTheme={darkTheme}
           initialZoom={SA_MAP_DEFAULT.zoom}
           showMapControls={!compact}
+          showSatelliteControl={showSatelliteControl}
+          mapType={mapType}
+          onMapTypeChange={onMapTypeChange}
           preferActivityFit={compact}
         />
       </div>
