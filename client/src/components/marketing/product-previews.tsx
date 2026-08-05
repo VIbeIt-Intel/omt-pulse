@@ -3,12 +3,12 @@
 function PhoneScreenshot({ src, alt, label }: { src: string; alt: string; label: string }) {
   return (
     <figure className="flex flex-col items-center gap-3">
-      <div className="w-full max-w-[280px] rounded-[1.75rem] border-[3px] border-foreground/10 bg-card p-2 shadow-lg shadow-primary/10">
-        <div className="overflow-hidden rounded-[1.35rem] border border-border bg-background aspect-[9/16]">
+      <div className="w-full max-w-[300px] rounded-[1.75rem] border-[3px] border-foreground/10 bg-card p-2 shadow-lg shadow-primary/10">
+        <div className="overflow-hidden rounded-[1.35rem] border border-border bg-[#0b0f14] aspect-[9/19.5] flex items-center justify-center">
           <img
             src={src}
             alt={alt}
-            className="h-full w-full object-cover object-top"
+            className="h-full w-full object-contain object-top"
             loading="lazy"
             decoding="async"
           />
@@ -55,14 +55,7 @@ const PREVIEWS = [
     id: "field-home",
     label: "Field app home",
     src: "/marketing/mobile-dashboard.png",
-    alt: "OMT Pulse field app — live incident, report occurrence and SOS",
-    wide: false,
-  },
-  {
-    id: "panic",
-    label: "One-tap panic / SOS",
-    src: "/marketing/panic-alert.png",
-    alt: "SOS panic alert on a patrol phone with acknowledge and join actions",
+    alt: "OMT Pulse field home — Panic/SOS, patrol, live incident, access control and report",
     wide: false,
   },
 ] as const;
