@@ -5,6 +5,7 @@ import { AlertCircle, Maximize2, RefreshCw, ScanSearch } from "lucide-react";
 import type { CctvAiDetection, CctvRoi } from "@shared/cctv";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { apiUrl } from "@/lib/api-base";
 import { cn } from "@/lib/utils";
 import { workstationAuthHeaders } from "@/lib/workstation-session";
 import { CctvPtzControls } from "./cctv-ptz-controls";
@@ -29,7 +30,7 @@ type DetectionsResponse = {
 };
 
 async function probePlaylist(playlistUrl: string): Promise<{ ok: true } | { ok: false; message: string }> {
-  const res = await fetch(playlistUrl, {
+  const res = await fetch(apiUrl(playlistUrl), {
     credentials: "include",
     cache: "no-store",
     headers: workstationAuthHeaders(),
@@ -144,7 +145,8 @@ export function CctvCameraPlayer({
     setError(null);
     setLoading(true);
 
-    const playlistUrl = `/api/cctv/cameras/${cameraId}/playlist.m3u8`;
+    // Absolute on Capacitor local-shell so hls.js XHR hits production, not https://localhost.
+    const playlistUrl = apiUrl(`/api/cctv/cameras/${cameraId}/playlist.m3u8`);
     const el = video;
 
     async function attachNative() {
@@ -157,6 +159,7 @@ export function CctvCameraPlayer({
     }
 
     async function attachHlsJs() {
+      const authHeaders = workstationAuthHeaders();
       const hls = new Hls({
         enableWorker: true,
         // Keep near-live without chasing the edge so hard that partial segments tear.
@@ -164,6 +167,12 @@ export function CctvCameraPlayer({
         liveSyncDurationCount: 2,
         liveMaxLatencyDurationCount: 5,
         maxLiveSyncPlaybackRate: 1.2,
+        xhrSetup: (xhr) => {
+          xhr.withCredentials = true;
+          for (const [key, value] of Object.entries(authHeaders)) {
+            xhr.setRequestHeader(key, value);
+          }
+        },
       });
       hlsRef.current = hls;
       hls.loadSource(playlistUrl);

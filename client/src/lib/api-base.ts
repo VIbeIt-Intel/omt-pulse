@@ -61,4 +61,23 @@ export function installNativeApiBaseFetch(): void {
     }
     return originalFetch(input as RequestInfo, init);
   };
+
+  // hls.js (and similar) use XHR, which bypasses the fetch patch above.
+  const originalOpen = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function (
+    method: string,
+    url: string | URL,
+    async?: boolean,
+    username?: string | null,
+    password?: string | null,
+  ): void {
+    let next = typeof url === "string" ? url : String(url);
+    if (next.startsWith("/")) next = `${base}${next}`;
+    originalOpen.call(this, method, next, async ?? true, username, password);
+    try {
+      this.withCredentials = true;
+    } catch {
+      /* ignore */
+    }
+  };
 }
