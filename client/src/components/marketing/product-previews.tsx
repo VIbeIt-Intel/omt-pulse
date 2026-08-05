@@ -1269,8 +1269,11 @@ export function ProductPreviewsSection() {
     <section id="product" className="border-y border-border bg-card/30">
       <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-20">
         <div className="mb-12 text-center">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-primary">
+            Product
+          </p>
           <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">See it in action</h2>
-          <p className="mt-2 text-sm text-muted-foreground sm:text-base">
+          <p className="mx-auto mt-2 max-w-2xl text-sm text-muted-foreground sm:text-base">
             Control Room, Live Monitor, radio and CCTV on the desk — SOS and response in the field.
           </p>
         </div>
@@ -1431,8 +1434,11 @@ export function FieldGallerySection() {
   return (
     <section id="gallery" className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:pb-24">
       <div className="mb-10 text-center">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-primary">
+          Gallery
+        </p>
         <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">Built for the shift</h2>
-        <p className="mt-2 text-sm text-muted-foreground sm:text-base">
+        <p className="mx-auto mt-2 max-w-2xl text-sm text-muted-foreground sm:text-base">
           Analytics, Live Monitor, CCTV, incident dockets, patrol and fleet — tap any card to expand.
         </p>
       </div>
