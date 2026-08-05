@@ -52,6 +52,13 @@ const PREVIEWS = [
     wide: true,
   },
   {
+    id: "field-home",
+    label: "Field app home",
+    src: "/marketing/mobile-dashboard.png",
+    alt: "OMT Pulse field app — live incident, report occurrence and SOS",
+    wide: false,
+  },
+  {
     id: "panic",
     label: "One-tap panic / SOS",
     src: "/marketing/panic-alert.png",
@@ -76,7 +83,7 @@ export function ProductPreviewsSection() {
             <WideScreenshot key={id} src={src} alt={alt} label={label} />
           ))}
         </div>
-        <div className="mt-12 flex justify-center">
+        <div className="mt-12 flex flex-wrap justify-center gap-10">
           {PREVIEWS.filter((p) => !p.wide).map(({ id, label, src, alt }) => (
             <PhoneScreenshot key={id} src={src} alt={alt} label={label} />
           ))}
@@ -88,6 +95,16 @@ export function ProductPreviewsSection() {
 
 const GALLERY = [
   {
+    src: "/marketing/live-monitor.png",
+    alt: "Live Monitor map with active incident and responder tracking",
+    caption: "Live Monitor — incidents, GPS and responders on one map",
+  },
+  {
+    src: "/marketing/turn-by-turn-nav.png",
+    alt: "Turn-by-turn navigation during a live incident response",
+    caption: "Field navigation — turn-by-turn while responding live",
+  },
+  {
     src: "/marketing/fleet-board.png",
     alt: "Fleet board showing vehicle status — moving, idle and offline",
     caption: "Fleet board — live vehicle status across your sites",
@@ -96,16 +113,6 @@ const GALLERY = [
     src: "/marketing/fleet-route.png",
     alt: "Vehicle daily travel map with trip playback and GPS route history",
     caption: "Fleet routes — daily travel, trips and playback",
-  },
-  {
-    src: "/marketing/access-control.png",
-    alt: "Access Control overview with people on site and visit log",
-    caption: "Access Control — who’s on site, check-ins and visit history",
-  },
-  {
-    src: "/marketing/live-incident-map.png",
-    alt: "Live incident map with severity and GPS tracking",
-    caption: "Live incidents — GPS and severity on the operations map",
   },
 ] as const;
 

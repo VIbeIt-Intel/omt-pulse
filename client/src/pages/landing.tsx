@@ -24,6 +24,9 @@ import {
   ShieldCheck,
   Footprints,
   MapPinned,
+  Lock,
+  Server,
+  FileCheck2,
 } from "lucide-react";
 import omtLogo from "@/assets/omt-logo-v2.png";
 import { FieldGallerySection, ProductPreviewsSection } from "@/components/marketing/product-previews";
@@ -98,6 +101,24 @@ const GET_STARTED = [
     step: "3",
     title: "Ongoing support",
     body: "WhatsApp and email support. Pricing tailored to team size and number of sites.",
+  },
+];
+
+const TRUST_POINTS = [
+  {
+    icon: FileCheck2,
+    title: "POPIA-aligned",
+    body: "Built for South African privacy law. Registered Information Officer, clear roles for your organisation as responsible party and IntelAfri as operator.",
+  },
+  {
+    icon: Server,
+    title: "Hosted in South Africa",
+    body: "Primary application hosting in SA. Retention controls for visitor logs, GPS tracks and CCTV AI events — configurable per organisation.",
+  },
+  {
+    icon: Lock,
+    title: "Access & audit",
+    body: "Role-based access, encrypted connections, and audit trails so Control Room actions stay accountable.",
   },
 ];
 
@@ -221,6 +242,9 @@ export default function LandingPage() {
             </a>
             <a href="#audiences" className="hidden text-sm text-muted-foreground hover:text-foreground lg:inline" data-testid="link-audiences">
               Who it's for
+            </a>
+            <a href="#trust" className="hidden text-sm text-muted-foreground hover:text-foreground lg:inline" data-testid="link-trust">
+              Trust
             </a>
             <a href="#get-started" className="hidden text-sm text-muted-foreground hover:text-foreground lg:inline" data-testid="link-get-started">
               Get started
@@ -359,32 +383,70 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── How teams get started ─────────────────────────────────────────── */}
-      <section id="get-started" className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-20">
+      {/* ── Trust & POPIA ─────────────────────────────────────────────────── */}
+      <section id="trust" className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-20">
         <div className="mb-10 text-center">
-          <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">How teams get started</h2>
-          <p className="mt-2 text-sm text-muted-foreground sm:text-base">
-            Contact us for estate, site, or company pricing — we&apos;ll scope it to your team.
+          <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">
+            Built for South African ops — and POPIA
+          </h2>
+          <p className="mx-auto mt-2 max-w-2xl text-sm text-muted-foreground sm:text-base">
+            OMT Pulse handles workforce location, visitor access records and incident evidence.
+            We take that seriously: clear privacy terms, SA-first hosting, and operator agreements
+            when your organisation goes live.
           </p>
         </div>
         <div className="grid gap-4 md:grid-cols-3">
-          {GET_STARTED.map(({ step, title, body }) => (
+          {TRUST_POINTS.map(({ icon: Icon, title, body }) => (
             <div
-              key={step}
+              key={title}
               className="rounded-2xl border border-border bg-card p-6"
-              data-testid={`get-started-${step}`}
+              data-testid={`trust-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
             >
-              <div className="mb-3 flex h-8 w-8 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">
-                {step}
+              <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <Icon className="h-5 w-5" />
               </div>
-              <h3 className="mb-1.5 text-base font-semibold">{title}</h3>
+              <h3 className="mb-1.5 text-base font-semibold text-foreground">{title}</h3>
               <p className="text-sm leading-relaxed text-muted-foreground">{body}</p>
             </div>
           ))}
         </div>
         <p className="mt-8 text-center text-sm text-muted-foreground">
-          Trusted by security teams across South Africa — from estates and campuses to mine sites and response units.
+          Read how we process personal information in our{" "}
+          <Link href="/privacy" className="font-medium text-foreground underline-offset-4 hover:underline" data-testid="link-trust-privacy">
+            Privacy Policy
+          </Link>
+          .
         </p>
+      </section>
+
+      {/* ── How teams get started ─────────────────────────────────────────── */}
+      <section id="get-started" className="border-y border-border bg-card/30">
+        <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-20">
+          <div className="mb-10 text-center">
+            <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">How teams get started</h2>
+            <p className="mt-2 text-sm text-muted-foreground sm:text-base">
+              Contact us for estate, site, or company pricing — we&apos;ll scope it to your team.
+            </p>
+          </div>
+          <div className="grid gap-4 md:grid-cols-3">
+            {GET_STARTED.map(({ step, title, body }) => (
+              <div
+                key={step}
+                className="rounded-2xl border border-border bg-card p-6"
+                data-testid={`get-started-${step}`}
+              >
+                <div className="mb-3 flex h-8 w-8 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">
+                  {step}
+                </div>
+                <h3 className="mb-1.5 text-base font-semibold">{title}</h3>
+                <p className="text-sm leading-relaxed text-muted-foreground">{body}</p>
+              </div>
+            ))}
+          </div>
+          <p className="mt-8 text-center text-sm text-muted-foreground">
+            Trusted by security teams across South Africa — from estates and campuses to mine sites and response units.
+          </p>
+        </div>
       </section>
 
       {/* ── Get in touch — form + email + WhatsApp side-by-side ─────────── */}
@@ -582,6 +644,9 @@ export default function LandingPage() {
             <Link href="/privacy" className="hover:text-foreground" data-testid="link-footer-privacy">
               Privacy Policy
             </Link>
+            <a href="#trust" className="hover:text-foreground" data-testid="link-footer-popia">
+              POPIA
+            </a>
             <a href={`mailto:${SALES_EMAIL}`} className="hover:text-foreground" data-testid="link-footer-email">
               {SALES_EMAIL}
             </a>
