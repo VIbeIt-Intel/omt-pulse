@@ -6,7 +6,12 @@ import {
   Car,
   ChevronRight,
   CirclePause,
+  Download,
+  Gauge,
+  Play,
   Radio,
+  Route,
+  Timer,
   User,
   WifiOff,
   X,
@@ -23,7 +28,7 @@ type LightboxItem = {
   src?: string;
   alt: string;
   caption: string;
-  kind?: "image" | "fleet-mock";
+  kind?: "image" | "fleet-mock" | "routes-mock";
 };
 
 function PhoneScreenshot({ src, alt, label, onExpand }: {
@@ -197,6 +202,148 @@ function FleetBoardPresentation({ compact = false }: { compact?: boolean }) {
   );
 }
 
+const PRESENTATION_TRIPS = [
+  { n: 1, time: "07:01 – 07:08", km: "0.9 km", color: "#f97316" },
+  { n: 2, time: "07:22 – 07:41", km: "12.4 km", color: "#22d3ee" },
+  { n: 3, time: "08:05 – 08:48", km: "28.1 km", color: "#a78bfa" },
+  { n: 4, time: "09:10 – 09:33", km: "9.7 km", color: "#34d399" },
+  { n: 5, time: "10:02 – 10:55", km: "31.2 km", color: "#fbbf24" },
+  { n: 6, time: "11:43 – 12:19", km: "45.2 km", color: "#fb7185" },
+  { n: 7, time: "13:05 – 13:28", km: "11.6 km", color: "#60a5fa" },
+  { n: 8, time: "14:12 – 15:01", km: "38.4 km", color: "#c084fc" },
+];
+
+function FleetRoutesPresentation({ compact = false }: { compact?: boolean }) {
+  const trips = compact ? PRESENTATION_TRIPS.slice(0, 5) : PRESENTATION_TRIPS;
+
+  return (
+    <div
+      className={cn(
+        "rounded-xl border border-border bg-[#0b0f14] text-foreground shadow-inner",
+        compact ? "p-3 sm:p-4" : "p-4 sm:p-6",
+      )}
+    >
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-bold tracking-wide text-primary">FLEET ROUTES</p>
+          <p className="text-xs text-muted-foreground">Toyota Hilux · HH12GP GP</p>
+        </div>
+        <span className="rounded-md border border-border bg-muted/40 px-2 py-1 text-[10px] font-medium text-muted-foreground">
+          Presentation sample
+        </span>
+      </div>
+
+      <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {[
+          { label: "Distance", value: "236.6 km", icon: Route },
+          { label: "Max speed", value: "119 km/h", icon: Gauge },
+          { label: "Driving", value: "4h 16m", icon: Timer },
+          { label: "Trips", value: "13", icon: Car },
+        ].map(({ label, value, icon: Icon }) => (
+          <div key={label} className="rounded-xl border border-border/80 bg-card/40 px-3 py-2.5">
+            <div className="mb-1 flex items-center justify-between gap-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                {label}
+              </span>
+              <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+            </div>
+            <p className="text-base font-bold tabular-nums leading-none sm:text-lg">{value}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="mb-3 overflow-hidden rounded-xl border border-border/80 bg-[#111827]">
+        <div className="flex items-center justify-between gap-2 border-b border-border/60 px-3 py-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold text-primary">
+              Wed, 5 Aug 2026
+            </span>
+            <span className="text-[11px] text-muted-foreground">1,601 GPS points</span>
+          </div>
+          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-muted-foreground">
+            <Download className="h-3 w-3" /> Report
+          </span>
+        </div>
+
+        {/* Crisp SVG route map (no blurry screenshot) */}
+        <div className={cn("relative w-full", compact ? "h-40" : "h-56 sm:h-64")}>
+          <svg viewBox="0 0 640 280" className="h-full w-full" aria-hidden>
+            <defs>
+              <linearGradient id="fleetMapFade" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#0f172a" />
+                <stop offset="100%" stopColor="#020617" />
+              </linearGradient>
+            </defs>
+            <rect width="640" height="280" fill="url(#fleetMapFade)" />
+            {/* Grid / roads */}
+            {Array.from({ length: 8 }).map((_, i) => (
+              <line
+                key={`h-${i}`}
+                x1="0"
+                y1={30 + i * 32}
+                x2="640"
+                y2={30 + i * 32}
+                stroke="#1e293b"
+                strokeWidth="1"
+              />
+            ))}
+            {Array.from({ length: 10 }).map((_, i) => (
+              <line
+                key={`v-${i}`}
+                x1={40 + i * 64}
+                y1="0"
+                x2={40 + i * 64}
+                y2="280"
+                stroke="#1e293b"
+                strokeWidth="1"
+              />
+            ))}
+            <text x="48" y="36" fill="#64748b" fontSize="11" fontFamily="system-ui,sans-serif">Pretoria</text>
+            <text x="420" y="88" fill="#64748b" fontSize="11" fontFamily="system-ui,sans-serif">Centurion</text>
+            <text x="500" y="200" fill="#64748b" fontSize="11" fontFamily="system-ui,sans-serif">Johannesburg</text>
+            {/* Trip polylines */}
+            <polyline fill="none" stroke="#f97316" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" points="60,220 120,180 180,160 220,140" />
+            <polyline fill="none" stroke="#22d3ee" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" points="220,140 280,120 340,100 400,90" />
+            <polyline fill="none" stroke="#a78bfa" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" points="400,90 460,110 520,150 560,190" />
+            <polyline fill="none" stroke="#34d399" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" points="180,200 260,190 320,170 380,160 440,170" />
+            <polyline fill="none" stroke="#fb7185" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" points="100,100 160,130 210,150 250,180" />
+            {/* Start / stop markers */}
+            <circle cx="60" cy="220" r="6" fill="#22c55e" stroke="#052e16" strokeWidth="2" />
+            <circle cx="560" cy="190" r="6" fill="#ef4444" stroke="#450a0a" strokeWidth="2" />
+            <circle cx="320" cy="170" r="5" fill="#fbbf24" stroke="#422006" strokeWidth="2" />
+          </svg>
+          <div className="absolute bottom-2 left-2 flex items-center gap-2">
+            <span className="inline-flex items-center gap-1 rounded-md bg-background/90 px-2 py-1 text-[10px] font-semibold shadow">
+              <Play className="h-3 w-3 text-primary" /> Play route
+            </span>
+            <span className="rounded-md bg-background/80 px-2 py-1 text-[10px] text-muted-foreground shadow">1x</span>
+          </div>
+        </div>
+      </div>
+
+      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        Trip log
+      </p>
+      <div className={cn("grid gap-1.5", compact ? "grid-cols-1" : "sm:grid-cols-2")}>
+        {trips.map((t) => (
+          <div
+            key={t.n}
+            className="flex items-center gap-2 rounded-lg border border-border/70 bg-card/40 px-2.5 py-2 text-xs"
+          >
+            <span
+              className="h-2.5 w-2.5 shrink-0 rounded-full"
+              style={{ backgroundColor: t.color }}
+            />
+            <span className="font-semibold tabular-nums">Trip {t.n}</span>
+            <span className="text-muted-foreground tabular-nums">{t.time}</span>
+            <span className="ml-auto font-medium tabular-nums text-foreground/90">{t.km}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 const PREVIEWS = [
   {
     id: "control-room",
@@ -281,10 +428,9 @@ const GALLERY: LightboxItem[] = [
     kind: "fleet-mock",
   },
   {
-    src: "/marketing/fleet-route.png",
-    alt: "Vehicle daily travel map with trip playback and GPS route history",
+    alt: "Fleet routes presentation — daily travel map, trip log and playback controls",
     caption: "Fleet routes — daily travel, trips and playback",
-    kind: "image",
+    kind: "routes-mock",
   },
 ];
 
@@ -311,6 +457,11 @@ export function FieldGallerySection() {
             {item.kind === "fleet-mock" ? (
               <div className="relative max-h-[280px] overflow-hidden sm:max-h-[320px]">
                 <FleetBoardPresentation compact />
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-card to-transparent" />
+              </div>
+            ) : item.kind === "routes-mock" ? (
+              <div className="relative max-h-[280px] overflow-hidden sm:max-h-[320px]">
+                <FleetRoutesPresentation compact />
                 <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-card to-transparent" />
               </div>
             ) : (
@@ -364,6 +515,8 @@ function ScreenshotLightbox({
         </div>
         {item?.kind === "fleet-mock" ? (
           <FleetBoardPresentation />
+        ) : item?.kind === "routes-mock" ? (
+          <FleetRoutesPresentation />
         ) : item?.src ? (
           <img
             src={item.src}
