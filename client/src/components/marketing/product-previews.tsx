@@ -965,12 +965,48 @@ function RadioOpsPresentation({ compact = false }: { compact?: boolean }) {
 }
 
 const CCTV_CAMERAS = [
-  { name: "Merweville Unit 2 Field", status: "Live", zone: true, ai: true },
-  { name: "Gate 1 Entrance", status: "Live", zone: true, ai: true },
-  { name: "Clubhouse North", status: "Live", zone: false, ai: true },
-  { name: "Perimeter East", status: "Live", zone: true, ai: false },
-  { name: "Parking Bay B", status: "Idle", zone: false, ai: false },
-  { name: "Warehouse Dock", status: "Live", zone: true, ai: true },
+  {
+    name: "Merweville Unit 2 Field",
+    status: "Live",
+    zone: true,
+    ai: true,
+    feed: "/marketing/cctv-merweville-field.jpg",
+  },
+  {
+    name: "Gate 1 Entrance",
+    status: "Live",
+    zone: true,
+    ai: true,
+    feed: "/marketing/cctv-gate-entrance.jpg",
+  },
+  {
+    name: "Clubhouse North",
+    status: "Live",
+    zone: false,
+    ai: true,
+    feed: "/marketing/cctv-clubhouse.jpg",
+  },
+  {
+    name: "Perimeter East",
+    status: "Live",
+    zone: true,
+    ai: false,
+    feed: "/marketing/cctv-perimeter.jpg",
+  },
+  {
+    name: "Parking Bay B",
+    status: "Idle",
+    zone: false,
+    ai: false,
+    feed: "/marketing/cctv-clubhouse.jpg",
+  },
+  {
+    name: "Warehouse Dock",
+    status: "Live",
+    zone: true,
+    ai: true,
+    feed: "/marketing/cctv-gate-entrance.jpg",
+  },
 ];
 
 /** Multi-camera CCTV board — marketing sample. */
@@ -1009,47 +1045,44 @@ function CamerasOpsPresentation({ compact = false }: { compact?: boolean }) {
           ))}
         </div>
         <div className="grid min-h-0 grid-cols-2 grid-rows-2 gap-1.5">
-          {tiles.map((c, i) => {
-            const feedTone = [
-              "from-zinc-700 via-zinc-900 to-black",
-              "from-emerald-950 via-slate-900 to-black",
-              "from-slate-700 via-slate-900 to-black",
-              "from-sky-950 via-slate-900 to-black",
-            ][i % 4];
-            return (
+          {tiles.map((c) => (
+            <div
+              key={c.name}
+              className="relative overflow-hidden rounded-lg border border-border/70 bg-[#0a0a0a]"
+            >
+              <img
+                src={c.feed}
+                alt=""
+                className="absolute inset-0 h-full w-full object-cover object-center contrast-110 saturate-0"
+                loading="lazy"
+                decoding="async"
+              />
               <div
-                key={c.name}
-                className="relative overflow-hidden rounded-lg border border-border/70 bg-[#111827]"
-              >
-                <div className={cn("absolute inset-0 bg-gradient-to-br opacity-90", feedTone)} />
-                {/* faux night-scan lines */}
-                <div
-                  className="absolute inset-0 opacity-30"
-                  style={{
-                    backgroundImage:
-                      "repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.04) 2px, rgba(255,255,255,0.04) 3px)",
-                  }}
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-transparent to-black/45" />
-                <div className="absolute left-1.5 top-1.5 flex gap-1">
-                  {c.zone && (
-                    <span className="rounded bg-sky-600/90 px-1 py-px text-[8px] font-bold text-white">ZONE</span>
-                  )}
-                  {c.ai && (
-                    <span className="rounded bg-emerald-600/90 px-1 py-px text-[8px] font-bold text-white">AI</span>
-                  )}
-                </div>
-                <div className="absolute right-1.5 top-1.5 flex items-center gap-1 rounded bg-black/60 px-1 py-px text-[8px] font-semibold text-emerald-300">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                  REC
-                </div>
-                <div className="absolute bottom-1.5 left-1.5 right-1.5">
-                  <p className="truncate text-[9px] font-semibold text-white drop-shadow">{c.name}</p>
-                  <p className="text-[8px] text-emerald-300">{c.status}</p>
-                </div>
+                className="pointer-events-none absolute inset-0 opacity-25 mix-blend-overlay"
+                style={{
+                  backgroundImage:
+                    "repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.35) 2px, rgba(0,0,0,0.35) 3px)",
+                }}
+              />
+              <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/35" />
+              <div className="absolute left-1.5 top-1.5 flex gap-1">
+                {c.zone && (
+                  <span className="rounded bg-sky-600/90 px-1 py-px text-[8px] font-bold text-white">ZONE</span>
+                )}
+                {c.ai && (
+                  <span className="rounded bg-emerald-600/90 px-1 py-px text-[8px] font-bold text-white">AI</span>
+                )}
               </div>
-            );
-          })}
+              <div className="absolute right-1.5 top-1.5 flex items-center gap-1 rounded bg-black/65 px-1 py-px text-[8px] font-semibold text-emerald-300">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                REC
+              </div>
+              <div className="absolute bottom-1.5 left-1.5 right-1.5">
+                <p className="truncate text-[9px] font-semibold text-white drop-shadow">{c.name}</p>
+                <p className="text-[8px] text-emerald-300">{c.status}</p>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </div>
