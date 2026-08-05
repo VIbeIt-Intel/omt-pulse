@@ -27,6 +27,9 @@ import {
   Lock,
   Server,
   FileCheck2,
+  BarChart3,
+  Camera,
+  ClipboardList,
 } from "lucide-react";
 import omtLogo from "@/assets/omt-logo-v2.png";
 import { FieldGallerySection, ProductPreviewsSection } from "@/components/marketing/product-previews";
@@ -48,8 +51,13 @@ const FEATURES = [
   },
   {
     icon: MapPinned,
-    title: "Live Incident Monitor",
-    body: "Real-time map of responders, severity, and join-from-anywhere workflows.",
+    title: "Live Monitor",
+    body: "Ops map for incidents, team and fleet — filters, satellite view, standby when all clear.",
+  },
+  {
+    icon: ClipboardList,
+    title: "Incident dockets",
+    body: "Full case view with live timeline, GPS origin, severity and evidence with digital footprint.",
   },
   {
     icon: BookOpenCheck,
@@ -57,9 +65,19 @@ const FEATURES = [
     body: "Every action logged and searchable — audit-ready with Excel export.",
   },
   {
+    icon: BarChart3,
+    title: "Analytics",
+    body: "Charts and hotspot maps — by location, type, hour and day, with Excel and PDF export.",
+  },
+  {
     icon: Car,
     title: "Fleet & Site Monitor",
-    body: "GPS vehicles, idle/moving status, routes, and team presence on one board.",
+    body: "GPS vehicles, idle/moving status, daily routes, and team presence on one board.",
+  },
+  {
+    icon: Camera,
+    title: "Cameras / CCTV",
+    body: "Live camera feeds in Control Room — zones, refresh and fullscreen from the desk.",
   },
   {
     icon: ShieldCheck,
@@ -69,7 +87,7 @@ const FEATURES = [
   {
     icon: Footprints,
     title: "Patrol",
-    body: "Routes and checkpoint clocking for patrol teams on the ground.",
+    body: "Routes, checkpoint clocking, missed-stop alerts, PDF reports and route replay.",
   },
   {
     icon: Layers,
@@ -237,6 +255,9 @@ export default function LandingPage() {
             <a href="#product" className="hidden text-sm text-muted-foreground hover:text-foreground md:inline" data-testid="link-product">
               Product
             </a>
+            <a href="#gallery" className="hidden text-sm text-muted-foreground hover:text-foreground lg:inline" data-testid="link-gallery">
+              Gallery
+            </a>
             <a href="#features" className="hidden text-sm text-muted-foreground hover:text-foreground sm:inline" data-testid="link-features">
               Features
             </a>
@@ -275,16 +296,16 @@ export default function LandingPage() {
                 className="mb-5 text-4xl font-bold leading-tight tracking-tight sm:text-5xl lg:text-[3.25rem]"
                 data-testid="text-hero-title"
               >
-                Radio, SOS, fleet and access — the ops stack your team will{" "}
+                Radio, SOS, analytics and CCTV — the ops stack your team will{" "}
                 <span className="text-primary">actually run.</span>
               </h1>
               <p
                 className="mb-9 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg lg:mx-0 mx-auto"
                 data-testid="text-hero-subtitle"
               >
-                OMT Pulse connects Control Room and patrol: live group radio, one-tap panic,
-                live incident maps, occurrence book, GPS fleet, access control and patrol
-                clocking — searchable, real-time, built for South African security sites.
+                OMT Pulse connects Control Room and field: live group radio, one-tap panic,
+                Live Monitor, incident dockets, analytics hotspots, CCTV, GPS fleet, access
+                control and patrol clocking — searchable, real-time, built for South African sites.
               </p>
               <div className="flex flex-col items-center justify-center gap-3 sm:flex-row lg:justify-start">
                 <a href="#contact">
@@ -338,7 +359,7 @@ export default function LandingPage() {
             From the Control Room desk to the officer&apos;s phone — modules that stay connected.
           </p>
         </div>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {FEATURES.map(({ icon: Icon, title, body }) => (
             <div
               key={title}

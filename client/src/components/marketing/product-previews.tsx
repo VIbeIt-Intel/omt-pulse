@@ -30,7 +30,7 @@ type LightboxItem = {
   src?: string;
   alt: string;
   caption: string;
-  kind?: "image" | "phone" | "fleet-mock" | "routes-mock";
+  kind?: "image" | "phone" | "fleet-mock" | "routes-mock" | "analytics-mock" | "analytics-map-mock";
 };
 
 /** Matches marketing/mobile-dashboard.png (460×928). */
@@ -474,6 +474,218 @@ function FleetRoutesPresentation({ compact = false }: { compact?: boolean }) {
   );
 }
 
+function HBar({ label, pct, tone = "green" }: { label: string; pct: number; tone?: "green" | "red" | "slate" }) {
+  const bar =
+    tone === "red" ? "bg-red-500" : tone === "slate" ? "bg-slate-500" : "bg-emerald-400";
+  return (
+    <div className="flex items-center gap-2">
+      <span className="w-24 shrink-0 truncate text-[10px] text-muted-foreground sm:w-28">{label}</span>
+      <div className="h-2.5 min-w-0 flex-1 rounded-full bg-muted/50">
+        <div className={cn("h-2.5 rounded-full", bar)} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function VBars({ values, labels }: { values: number[]; labels: string[] }) {
+  const max = Math.max(...values, 1);
+  return (
+    <div className="flex h-28 items-end gap-1 sm:gap-1.5">
+      {values.map((v, i) => (
+        <div key={labels[i] ?? i} className="flex min-w-0 flex-1 flex-col items-center gap-1">
+          <div
+            className="w-full max-w-[28px] rounded-t-sm bg-emerald-400/90"
+            style={{ height: `${Math.max(8, (v / max) * 100)}%` }}
+          />
+          <span className="truncate text-[9px] text-muted-foreground">{labels[i]}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Crisp analytics charts board — marketing sample data only. */
+function AnalyticsChartsPresentation({ compact = false }: { compact?: boolean }) {
+  return (
+    <div
+      className={cn(
+        "rounded-xl border border-border bg-[#0b0f14] text-foreground shadow-inner",
+        compact ? "p-3 sm:p-4" : "p-4 sm:p-6",
+      )}
+    >
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <span className="text-sm font-bold tracking-wide text-primary">ANALYTICS</span>
+          <span className="text-lg font-bold tabular-nums">14</span>
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">incidents</span>
+          <span className="text-xs text-muted-foreground">Top: Tierpoort · Panic</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="rounded-md border border-primary/40 bg-primary/15 px-2 py-1 text-[10px] font-semibold text-primary">
+            Charts
+          </span>
+          <span className="rounded-md border border-border bg-muted/40 px-2 py-1 text-[10px] text-muted-foreground">
+            Map
+          </span>
+          <span className="rounded-md border border-border bg-muted/40 px-2 py-1 text-[10px] font-medium text-muted-foreground">
+            Presentation sample
+          </span>
+        </div>
+      </div>
+
+      <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+        {[
+          { label: "Total", value: "14" },
+          { label: "Top location", value: "Tierpoort" },
+          { label: "Top type", value: "Panic" },
+          { label: "Peak hour", value: "14:00" },
+          { label: "Live", value: "0" },
+        ].map((s) => (
+          <div key={s.label} className="rounded-xl border border-border/80 bg-card/40 px-3 py-2">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{s.label}</p>
+            <p className="mt-0.5 truncate text-sm font-bold tabular-nums sm:text-base">{s.value}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className={cn("grid gap-2", compact ? "grid-cols-1 sm:grid-cols-2" : "sm:grid-cols-2")}>
+        <div className="rounded-xl border border-border/80 bg-card/30 p-3">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Location</p>
+          <div className="space-y-2">
+            <HBar label="Tierpoort" pct={92} />
+            <HBar label="Mooikloof" pct={48} />
+            <HBar label="Moreleta" pct={36} />
+            <HBar label="Centurion" pct={22} />
+          </div>
+        </div>
+        <div className="rounded-xl border border-border/80 bg-card/30 p-3">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Type</p>
+          <div className="space-y-2">
+            <HBar label="Panic" pct={88} tone="red" />
+            <HBar label="Alarm" pct={54} tone="slate" />
+            <HBar label="Other" pct={32} tone="slate" />
+            <HBar label="Medical" pct={18} tone="slate" />
+          </div>
+        </div>
+        {!compact && (
+          <>
+            <div className="rounded-xl border border-border/80 bg-card/30 p-3">
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Incident time
+              </p>
+              <VBars
+                values={[1, 0, 2, 1, 3, 4, 2, 1, 2, 5, 3, 2]}
+                labels={["00", "02", "04", "06", "08", "10", "12", "14", "16", "18", "20", "22"]}
+              />
+            </div>
+            <div className="rounded-xl border border-border/80 bg-card/30 p-3">
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Day of week
+              </p>
+              <VBars values={[2, 1, 7, 2, 1, 1, 0]} labels={["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]} />
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const ANALYTICS_HOTSPOTS: { lat: number; lng: number; kind: "panic" | "other" }[] = [
+  { lat: -25.82, lng: 28.42, kind: "panic" },
+  { lat: -25.85, lng: 28.35, kind: "panic" },
+  { lat: -25.78, lng: 28.28, kind: "other" },
+  { lat: -25.9, lng: 28.2, kind: "panic" },
+  { lat: -25.87, lng: 28.25, kind: "panic" },
+  { lat: -25.76, lng: 28.38, kind: "other" },
+  { lat: -25.93, lng: 28.15, kind: "panic" },
+];
+
+function AnalyticsMapPresentation({ compact = false }: { compact?: boolean }) {
+  const mapRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<L.Map | null>(null);
+
+  useEffect(() => {
+    if (!mapRef.current || mapInstanceRef.current) return;
+
+    const map = L.map(mapRef.current, {
+      zoomControl: false,
+      attributionControl: false,
+      dragging: false,
+      scrollWheelZoom: false,
+      doubleClickZoom: false,
+      boxZoom: false,
+      keyboard: false,
+      touchZoom: false,
+    });
+
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+      subdomains: "abcd",
+      maxZoom: 19,
+    }).addTo(map);
+
+    for (const h of ANALYTICS_HOTSPOTS) {
+      const color = h.kind === "panic" ? "#ef4444" : "#94a3b8";
+      L.circleMarker([h.lat, h.lng], {
+        radius: 8,
+        color: "#0b0f14",
+        weight: 2,
+        fillColor: color,
+        fillOpacity: 0.95,
+      }).addTo(map);
+    }
+
+    const bounds = L.latLngBounds(ANALYTICS_HOTSPOTS.map((h) => [h.lat, h.lng] as [number, number]));
+    map.fitBounds(bounds.pad(0.35));
+    mapInstanceRef.current = map;
+
+    const invalidate = () => map.invalidateSize();
+    const t1 = window.setTimeout(invalidate, 80);
+    const t2 = window.setTimeout(invalidate, 320);
+    window.addEventListener("resize", invalidate);
+
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+      window.removeEventListener("resize", invalidate);
+      map.remove();
+      mapInstanceRef.current = null;
+    };
+  }, []);
+
+  return (
+    <div
+      className={cn(
+        "rounded-xl border border-border bg-[#0b0f14] text-foreground shadow-inner",
+        compact ? "p-3" : "p-4 sm:p-5",
+      )}
+    >
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-bold tracking-wide text-primary">ANALYTICS — MAP</p>
+          <p className="text-xs text-muted-foreground">14 incidents · Hotspot: Tierpoort · Lead: Panic</p>
+        </div>
+        <span className="rounded-md border border-border bg-muted/40 px-2 py-1 text-[10px] font-medium text-muted-foreground">
+          Presentation sample
+        </span>
+      </div>
+      <div className={cn("relative overflow-hidden rounded-xl border border-border/80", compact ? "h-40" : "h-56 sm:h-64")}>
+        <div ref={mapRef} className="absolute inset-0 bg-[#0b1220]" aria-hidden />
+        <div className="pointer-events-none absolute left-2 top-2 z-[1] flex gap-1">
+          <span className="rounded-md bg-primary/90 px-2 py-0.5 text-[10px] font-semibold text-primary-foreground">
+            Markers
+          </span>
+          <span className="rounded-md bg-background/80 px-2 py-0.5 text-[10px] text-muted-foreground">Heatmap</span>
+        </div>
+        <div className="pointer-events-none absolute bottom-2 right-2 z-[1] rounded-md bg-background/90 px-2 py-1 text-[10px] text-muted-foreground shadow">
+          <span className="mr-2 inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-red-500" /> Panic</span>
+          <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-slate-400" /> Other</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const PREVIEWS = [
   {
     id: "control-room",
@@ -483,10 +695,24 @@ const PREVIEWS = [
     wide: true,
   },
   {
+    id: "live-monitor",
+    label: "Live Monitor",
+    src: "/marketing/live-monitor.png",
+    alt: "OMT Pulse Live Monitor — incidents, team and fleet on one ops map",
+    wide: true,
+  },
+  {
     id: "radio",
     label: "Group radio (PTT)",
     src: "/marketing/group-radio.png",
     alt: "Group radio push-to-talk — tap to talk, live audio never saved",
+    wide: true,
+  },
+  {
+    id: "cameras",
+    label: "Cameras / CCTV",
+    src: "/marketing/cameras-cctv.png",
+    alt: "OMT Pulse Cameras — live CCTV feed with zone and AI controls",
     wide: true,
   },
   {
@@ -507,8 +733,7 @@ export function ProductPreviewsSection() {
         <div className="mb-12 text-center">
           <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">See it in action</h2>
           <p className="mt-2 text-sm text-muted-foreground sm:text-base">
-            Control Room on the desk. Radio, SOS, and live response in the field — one connected
-            system.
+            Control Room, Live Monitor, radio and CCTV on the desk — SOS and response in the field.
           </p>
         </div>
         <div className="grid gap-10 lg:grid-cols-2 lg:gap-8">
@@ -541,15 +766,37 @@ export function ProductPreviewsSection() {
 
 const GALLERY: LightboxItem[] = [
   {
+    alt: "Analytics charts presentation — locations, types, peak hours and day-of-week",
+    caption: "Analytics — charts by location, type, hour and day",
+    kind: "analytics-mock",
+  },
+  {
+    alt: "Analytics map presentation — panic and other incident hotspots",
+    caption: "Analytics map — incident hotspots and type legend",
+    kind: "analytics-map-mock",
+  },
+  {
     src: "/marketing/live-monitor.png",
     alt: "Live Monitor map with active incident and responder tracking",
-    caption: "Live Monitor — incidents, GPS and responders on one map",
+    caption: "Live Monitor — incidents, team and fleet on one map",
     kind: "image",
   },
   {
-    src: "/marketing/turn-by-turn-nav.png",
-    alt: "Turn-by-turn navigation during a live incident response",
-    caption: "Field navigation — turn-by-turn while responding live",
+    src: "/marketing/cameras-cctv.png",
+    alt: "Cameras page with live CCTV feed and zone controls",
+    caption: "Cameras / CCTV — live feeds from Control Room",
+    kind: "image",
+  },
+  {
+    src: "/marketing/incident-docket.png",
+    alt: "Incident docket with panic status, live timeline and evidence",
+    caption: "Incident docket — timeline, GPS and evidence trail",
+    kind: "image",
+  },
+  {
+    src: "/marketing/patrol-report.png",
+    alt: "Patrol report with checkpoints, route map and playback",
+    caption: "Patrol — checkpoints, route map and PDF report",
     kind: "image",
   },
   {
@@ -562,7 +809,57 @@ const GALLERY: LightboxItem[] = [
     caption: "Fleet routes — daily travel, trips and playback",
     kind: "routes-mock",
   },
+  {
+    src: "/marketing/turn-by-turn-nav.png",
+    alt: "Turn-by-turn navigation during a live incident response",
+    caption: "Field navigation — turn-by-turn while responding live",
+    kind: "image",
+  },
 ];
+
+function GalleryPreview({ item }: { item: LightboxItem }) {
+  if (item.kind === "fleet-mock") {
+    return (
+      <div className="relative max-h-[280px] overflow-hidden sm:max-h-[320px]">
+        <FleetBoardPresentation compact />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-card to-transparent" />
+      </div>
+    );
+  }
+  if (item.kind === "routes-mock") {
+    return (
+      <div className="relative max-h-[280px] overflow-hidden sm:max-h-[320px]">
+        <FleetRoutesPresentation compact />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-card to-transparent" />
+      </div>
+    );
+  }
+  if (item.kind === "analytics-mock") {
+    return (
+      <div className="relative max-h-[280px] overflow-hidden sm:max-h-[320px]">
+        <AnalyticsChartsPresentation compact />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-card to-transparent" />
+      </div>
+    );
+  }
+  if (item.kind === "analytics-map-mock") {
+    return (
+      <div className="relative max-h-[280px] overflow-hidden sm:max-h-[320px]">
+        <AnalyticsMapPresentation compact />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-card to-transparent" />
+      </div>
+    );
+  }
+  return (
+    <img
+      src={item.src}
+      alt={item.alt}
+      className="aspect-[16/10] w-full object-cover object-top"
+      loading="lazy"
+      decoding="async"
+    />
+  );
+}
 
 export function FieldGallerySection() {
   const [lightbox, setLightbox] = useState<LightboxItem | null>(null);
@@ -572,7 +869,7 @@ export function FieldGallerySection() {
       <div className="mb-10 text-center">
         <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">Built for the shift</h2>
         <p className="mt-2 text-sm text-muted-foreground sm:text-base">
-          Product screens from OMT Pulse — tap any card to expand.
+          Analytics, Live Monitor, CCTV, incident dockets, patrol and fleet — tap any card to expand.
         </p>
       </div>
       <div className="grid gap-6 md:grid-cols-2">
@@ -584,25 +881,7 @@ export function FieldGallerySection() {
             className="group overflow-hidden rounded-2xl border border-border bg-card text-left shadow-sm transition hover:border-primary/40 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
             aria-label={`Expand ${item.caption}`}
           >
-            {item.kind === "fleet-mock" ? (
-              <div className="relative max-h-[280px] overflow-hidden sm:max-h-[320px]">
-                <FleetBoardPresentation compact />
-                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-card to-transparent" />
-              </div>
-            ) : item.kind === "routes-mock" ? (
-              <div className="relative max-h-[280px] overflow-hidden sm:max-h-[320px]">
-                <FleetRoutesPresentation compact />
-                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-card to-transparent" />
-              </div>
-            ) : (
-              <img
-                src={item.src}
-                alt={item.alt}
-                className="w-full object-cover object-top"
-                loading="lazy"
-                decoding="async"
-              />
-            )}
+            <GalleryPreview item={item} />
             <p className="flex items-center justify-between gap-2 border-t border-border px-4 py-3 text-sm text-muted-foreground">
               <span>{item.caption}</span>
               <span className="inline-flex items-center gap-1 text-[10px] font-medium opacity-70 transition group-hover:opacity-100">
@@ -654,6 +933,10 @@ function ScreenshotLightbox({
           <FleetBoardPresentation />
         ) : item?.kind === "routes-mock" ? (
           <FleetRoutesPresentation />
+        ) : item?.kind === "analytics-mock" ? (
+          <AnalyticsChartsPresentation />
+        ) : item?.kind === "analytics-map-mock" ? (
+          <AnalyticsMapPresentation />
         ) : item?.kind === "phone" && item.src ? (
           <div
             className="mx-auto overflow-hidden rounded-[1.75rem] border-[3px] border-border bg-[#0b0f14] p-1.5 shadow-lg shadow-primary/15"
