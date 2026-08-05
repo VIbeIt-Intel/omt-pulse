@@ -15,7 +15,6 @@ import { apiRequest } from "@/lib/queryClient";
 import { requestLocationAccess } from "@/lib/request-location-access";
 import { flushPendingPatrolTracks } from "@/lib/patrol-tracking";
 import { cn } from "@/lib/utils";
-import { FieldPageHeading } from "@/components/field-page-heading";
 import { PageHero } from "@/components/page-hero";
 import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import {
@@ -24,7 +23,6 @@ import {
   CheckCircle2,
   ChevronRight,
   Clock3,
-  Footprints,
   History,
   Loader2,
   MapPin,
@@ -289,24 +287,7 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
   return (
     <div className="flex flex-col h-full overflow-hidden bg-background text-foreground">
       <div className={cn(OPS_PAGE_SHELL, "shrink-0 pt-3 pb-2 md:pb-3")}>
-        {/* Phones: slim title. Desktop control room keeps the full hero. */}
-        <FieldPageHeading
-          className="md:hidden"
-          title="Patrol"
-          icon={Footprints}
-          badge={isManager ? "Manager" : "Field"}
-          meta={
-            routes.length === 0
-              ? isManager
-                ? "No routes yet — add a route to get started."
-                : "No patrol routes assigned yet."
-              : `${routes.length} ${routes.length === 1 ? "route" : "routes"} · ${
-                  isManager ? "Routes · Run · History" : "Follow & clock"
-                }`
-          }
-        />
         <PageHero
-          className="hidden md:block"
           eyebrow="Patrol"
           badge={isManager ? "Manager" : "Field"}
           total={routes.length}

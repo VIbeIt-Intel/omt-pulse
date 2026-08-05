@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Video } from "lucide-react";
 import type { CctvCameraPublic } from "@shared/cctv";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,6 @@ import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import { cn } from "@/lib/utils";
 import { CctvCameraList } from "@/components/cctv/cctv-camera-list";
 import { CctvCameraFormSheet } from "@/components/cctv/cctv-camera-form-sheet";
-import { useQueryClient } from "@tanstack/react-query";
 
 export default function CctvPage() {
   const queryClient = useQueryClient();
@@ -45,7 +44,7 @@ export default function CctvPage() {
 
   return (
     <div className="h-full overflow-y-auto bg-background" data-testid="cctv-page">
-      <div className={cn(OPS_PAGE_SHELL, "py-4 sm:py-6 space-y-5")}>
+      <div className={cn(OPS_PAGE_SHELL, "py-3 md:py-6 space-y-4 md:space-y-5")}>
         <PageHero
           eyebrow="Cameras"
           badge="CCTV"

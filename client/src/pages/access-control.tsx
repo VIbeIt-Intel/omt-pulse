@@ -21,8 +21,7 @@ import {
   cacheAccessDestinations,
   readCachedAccessDestinations,
 } from "@/lib/access-destinations-cache";
-import { BarChart3, DoorOpen, LogOut, Plus, ShieldCheck } from "lucide-react";
-import { FieldPageHeading } from "@/components/field-page-heading";
+import { BarChart3, DoorOpen, LogOut, Plus } from "lucide-react";
 import { PageHero } from "@/components/page-hero";
 import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import { cn } from "@/lib/utils";
@@ -123,23 +122,7 @@ export default function AccessControlPage({ userRole }: AccessControlPageProps) 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-background text-foreground">
       <div className={cn("shrink-0 pt-3 pb-2 md:pb-3", OPS_PAGE_SHELL)}>
-        {/* Phones: slim title. Desktop control room keeps the full hero. */}
-        <FieldPageHeading
-          className="md:hidden"
-          title="Access Control"
-          icon={ShieldCheck}
-          badge={pageView === "overview" ? "Overview" : "Gate desk"}
-          meta={
-            pageView === "overview"
-              ? subtitle
-              : canUseDesk
-                ? `${inside.length} on site · ${activeDestinations.length} destination${activeDestinations.length === 1 ? "" : "s"}`
-                : subtitle
-          }
-          actions={headerActions}
-        />
         <PageHero
-          className="hidden md:block"
           eyebrow="Access Control"
           badge={pageView === "overview" ? "Overview" : "Gate desk"}
           total={canUseDesk ? inside.length : activeDestinations.length}
