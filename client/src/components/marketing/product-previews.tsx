@@ -30,11 +30,45 @@ type LightboxItem = {
   src?: string;
   alt: string;
   caption: string;
-  kind?: "image" | "fleet-mock" | "routes-mock";
+  kind?: "image" | "phone" | "fleet-mock" | "routes-mock";
 };
 
 /** Matches marketing/mobile-dashboard.png (460×928). */
 const PHONE_FRAME_ASPECT = "460 / 928";
+
+function PhoneBezel({
+  src,
+  alt,
+  className,
+  imgClassName,
+}: {
+  src: string;
+  alt: string;
+  className?: string;
+  imgClassName?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "overflow-hidden rounded-[1.75rem] border-[3px] border-border bg-[#0b0f14] p-1.5 shadow-lg shadow-primary/15",
+        className,
+      )}
+    >
+      <div
+        className="relative w-full overflow-hidden rounded-[1.3rem] bg-[#0b0f14]"
+        style={{ aspectRatio: PHONE_FRAME_ASPECT }}
+      >
+        <img
+          src={src}
+          alt={alt}
+          className={cn("absolute inset-0 h-full w-full object-cover object-top", imgClassName)}
+          loading="lazy"
+          decoding="async"
+        />
+      </div>
+    </div>
+  );
+}
 
 function PhoneScreenshot({ src, alt, label, onExpand }: {
   src: string;
@@ -43,25 +77,14 @@ function PhoneScreenshot({ src, alt, label, onExpand }: {
   onExpand: () => void;
 }) {
   return (
-    <figure className="flex flex-col items-center gap-3">
+    <figure className="mx-auto flex w-full max-w-[380px] flex-col items-center gap-3 sm:max-w-[420px]">
       <button
         type="button"
         onClick={onExpand}
-        className="group relative w-full max-w-[300px] rounded-[1.75rem] border-[3px] border-border bg-[#0b0f14] p-1.5 shadow-lg shadow-primary/10 text-left transition hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+        className="group relative w-full text-left transition hover:opacity-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         aria-label={`Expand ${label}`}
       >
-        <div
-          className="relative w-full overflow-hidden rounded-[1.25rem] bg-[#0b0f14]"
-          style={{ aspectRatio: PHONE_FRAME_ASPECT }}
-        >
-          <img
-            src={src}
-            alt={alt}
-            className="absolute inset-0 h-full w-full object-cover object-top"
-            loading="lazy"
-            decoding="async"
-          />
-        </div>
+        <PhoneBezel src={src} alt={alt} className="w-full transition group-hover:border-primary/40" />
         <span className="pointer-events-none absolute bottom-4 right-4 inline-flex items-center gap-1 rounded-full bg-background/90 px-2 py-1 text-[10px] font-medium text-muted-foreground opacity-0 shadow transition group-hover:opacity-100">
           <Expand className="h-3 w-3" /> Expand
         </span>
@@ -499,14 +522,14 @@ export function ProductPreviewsSection() {
             />
           ))}
         </div>
-        <div className="mt-12 flex flex-wrap justify-center gap-10">
+        <div className="mt-14 flex justify-center">
           {PREVIEWS.filter((p) => !p.wide).map(({ id, label, src, alt }) => (
             <PhoneScreenshot
               key={id}
               src={src}
               alt={alt}
               label={label}
-              onExpand={() => setLightbox({ src, alt, caption: label, kind: "image" })}
+              onExpand={() => setLightbox({ src, alt, caption: label, kind: "phone" })}
             />
           ))}
         </div>
@@ -601,13 +624,20 @@ function ScreenshotLightbox({
   item: LightboxItem | null;
   onClose: () => void;
 }) {
+  const isPhone = item?.kind === "phone";
+
   return (
     <Dialog open={!!item} onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent
-        className="max-h-[92vh] w-[min(96vw,1100px)] max-w-none overflow-y-auto border-border bg-background p-3 sm:p-4"
+        className={cn(
+          "flex max-h-[94vh] max-w-none flex-col gap-3 overflow-y-auto border-border bg-background p-3 sm:p-4",
+          isPhone
+            ? "w-[min(96vw,480px)] items-center"
+            : "w-[min(96vw,1100px)]",
+        )}
         hideDefaultClose
       >
-        <div className="mb-2 flex items-start justify-between gap-3">
+        <div className={cn("flex w-full items-start justify-between gap-3", isPhone && "max-w-[420px]")}>
           <DialogTitle className="text-sm font-semibold leading-snug sm:text-base">
             {item?.caption}
           </DialogTitle>
@@ -624,12 +654,32 @@ function ScreenshotLightbox({
           <FleetBoardPresentation />
         ) : item?.kind === "routes-mock" ? (
           <FleetRoutesPresentation />
+        ) : item?.kind === "phone" && item.src ? (
+          <div
+            className="mx-auto overflow-hidden rounded-[1.75rem] border-[3px] border-border bg-[#0b0f14] p-1.5 shadow-lg shadow-primary/15"
+            style={{
+              height: "min(82vh, 860px)",
+              aspectRatio: PHONE_FRAME_ASPECT,
+              maxWidth: "min(92vw, 420px)",
+            }}
+          >
+            <div className="relative h-full w-full overflow-hidden rounded-[1.3rem] bg-[#0b0f14]">
+              <img
+                src={item.src}
+                alt={item.alt}
+                className="absolute inset-0 h-full w-full object-cover object-top"
+                decoding="async"
+              />
+            </div>
+          </div>
         ) : item?.src ? (
-          <img
-            src={item.src}
-            alt={item.alt}
-            className="mx-auto max-h-[80vh] w-auto max-w-full rounded-lg object-contain"
-          />
+          <div className="flex w-full justify-center">
+            <img
+              src={item.src}
+              alt={item.alt}
+              className="max-h-[80vh] w-auto max-w-full rounded-lg object-contain"
+            />
+          </div>
         ) : null}
       </DialogContent>
     </Dialog>
