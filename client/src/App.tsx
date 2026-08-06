@@ -770,7 +770,7 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
     <SidebarProvider style={style as React.CSSProperties}>
       <div className="flex h-screen w-full">
         <AppSidebar user={user} onLogout={() => logoutMutation.mutate()} avatarPreview={avatarPreview} />
-        <div className="flex flex-col flex-1 min-w-0 relative">
+        <div className="capacitor-shell-column flex flex-col flex-1 min-w-0 relative">
           {/* Full INTEL header — dashboard only */}
           {location === "/dashboard" && (
           <header className="relative grid grid-cols-[1fr_auto_1fr] items-center p-2 border-b border-border bg-background text-foreground shrink-0 gap-2 z-40 min-h-[3rem]">

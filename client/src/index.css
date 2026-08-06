@@ -304,6 +304,17 @@ html.capacitor-native body,
 html.capacitor-native #root {
   background-color: transparent !important;
 }
+/*
+ * App shell ancestors must also punch through. An opaque `bg-background` on
+ * <main> (added for Access Control contrast) sat between the WebView and the
+ * native MapView and painted solid black/white over Live Incident maps.
+ * Pages that need a solid fill keep their own `bg-background` on the page root
+ * (Access, Patrol, etc.). Live Incident keeps `.live-page-root` transparent.
+ */
+html.capacitor-native main,
+html.capacitor-native .capacitor-shell-column {
+  background-color: transparent !important;
+}
 html.capacitor-native .live-page-root,
 html.capacitor-native .live-scroll,
 html.capacitor-native .native-map-host {

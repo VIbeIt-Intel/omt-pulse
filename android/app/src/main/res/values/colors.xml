@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="colorPrimary">#006039</color>
+    <color name="colorPrimaryDark">#004d2e</color>
+    <color name="colorAccent">#006039</color>
+    <!-- Matches dark --background (~hsl 0 0% 4%). Keeps transparent WebView
+         punch-through holes from flashing Light-theme white during map create. -->
+    <color name="omt_window_background">#0A0A0A</color>
+</resources>

@@ -37,6 +37,11 @@ public class MainActivity extends BridgeActivity {
 
         super.onCreate(savedInstanceState);
 
+        // Dark window behind the transparent WebView so Live Incident map
+        // punch-through never flashes the default Light theme white while the
+        // native MapView is warming up.
+        getWindow().getDecorView().setBackgroundColor(Color.parseColor("#0A0A0A"));
+
         // Transparent WebView background so @capacitor/google-maps native
         // map view (rendered behind the WebView) is visible through the HTML element.
         this.bridge.getWebView().setBackgroundColor(Color.TRANSPARENT);

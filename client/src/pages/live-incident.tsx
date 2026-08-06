@@ -4797,13 +4797,17 @@ export default function LiveIncidentPage() {
                 </div>
               </div>
             )}
-            <div className="flex flex-col items-center justify-center flex-1 gap-5 text-center px-6">
-              <div className="rounded-full bg-green-500/10 p-5">
-                <Radio className="h-10 w-10 text-green-500" />
-              </div>
-              <div className="space-y-1.5">
-                <p className="font-semibold text-lg">Ready to respond?</p>
-                <p className="text-sm text-muted-foreground">Tap the button below to create your live incident and begin GPS tracking.</p>
+            <div className="flex flex-col items-center justify-center flex-1 gap-5 text-center px-6 pointer-events-none">
+              <div className="rounded-2xl border border-border/40 bg-background/80 backdrop-blur-sm px-6 py-7 shadow-lg">
+                <div className="mx-auto mb-4 rounded-full bg-green-500/10 p-5 w-fit">
+                  <Radio className="h-10 w-10 text-green-500" />
+                </div>
+                <div className="space-y-1.5">
+                  <p className="font-semibold text-lg">Ready to respond?</p>
+                  <p className="text-sm text-muted-foreground max-w-xs mx-auto">
+                    Tap the button below to create your live incident and begin GPS tracking.
+                  </p>
+                </div>
               </div>
             </div>
             {/* Joinable incidents — only visible when there are active live incidents from other users */}
