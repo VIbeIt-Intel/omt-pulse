@@ -32,7 +32,6 @@ import {
   Car,
   Gauge,
   KeyRound,
-  Battery,
   Network,
   Route as RouteIcon,
   Signal,
@@ -45,12 +44,12 @@ import {
   freshnessClassDark,
   preferredTodayDistanceKm,
   trackerSignalSummary,
-  batteryPercentClass,
   MOTION_STATUS,
   vehicleDisplayName,
 } from "@/lib/fleet-intelligence";
 import { USER_ROLE_LABELS } from "@/lib/user-roles";
 import { GeoMapPreview } from "@/components/incident-location-sheet";
+import { FleetBatteryMeter } from "@/components/fleet/fleet-battery-meter";
 import {
   Sheet,
   SheetContent,
@@ -1399,15 +1398,7 @@ export function OperationsDashboard({
                                   </span>
                                 )}
                                 {device.lastBatteryPercent != null && (
-                                  <span
-                                    className={cn(
-                                      "inline-flex items-center gap-0.5 tabular-nums",
-                                      batteryPercentClass(device.lastBatteryPercent),
-                                    )}
-                                  >
-                                    <Battery className="h-2.5 w-2.5" />
-                                    {device.lastBatteryPercent}%
-                                  </span>
+                                  <FleetBatteryMeter percent={device.lastBatteryPercent} size="sm" />
                                 )}
                               </div>
                             </div>

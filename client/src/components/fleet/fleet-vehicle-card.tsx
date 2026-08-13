@@ -1,5 +1,6 @@
-import { ChevronRight, Gauge, Route, User, AlertTriangle, Battery } from "lucide-react";
+import { ChevronRight, Gauge, Route, User, AlertTriangle } from "lucide-react";
 import { FleetVehiclePhoto } from "@/components/fleet/fleet-vehicle-photo";
+import { FleetBatteryMeter } from "@/components/fleet/fleet-battery-meter";
 import type { TrackerDeviceSummary } from "@/components/operations-dashboard";
 import {
   formatFreshnessAgo,
@@ -9,7 +10,6 @@ import {
   getVehicleMotionStatus,
   preferredTodayDistanceKm,
   trackerSignalSummary,
-  batteryPercentClass,
   MOTION_STATUS,
   vehicleDisplayName,
 } from "@/lib/fleet-intelligence";
@@ -89,15 +89,7 @@ export function FleetVehicleCard({ device, onClick, alertCount = 0 }: FleetVehic
               </span>
             )}
             {device.lastBatteryPercent != null && (
-              <span
-                className={cn(
-                  "inline-flex items-center gap-1 font-medium tabular-nums",
-                  batteryPercentClass(device.lastBatteryPercent),
-                )}
-              >
-                <Battery className="h-3.5 w-3.5" />
-                {device.lastBatteryPercent}%
-              </span>
+              <FleetBatteryMeter percent={device.lastBatteryPercent} size="sm" />
             )}
             {todayKm != null && (
               <span className="inline-flex items-center gap-1 text-muted-foreground tabular-nums">

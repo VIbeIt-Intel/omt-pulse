@@ -525,9 +525,17 @@ export function vehicleDisplayName(device: {
   return `Vehicle …${device.imei.slice(-4)}`;
 }
 
+export function batteryLevelTone(percent: number | null | undefined): "ok" | "warn" | "crit" | "unknown" {
+  if (percent == null || !Number.isFinite(percent)) return "unknown";
+  if (percent <= 20) return "crit";
+  if (percent <= 40) return "warn";
+  return "ok";
+}
+
 export function batteryPercentClass(percent: number | null | undefined): string {
-  if (percent == null) return "text-muted-foreground";
-  if (percent <= 20) return "text-red-400";
-  if (percent <= 40) return "text-amber-400";
-  return "text-emerald-400";
+  const tone = batteryLevelTone(percent);
+  if (tone === "crit") return "text-red-400";
+  if (tone === "warn") return "text-amber-400";
+  if (tone === "ok") return "text-emerald-400";
+  return "text-muted-foreground";
 }

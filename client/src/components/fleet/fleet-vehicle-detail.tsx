@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { FleetHistoryMap } from "@/components/fleet-history-map";
 import { FleetVehiclePhoto } from "@/components/fleet/fleet-vehicle-photo";
+import { FleetBatteryMeter } from "@/components/fleet/fleet-battery-meter";
 import { FleetAlertsPanel } from "@/components/fleet/fleet-alerts-panel";
 import { FleetAlertRulesForm } from "@/components/fleet/fleet-alert-rules-form";
 import { GeoLocationSheet, type GeoMapView } from "@/components/incident-location-sheet";
@@ -57,7 +58,6 @@ import {
   preferredTodayDistanceKm,
   segmentTripLegs,
   trackerSignalSummary,
-  batteryPercentClass,
   MOTION_STATUS,
   vehicleDisplayName,
 } from "@/lib/fleet-intelligence";
@@ -424,17 +424,12 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
               <p className="text-[10px] uppercase text-muted-foreground font-semibold">Ignition</p>
               <p className="text-sm font-semibold mt-1">{ignitionLabel(device.lastIgnitionOn)}</p>
             </div>
-            <div className="rounded-lg border bg-background/80 px-3 py-2 text-center min-w-[72px]">
+            <div className="rounded-lg border bg-background/80 px-3 py-2 text-center min-w-[88px]">
               <p className="text-[10px] uppercase text-muted-foreground font-semibold">Battery</p>
-              <p
-                className={cn(
-                  "text-xl font-bold tabular-nums mt-0.5",
-                  batteryPercentClass(device.lastBatteryPercent),
-                )}
-              >
-                {device.lastBatteryPercent != null ? `${device.lastBatteryPercent}` : "—"}
-              </p>
-              <p className="text-[9px] text-muted-foreground">percent</p>
+              <div className="mt-1.5 flex justify-center">
+                <FleetBatteryMeter percent={device.lastBatteryPercent} size="md" />
+              </div>
+              <p className="text-[9px] text-muted-foreground mt-1">percent</p>
             </div>
             <div className="rounded-lg border bg-background/80 px-3 py-2 text-center min-w-[88px]">
               <p className="text-[10px] uppercase text-muted-foreground font-semibold">Odometer</p>
