@@ -206,5 +206,75 @@ console.log("\n4) preferredTodayDistanceKm preference order");
   );
 }
 
+console.log("\n5) Trip ends at 10 km/h with GPS going quiet → parked at destination");
+{
+  const trip = driveSegment("2026-07-22T15:12:00.000Z", 18, 28.3, 40);
+  const last = trip[trip.length - 1]!;
+  last.speedKph = 10;
+  last.ignitionOn = null; // typical GT06 0x12 GPS — ACC is not on the position row
+  const events = detectTripMapEvents(trip);
+  const dest = events.filter(
+    (e) => distanceMApprox(e.lat, e.lng, last.latitude, last.longitude) < 40,
+  );
+  assert(dest.length >= 1, `expected destination marker at trip end, got ${dest.length}`);
+  assert(dest.some((e) => e.kind === "stop"), "destination should be a parked/stop marker");
+}
+
+console.log("\n6) Live ACC-off heartbeat (no GPS ACC bit) → ignition-off at last park");
+{
+  const trip = driveSegment("2026-07-22T15:12:00.000Z", 18, 28.4, 40);
+  const last = trip[trip.length - 1]!;
+  last.speedKph = 10;
+  last.ignitionOn = null;
+  const events = detectTripMapEvents(trip, { endedIgnitionOff: true });
+  const offs = events.filter((e) => e.kind === "ignition_off");
+  assert(offs.length >= 1, `expected ignition-off marker, got ${offs.length}`);
+  assert(
+    offs.some((e) => distanceMApprox(e.lat, e.lng, last.latitude, last.longitude) < 40),
+    "ignition-off should sit on the last GPS point",
+  );
+}
+
+console.log("\n7) Last GPS reports ACC off → ignition-off even while speed still 10 km/h");
+{
+  const trip = driveSegment("2026-07-22T15:12:00.000Z", 10, 28.5, 40);
+  const last = trip[trip.length - 1]!;
+  last.speedKph = 10;
+  last.ignitionOn = false;
+  const events = detectTripMapEvents(trip);
+  assert(
+    events.some((e) => e.kind === "ignition_off"),
+    "ACC-off on last GPS point should mark ignition-off",
+  );
+}
+
+console.log("\n8) Live trip still moving → do not invent a park at the latest point");
+{
+  const now = Date.now();
+  const points: TripPosition[] = [];
+  for (let i = 0; i < 12; i++) {
+    points.push(
+      pt(new Date(now - (11 - i) * 10_000).toISOString(), {
+        lat: -26.2,
+        lng: 28.6 + i * 0.002,
+        speed: 40,
+        ignition: true,
+      }),
+    );
+  }
+  const events = detectTripMapEvents(points);
+  assert(events.length === 0, `live moving trip should have no park/ignition events, got ${events.length}`);
+}
+
+function distanceMApprox(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2
+    + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.min(1, Math.sqrt(a))) * 1000;
+}
+
 console.log(`\n${passed} passed, ${failed} failed\n`);
 if (failed > 0) process.exit(1);

@@ -247,7 +247,9 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
     const pts = dayBuckets.find((d) => d.key === todayKey)?.positions ?? [];
     const stats = computeTripDayStats(pts);
     const trips = segmentTripLegs(pts);
-    const stops = detectTripMapEvents(pts).filter((e) => e.kind === "stop");
+    const stops = detectTripMapEvents(pts, {
+      endedIgnitionOff: device.lastIgnitionOn === false,
+    }).filter((e) => e.kind === "stop");
     const parkedMinutes = stops.reduce((sum, s) => sum + (s.durationMinutes ?? 0), 0);
     return {
       stats,
@@ -255,7 +257,7 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
       stopCount: stops.length,
       parkedMinutes,
     };
-  }, [dayBuckets, todayKey]);
+  }, [dayBuckets, todayKey, device.lastIgnitionOn]);
 
   const yesterdayKm = useMemo(() => {
     const pts = dayBuckets.find((d) => d.key === yesterdayKey)?.positions ?? [];
@@ -659,7 +661,11 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
                   <p className="text-[11px] text-muted-foreground">
                     {tripStats.pointCount} GPS points recorded · {activeDay?.label ?? "Selected day"}
                   </p>
-                  <FleetHistoryMap positions={activePositions} geofence={mapGeofence} />
+                  <FleetHistoryMap
+                    positions={activePositions}
+                    geofence={mapGeofence}
+                    endedIgnitionOff={activeDayKey === todayKey && device.lastIgnitionOn === false}
+                  />
                 </div>
               </>
             )}

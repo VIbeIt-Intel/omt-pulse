@@ -31,6 +31,8 @@ export type FleetMapGeofence = {
 type Props = {
   positions: FleetHistoryPoint[];
   geofence?: FleetMapGeofence | null;
+  /** Live ACC-off on the device — used to mark the last park when GPS went quiet. */
+  endedIgnitionOff?: boolean;
   className?: string;
   testId?: string;
 };
@@ -184,6 +186,7 @@ function MapLegendItem({
 export function FleetHistoryMap({
   positions,
   geofence = null,
+  endedIgnitionOff = false,
   className,
   testId = "fleet-history-map",
 }: Props) {
@@ -220,7 +223,10 @@ export function FleetHistoryMap({
   );
 
   const tripLegs = useMemo(() => segmentTripLegs(positions), [positions]);
-  const tripEvents = useMemo(() => detectTripMapEvents(positions), [positions]);
+  const tripEvents = useMemo(
+    () => detectTripMapEvents(positions, { endedIgnitionOff }),
+    [positions, endedIgnitionOff],
+  );
 
   const playbackPoints = useMemo<PlaybackPoint[]>(() => {
     return sortedPositions
@@ -472,7 +478,7 @@ export function FleetHistoryMap({
           map,
           title: event.label,
           icon: eventIcon(event.kind),
-          zIndex: event.kind === "ignition_off" ? 18 : 17,
+          zIndex: event.kind === "ignition_off" ? 23 : 22,
           cursor: "pointer",
         });
         marker.addListener("click", () => {

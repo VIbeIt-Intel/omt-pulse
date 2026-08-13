@@ -379,8 +379,15 @@ function formatStopClock(iso: string): string {
 /**
  * Derive stop (low-speed dwell) and ignition-off points for the daily route map.
  * Uses the same moving threshold as trip analytics.
+ *
+ * When a trip ends because GPS goes quiet (typical ACC-off), there is often no
+ * 3-minute idle trail and no On→Off pair in the position log. `endedIgnitionOff`
+ * lets the live device ACC bit mark that last park as ignition-off.
  */
-export function detectTripMapEvents(positions: TripPosition[]): TripMapEvent[] {
+export function detectTripMapEvents(
+  positions: TripPosition[],
+  opts?: { endedIgnitionOff?: boolean },
+): TripMapEvent[] {
   const sorted = [...positions]
     .filter((p) => p.gpsValid !== false)
     .sort((a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime());
@@ -447,13 +454,63 @@ export function detectTripMapEvents(positions: TripPosition[]): TripMapEvent[] {
   for (let i = 1; i < sorted.length; i++) {
     const prev = sorted[i - 1]!;
     const curr = sorted[i]!;
-    if (prev.ignitionOn === true && curr.ignitionOn === false) {
+    if (prev.ignitionOn !== false && curr.ignitionOn === false) {
       events.push({
         kind: "ignition_off",
         lat: curr.latitude,
         lng: curr.longitude,
         at: curr.recordedAt,
         label: `Ignition off · ${formatStopClock(curr.recordedAt)}`,
+      });
+    }
+  }
+
+  // Trip end = parked, even when the last GPS is still 8–15 km/h (speed lag) or
+  // the tracker stopped uploading the moment ACC went off (GT06 heartbeat).
+  const nowMs = Date.now();
+  const legs = segmentTripLegs(sorted);
+  for (const leg of legs) {
+    const end = leg.points[leg.points.length - 1]!;
+    const endPos = { lat: end.latitude, lng: end.longitude };
+    const already = events.some(
+      (e) => distanceM({ lat: e.lat, lng: e.lng }, endPos) < TRIP_EVENT_DEDUPE_M,
+    );
+    if (already) continue;
+
+    const next = legs.find((other) => other.index === leg.index + 1);
+    const until = next?.startAt;
+    const dwellMs = until
+      ? Math.max(0, new Date(until).getTime() - new Date(end.recordedAt).getTime())
+      : 0;
+    const ageMs = nowMs - new Date(end.recordedAt).getTime();
+    const tailOff =
+      end.ignitionOn === false
+      || (next == null && opts?.endedIgnitionOff === true);
+    // Don't mark a live trip that's still moving; do mark historical / quiet GPS.
+    const gpsQuiet = next != null || ageMs >= TRIP_STOP_MIN_MS;
+    if (!tailOff && !gpsQuiet) continue;
+
+    if (tailOff) {
+      events.push({
+        kind: "ignition_off",
+        lat: end.latitude,
+        lng: end.longitude,
+        at: end.recordedAt,
+        label: `Ignition off · ${formatStopClock(end.recordedAt)}`,
+      });
+    } else {
+      const mins = dwellMs >= 60_000 ? Math.round(dwellMs / 60_000) : undefined;
+      events.push({
+        kind: "stop",
+        lat: end.latitude,
+        lng: end.longitude,
+        at: end.recordedAt,
+        until,
+        durationMinutes: mins,
+        label:
+          mins != null
+            ? `Parked · ${formatStopClock(end.recordedAt)} · ${formatDurationMinutes(mins)}`
+            : `Parked · ${formatStopClock(end.recordedAt)}`,
       });
     }
   }
