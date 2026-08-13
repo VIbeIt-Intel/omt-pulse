@@ -1,5 +1,5 @@
 import type { ProtocolHandleResult } from "./types";
-import { saveTrackerIgnition, saveTrackerPosition } from "./store";
+import { saveTrackerBattery, saveTrackerIgnition, saveTrackerPosition } from "./store";
 
 const LOG = "vehicle-tracker";
 
@@ -16,6 +16,7 @@ export async function persistProtocolResult(
         ` speed=${p.speedKph ?? "?"}kph heading=${p.heading ?? "?"}°` +
         ` ignition=${p.ignitionOn ?? "?"} valid=${p.gpsValid}` +
         (p.mileageKm != null ? ` mileage=${p.mileageKm}km` : "") +
+        (p.batteryPercent != null ? ` battery=${p.batteryPercent}%` : "") +
         ` @ ${p.recordedAt.toISOString()}`,
     );
     return;
@@ -26,5 +27,10 @@ export async function persistProtocolResult(
     console.log(
       `[${LOG}] ignition update IMEI=${imei} ACC=${result.ignitionUpdate.ignitionOn ? "on" : "off"}`,
     );
+  }
+
+  if (result.batteryUpdate) {
+    await saveTrackerBattery(imei, protocolId, result.batteryUpdate.percent);
+    console.log(`[${LOG}] battery update IMEI=${imei} ${result.batteryUpdate.percent}%`);
   }
 }

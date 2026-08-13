@@ -9,6 +9,7 @@ export type H02ParseResult = {
   deviceId: string;
   packetType: string;
   position?: ParsedTrackerPosition;
+  batteryPercent?: number | null;
 };
 
 function stripFrame(packet: Buffer): string {
@@ -28,6 +29,38 @@ export function tryExtractH02DeviceId(packet: Buffer): string | null {
   const id = parts[1]?.trim();
   if (!id || !/^\d{8,20}$/.test(id)) return null;
   return id;
+}
+
+/** Map SinoTrack battery tokens to 0–100. */
+export function normalizeBatteryPercent(raw: number): number | null {
+  if (!Number.isFinite(raw)) return null;
+  const n = Math.round(raw);
+  if (n >= 0xf1 && n <= 0xf6) {
+    const mapped = [10, 30, 60, 80, 100, 100];
+    return mapped[n - 0xf1] ?? null;
+  }
+  if (n >= 0 && n <= 6) {
+    return [0, 10, 20, 30, 40, 50, 100][n] ?? null;
+  }
+  if (n >= 0 && n <= 100) return n;
+  return null;
+}
+
+function parseBatteryToken(token: string | undefined): number | null {
+  if (!token) return null;
+  const pct = token.match(/(\d{1,3})\s*%/);
+  if (pct) {
+    const n = parseInt(pct[1]!, 10);
+    return n >= 0 && n <= 100 ? n : null;
+  }
+  if (/^bat(?:tery)?[:\s]/i.test(token.trim())) {
+    const n = parseInt(token.replace(/[^\d]/g, ""), 10);
+    return Number.isFinite(n) && n >= 0 && n <= 100 ? n : null;
+  }
+  if (!/^\d+(\.\d+)?$/.test(token.trim())) return null;
+  const n = Math.round(parseFloat(token));
+  if (n >= 0 && n <= 100) return n;
+  return normalizeBatteryPercent(n);
 }
 
 /** NMEA ddmm.mmmm / dddmm.mmmm → decimal degrees. */
@@ -81,6 +114,7 @@ function parseStatusIgnition(statusHex: string | undefined): boolean | null {
 /**
  * Parse SinoTrack / H02 ASCII frames:
  * `*HQ,ID,V1,HHMMSS,A,lat,N,lon,E,speed,course,DDMMYY,status#`
+ * LINK/HTBT carry battery; V1 may include an extra percent field.
  */
 export function parseH02Packet(packet: Buffer): H02ParseResult | null {
   const text = stripFrame(packet);
@@ -93,11 +127,50 @@ export function parseH02Packet(packet: Buffer): H02ParseResult | null {
   const type = (parts[2]?.trim() ?? "").toUpperCase();
   if (!deviceId || !/^\d{8,20}$/.test(deviceId)) return null;
 
-  if (type === "V0" || type === "HTBT" || type === "LINK" || type === "NBR" || type === "V3") {
+  if (type === "LINK") {
+    // *HQ,ID,LINK,HHMMSS,rssi,sats,battery,steps,turnovers,DDMMYY,status#
+    return {
+      deviceId,
+      packetType: "link",
+      batteryPercent: parseBatteryToken(parts[6]),
+    };
+  }
+
+  if (type === "HTBT") {
+    return {
+      deviceId,
+      packetType: "htbt",
+      batteryPercent: parseBatteryToken(parts[3]),
+    };
+  }
+
+  if (type === "V4") {
+    let batteryPercent: number | null = null;
+    for (const token of parts.slice(3)) {
+      const fromLabel = parseBatteryToken(token);
+      if (fromLabel != null && /bat|%/i.test(token)) {
+        batteryPercent = fromLabel;
+        break;
+      }
+    }
+    if (batteryPercent == null) {
+      for (const token of parts.slice(3)) {
+        if (!/^\d{1,3}$/.test(token.trim())) continue;
+        const n = parseInt(token, 10);
+        if (n >= 0 && n <= 100) {
+          batteryPercent = n;
+          break;
+        }
+      }
+    }
+    return { deviceId, packetType: "v4", batteryPercent };
+  }
+
+  if (type === "V0" || type === "NBR" || type === "V3") {
     return { deviceId, packetType: type.toLowerCase() };
   }
 
-  // V1 / V4 / VP1 location: ID, TYPE, time, validity, lat, hemi, lon, hemi, speed, course, date, status
+  // V1 / VP1 location: ID, TYPE, time, validity, lat, hemi, lon, hemi, speed, course, date, status [, battery]
   const validity = parts[4]?.trim().toUpperCase();
   const latRaw = parts[5];
   const latHemi = parts[6]?.trim();
@@ -117,6 +190,7 @@ export function parseH02Packet(packet: Buffer): H02ParseResult | null {
   const speedKnots = parseFloat(parts[9] ?? "");
   const course = parseFloat(parts[10] ?? "");
   const gpsValid = validity === "A" || validity === "B";
+  const extraBattery = parseBatteryToken(parts[13]);
 
   const position: ParsedTrackerPosition = {
     latitude,
@@ -125,6 +199,7 @@ export function parseH02Packet(packet: Buffer): H02ParseResult | null {
     heading: Number.isFinite(course) ? course : null,
     ignitionOn: parseStatusIgnition(parts[12]),
     mileageKm: null,
+    batteryPercent: extraBattery,
     gpsValid,
     packetType: type.toLowerCase() || "v1",
     recordedAt: parseUtcDateTime(parts[3], parts[11]),
@@ -134,5 +209,6 @@ export function parseH02Packet(packet: Buffer): H02ParseResult | null {
     deviceId,
     packetType: position.packetType,
     position,
+    batteryPercent: extraBattery,
   };
 }

@@ -84,7 +84,7 @@ function processPacket(connection: TrackerConnection, packet: Buffer): void {
     }
 
     const imei = connection.deviceId;
-    if (imei && (result.position || result.ignitionUpdate)) {
+    if (imei && (result.position || result.ignitionUpdate || result.batteryUpdate)) {
       void persistProtocolResult(imei, handler.id, result).catch((err) => {
         console.warn(`[${LOG}] persist failed:`, err instanceof Error ? err.message : err);
       });

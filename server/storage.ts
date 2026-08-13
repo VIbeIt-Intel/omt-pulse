@@ -42,6 +42,7 @@ export type TrackerDeviceSummary = {
   lastHeading: number | null;
   lastIgnitionOn: boolean | null;
   lastMileageKm: number | null;
+  lastBatteryPercent?: number | null;
   todayOdometerDistanceKm: number | null;
   todayGpsDistanceKm: number | null;
   /** Best available today distance: odometer when present, else GPS path. */
@@ -280,15 +281,34 @@ export interface IStorage {
 
   getTrackerDevices(orgId: string, commandFilter?: number[]): Promise<TrackerDeviceSummary[]>;
   getTrackerDeviceById(id: number, orgId: string): Promise<TrackerDeviceSummary | undefined>;
-  updateTrackerDevice(
-    id: number,
+  createTrackerDevice(
     orgId: string,
-    patch: {
+    data: {
+      imei: string;
       label?: string | null;
       vehicleMake?: string | null;
       vehicleModel?: string | null;
       vehicleRegistration?: string | null;
       vehiclePhotoUrl?: string | null;
+      simPhone?: string | null;
+      assignedUserId?: string | null;
+      commandId?: number | null;
+      notes?: string | null;
+      lastMileageKm?: number | null;
+      protocol?: string;
+    },
+  ): Promise<TrackerDeviceSummary>;
+  updateTrackerDevice(
+    id: number,
+    orgId: string,
+    patch: {
+      imei?: string;
+      label?: string | null;
+      vehicleMake?: string | null;
+      vehicleModel?: string | null;
+      vehicleRegistration?: string | null;
+      vehiclePhotoUrl?: string | null;
+      simPhone?: string | null;
       assignedUserId?: string | null;
       commandId?: number | null;
       notes?: string | null;
@@ -2191,6 +2211,7 @@ export class DatabaseStorage implements IStorage {
     lastHeading: number | null;
     lastIgnitionOn: boolean | null;
     lastMileageKm: number | null;
+    lastBatteryPercent: number | null;
     todayOdometerDistanceKm: number | null;
     todayGpsDistanceKm: number | null;
     lastTripDistanceKm: number | null;
@@ -2232,6 +2253,7 @@ export class DatabaseStorage implements IStorage {
       lastHeading: r.lastHeading,
       lastIgnitionOn: r.lastIgnitionOn,
       lastMileageKm: r.lastMileageKm,
+      lastBatteryPercent: r.lastBatteryPercent,
       todayOdometerDistanceKm,
       todayGpsDistanceKm,
       todayDistanceKm,
@@ -2264,6 +2286,7 @@ export class DatabaseStorage implements IStorage {
       lastHeading: trackerDevices.lastHeading,
       lastIgnitionOn: trackerDevices.lastIgnitionOn,
       lastMileageKm: trackerDevices.lastMileageKm,
+      lastBatteryPercent: trackerDevices.lastBatteryPercent,
       todayOdometerDistanceKm: trackerDevices.todayOdometerDistanceKm,
       todayGpsDistanceKm: trackerDevices.todayGpsDistanceKm,
       lastTripDistanceKm: trackerDevices.lastTripDistanceKm,
@@ -2335,6 +2358,58 @@ export class DatabaseStorage implements IStorage {
     const device = this.mapTrackerDeviceRow(row);
     await this.enrichTodayGpsDistances([device]);
     return device;
+  }
+
+  async createTrackerDevice(
+    orgId: string,
+    data: {
+      imei: string;
+      label?: string | null;
+      vehicleMake?: string | null;
+      vehicleModel?: string | null;
+      vehicleRegistration?: string | null;
+      vehiclePhotoUrl?: string | null;
+      simPhone?: string | null;
+      assignedUserId?: string | null;
+      commandId?: number | null;
+      notes?: string | null;
+      lastMileageKm?: number | null;
+      protocol?: string;
+    },
+  ): Promise<TrackerDeviceSummary> {
+    const clash = await db
+      .select({ id: trackerDevices.id })
+      .from(trackerDevices)
+      .where(eq(trackerDevices.imei, data.imei))
+      .limit(1);
+    if (clash[0]) {
+      throw new Error("IMEI_IN_USE");
+    }
+
+    const [inserted] = await db
+      .insert(trackerDevices)
+      .values({
+        imei: data.imei,
+        organizationId: orgId,
+        protocol: data.protocol?.trim() || "gt06",
+        label: data.label ?? null,
+        vehicleMake: data.vehicleMake ?? null,
+        vehicleModel: data.vehicleModel ?? null,
+        vehicleRegistration: data.vehicleRegistration ?? null,
+        vehiclePhotoUrl: data.vehiclePhotoUrl ?? null,
+        simPhone: data.simPhone ?? null,
+        assignedUserId: data.assignedUserId ?? null,
+        commandId: data.commandId ?? null,
+        notes: data.notes ?? null,
+        lastMileageKm: data.lastMileageKm ?? null,
+      })
+      .returning({ id: trackerDevices.id });
+
+    const created = await this.getTrackerDeviceById(inserted!.id, orgId);
+    if (!created) {
+      throw new Error("TRACKER_CREATE_FAILED");
+    }
+    return created;
   }
 
   async updateTrackerDevice(

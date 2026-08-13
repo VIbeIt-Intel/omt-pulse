@@ -288,6 +288,7 @@ export async function saveTrackerPosition(
     lastHeading: number | null;
     lastIgnitionOn: boolean | null;
     lastMileageKm?: number | null;
+    lastBatteryPercent?: number | null;
     lastGpsValid: boolean;
     lastPositionAt: Date;
     lastSeenAt: Date;
@@ -305,6 +306,10 @@ export async function saveTrackerPosition(
     lastSeenAt: new Date(),
     todayGpsDistanceKm: gpsPath.todayGpsDistanceKm,
   };
+
+  if (position.batteryPercent != null) {
+    devicePatch.lastBatteryPercent = position.batteryPercent;
+  }
 
   if (
     gpsPath.rolledOverDay
@@ -353,5 +358,17 @@ export async function saveTrackerIgnition(
   await db
     .update(trackerDevices)
     .set({ lastIgnitionOn: ignitionOn, lastSeenAt: new Date() })
+    .where(eq(trackerDevices.id, deviceId));
+}
+
+export async function saveTrackerBattery(
+  imei: string,
+  protocol: string,
+  percent: number,
+): Promise<void> {
+  const deviceId = await ensureTrackerDevice(imei, protocol);
+  await db
+    .update(trackerDevices)
+    .set({ lastBatteryPercent: percent, lastSeenAt: new Date() })
     .where(eq(trackerDevices.id, deviceId));
 }

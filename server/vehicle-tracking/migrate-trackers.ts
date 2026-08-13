@@ -69,4 +69,7 @@ export async function migrateTrackers(): Promise<void> {
   await safe("tracker_devices.last_trip", sql`
     ALTER TABLE tracker_devices ADD COLUMN IF NOT EXISTS last_trip_distance_km DOUBLE PRECISION
   `);
+  await safe("tracker_devices.last_battery", sql`
+    ALTER TABLE tracker_devices ADD COLUMN IF NOT EXISTS last_battery_percent INTEGER
+  `);
 }

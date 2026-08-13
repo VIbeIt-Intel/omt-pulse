@@ -17,10 +17,14 @@ function buildH02Ack(deviceId: string, type: string): Buffer | undefined {
   if (t === "V1") {
     return Buffer.from(`*HQ,${deviceId},V4,V1,${utcStamp("datetime")}#`, "ascii");
   }
-  if (t === "V0" || t === "HTBT") {
+  if (t === "V0" || t === "HTBT" || t === "LINK") {
     return Buffer.from(`*HQ,${deviceId},${t}#`, "ascii");
   }
   return undefined;
+}
+
+function buildStatusQuery(deviceId: string): Buffer {
+  return Buffer.from(`*HQ,${deviceId},S26,${utcStamp("time")}#`, "ascii");
 }
 
 export const h02ProtocolHandler: TrackerProtocolHandler = {
@@ -31,7 +35,7 @@ export const h02ProtocolHandler: TrackerProtocolHandler = {
 
   tryExtractDeviceId: tryExtractH02DeviceId,
 
-  handlePacket(packet: Buffer, _connection: TrackerConnection): ProtocolHandleResult {
+  handlePacket(packet: Buffer, connection: TrackerConnection): ProtocolHandleResult {
     const parsed = parseH02Packet(packet);
     const deviceId = parsed?.deviceId ?? tryExtractH02DeviceId(packet);
 
@@ -45,10 +49,22 @@ export const h02ProtocolHandler: TrackerProtocolHandler = {
       console.log(`[${LOG}] ${parsed.packetType} ACK queued for ${deviceId}`);
     }
 
+    const followUpResponses: Buffer[] = [];
+    if (deviceId && parsed.packetType === "v1" && !connection.h02StatusQueried) {
+      connection.h02StatusQueried = true;
+      followUpResponses.push(buildStatusQuery(deviceId));
+      console.log(`[${LOG}] queued S26 battery/status query for ${deviceId}`);
+    }
+
+    const batteryPercent = parsed.batteryPercent ?? parsed.position?.batteryPercent ?? null;
+
     return {
       deviceId,
       response,
+      followUpResponses: followUpResponses.length ? followUpResponses : undefined,
       position: parsed.position ?? undefined,
+      batteryUpdate:
+        batteryPercent != null && !parsed.position ? { percent: batteryPercent } : undefined,
     };
   },
 };

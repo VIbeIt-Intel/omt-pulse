@@ -32,6 +32,7 @@ import {
   Car,
   Gauge,
   KeyRound,
+  Battery,
   Network,
   Route as RouteIcon,
   Signal,
@@ -44,6 +45,7 @@ import {
   freshnessClassDark,
   preferredTodayDistanceKm,
   trackerSignalSummary,
+  batteryPercentClass,
   MOTION_STATUS,
   vehicleDisplayName,
 } from "@/lib/fleet-intelligence";
@@ -102,6 +104,7 @@ export type TrackerDeviceSummary = {
   lastHeading: number | null;
   lastIgnitionOn: boolean | null;
   lastMileageKm: number | null;
+  lastBatteryPercent?: number | null;
   todayOdometerDistanceKm: number | null;
   todayGpsDistanceKm?: number | null;
   todayDistanceKm?: number | null;
@@ -1393,6 +1396,17 @@ export function OperationsDashboard({
                                   >
                                     <KeyRound className="h-2.5 w-2.5" />
                                     {device.lastIgnitionOn ? "ACC" : "Off"}
+                                  </span>
+                                )}
+                                {device.lastBatteryPercent != null && (
+                                  <span
+                                    className={cn(
+                                      "inline-flex items-center gap-0.5 tabular-nums",
+                                      batteryPercentClass(device.lastBatteryPercent),
+                                    )}
+                                  >
+                                    <Battery className="h-2.5 w-2.5" />
+                                    {device.lastBatteryPercent}%
                                   </span>
                                 )}
                               </div>

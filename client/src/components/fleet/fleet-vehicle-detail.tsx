@@ -57,6 +57,7 @@ import {
   preferredTodayDistanceKm,
   segmentTripLegs,
   trackerSignalSummary,
+  batteryPercentClass,
   MOTION_STATUS,
   vehicleDisplayName,
 } from "@/lib/fleet-intelligence";
@@ -423,6 +424,18 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
               <p className="text-[10px] uppercase text-muted-foreground font-semibold">Ignition</p>
               <p className="text-sm font-semibold mt-1">{ignitionLabel(device.lastIgnitionOn)}</p>
             </div>
+            <div className="rounded-lg border bg-background/80 px-3 py-2 text-center min-w-[72px]">
+              <p className="text-[10px] uppercase text-muted-foreground font-semibold">Battery</p>
+              <p
+                className={cn(
+                  "text-xl font-bold tabular-nums mt-0.5",
+                  batteryPercentClass(device.lastBatteryPercent),
+                )}
+              >
+                {device.lastBatteryPercent != null ? `${device.lastBatteryPercent}` : "—"}
+              </p>
+              <p className="text-[9px] text-muted-foreground">percent</p>
+            </div>
             <div className="rounded-lg border bg-background/80 px-3 py-2 text-center min-w-[88px]">
               <p className="text-[10px] uppercase text-muted-foreground font-semibold">Odometer</p>
               <p className="text-sm font-semibold mt-1 tabular-nums">
@@ -528,8 +541,8 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
         </div>
         <p className="text-[11px] text-muted-foreground mt-3">
           {device.lastMileageKm == null
-            ? "Set odometer under Vehicle details if needed. Distances use GPS when the tracker does not send mileage packets."
-            : "Odometer can be edited under Vehicle details. Distances use GPS when mileage packets are missing."}
+            ? "Set odometer under Vehicle details once — it will then advance automatically from GPS travel when the tracker does not send mileage packets."
+            : "Odometer advances from tracker mileage packets when available, otherwise from GPS travel. You can still edit it under Vehicle details."}
         </p>
       </Card>
 

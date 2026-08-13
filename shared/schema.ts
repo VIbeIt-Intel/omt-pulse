@@ -532,6 +532,8 @@ export const trackerDevices = pgTable("tracker_devices", {
   lastHeading: doublePrecision("last_heading"),
   lastIgnitionOn: boolean("last_ignition_on"),
   lastMileageKm: doublePrecision("last_mileage_km"),
+  /** Last reported tracker battery 0–100, when the protocol sends it. */
+  lastBatteryPercent: integer("last_battery_percent"),
   todayOdometerDistanceKm: doublePrecision("today_odometer_distance_km"),
   todayGpsDistanceKm: doublePrecision("today_gps_distance_km"),
   lastTripDistanceKm: doublePrecision("last_trip_distance_km"),

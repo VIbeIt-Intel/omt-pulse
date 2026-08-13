@@ -9,6 +9,8 @@ export type TrackerConnection = {
   buffer: Buffer;
   connectedAt: Date;
   lastPacketAt: Date | null;
+  /** SinoTrack: send S26 status query once per TCP session. */
+  h02StatusQueried?: boolean;
 };
 
 /** Parsed GPS fix from a tracker protocol handler. */
@@ -19,6 +21,7 @@ export type ParsedTrackerPosition = {
   heading: number | null;
   ignitionOn: boolean | null;
   mileageKm: number | null;
+  batteryPercent?: number | null;
   gpsValid: boolean;
   packetType: string;
   recordedAt: Date;
@@ -35,6 +38,8 @@ export type ProtocolHandleResult = {
   position?: ParsedTrackerPosition | null;
   /** Heartbeat / status — update ignition without a new position row. */
   ignitionUpdate?: { ignitionOn: boolean; recordedAt: Date } | null;
+  /** Battery % from LINK / HTBT / status replies (no new GPS row). */
+  batteryUpdate?: { percent: number } | null;
 };
 
 /** Pluggable handler for a family of GPS tracker protocols. */

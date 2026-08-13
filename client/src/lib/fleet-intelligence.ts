@@ -524,3 +524,10 @@ export function vehicleDisplayName(device: {
   if (makeModel) return makeModel;
   return `Vehicle …${device.imei.slice(-4)}`;
 }
+
+export function batteryPercentClass(percent: number | null | undefined): string {
+  if (percent == null) return "text-muted-foreground";
+  if (percent <= 20) return "text-red-400";
+  if (percent <= 40) return "text-amber-400";
+  return "text-emerald-400";
+}
