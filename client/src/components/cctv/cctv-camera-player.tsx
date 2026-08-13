@@ -182,7 +182,21 @@ export function CctvCameraPlayer({
         void el.play().catch(() => undefined);
       });
       hls.on(Hls.Events.ERROR, (_event, data) => {
-        if (!data.fatal || cancelled) return;
+        if (cancelled) return;
+        if (!data.fatal) {
+          if (data.details === Hls.ErrorDetails.BUFFER_STALLED_ERROR) {
+            hls.startLoad();
+          }
+          return;
+        }
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+          hls.startLoad();
+          return;
+        }
+        if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+          hls.recoverMediaError();
+          return;
+        }
         setLoading(false);
         setError("Stream playback failed. Try refreshing.");
         hls.destroy();
@@ -228,6 +242,33 @@ export function CctvCameraPlayer({
       el.load();
     };
   }, [cameraId, reloadNonce]);
+
+  useEffect(() => {
+    if (error || loading) return;
+    const video = videoRef.current;
+    if (!video) return;
+    let lastTime = video.currentTime;
+    let frozenTicks = 0;
+    const timer = window.setInterval(() => {
+      const t = video.currentTime;
+      const moving = t > lastTime + 0.1;
+      lastTime = t;
+      if (video.paused && video.readyState >= 2) {
+        void video.play().catch(() => undefined);
+      }
+      if (moving) {
+        frozenTicks = 0;
+        return;
+      }
+      frozenTicks += 1;
+      // ~10s of frozen/grey playback → tear down HLS and start a fresh playlist.
+      if (frozenTicks >= 2) {
+        frozenTicks = 0;
+        setReloadNonce((n) => n + 1);
+      }
+    }, 5_000);
+    return () => window.clearInterval(timer);
+  }, [cameraId, error, loading, reloadNonce]);
 
   async function enterFullscreen() {
     const video = videoRef.current;

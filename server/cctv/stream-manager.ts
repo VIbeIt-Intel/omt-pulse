@@ -12,6 +12,8 @@ import {
 
 const IDLE_MS = 5 * 60_000;
 const START_TIMEOUT_MS = 22_000;
+/** If playlist stops advancing while ffmpeg is supposedly live, force a restart. */
+const STALE_PLAYLIST_MS = 20_000;
 
 type StreamEntry = {
   proc: ChildProcess;
@@ -21,6 +23,23 @@ type StreamEntry = {
   streamRotation: CctvStreamRotation;
   streamQuality: CctvStreamQuality;
 };
+
+function isProcAlive(proc: ChildProcess): boolean {
+  return proc.exitCode == null && !proc.killed && typeof proc.pid === "number";
+}
+
+function playlistMtimeMs(dir: string): number | null {
+  try {
+    return fs.statSync(path.join(dir, "playlist.m3u8")).mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
+function isPlaylistFresh(dir: string, maxAgeMs = STALE_PLAYLIST_MS): boolean {
+  const mtime = playlistMtimeMs(dir);
+  return mtime != null && Date.now() - mtime <= maxAgeMs;
+}
 
 type VideoMode = "copy" | "transcode";
 
@@ -34,13 +53,11 @@ function streamKey(orgId: string, cameraId: number): string {
 export function getLatestHlsSegmentPath(orgId: string, cameraId: number): string | null {
   const key = streamKey(orgId, cameraId);
   const entry = streams.get(key);
-  if (entry) {
-    entry.lastAccess = Date.now();
-    const fromEntry = newestTsInDir(entry.dir);
-    if (fromEntry) return fromEntry;
+  if (!entry || !isProcAlive(entry.proc) || !isPlaylistFresh(entry.dir)) {
+    return null;
   }
-  // Stream map can miss briefly after restart; still read segments from disk while viewer is live.
-  return newestTsInDir(path.join(os.tmpdir(), "omt-cctv", orgId, String(cameraId)));
+  entry.lastAccess = Date.now();
+  return newestTsInDir(entry.dir);
 }
 
 function newestTsInDir(dir: string): string | null {
@@ -88,14 +105,20 @@ function ensureDir(dir: string) {
   fs.mkdirSync(dir, { recursive: true });
 }
 
-function waitForPlaylist(dir: string, timeoutMs: number): Promise<void> {
+function waitForPlaylist(dir: string, timeoutMs: number, notBeforeMs: number): Promise<void> {
   const playlist = path.join(dir, "playlist.m3u8");
   const start = Date.now();
   return new Promise((resolve, reject) => {
     const tick = () => {
-      if (fs.existsSync(playlist)) {
-        resolve();
-        return;
+      try {
+        const st = fs.statSync(playlist);
+        // Ignore leftover playlists from a previous crashed ffmpeg.
+        if (st.mtimeMs >= notBeforeMs - 1000 && st.size > 0) {
+          resolve();
+          return;
+        }
+      } catch {
+        /* not ready */
       }
       if (Date.now() - start > timeoutMs) {
         reject(new Error("Stream start timed out — check RTSP URL and network reachability"));
@@ -237,6 +260,8 @@ function spawnFfmpeg(
     "warning",
     "-rtsp_transport",
     "tcp",
+    "-fflags",
+    "+genpts+discardcorrupt",
     "-i",
     rtspUrl,
     "-an",
@@ -267,13 +292,14 @@ async function tryStartStreamOnce(
   const dir = path.join(os.tmpdir(), "omt-cctv", orgId, String(cameraId));
   resetStreamDir(dir);
 
+  const spawnedAt = Date.now();
   const proc = spawnFfmpeg(rtspUrl, dir, mode, streamRotation, streamQuality);
   let stderr = "";
   proc.stderr?.on("data", (chunk: Buffer) => {
     stderr = (stderr + chunk.toString()).slice(-4000);
   });
 
-  const starting = waitForPlaylist(dir, START_TIMEOUT_MS).catch((err) => {
+  const starting = waitForPlaylist(dir, START_TIMEOUT_MS, spawnedAt).catch((err) => {
     proc.kill("SIGTERM");
     const hint = stderr.trim() ? `: ${stderr.trim().split("\n").pop()}` : "";
     throw new Error(`${err instanceof Error ? err.message : String(err)}${hint}`);
@@ -288,7 +314,9 @@ async function tryStartStreamOnce(
     streamQuality,
   };
 
-  proc.on("exit", () => {
+  proc.on("exit", (code, signal) => {
+    const hint = stderr.trim() ? ` ${stderr.trim().split("\n").pop()}` : "";
+    console.warn(`[cctv] ffmpeg exited ${key} code=${code} signal=${signal}${hint}`);
     if (streams.get(key)?.proc === proc) {
       streams.delete(key);
     }
@@ -308,12 +336,23 @@ async function startStream(
   const key = streamKey(orgId, cameraId);
   const existing = streams.get(key);
   if (existing) {
-    if (existing.streamRotation === streamRotation && existing.streamQuality === streamQuality) {
+    const sameSettings =
+      existing.streamRotation === streamRotation && existing.streamQuality === streamQuality;
+    const alive = isProcAlive(existing.proc);
+    const fresh = isPlaylistFresh(existing.dir);
+    if (sameSettings && alive && fresh) {
       existing.lastAccess = Date.now();
       await existing.starting;
       return existing;
     }
-    existing.proc.kill("SIGTERM");
+    console.warn(
+      `[cctv] restarting stream ${key} (alive=${alive} fresh=${fresh} sameSettings=${sameSettings})`,
+    );
+    try {
+      existing.proc.kill("SIGTERM");
+    } catch {
+      /* ignore */
+    }
     streams.delete(key);
   }
 
@@ -360,7 +399,7 @@ export async function touchCctvStream(
 export function getCctvStreamSegmentPath(orgId: string, cameraId: number, fileName: string): string | null {
   const key = streamKey(orgId, cameraId);
   const entry = streams.get(key);
-  if (!entry) return null;
+  if (!entry || !isProcAlive(entry.proc) || !isPlaylistFresh(entry.dir)) return null;
   entry.lastAccess = Date.now();
   const safe = path.basename(fileName);
   if (safe !== fileName || !/^[a-zA-Z0-9._-]+$/.test(safe)) return null;
@@ -403,9 +442,21 @@ setInterval(() => {
       entry.proc.kill("SIGTERM");
       streams.delete(key);
       console.log(`[cctv] stopped idle stream ${key}`);
+      continue;
+    }
+    const alive = isProcAlive(entry.proc);
+    const fresh = isPlaylistFresh(entry.dir);
+    if (!alive || !fresh) {
+      console.warn(`[cctv] watchdog dropping stale stream ${key} (alive=${alive} fresh=${fresh})`);
+      try {
+        entry.proc.kill("SIGTERM");
+      } catch {
+        /* ignore */
+      }
+      streams.delete(key);
     }
   }
-}, 60_000);
+}, 10_000);
 
 process.on("exit", () => {
   for (const entry of streams.values()) {
