@@ -384,6 +384,7 @@ function buildTeamInfoHtml(
 ): string {
   const safeName = escapeMapHtml(name);
   const visual = teamDutyVisual(dutyStatus);
+  const gpsLabel = dutyStatus === "off-duty" ? "Last known" : "GPS";
   if (darkTheme) {
     return `<div class="omt-map-iw-card" style="background:#0c1220;border:1px solid #2d3a4f;border-radius:10px;padding:11px 13px;min-width:176px;box-shadow:0 10px 28px rgba(0,0,0,0.5);font-family:system-ui,-apple-system,sans-serif;">
       <p style="margin:0 0 8px;font-size:13px;font-weight:600;color:#f1f5f9;letter-spacing:-0.01em;line-height:1.3">${safeName}</p>
@@ -391,13 +392,13 @@ function buildTeamInfoHtml(
         <span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:${visual.stroke};box-shadow:0 0 6px ${visual.glow}"></span>
         <span style="font-size:9px;font-weight:700;color:${visual.pillText};text-transform:uppercase;letter-spacing:0.08em">${escapeMapHtml(visual.label)}</span>
       </div>
-      <p style="margin:0;font-size:10px;color:#64748b;font-variant-numeric:tabular-nums">GPS · ${escapeMapHtml(gpsTime)}</p>
+      <p style="margin:0;font-size:10px;color:#64748b;font-variant-numeric:tabular-nums">${escapeMapHtml(gpsLabel)} · ${escapeMapHtml(gpsTime)}</p>
     </div>`;
   }
   return `<div style="min-width:160px;font-family:system-ui,sans-serif;font-size:13px;line-height:1.5;padding:2px 0">
     <div style="font-weight:700;margin-bottom:4px;font-size:14px;color:#111827">${safeName}</div>
     <div style="color:${visual.lightText};font-size:11px;font-weight:600">${escapeMapHtml(visual.label)}</div>
-    <div style="color:#6b7280;font-size:11px">GPS · ${escapeMapHtml(gpsTime)}</div>
+    <div style="color:#6b7280;font-size:11px">${escapeMapHtml(gpsLabel)} · ${escapeMapHtml(gpsTime)}</div>
   </div>`;
 }
 
@@ -1287,8 +1288,29 @@ export function LiveIncidentsMap({
       }
     }
 
+    // Nudge overlapping pins so stacked last-known locations stay clickable.
+    const placed: Array<{ lat: number; lng: number }> = [];
+    const offsetPos = (lat: number, lng: number, id: string): google.maps.LatLngLiteral => {
+      let out = { lat, lng };
+      for (let attempt = 0; attempt < 8; attempt++) {
+        const clash = placed.some(
+          (p) => Math.abs(p.lat - out.lat) < 0.00012 && Math.abs(p.lng - out.lng) < 0.00012,
+        );
+        if (!clash) break;
+        let hash = 0;
+        for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+        const angle = ((hash % 360) + attempt * 47) * (Math.PI / 180);
+        const meters = 22 + attempt * 14;
+        const dLat = (meters * Math.cos(angle)) / 111_320;
+        const dLng = (meters * Math.sin(angle)) / (111_320 * Math.cos((lat * Math.PI) / 180));
+        out = { lat: lat + dLat, lng: lng + dLng };
+      }
+      placed.push(out);
+      return out;
+    };
+
     for (const user of onlineUsers) {
-      const pos = { lat: user.lat, lng: user.lng };
+      const pos = offsetPos(user.lat, user.lng, user.id);
       const name = `${user.firstName} ${user.lastName}`.trim();
       const updated = user.lastPositionAt
         ? formatTime(user.lastPositionAt)
@@ -1299,16 +1321,21 @@ export function LiveIncidentsMap({
 
       const existing = teamMap.get(user.id);
       const icon = makeTeamMarkerIcon(user.firstName, user.lastName, dutyStatus);
+      const opacity = dutyStatus === "off-duty" ? 0.72 : 1;
+      const zIndex = dutyStatus === "responding" ? 44 : dutyStatus === "available" ? 40 : 34;
       if (existing) {
         existing.setPosition(pos);
         existing.setIcon(icon);
+        existing.setOpacity(opacity);
+        existing.setZIndex(zIndex);
       } else {
         const marker = new google.maps.Marker({
           position: pos,
           map,
           icon,
           title: name,
-          zIndex: 40,
+          opacity,
+          zIndex,
         });
         marker.addListener("click", () => {
           const iw = infoWindowRef.current;
@@ -1507,10 +1534,13 @@ export function LiveIncidentsMap({
       count += 1;
       parts.push(`t:${tracker.id}:${tracker.lat.toFixed(3)},${tracker.lng.toFixed(3)}`);
     }
-    for (const premise of premises) {
-      bounds.extend({ lat: premise.lat, lng: premise.lng });
-      count += 1;
-      parts.push(`p:${premise.id}`);
+    // Premises only expand the fit when nothing live is on the map (avoids SA-wide zoom).
+    if (count === 0) {
+      for (const premise of premises) {
+        bounds.extend({ lat: premise.lat, lng: premise.lng });
+        count += 1;
+        parts.push(`p:${premise.id}`);
+      }
     }
 
     if (count === 0) {

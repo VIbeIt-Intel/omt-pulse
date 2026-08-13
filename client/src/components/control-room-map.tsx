@@ -38,6 +38,8 @@ type ResponderFilter = "all" | "responding" | "available";
 const ONLINE_WINDOW_MS = 30 * 60 * 1000;
 /** Match Site Monitor Team pills — recent presence, not just a stale GPS pin. */
 const DUTY_AVAILABLE_MS = 3 * 60 * 1000;
+/** Keep last-known GPS on the map for offline team (muted Off duty pin). */
+const LAST_KNOWN_MAP_MS = 14 * 24 * 60 * 60 * 1000;
 
 function formatGpsAge(ts: string | null | undefined): string | null {
   if (!ts) return null;
@@ -60,12 +62,11 @@ function isUserDutyAvailable(lastSeenAt: string | Date | null | undefined): bool
 function hasMapPosition(user: DashboardUserSummary): boolean {
   if (user.isLive) return false;
   if (user.lastLat == null || user.lastLng == null) return false;
-  if (!isUserOnline(user.lastSeenAt)) return false;
-  if (user.lastPositionAt) {
-    const age = Date.now() - new Date(user.lastPositionAt).getTime();
-    if (age > ONLINE_WINDOW_MS) return false;
-  }
-  return true;
+  // Prefer last GPS fix age; fall back to lastSeen when position timestamp is missing.
+  const stamp = user.lastPositionAt ?? user.lastSeenAt;
+  if (!stamp) return false;
+  const age = Date.now() - new Date(stamp).getTime();
+  return Number.isFinite(age) && age >= 0 && age <= LAST_KNOWN_MAP_MS;
 }
 
 function hasTrackerCoordinates(device: TrackerDeviceSummary): boolean {
@@ -610,7 +611,7 @@ export function ControlRoomMap({
           showSatelliteControl={showSatelliteControl}
           mapType={mapType}
           onMapTypeChange={onMapTypeChange}
-          preferActivityFit={compact}
+          preferActivityFit={compact || !showSidePanels}
         />
       </div>
 
