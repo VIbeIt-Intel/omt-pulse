@@ -101,6 +101,17 @@ function parseUtcDateTime(hhmmss: string | undefined, ddmmyy: string | undefined
   return new Date(Date.UTC(year, month - 1, day, hour, minute, second));
 }
 
+function batteryFromLocationExtras(parts: string[]): number | null {
+  const extras = parts.slice(13);
+  for (let i = extras.length - 1; i >= 0; i--) {
+    const token = extras[i]?.trim();
+    if (!token || !/^\d{1,3}$/.test(token)) continue;
+    const n = parseInt(token, 10);
+    if (n >= 0 && n <= 100) return n;
+  }
+  return parseBatteryToken(parts[13]);
+}
+
 function parseStatusIgnition(statusHex: string | undefined): boolean | null {
   if (!statusHex || !/^[0-9a-fA-F]+$/.test(statusHex)) return null;
   try {
@@ -190,7 +201,7 @@ export function parseH02Packet(packet: Buffer): H02ParseResult | null {
   const speedKnots = parseFloat(parts[9] ?? "");
   const course = parseFloat(parts[10] ?? "");
   const gpsValid = validity === "A" || validity === "B";
-  const extraBattery = parseBatteryToken(parts[13]);
+  const extraBattery = batteryFromLocationExtras(parts);
 
   const position: ParsedTrackerPosition = {
     latitude,

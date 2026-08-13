@@ -50,7 +50,7 @@ export const h02ProtocolHandler: TrackerProtocolHandler = {
     }
 
     const followUpResponses: Buffer[] = [];
-    if (deviceId && parsed.packetType === "v1" && !connection.h02StatusQueried) {
+    if (deviceId && (parsed.packetType === "v1" || parsed.packetType === "v8") && !connection.h02StatusQueried) {
       connection.h02StatusQueried = true;
       followUpResponses.push(buildStatusQuery(deviceId));
       console.log(`[${LOG}] queued S26 battery/status query for ${deviceId}`);
