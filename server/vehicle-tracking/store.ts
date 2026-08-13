@@ -279,6 +279,18 @@ export async function saveTrackerPosition(
     recordedAt: position.recordedAt,
   });
 
+  // SinoTrack replays buffered V8 fixes. Never rewind the live snapshot to an older clock.
+  if (device.lastPositionAt && position.recordedAt.getTime() < device.lastPositionAt.getTime()) {
+    const stalePatch: { lastSeenAt: Date; lastBatteryPercent?: number } = { lastSeenAt: new Date() };
+    if (position.batteryPercent != null) stalePatch.lastBatteryPercent = position.batteryPercent;
+    await db.update(trackerDevices).set(stalePatch).where(eq(trackerDevices.id, deviceId));
+    console.log(
+      `[${LOG}] ignored stale GPS IMEI=${imei} recorded=${position.recordedAt.toISOString()}` +
+        ` last=${device.lastPositionAt.toISOString()}`,
+    );
+    return;
+  }
+
   const gpsPath = nextTodayGpsDistanceKm(device, position);
 
   const devicePatch: {
