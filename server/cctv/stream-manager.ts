@@ -326,7 +326,37 @@ async function tryStartStreamOnce(
   return entry;
 }
 
+const startLocks = new Map<string, Promise<StreamEntry>>();
+
 async function startStream(
+  orgId: string,
+  cameraId: number,
+  rtspUrl: string,
+  streamRotation: CctvStreamRotation,
+  streamQuality: CctvStreamQuality,
+): Promise<StreamEntry> {
+  const key = streamKey(orgId, cameraId);
+  const inflight = startLocks.get(key);
+  if (inflight) {
+    const entry = await inflight;
+    const sameSettings =
+      entry.streamRotation === streamRotation && entry.streamQuality === streamQuality;
+    if (sameSettings && isProcAlive(entry.proc) && isPlaylistFresh(entry.dir)) {
+      entry.lastAccess = Date.now();
+      return entry;
+    }
+  }
+
+  const started = startStreamUnlocked(orgId, cameraId, rtspUrl, streamRotation, streamQuality);
+  startLocks.set(key, started);
+  try {
+    return await started;
+  } finally {
+    if (startLocks.get(key) === started) startLocks.delete(key);
+  }
+}
+
+async function startStreamUnlocked(
   orgId: string,
   cameraId: number,
   rtspUrl: string,
