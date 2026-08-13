@@ -1,6 +1,9 @@
 import { db } from "../storage";
 import { sql } from "drizzle-orm";
-import { DEFAULT_SURVEY_TEMPLATE_ITEMS } from "@shared/security-survey";
+import {
+  DEFAULT_SURVEY_TEMPLATE_ITEMS,
+  WAREHOUSE_SURVEY_TEMPLATE_ITEMS,
+} from "@shared/security-survey";
 
 /** Idempotent startup migration for Security / Site Survey tables + default template seed. */
 export async function migrateSecuritySurvey() {
@@ -117,44 +120,78 @@ export async function migrateSecuritySurvey() {
   await seedDefaultTemplatesForOrgs();
 }
 
+async function insertTemplateItems(
+  templateId: number,
+  items: Array<{ category: string; prompt: string; photoRequired?: boolean }>,
+) {
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    await db.execute(sql`
+      INSERT INTO survey_template_items (template_id, category, prompt, sort_order, photo_required)
+      VALUES (
+        ${templateId},
+        ${item.category},
+        ${item.prompt},
+        ${i},
+        ${item.photoRequired === true}
+      )
+    `);
+  }
+}
+
+async function ensureTemplate(
+  orgId: string,
+  name: string,
+  description: string,
+  isDefault: boolean,
+  items: Array<{ category: string; prompt: string; photoRequired?: boolean }>,
+) {
+  const existing = await db.execute(sql`
+    SELECT id FROM survey_templates
+    WHERE organization_id = ${orgId} AND name = ${name}
+    LIMIT 1
+  `);
+  if (existing.rows.length > 0) return;
+
+  const created = await db.execute(sql`
+    INSERT INTO survey_templates (organization_id, name, description, is_default)
+    VALUES (${orgId}, ${name}, ${description}, ${isDefault})
+    RETURNING id
+  `);
+  const templateId = (created.rows[0] as { id: number } | undefined)?.id;
+  if (!templateId) return;
+  await insertTemplateItems(templateId, items);
+  console.log(`[security-survey-migration] seeded "${name}" for org ${orgId}`);
+}
+
 async function seedDefaultTemplatesForOrgs() {
   try {
     const orgs = await db.execute(sql`SELECT id FROM organizations`);
     for (const org of orgs.rows as Array<{ id: string }>) {
       const orgId = org.id;
       if (!orgId) continue;
-      const existing = await db.execute(sql`
+
+      const anyTemplate = await db.execute(sql`
         SELECT id FROM survey_templates WHERE organization_id = ${orgId} LIMIT 1
       `);
-      if (existing.rows.length > 0) continue;
-
-      const created = await db.execute(sql`
-        INSERT INTO survey_templates (organization_id, name, description, is_default)
-        VALUES (
-          ${orgId},
-          'Standard Site Survey',
-          'Default eight-category security site survey checklist.',
-          TRUE
-        )
-        RETURNING id
-      `);
-      const templateId = (created.rows[0] as { id: number } | undefined)?.id;
-      if (!templateId) continue;
-
-      for (let i = 0; i < DEFAULT_SURVEY_TEMPLATE_ITEMS.length; i++) {
-        const item = DEFAULT_SURVEY_TEMPLATE_ITEMS[i];
-        await db.execute(sql`
-          INSERT INTO survey_template_items (template_id, category, prompt, sort_order, photo_required)
-          VALUES (
-            ${templateId},
-            ${item.category},
-            ${item.prompt},
-            ${i},
-            ${item.photoRequired === true}
-          )
-        `);
+      // First-ever seed: Standard as default. Later runs only add missing named templates.
+      if (anyTemplate.rows.length === 0) {
+        await ensureTemplate(
+          orgId,
+          "Standard Site Survey",
+          "Default eight-category security site survey checklist.",
+          true,
+          DEFAULT_SURVEY_TEMPLATE_ITEMS,
+        );
       }
-      console.log(`[security-survey-migration] seeded default template for org ${orgId}`);
+
+      await ensureTemplate(
+        orgId,
+        "Warehouse Site Survey",
+        "Warehouse / logistics site checklist — loading bays, high-value stock, yard and dock security.",
+        false,
+        WAREHOUSE_SURVEY_TEMPLATE_ITEMS,
+      );
     }
   } catch (err) {
     console.warn(

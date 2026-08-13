@@ -135,3 +135,35 @@ export const DEFAULT_SURVEY_TEMPLATE_ITEMS: Array<{
   { category: "General Observations", prompt: "Is housekeeping acceptable (no concealment or trip hazards)?" },
   { category: "General Observations", prompt: "Any other observations for the client report?" },
 ];
+
+/** Warehouse-focused checklist (same categories, site-type wording). */
+export const WAREHOUSE_SURVEY_TEMPLATE_ITEMS: Array<{
+  category: SurveyCategory;
+  prompt: string;
+  photoRequired?: boolean;
+}> = [
+  { category: "Perimeter", prompt: "Is the warehouse yard perimeter fence/wall intact with no breaches or climb points?", photoRequired: true },
+  { category: "Perimeter", prompt: "Are vehicle and pedestrian gates controlled, lockable, and in good condition?" },
+  { category: "Perimeter", prompt: "Is vegetation / scrap cleared so the perimeter and yard stay visible?" },
+  { category: "Access Control", prompt: "Is the main warehouse entrance / reception staffed or access-controlled?" },
+  { category: "Access Control", prompt: "Are truck / visitor / contractor logs completed at the gate or reception?" },
+  { category: "Access Control", prompt: "Are keys, access cards, and roller-shutter remotes controlled and accounted for?" },
+  { category: "Access Control", prompt: "Are loading-bay / dock doors secured when not actively in use?", photoRequired: true },
+  { category: "Lighting", prompt: "Is yard, parking, and perimeter lighting operational after dark?" },
+  { category: "Lighting", prompt: "Are loading bays, high-value stores, and racking aisles adequately lit?", photoRequired: true },
+  { category: "CCTV", prompt: "Do cameras cover gates, loading bays, high-value areas, and main approaches?", photoRequired: true },
+  { category: "CCTV", prompt: "Is recording / NVR operational with correct time sync and usable retention?" },
+  { category: "CCTV", prompt: "Can live warehouse views be reviewed from the control room / office?" },
+  { category: "Guard Posts", prompt: "Is the gate / guard post manned as scheduled during operating and after-hours?" },
+  { category: "Guard Posts", prompt: "Do guards have working radios / panic devices and know warehouse escalation steps?" },
+  { category: "Guard Posts", prompt: "Is the post / gate logbook up to date (vehicles, seals, incidents)?" },
+  { category: "Alarm Systems", prompt: "Is the intruder alarm armed/tested correctly for warehouse zones after hours?" },
+  { category: "Alarm Systems", prompt: "Are panic / duress buttons functional where installed (office, cash, high-value)?" },
+  { category: "Fire Safety", prompt: "Are fire extinguishers present, charged, in date, and not blocked by stock?", photoRequired: true },
+  { category: "Fire Safety", prompt: "Are emergency exits and escape routes clear of pallets, cages, and packaging?" },
+  { category: "Fire Safety", prompt: "Is fire detection / hose reel / sprinkler equipment serviceable where installed?" },
+  { category: "General Observations", prompt: "Is high-value / bonded stock area secured separately from general warehousing?" },
+  { category: "General Observations", prompt: "Are there any immediate security risks requiring escalation?", photoRequired: true },
+  { category: "General Observations", prompt: "Is housekeeping acceptable (no concealment spaces, trip hazards, or stock blocking cameras)?" },
+  { category: "General Observations", prompt: "Any other warehouse observations for the client report?" },
+];
