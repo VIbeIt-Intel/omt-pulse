@@ -1,14 +1,21 @@
+export type KnownTrackerDevice = {
+  note: string;
+  targetCommandName: string;
+  simPhone?: string;
+};
+
 /**
  * Phase-1 registry of devices we know about before first DB registration.
- * IMEI 866656089774212 → Command group.
  */
-export const KNOWN_TRACKER_DEVICES: Record<
-  string,
-  { note: string; targetCommandName: string }
-> = {
+export const KNOWN_TRACKER_DEVICES: Record<string, KnownTrackerDevice> = {
   "866656089774212": {
     note: "Ford Kuga OBD GPS tracker",
     targetCommandName: "Central / Head Office",
+  },
+  "7026321440": {
+    note: "SinoTrack ST-915(M)",
+    targetCommandName: "Central / Head Office",
+    simPhone: "0657690687",
   },
 };
 

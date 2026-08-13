@@ -2,7 +2,7 @@ import net, { type Server, type Socket } from "net";
 import type { TrackerConnection, TrackerListenerOptions } from "./types";
 import { bufferToHex, bufferToAsciiPreview, protocolNumberHex } from "./format";
 import { knownDeviceNote } from "./known-devices";
-import { extractGt06Packets } from "./protocols/gt06";
+import { extractTrackerPackets } from "./framing";
 import { listProtocolHandlers, resolveProtocolHandler } from "./protocol-registry";
 import { persistProtocolResult } from "./persistence";
 import { ensureTrackerDevice } from "./store";
@@ -88,12 +88,16 @@ function processPacket(connection: TrackerConnection, packet: Buffer): void {
       void persistProtocolResult(imei, handler.id, result).catch((err) => {
         console.warn(`[${LOG}] persist failed:`, err instanceof Error ? err.message : err);
       });
+    } else if (imei) {
+      void ensureTrackerDevice(imei, handler.id).catch((err) => {
+        console.warn(`[${LOG}] device touch failed:`, err instanceof Error ? err.message : err);
+      });
     }
   }
 }
 
 function drainBuffer(connection: TrackerConnection): void {
-  const { packets, remaining } = extractGt06Packets(connection.buffer);
+  const { packets, remaining } = extractTrackerPackets(connection.buffer);
   connection.buffer = remaining;
   for (const packet of packets) {
     connection.lastPacketAt = new Date();

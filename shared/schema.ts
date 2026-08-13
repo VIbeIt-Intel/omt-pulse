@@ -510,7 +510,7 @@ export const fcmTokens = pgTable("fcm_tokens", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-/** GPS tracker hardware registered by IMEI (GT06 and future protocols). */
+/** GPS tracker hardware registered by IMEI / SinoTrack ID (GT06, H02, and future protocols). */
 export const trackerDevices = pgTable("tracker_devices", {
   id: serial("id").primaryKey(),
   imei: varchar("imei", { length: 20 }).notNull().unique(),

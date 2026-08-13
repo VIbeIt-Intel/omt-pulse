@@ -17,5 +17,10 @@ export function protocolNumberHex(packet: Buffer): string | null {
   if (packet[0] === 0x79 && packet[1] === 0x79 && packet.length >= 5) {
     return packet[4]?.toString(16).padStart(2, "0") ?? null;
   }
+  if (packet[0] === 0x2a) {
+    const text = packet.toString("ascii");
+    const parts = text.replace(/#$/, "").split(",");
+    return parts[2]?.trim() ?? "h02";
+  }
   return null;
 }

@@ -91,6 +91,7 @@ export async function ensureTrackerDevice(imei: string, protocol: string): Promi
       commandId: link?.commandId ?? null,
       protocol,
       label: config?.note ?? null,
+      simPhone: config?.simPhone ?? null,
     })
     .returning({ id: trackerDevices.id });
 
@@ -160,16 +161,24 @@ function nextTodayGpsDistanceKm(
     todayGpsDistanceKm: number | null;
   },
   position: ParsedTrackerPosition,
-): number {
+): { todayGpsDistanceKm: number; segmentKm: number; rolledOverDay: boolean } {
   let todayGps = previous.todayGpsDistanceKm ?? 0;
+  let rolledOverDay = false;
   if (previous.lastPositionAt && trackerDayKey(previous.lastPositionAt) !== trackerDayKey(position.recordedAt)) {
     todayGps = 0;
+    rolledOverDay = true;
   }
-  if (position.gpsValid === false) return todayGps;
-  if (previous.lastLat == null || previous.lastLng == null || !previous.lastPositionAt) return todayGps;
+  if (position.gpsValid === false) {
+    return { todayGpsDistanceKm: todayGps, segmentKm: 0, rolledOverDay };
+  }
+  if (previous.lastLat == null || previous.lastLng == null || !previous.lastPositionAt) {
+    return { todayGpsDistanceKm: todayGps, segmentKm: 0, rolledOverDay };
+  }
 
   const gapMs = position.recordedAt.getTime() - previous.lastPositionAt.getTime();
-  if (gapMs <= 0 || gapMs > MAX_GPS_SEGMENT_GAP_MS) return todayGps;
+  if (gapMs <= 0 || gapMs > MAX_GPS_SEGMENT_GAP_MS) {
+    return { todayGpsDistanceKm: todayGps, segmentKm: 0, rolledOverDay };
+  }
 
   const segmentKm = haversineKm(
     previous.lastLat,
@@ -177,8 +186,10 @@ function nextTodayGpsDistanceKm(
     position.latitude,
     position.longitude,
   );
-  if (segmentKm < MIN_GPS_SEGMENT_KM) return todayGps;
-  return todayGps + segmentKm;
+  if (segmentKm < MIN_GPS_SEGMENT_KM) {
+    return { todayGpsDistanceKm: todayGps, segmentKm: 0, rolledOverDay };
+  }
+  return { todayGpsDistanceKm: todayGps + segmentKm, segmentKm, rolledOverDay };
 }
 
 /** Path distance (km) for UTC today from stored GPS fixes — used when odometer packets are missing. */
@@ -245,6 +256,7 @@ export async function saveTrackerPosition(
         lastLat: trackerDevices.lastLat,
         lastLng: trackerDevices.lastLng,
         lastPositionAt: trackerDevices.lastPositionAt,
+        lastMileageKm: trackerDevices.lastMileageKm,
         todayOdometerDistanceKm: trackerDevices.todayOdometerDistanceKm,
         todayGpsDistanceKm: trackerDevices.todayGpsDistanceKm,
       })
@@ -266,6 +278,8 @@ export async function saveTrackerPosition(
     packetType: position.packetType,
     recordedAt: position.recordedAt,
   });
+
+  const gpsPath = nextTodayGpsDistanceKm(device, position);
 
   const devicePatch: {
     lastLat: number;
@@ -289,10 +303,20 @@ export async function saveTrackerPosition(
     lastGpsValid: position.gpsValid,
     lastPositionAt: position.recordedAt,
     lastSeenAt: new Date(),
-    todayGpsDistanceKm: nextTodayGpsDistanceKm(device, position),
+    todayGpsDistanceKm: gpsPath.todayGpsDistanceKm,
   };
 
-  // Only overwrite odometer when the tracker actually sent mileage — keep manual entries.
+  if (
+    gpsPath.rolledOverDay
+    && device.todayGpsDistanceKm != null
+    && device.todayGpsDistanceKm > 0
+    && position.mileageKm == null
+  ) {
+    // Carry yesterday's GPS travel into "last trip" when the unit does not send odometer packets.
+    devicePatch.lastTripDistanceKm = device.todayGpsDistanceKm;
+  }
+
+  // Device mileage packets win when present. Otherwise advance a set odometer from GPS path.
   if (position.mileageKm != null) {
     devicePatch.lastMileageKm = position.mileageKm;
     const odometerMetrics = await computeOdometerMetrics(deviceId, position.mileageKm, position.recordedAt, {
@@ -303,6 +327,9 @@ export async function saveTrackerPosition(
     if (odometerMetrics.lastTripDistanceKm != null) {
       devicePatch.lastTripDistanceKm = odometerMetrics.lastTripDistanceKm;
     }
+  } else if (device.lastMileageKm != null && gpsPath.segmentKm > 0) {
+    devicePatch.lastMileageKm = Math.round((device.lastMileageKm + gpsPath.segmentKm) * 10) / 10;
+    devicePatch.todayOdometerDistanceKm = gpsPath.todayGpsDistanceKm;
   }
 
   await db
