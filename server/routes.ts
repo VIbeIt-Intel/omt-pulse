@@ -1312,6 +1312,7 @@ import { registerPatrolRoutes } from "./patrol/routes";
 import { registerRadioRoutes } from "./radio/routes";
 import { registerFleetAlertRoutes } from "./fleet-alerts/routes";
 import { registerCctvRoutes } from "./cctv/routes";
+import { registerSecuritySurveyRoutes } from "./security-survey/routes";
 import { registerWorkstationRoutes, attachWorkstation } from "./workstations/routes";
 import { hashShiftPin } from "./workstations/storage";
 import { registerFleetAlertPushHandler } from "./fleet-alerts/push";
@@ -6084,6 +6085,7 @@ export async function registerRoutes(
   registerRadioRoutes(app);
   registerFleetAlertRoutes(app);
   registerCctvRoutes(app);
+  registerSecuritySurveyRoutes(app);
   registerWorkstationRoutes(app);
 
   registerFleetAlertPushHandler(async ({ alert, commandId }) => {

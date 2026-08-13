@@ -976,3 +976,117 @@ export const patrolScheduleDispatches = pgTable("patrol_schedule_dispatches", {
 });
 
 export type PatrolScheduleDispatch = typeof patrolScheduleDispatches.$inferSelect;
+
+// ── Security / Site Survey ─────────────────────────────────────────────────────
+
+export const SURVEY_STATUSES = ["draft", "in_progress", "completed", "archived"] as const;
+export type SurveyStatus = (typeof SURVEY_STATUSES)[number];
+
+export const SURVEY_ANSWERS = ["yes", "no", "na"] as const;
+export type SurveyAnswer = (typeof SURVEY_ANSWERS)[number];
+
+export const SURVEY_SEVERITIES = ["critical", "high", "medium", "low"] as const;
+export type SurveySeverity = (typeof SURVEY_SEVERITIES)[number];
+
+export const surveyTemplates = pgTable("survey_templates", {
+  id: serial("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  isDefault: boolean("is_default").notNull().default(false),
+  createdByUserId: varchar("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertSurveyTemplateSchema = createInsertSchema(surveyTemplates).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  organizationId: true,
+  createdByUserId: true,
+});
+export type InsertSurveyTemplate = z.infer<typeof insertSurveyTemplateSchema>;
+export type SurveyTemplate = typeof surveyTemplates.$inferSelect;
+
+export const surveyTemplateItems = pgTable("survey_template_items", {
+  id: serial("id").primaryKey(),
+  templateId: integer("template_id").notNull().references(() => surveyTemplates.id, { onDelete: "cascade" }),
+  category: text("category").notNull(),
+  prompt: text("prompt").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  photoRequired: boolean("photo_required").notNull().default(false),
+});
+
+export const insertSurveyTemplateItemSchema = createInsertSchema(surveyTemplateItems).omit({
+  id: true,
+  templateId: true,
+});
+export type InsertSurveyTemplateItem = z.infer<typeof insertSurveyTemplateItemSchema>;
+export type SurveyTemplateItem = typeof surveyTemplateItems.$inferSelect;
+
+export const securitySurveys = pgTable("security_surveys", {
+  id: serial("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  commandId: integer("command_id").references(() => commands.id, { onDelete: "set null" }),
+  locationId: integer("location_id").notNull().references(() => locations.id, { onDelete: "restrict" }),
+  templateId: integer("template_id").notNull().references(() => surveyTemplates.id, { onDelete: "restrict" }),
+  surveyorUserId: varchar("surveyor_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  status: text("status").notNull().default("draft"),
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+  clientNameOverride: text("client_name_override"),
+  recommendations: text("recommendations"),
+  progressJson: jsonb("progress_json").$type<{ answered?: number; total?: number } | null>(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertSecuritySurveySchema = createInsertSchema(securitySurveys).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  organizationId: true,
+  surveyorUserId: true,
+  completedAt: true,
+  progressJson: true,
+});
+export type InsertSecuritySurvey = z.infer<typeof insertSecuritySurveySchema>;
+export type SecuritySurvey = typeof securitySurveys.$inferSelect;
+
+export const surveyFindings = pgTable("survey_findings", {
+  id: serial("id").primaryKey(),
+  surveyId: integer("survey_id").notNull().references(() => securitySurveys.id, { onDelete: "cascade" }),
+  templateItemId: integer("template_item_id").references(() => surveyTemplateItems.id, { onDelete: "set null" }),
+  category: text("category").notNull(),
+  prompt: text("prompt").notNull(),
+  answer: text("answer").notNull(),
+  severity: text("severity"),
+  notes: text("notes"),
+  lat: doublePrecision("lat"),
+  lng: doublePrecision("lng"),
+  gpsAccuracyM: doublePrecision("gps_accuracy_m"),
+  convertedIncidentId: integer("converted_incident_id").references(() => incidents.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertSurveyFindingSchema = createInsertSchema(surveyFindings).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  surveyId: true,
+  convertedIncidentId: true,
+});
+export type InsertSurveyFinding = z.infer<typeof insertSurveyFindingSchema>;
+export type SurveyFinding = typeof surveyFindings.$inferSelect;
+
+export const surveyFindingPhotos = pgTable("survey_finding_photos", {
+  id: serial("id").primaryKey(),
+  findingId: integer("finding_id").notNull().references(() => surveyFindings.id, { onDelete: "cascade" }),
+  objectUrl: text("object_url").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type SurveyFindingPhoto = typeof surveyFindingPhotos.$inferSelect;

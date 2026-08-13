@@ -1,4 +1,4 @@
-import { BookOpen, Settings, BarChart3, LogOut, Users, Upload, Bell, Radio, LayoutDashboard, MessageSquare, Shield, Network, Car, ShieldCheck, Footprints, ChevronRight, MonitorSmartphone, Video } from "lucide-react";
+import { BookOpen, Settings, BarChart3, LogOut, Users, Upload, Bell, Radio, LayoutDashboard, MessageSquare, Shield, Network, Car, ShieldCheck, Footprints, ChevronRight, MonitorSmartphone, Video, ClipboardList } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useLocation, Link } from "wouter";
 import { HeartbeatLine } from "@/components/heartbeat-line";
@@ -6,6 +6,7 @@ import { OmtShield } from "@/components/omt-shield";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { canViewAccessControlModule, isDispatchStaff, canUseLiveIncidentWorkflow, canAccessPatrolModule } from "@shared/user-roles";
+import { canAccessSecuritySurveyModule } from "@shared/security-survey";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Collapsible,
@@ -221,6 +222,9 @@ function getNavItems(role: string, isSuperadmin: boolean): {
   }
   if (canAccessPatrolModule(role)) {
     primary.push({ title: "Patrol", url: "/patrol", icon: Footprints });
+  }
+  if (canAccessSecuritySurveyModule(role)) {
+    primary.push({ title: "Site Survey", url: "/security-survey", icon: ClipboardList });
   }
   if (isDispatchStaff(role)) {
     primary.push({ title: "Analytics", url: "/analytics", icon: BarChart3 });

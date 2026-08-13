@@ -1,11 +1,19 @@
 import { Resend } from "resend";
 
+export type SendMailAttachment = {
+  filename: string;
+  /** Base64-encoded file contents (no data: prefix). */
+  content: string;
+  contentType?: string;
+};
+
 export type SendMailParams = {
   to: string | string[];
   subject: string;
   text: string;
   html: string;
   replyTo?: string;
+  attachments?: SendMailAttachment[];
 };
 
 export type SendMailResult = {
@@ -37,6 +45,11 @@ export async function sendAppEmail(params: SendMailParams): Promise<SendMailResu
       text: params.text,
       html: params.html,
       replyTo: params.replyTo,
+      attachments: params.attachments?.map((a) => ({
+        filename: a.filename,
+        content: a.content,
+        contentType: a.contentType,
+      })),
     });
 
     if (error) {

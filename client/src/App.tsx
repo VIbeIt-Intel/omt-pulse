@@ -1,5 +1,6 @@
 import { Switch, Route, useLocation, Link } from "wouter";
 import { canAccessPatrolModule } from "@shared/user-roles";
+import { canAccessSecuritySurveyModule } from "@shared/security-survey";
 import { useEffect, useLayoutEffect, useState, useRef, useCallback } from "react";
 import {
   type NativePushStatus,
@@ -42,6 +43,7 @@ import FleetPage from "@/pages/fleet";
 import CctvPage from "@/pages/cctv";
 import AccessControlPage from "@/pages/access-control";
 import PatrolPage from "@/pages/patrol";
+import SecuritySurveyPage from "@/pages/security-survey";
 import WorkstationsAdminPage from "@/pages/workstations-admin";
 import WorkstationEnrolPage from "@/pages/workstation-enrol";
 import VisibilityPage from "@/pages/visibility";
@@ -1009,6 +1011,13 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
               <Route path="/patrol">
                 {canAccessPatrolModule(user.role) ? (
                   <PatrolPage userRole={user.role} />
+                ) : (
+                  <RoleGuard role="none" allowed={[]}>{null}</RoleGuard>
+                )}
+              </Route>
+              <Route path="/security-survey">
+                {canAccessSecuritySurveyModule(user.role) ? (
+                  <SecuritySurveyPage userRole={user.role} />
                 ) : (
                   <RoleGuard role="none" allowed={[]}>{null}</RoleGuard>
                 )}

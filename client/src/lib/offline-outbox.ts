@@ -1,5 +1,5 @@
 /**
- * Offline outbox for SOS, Report Incident, and Access Control check-in.
+ * Offline outbox for SOS, Report Incident, Access Control check-in, and Site Survey.
  * IndexedDB so queued media survives app kill (unlike sessionStorage drafts).
  */
 
@@ -60,7 +60,53 @@ export type OutboxAccessControlJob = {
   body: Record<string, unknown>;
 };
 
-export type OutboxJob = OutboxSosJob | OutboxIncidentJob | OutboxAccessControlJob;
+/** Create or patch a security survey (start + recommendations / status). */
+export type OutboxSecuritySurveyUpsertJob = {
+  id: string;
+  type: "security_survey_upsert";
+  createdAt: number;
+  /** Local draft id used to stitch findings after the survey is created. */
+  localDraftId: string;
+  /** When set, PATCH this survey; otherwise POST start. */
+  surveyId?: number;
+  start?: {
+    locationId: number;
+    templateId: number;
+    clientNameOverride?: string | null;
+  };
+  patch?: {
+    recommendations?: string | null;
+    status?: string;
+  };
+  complete?: boolean;
+};
+
+export type OutboxSecuritySurveyFindingJob = {
+  id: string;
+  type: "security_survey_finding";
+  createdAt: number;
+  localDraftId: string;
+  surveyId?: number;
+  templateItemId: number;
+  category: string;
+  prompt: string;
+  answer: string;
+  severity?: string | null;
+  notes?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+  gpsAccuracyM?: number | null;
+  photoUrls?: string[];
+  photoDataUrls?: string[];
+  findingId?: number;
+};
+
+export type OutboxJob =
+  | OutboxSosJob
+  | OutboxIncidentJob
+  | OutboxAccessControlJob
+  | OutboxSecuritySurveyUpsertJob
+  | OutboxSecuritySurveyFindingJob;
 
 function newId(): string {
   return `ob_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
@@ -107,7 +153,9 @@ export async function enqueueOutboxJob(
   job:
     | Omit<OutboxSosJob, "id" | "createdAt">
     | Omit<OutboxIncidentJob, "id" | "createdAt">
-    | Omit<OutboxAccessControlJob, "id" | "createdAt">,
+    | Omit<OutboxAccessControlJob, "id" | "createdAt">
+    | Omit<OutboxSecuritySurveyUpsertJob, "id" | "createdAt">
+    | Omit<OutboxSecuritySurveyFindingJob, "id" | "createdAt">,
 ): Promise<OutboxJob> {
   const full = { ...job, id: newId(), createdAt: Date.now() } as OutboxJob;
   const db = await openDb();
@@ -359,6 +407,85 @@ async function drainAccessControl(job: OutboxAccessControlJob): Promise<void> {
   await apiRequest("POST", "/api/access-control/entries", body);
 }
 
+async function linkDraftSurveyId(localDraftId: string, surveyId: number): Promise<void> {
+  try {
+    const { getSurveyDraft, saveSurveyDraft } = await import("@/lib/security-survey-drafts");
+    const draft = await getSurveyDraft(localDraftId);
+    if (!draft) return;
+    await saveSurveyDraft({ ...draft, serverSurveyId: surveyId });
+  } catch {
+    /* drafts optional during drain */
+  }
+  window.dispatchEvent(
+    new CustomEvent("omt:survey-synced", { detail: { localDraftId, surveyId } }),
+  );
+}
+
+async function drainSecuritySurveyUpsert(job: OutboxSecuritySurveyUpsertJob): Promise<void> {
+  let surveyId = job.surveyId;
+  if (!surveyId) {
+    try {
+      const { getSurveyDraft } = await import("@/lib/security-survey-drafts");
+      const draft = await getSurveyDraft(job.localDraftId);
+      surveyId = draft?.serverSurveyId;
+    } catch {
+      /* ignore */
+    }
+  }
+  if (!surveyId && job.start) {
+    const resp = await apiRequest("POST", "/api/security-surveys", job.start);
+    const created = (await resp.json()) as { id: number };
+    surveyId = created.id;
+    await linkDraftSurveyId(job.localDraftId, surveyId);
+  }
+  if (!surveyId) throw new Error("Survey upsert missing surveyId");
+
+  if (job.patch) {
+    await apiRequest("PATCH", `/api/security-surveys/${surveyId}`, job.patch);
+  }
+  if (job.complete) {
+    await apiRequest("POST", `/api/security-surveys/${surveyId}/complete`, {});
+  }
+}
+
+async function drainSecuritySurveyFinding(job: OutboxSecuritySurveyFindingJob): Promise<void> {
+  let surveyId = job.surveyId;
+  if (!surveyId) {
+    const { getSurveyDraft } = await import("@/lib/security-survey-drafts");
+    const draft = await getSurveyDraft(job.localDraftId);
+    surveyId = draft?.serverSurveyId;
+  }
+  if (!surveyId) {
+    throw new Error("Survey finding waiting for survey create");
+  }
+
+  const photoUrls: string[] = [...(job.photoUrls ?? [])];
+  for (const dataUrl of job.photoDataUrls ?? []) {
+    if (!dataUrl) continue;
+    if (dataUrl.startsWith("data:")) {
+      const blob = dataUrlToBlob(dataUrl, "image/jpeg");
+      const { objectUrl } = await uploadBlob(blob, blob.type || "image/jpeg");
+      photoUrls.push(objectUrl);
+    } else {
+      photoUrls.push(dataUrl);
+    }
+  }
+
+  await apiRequest("POST", `/api/security-surveys/${surveyId}/findings`, {
+    findingId: job.findingId,
+    templateItemId: job.templateItemId,
+    category: job.category,
+    prompt: job.prompt,
+    answer: job.answer,
+    severity: job.severity ?? null,
+    notes: job.notes ?? null,
+    lat: job.lat ?? null,
+    lng: job.lng ?? null,
+    gpsAccuracyM: job.gpsAccuracyM ?? null,
+    photoUrls,
+  });
+}
+
 let draining = false;
 
 export async function drainOutbox(): Promise<{ drained: number; failed: number }> {
@@ -377,6 +504,10 @@ export async function drainOutbox(): Promise<{ drained: number; failed: number }
           await drainSos(job);
         } else if (job.type === "access_control") {
           await drainAccessControl(job);
+        } else if (job.type === "security_survey_upsert") {
+          await drainSecuritySurveyUpsert(job);
+        } else if (job.type === "security_survey_finding") {
+          await drainSecuritySurveyFinding(job);
         } else {
           await drainIncident(job);
         }
