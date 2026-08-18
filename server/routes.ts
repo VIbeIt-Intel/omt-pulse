@@ -26,6 +26,7 @@ import { appInviteUrl } from "@shared/app-url";
 import { formatOrgAddress } from "@shared/org-address";
 import { resolveAttachmentByteSize } from "@shared/attachment-byte-size";
 import { isPositionUserEmail } from "@shared/workstations";
+import { toObjectPath } from "@shared/object-url";
 
 const objectStorageService = new ObjectStorageService();
 
@@ -1363,15 +1364,14 @@ export async function registerRoutes(
     }
 
     // ── Step 2: try GCS object storage ───────────────────────────────────
-    const proto = (req.headers["x-forwarded-proto"] as string) || req.protocol;
-    const host =
-      (req.headers["x-forwarded-host"] as string) || req.get("host") || "localhost";
+    // Store a same-origin path so <img> and credentialed fetch both work.
+    // Absolute host wrapping used to produce URLs that 401 on the live site.
     let gcsSucceeded = false;
     try {
       const objectUrl = await objectStorageService.uploadEntityBuffer(
         buffer,
         contentType,
-        (objectPath) => `${proto}://${host}${objectPath}`,
+        (objectPath) => objectPath,
       );
       gcsSucceeded = true;
       return res.json({ objectUrl, byteSize: buffer.length });
@@ -4493,7 +4493,7 @@ export async function registerRoutes(
       if (body.vehiclePhotoUrl === null) {
         patch.vehiclePhotoUrl = null;
       } else if (typeof body.vehiclePhotoUrl === "string") {
-        const url = body.vehiclePhotoUrl.trim();
+        const url = toObjectPath(body.vehiclePhotoUrl.trim()) ?? "";
         if (url.length > 2000) {
           return res.status(400).json({ message: "Photo URL too long" });
         }

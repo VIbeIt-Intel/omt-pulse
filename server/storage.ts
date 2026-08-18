@@ -21,6 +21,7 @@ import {
   trackerDevices,
   trackerPositions,
 } from "@shared/schema";
+import { toObjectPath } from "@shared/object-url";
 
 export type TrackerDeviceSummary = {
   id: number;
@@ -2240,7 +2241,7 @@ export class DatabaseStorage implements IStorage {
       vehicleMake: r.vehicleMake,
       vehicleModel: r.vehicleModel,
       vehicleRegistration: r.vehicleRegistration,
-      vehiclePhotoUrl: r.vehiclePhotoUrl,
+      vehiclePhotoUrl: toObjectPath(r.vehiclePhotoUrl),
       simPhone: r.simPhone,
       assignedUserId: r.assignedUserId,
       assignedUserName: assignedUserName || null,

@@ -21,7 +21,7 @@ import {
 import { MessageSquare, Send, Plus, Search, Users, ArrowLeft, ImageIcon, Camera, Mic, Trash2, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MAX_VOICE_SECONDS, prepareAndUploadFile, uploadFile, UploadValidationError } from "@/lib/upload-media";
-import { apiUrl } from "@/lib/api-base";
+import { useAuthedMediaUrl } from "@/lib/authed-media";
 import { nativeMicDeniedHint, nativeVoiceApkUpdateHint } from "@/lib/native-mic-hint";
 import {
   createAudioMediaRecorder,
@@ -78,67 +78,6 @@ type AuthUser = {
   isSuperadmin?: boolean;
   avatarUrl?: string | null;
 };
-
-/** Pathname for /objects/… so fetch rewrite + session cookies work on Capacitor APK. */
-function mediaSrc(url: string): string {
-  if (url.startsWith("data:") || url.startsWith("blob:")) return url;
-  try {
-    if (/^https?:\/\//i.test(url)) return new URL(url).pathname;
-  } catch {
-    /* fall through */
-  }
-  return url.startsWith("/") ? url : `/${url}`;
-}
-
-/**
- * Chat media lives behind session-auth /objects/. Bare &lt;img&gt;/&lt;audio&gt; src
- * breaks on the local Capacitor shell — fetch with credentials, then blob URL.
- */
-function useAuthedMediaUrl(rawUrl: string): { src: string | null; loading: boolean; error: boolean } {
-  const [src, setSrc] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(false);
-
-  useEffect(() => {
-    let objectUrl: string | null = null;
-    let cancelled = false;
-
-    async function load() {
-      const path = mediaSrc(rawUrl);
-      if (path.startsWith("data:") || path.startsWith("blob:")) {
-        setSrc(path);
-        setError(false);
-        setLoading(false);
-        return;
-      }
-
-      setLoading(true);
-      setError(false);
-      try {
-        const res = await fetch(apiUrl(path), { credentials: "include" });
-        if (!res.ok) throw new Error(`media ${res.status}`);
-        const blob = await res.blob();
-        objectUrl = URL.createObjectURL(blob);
-        if (!cancelled) setSrc(objectUrl);
-      } catch {
-        if (!cancelled) {
-          setError(true);
-          setSrc(null);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    void load();
-    return () => {
-      cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [rawUrl]);
-
-  return { src, loading, error };
-}
 
 function ChatImageMessage({ url }: { url: string }) {
   const { src, loading, error } = useAuthedMediaUrl(url);
