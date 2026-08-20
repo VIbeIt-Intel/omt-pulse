@@ -154,6 +154,7 @@ export const locations = pgTable("locations", {
   icon: text("icon").default("map-pin"),
   commandId: integer("command_id"),
   photoUrl: text("photo_url"),
+  phone: text("phone"),
 });
 
 export const insertLocationSchema = createInsertSchema(locations).omit({ id: true, organizationId: true });

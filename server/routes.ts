@@ -2611,6 +2611,16 @@ export async function registerRoutes(
     res.json(joined);
   });
 
+  function sanitizeLocationPhone(raw: unknown): { ok: true; phone: string | null } | { ok: false; message: string } {
+    if (raw == null || raw === "") return { ok: true, phone: null };
+    const phone = String(raw).trim().replace(/\s+/g, " ");
+    if (!phone) return { ok: true, phone: null };
+    if (phone.length > 40 || !/^\+?[\d\s()./-]{7,40}$/.test(phone)) {
+      return { ok: false, message: "Enter a valid site telephone number" };
+    }
+    return { ok: true, phone };
+  }
+
   // Locations
   app.get("/api/locations", async (req, res) => {
     const orgId = req.currentUser!.organizationId;
@@ -2628,13 +2638,15 @@ export async function registerRoutes(
       return res.status(403).json({ message: "No writeable Command in current scope" });
     }
     // Ignore any client-supplied commandId — always stamp from server scope.
-    const { commandId: _ignored, photoUrl: rawPhoto, ...safe } = parsed.data as any;
+    const { commandId: _ignored, photoUrl: rawPhoto, phone: rawPhone, ...safe } = parsed.data as any;
     const photoUrl =
       rawPhoto == null || rawPhoto === ""
         ? null
         : toObjectPath(String(rawPhoto).trim());
+    const parsedPhone = sanitizeLocationPhone(rawPhone);
+    if (!parsedPhone.ok) return res.status(400).json({ message: parsedPhone.message });
     const location = await storage.createLocation(
-      { ...safe, photoUrl, commandId: defaultStampCommandId },
+      { ...safe, photoUrl, phone: parsedPhone.phone, commandId: defaultStampCommandId },
       orgId,
     );
     res.json(location);
@@ -2651,13 +2663,18 @@ export async function registerRoutes(
     const parsed = insertLocationSchema.partial().safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
     // Never allow clients to re-stamp commandId via PATCH.
-    const { commandId: _ignored, photoUrl: rawPhoto, ...safe } = parsed.data as any;
-    const patch: typeof safe & { photoUrl?: string | null } = { ...safe };
+    const { commandId: _ignored, photoUrl: rawPhoto, phone: rawPhone, ...safe } = parsed.data as any;
+    const patch: typeof safe & { photoUrl?: string | null; phone?: string | null } = { ...safe };
     if (rawPhoto !== undefined) {
       patch.photoUrl =
         rawPhoto == null || rawPhoto === ""
           ? null
           : toObjectPath(String(rawPhoto).trim());
+    }
+    if (rawPhone !== undefined) {
+      const parsedPhone = sanitizeLocationPhone(rawPhone);
+      if (!parsedPhone.ok) return res.status(400).json({ message: parsedPhone.message });
+      patch.phone = parsedPhone.phone;
     }
     const location = await storage.updateLocation(id, patch, orgId);
     if (!location) return res.status(404).json({ message: "Location not found" });

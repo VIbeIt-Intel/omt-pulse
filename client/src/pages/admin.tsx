@@ -938,6 +938,7 @@ function LocationManager() {
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [phone, setPhone] = useState("");
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [mapPreview, setMapPreview] = useState<Location | null>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
@@ -955,6 +956,7 @@ function LocationManager() {
       color,
       icon,
       photoUrl,
+      phone: phone.trim() || null,
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/locations"] });
@@ -975,6 +977,7 @@ function LocationManager() {
       color,
       icon,
       photoUrl,
+      phone: phone.trim() || null,
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/locations"] });
@@ -1007,6 +1010,7 @@ function LocationManager() {
     setLatitude(loc.latitude ?? null);
     setLongitude(loc.longitude ?? null);
     setPhotoUrl(loc.photoUrl ?? null);
+    setPhone(loc.phone || "");
     setDialogOpen(true);
   };
 
@@ -1020,6 +1024,7 @@ function LocationManager() {
     setLatitude(null);
     setLongitude(null);
     setPhotoUrl(null);
+    setPhone("");
     setUploadingPhoto(false);
   };
 
@@ -1041,7 +1046,7 @@ function LocationManager() {
 
   return (
     <>
-      <Card>
+      <Card id="field-setup-locations">
         <CardHeader
           className="cursor-pointer select-none"
           onClick={() => setCollapsed((c) => !c)}
@@ -1081,6 +1086,7 @@ function LocationManager() {
                   <TableHead>Colour</TableHead>
                   <TableHead>Name</TableHead>
                   <TableHead>Address</TableHead>
+                  <TableHead>Telephone</TableHead>
                   <TableHead>Coordinates</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -1128,6 +1134,15 @@ function LocationManager() {
                         >
                           {loc.address}
                         </button>
+                      ) : (
+                        "-"
+                      )}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {loc.phone ? (
+                        <a href={`tel:${loc.phone.replace(/\s+/g, "")}`} className="text-primary hover:underline">
+                          {loc.phone}
+                        </a>
                       ) : (
                         "-"
                       )}
@@ -1193,6 +1208,19 @@ function LocationManager() {
                 setLongitude(next.longitude);
               }}
             />
+            <div>
+              <Label>Site telephone</Label>
+              <Input
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="e.g. 012 345 6789"
+                inputMode="tel"
+                data-testid="input-location-phone"
+              />
+              <p className="text-xs text-muted-foreground mt-1.5">
+                Gate house, control room, or premises contact number.
+              </p>
+            </div>
             <div>
               <Label>Site photo</Label>
               <div className="flex flex-wrap items-center gap-3 mt-1.5">
