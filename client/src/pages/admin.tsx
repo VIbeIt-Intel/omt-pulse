@@ -58,6 +58,8 @@ import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { GoogleAddressPinPicker } from "@/components/google-address-pin-picker";
+import { loadGoogleMaps } from "@/lib/google-maps-loader";
+
 const fieldTypeLabels: Record<string, string> = {
   text: "Text",
   number: "Number",
@@ -812,7 +814,10 @@ function LocationSitePhoto({
           }
         }}
       >
-        <DialogContent className="max-w-4xl p-2 bg-black/90 border-0" hideDefaultClose>
+        <DialogContent
+          className="h-[92vh] w-[96vw] max-w-[96vw] p-2 bg-black/90 border-0"
+          hideDefaultClose
+        >
           <DialogTitle className="sr-only">Site photo</DialogTitle>
           <DialogClose className="absolute right-3 top-3 z-10 rounded-full bg-black/75 hover:bg-black/95 text-white border border-white/30 p-2 transition-colors focus:outline-none">
             <X className="h-5 w-5" />
@@ -853,7 +858,7 @@ function LocationSitePhoto({
           <div
             ref={scrollRef}
             className={cn(
-              "max-h-[85vh] overflow-auto rounded",
+              "h-full overflow-auto rounded",
               zoom > 1 && "cursor-grab",
               dragging && "cursor-grabbing",
             )}
@@ -894,14 +899,134 @@ function LocationSitePhoto({
               alt=""
               className="mx-auto max-w-none rounded object-contain"
               style={{
-                maxHeight: zoom === 1 ? "85vh" : "none",
+                maxHeight: zoom === 1 ? "100%" : "none",
+                height: zoom === 1 ? "100%" : undefined,
                 width: `${zoom * 100}%`,
+                objectFit: "contain",
               }}
             />
           </div>
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+function LocationMapPreview({
+  location,
+  open,
+  onOpenChange,
+}: {
+  location: Location | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const mapRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<google.maps.Map | null>(null);
+  const markerRef = useRef<google.maps.Marker | null>(null);
+  const [mapsError, setMapsError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!open || !location || !mapRef.current) return;
+
+    let cancelled = false;
+    setLoading(true);
+    setMapsError(null);
+
+    loadGoogleMaps()
+      .then(async () => {
+        if (cancelled || !mapRef.current) return;
+
+        let lat = location.latitude;
+        let lng = location.longitude;
+
+        if ((lat == null || lng == null) && location.address?.trim()) {
+          const geocoder = new google.maps.Geocoder();
+          const result = await geocoder.geocode({ address: location.address.trim() });
+          const first = result.results[0];
+          if (!first?.geometry?.location) {
+            throw new Error("Could not find that address on the map");
+          }
+          lat = first.geometry.location.lat();
+          lng = first.geometry.location.lng();
+        }
+
+        if (lat == null || lng == null) {
+          throw new Error("This location has no map pin yet");
+        }
+
+        const center = { lat, lng };
+        if (!mapInstanceRef.current) {
+          mapInstanceRef.current = new google.maps.Map(mapRef.current, {
+            center,
+            zoom: 17,
+            mapTypeId: "hybrid",
+            mapTypeControl: true,
+            streetViewControl: false,
+            fullscreenControl: true,
+          });
+        } else {
+          mapInstanceRef.current.setCenter(center);
+          mapInstanceRef.current.setZoom(17);
+        }
+
+        if (markerRef.current) markerRef.current.setMap(null);
+        markerRef.current = new google.maps.Marker({
+          map: mapInstanceRef.current,
+          position: center,
+          title: location.name,
+        });
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setMapsError(err instanceof Error ? err.message : "Map could not load");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, location]);
+
+  useEffect(() => {
+    if (open) return;
+    if (markerRef.current) {
+      markerRef.current.setMap(null);
+      markerRef.current = null;
+    }
+    mapInstanceRef.current = null;
+  }, [open]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="h-[92vh] w-[96vw] max-w-[96vw] p-0 overflow-hidden bg-background border-border">
+        <DialogHeader className="px-4 pt-4 pb-2 pr-12">
+          <DialogTitle className="flex items-center gap-2 truncate">
+            <MapPin className="h-4 w-4 shrink-0 text-primary" />
+            {location?.name || "Location"}
+          </DialogTitle>
+          {location?.address ? (
+            <p className="text-sm text-muted-foreground truncate">{location.address}</p>
+          ) : null}
+        </DialogHeader>
+        <div className="relative mx-4 mb-4 h-[calc(92vh-5.5rem)] rounded-md border overflow-hidden bg-muted/30">
+          {loading && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/50">
+              <p className="text-sm text-muted-foreground">Loading map…</p>
+            </div>
+          )}
+          {mapsError ? (
+            <div className="absolute inset-0 z-10 flex items-center justify-center p-6 text-center">
+              <p className="text-sm text-destructive">{mapsError}</p>
+            </div>
+          ) : null}
+          <div ref={mapRef} className="h-full w-full" data-testid="location-in-app-map" />
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -919,6 +1044,7 @@ function LocationManager() {
   const [longitude, setLongitude] = useState<number | null>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [mapPreview, setMapPreview] = useState<Location | null>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
 
   const { data: locations = [], isLoading } = useQuery<Location[]>({
@@ -1096,36 +1222,34 @@ function LocationManager() {
                     <TableCell className="font-medium">{loc.name}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {loc.address ? (
-                        <a
-                          href={
-                            loc.latitude != null && loc.longitude != null
-                              ? `https://www.google.com/maps?q=${loc.latitude},${loc.longitude}`
-                              : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(loc.address)}`
-                          }
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-primary hover:underline"
-                          onClick={(e) => e.stopPropagation()}
+                        <button
+                          type="button"
+                          className="text-left text-primary hover:underline"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setMapPreview(loc);
+                          }}
                           data-testid={`link-location-address-${loc.id}`}
                         >
                           {loc.address}
-                        </a>
+                        </button>
                       ) : (
                         "-"
                       )}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground font-mono">
                       {loc.latitude != null && loc.longitude != null ? (
-                        <a
-                          href={`https://www.google.com/maps?q=${loc.latitude},${loc.longitude}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-primary hover:underline"
-                          onClick={(e) => e.stopPropagation()}
+                        <button
+                          type="button"
+                          className="text-left text-primary hover:underline"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setMapPreview(loc);
+                          }}
                           data-testid={`link-location-coords-${loc.id}`}
                         >
                           {`${loc.latitude.toFixed(4)}, ${loc.longitude.toFixed(4)}`}
-                        </a>
+                        </button>
                       ) : (
                         "-"
                       )}
@@ -1147,6 +1271,14 @@ function LocationManager() {
           )}
         </CardContent>}
       </Card>
+
+      <LocationMapPreview
+        location={mapPreview}
+        open={mapPreview != null}
+        onOpenChange={(open) => {
+          if (!open) setMapPreview(null);
+        }}
+      />
 
       <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) closeDialog(); }}>
         <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
