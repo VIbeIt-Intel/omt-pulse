@@ -1,4 +1,4 @@
-import { BookOpen, Settings, BarChart3, LogOut, Users, Upload, Bell, Radio, LayoutDashboard, MessageSquare, Shield, Network, Car, ShieldCheck, Footprints, ChevronRight, MonitorSmartphone, Video, ClipboardList } from "lucide-react";
+import { BookOpen, Settings, BarChart3, LogOut, Users, Upload, Bell, Radio, LayoutDashboard, MessageSquare, Shield, Network, Car, ShieldCheck, Footprints, ChevronRight, Building2, Video, ClipboardList } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useLocation, Link } from "wouter";
 import { HeartbeatLine } from "@/components/heartbeat-line";
@@ -239,7 +239,7 @@ function getNavItems(role: string, isSuperadmin: boolean): {
   const admin: NavItem[] = [];
   if (role === "administrator") {
     admin.push({ title: "Users", url: "/user-admin", icon: Users });
-    admin.push({ title: "Positions", url: "/positions", icon: MonitorSmartphone });
+    admin.push({ title: "Sites", url: "/positions", icon: Building2 });
     admin.push({ title: "Field setup", url: "/admin", icon: Settings });
     admin.push({ title: "Import Data", url: "/import", icon: Upload });
   }

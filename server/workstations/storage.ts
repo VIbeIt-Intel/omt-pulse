@@ -13,6 +13,7 @@ import {
 import {
   WORKSTATION_TYPES,
   defaultRoleForWorkstationType,
+  isFixedDeskWorkstation,
   positionUserEmail,
 } from "@shared/workstations";
 import { db } from "../storage";
@@ -189,7 +190,7 @@ export async function createWorkstation(
       organizationId: orgId,
       enrolmentCode,
       enrolmentExpiresAt,
-      kioskMode: data.type === "gate_desk" ? (data.kioskMode ?? true) : (data.kioskMode ?? false),
+      kioskMode: isFixedDeskWorkstation(data.type) ? (data.kioskMode ?? true) : (data.kioskMode ?? false),
     })
     .returning();
 
@@ -406,6 +407,14 @@ export async function userCanOperateWorkstation(
     }
   }
 
+  if (workstation.type === "control_room") {
+    const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+    const role = user?.role;
+    if (role !== "control_room" && role !== "supervisor" && role !== "administrator") {
+      return false;
+    }
+  }
+
   if (workstation.commandId != null) {
     const [membership] = await db
       .select()
@@ -417,7 +426,7 @@ export async function userCanOperateWorkstation(
         ),
       )
       .limit(1);
-    if (!membership && workstation.type !== "gate_desk") {
+    if (!membership && !isFixedDeskWorkstation(workstation.type)) {
       return false;
     }
   }

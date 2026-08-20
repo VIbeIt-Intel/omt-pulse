@@ -1,17 +1,30 @@
-/** Dedicated field devices — gate desks, warehouse offices, shared mobiles, patrol posts. */
-export const WORKSTATION_TYPES = ["gate_desk", "warehouse", "mobile_shared", "patrol_post"] as const;
+/** Dedicated field devices — gate desks, control rooms, warehouses, shared mobiles, patrol posts. */
+export const WORKSTATION_TYPES = [
+  "gate_desk",
+  "control_room",
+  "warehouse",
+  "mobile_shared",
+  "patrol_post",
+] as const;
 export type WorkstationType = (typeof WORKSTATION_TYPES)[number];
 
 export const WORKSTATION_TYPE_LABELS: Record<WorkstationType, string> = {
   gate_desk: "Gate / access desk (fixed)",
+  control_room: "Control Room (fixed)",
   warehouse: "Warehouse / site office (fixed)",
   mobile_shared: "Shared mobile (shift handoff)",
   patrol_post: "Patrol post (fixed or shared)",
 };
 
+/** Fixed desks that default to kiosk mode when enrolled. */
+export function isFixedDeskWorkstation(type: string): boolean {
+  return type === "gate_desk" || type === "control_room";
+}
+
 /** Role used by the synthetic position account (no PIN v1). */
 export function defaultRoleForWorkstationType(type: string): string {
   if (type === "gate_desk") return "access_controller";
+  if (type === "control_room") return "control_room";
   if (type === "patrol_post") return "patrol_user";
   // warehouse + mobile_shared: general field reporting from the premises device
   return "reporter";
@@ -36,6 +49,7 @@ export function isGateDeskWorkstation(type: string): boolean {
 export function workstationRequiresShiftPin(type: string): boolean {
   return (
     type === "gate_desk"
+    || type === "control_room"
     || type === "warehouse"
     || type === "mobile_shared"
     || type === "patrol_post"
@@ -43,7 +57,7 @@ export function workstationRequiresShiftPin(type: string): boolean {
 }
 
 export function isKioskWorkstation(type: string, kioskMode: boolean): boolean {
-  return kioskMode && type === "gate_desk";
+  return kioskMode && isFixedDeskWorkstation(type);
 }
 
 export const SHIFT_PIN_MIN_LEN = 4;

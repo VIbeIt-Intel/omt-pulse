@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import type { Location, WorkstationWithDetails } from "@shared/schema";
-import { WORKSTATION_TYPE_LABELS, WORKSTATION_TYPES } from "@shared/workstations";
+import { WORKSTATION_TYPE_LABELS, WORKSTATION_TYPES, isFixedDeskWorkstation } from "@shared/workstations";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -119,13 +119,13 @@ export default function WorkstationsAdminPage() {
   const createMutation = useMutation({
     mutationFn: async () => {
       const loc = parseInt(locationId, 10);
-      if (!name.trim() || !Number.isFinite(loc)) throw new Error("Name and premises are required");
+      if (!name.trim() || !Number.isFinite(loc)) throw new Error("Name and site are required");
       const res = await apiRequest("POST", "/api/workstations", {
         name: name.trim(),
         type,
         locationId: loc,
         commandId: commandId ? parseInt(commandId, 10) : null,
-        kioskMode: type === "gate_desk",
+        kioskMode: isFixedDeskWorkstation(type),
         isActive: true,
       });
       return res.json();
@@ -204,10 +204,10 @@ export default function WorkstationsAdminPage() {
   return (
     <div className={cn(OPS_PAGE_SHELL, "py-4 md:py-6 space-y-6")}>
       <PageHero
-        eyebrow="Positions"
+        eyebrow="Sites"
         badge="Admin"
-        total={workstations.length}
-        totalLabel={workstations.length === 1 ? "Position" : "Positions"}
+        total={premisesGroups.length}
+        totalLabel={premisesGroups.length === 1 ? "Site" : "Sites"}
         actions={
           <Button type="button" size="sm" className="h-8" onClick={() => setDialogOpen(true)}>
             <Plus className="h-4 w-4 mr-1" />
@@ -215,6 +215,7 @@ export default function WorkstationsAdminPage() {
           </Button>
         }
         insights={[
+          { label: "Positions", value: String(workstations.length) },
           { label: "Enrolled", value: String(enrolledCount) },
           { label: "Pending", value: String(workstations.length - enrolledCount) },
         ]}
@@ -226,20 +227,20 @@ export default function WorkstationsAdminPage() {
         </div>
       ) : workstations.length === 0 ? (
         <div className="rounded-lg border border-dashed p-8 text-center text-muted-foreground space-y-3">
-          <p>No positions yet. Positions sit on a Field Setup location (premises).</p>
+          <p>No sites with positions yet. Add a position on a Field Setup location to create a site card.</p>
           {locations.length === 0 ? (
             <Button type="button" variant="outline" size="sm" asChild>
               <Link href="/admin#field-setup-locations">Add a location in Field setup</Link>
             </Button>
           ) : (
-            <p className="text-xs">Then add East Gate Access Control, Romeo 1 Patrol, and similar posts to that site.</p>
+            <p className="text-xs">Then add East Gate Access Control, Romeo 1 Patrol, warehouse office, and similar posts to that site.</p>
           )}
         </div>
       ) : (
         <div className="space-y-5">
           {premisesGroups.map((group) => {
             const loc = group.location;
-            const title = loc?.name ?? group.fallbackName ?? "Unassigned premises";
+              const title = loc?.name ?? group.fallbackName ?? "Unassigned site";
             const hasCoords = loc?.latitude != null && loc?.longitude != null;
             return (
               <section
@@ -264,14 +265,14 @@ export default function WorkstationsAdminPage() {
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                          Field setup location
+                          Site
                         </p>
                         <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
                       </div>
                       <Button type="button" variant="outline" size="sm" className="h-8 shrink-0" asChild>
-                        <Link href={`/admin?editLocation=${loc.id}#field-setup-locations`}>
+                        <Link href={loc ? `/admin?editLocation=${loc.id}#field-setup-locations` : "/admin#field-setup-locations"}>
                           <Settings className="h-3.5 w-3.5 mr-1.5" />
-                          Edit premises
+                          Edit site
                         </Link>
                       </Button>
                     </div>
@@ -423,20 +424,20 @@ export default function WorkstationsAdminPage() {
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label>Premises *</Label>
+              <Label>Site *</Label>
               {locations.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
                   Add the site in{" "}
                   <Link href="/admin#field-setup-locations" className="text-primary hover:underline">
                     Field setup
                   </Link>{" "}
-                  first — positions attach to that location.
+                  first — positions attach to that site.
                 </p>
               ) : (
-                <>
+                <div className="space-y-1.5 w-full min-w-0">
                   <Select value={locationId} onValueChange={setLocationId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select Field setup location" />
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select site" />
                     </SelectTrigger>
                     <SelectContent>
                       {locations.map((loc) => (
@@ -447,24 +448,24 @@ export default function WorkstationsAdminPage() {
                     </SelectContent>
                   </Select>
                   {selectedLocation && (
-                    <div className="flex items-start gap-3 rounded-lg border bg-muted/30 p-3">
+                    <div className="box-border w-full min-w-0 flex items-start gap-3 rounded-lg border bg-muted/30 p-3">
                       <ExpandablePhoto
                         photoUrl={selectedLocation.photoUrl}
                         className="h-14 w-20 rounded-md border"
                         title={`${selectedLocation.name} site photo`}
                         fallback={
-                          <div className="flex h-14 w-20 items-center justify-center rounded-md border bg-muted">
+                          <div className="flex h-14 w-20 shrink-0 items-center justify-center rounded-md border bg-muted">
                             <MapPin className="h-5 w-5 text-muted-foreground/50" />
                           </div>
                         }
                       />
-                      <div className="min-w-0 text-xs space-y-0.5">
-                        <p className="font-medium text-sm text-foreground">{selectedLocation.name}</p>
+                      <div className="min-w-0 flex-1 text-xs space-y-0.5">
+                        <p className="font-medium text-sm text-foreground truncate">{selectedLocation.name}</p>
                         <p className="text-muted-foreground truncate">
                           {selectedLocation.address || "Address not recorded"}
                         </p>
                         {selectedLocation.phone && (
-                          <p className="text-muted-foreground">{selectedLocation.phone}</p>
+                          <p className="text-muted-foreground truncate">{selectedLocation.phone}</p>
                         )}
                         {selectedLocation.latitude != null && selectedLocation.longitude != null && (
                           <p className="font-mono text-[11px] text-muted-foreground">
@@ -474,7 +475,7 @@ export default function WorkstationsAdminPage() {
                       </div>
                     </div>
                   )}
-                </>
+                </div>
               )}
             </div>
             <div className="space-y-1.5">

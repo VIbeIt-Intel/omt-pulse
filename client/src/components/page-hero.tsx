@@ -32,6 +32,7 @@ const DEFAULT_PHONE_ICONS: Record<string, LucideIcon> = {
   Cameras: Video,
   Users: Users,
   Positions: LayoutGrid,
+  Sites: LayoutGrid,
   Fleet: Car,
   Notifications: Bell,
   "Live Monitor": Radio,
