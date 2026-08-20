@@ -2628,9 +2628,13 @@ export async function registerRoutes(
       return res.status(403).json({ message: "No writeable Command in current scope" });
     }
     // Ignore any client-supplied commandId — always stamp from server scope.
-    const { commandId: _ignored, ...safe } = parsed.data as any;
+    const { commandId: _ignored, photoUrl: rawPhoto, ...safe } = parsed.data as any;
+    const photoUrl =
+      rawPhoto == null || rawPhoto === ""
+        ? null
+        : toObjectPath(String(rawPhoto).trim());
     const location = await storage.createLocation(
-      { ...safe, commandId: defaultStampCommandId },
+      { ...safe, photoUrl, commandId: defaultStampCommandId },
       orgId,
     );
     res.json(location);
@@ -2647,8 +2651,15 @@ export async function registerRoutes(
     const parsed = insertLocationSchema.partial().safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
     // Never allow clients to re-stamp commandId via PATCH.
-    const { commandId: _ignored, ...safe } = parsed.data as any;
-    const location = await storage.updateLocation(id, safe, orgId);
+    const { commandId: _ignored, photoUrl: rawPhoto, ...safe } = parsed.data as any;
+    const patch: typeof safe & { photoUrl?: string | null } = { ...safe };
+    if (rawPhoto !== undefined) {
+      patch.photoUrl =
+        rawPhoto == null || rawPhoto === ""
+          ? null
+          : toObjectPath(String(rawPhoto).trim());
+    }
+    const location = await storage.updateLocation(id, patch, orgId);
     if (!location) return res.status(404).json({ message: "Location not found" });
     res.json(location);
   });

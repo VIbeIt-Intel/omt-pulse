@@ -50,7 +50,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Pencil, Trash2, Settings, ListChecks, Eye, EyeOff, MapPin, ChevronDown, ChevronUp, Tag, Map, Upload, X, ScanSearch, Radio } from "lucide-react";
+import { Plus, Pencil, Trash2, Settings, ListChecks, Eye, EyeOff, MapPin, ChevronDown, ChevronUp, Tag, Map, Upload, X, ScanSearch, Radio, Camera, Image as ImageIcon } from "lucide-react";
+import { prepareAndUploadFile } from "@/lib/upload-media";
+import { useAuthedMediaUrl } from "@/lib/authed-media";
 import { PageHero } from "@/components/page-hero";
 import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import { cn } from "@/lib/utils";
@@ -754,6 +756,35 @@ function PredefinedTypesManager() {
   );
 }
 
+function LocationSitePhoto({
+  photoUrl,
+  className,
+}: {
+  photoUrl: string | null | undefined;
+  className?: string;
+}) {
+  const { src, loading, error } = useAuthedMediaUrl(photoUrl);
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const show = Boolean(src) && !error && src !== failedSrc;
+
+  if (show) {
+    return (
+      <img
+        src={src!}
+        alt=""
+        className={cn("object-cover", className)}
+        onError={() => setFailedSrc(src)}
+      />
+    );
+  }
+
+  return (
+    <div className={cn("flex items-center justify-center bg-muted/40", className, loading && "animate-pulse")}>
+      <ImageIcon className="h-4 w-4 text-muted-foreground/50" />
+    </div>
+  );
+}
+
 function LocationManager() {
   const { toast } = useToast();
   const [collapsed, setCollapsed] = useState(false);
@@ -766,6 +797,9 @@ function LocationManager() {
   const [icon, setIcon] = useState("map-pin");
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   const { data: locations = [], isLoading } = useQuery<Location[]>({
     queryKey: ["/api/locations"],
@@ -779,6 +813,7 @@ function LocationManager() {
       longitude: longitude ?? null,
       color,
       icon,
+      photoUrl,
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/locations"] });
@@ -798,6 +833,7 @@ function LocationManager() {
       longitude: longitude ?? null,
       color,
       icon,
+      photoUrl,
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/locations"] });
@@ -829,6 +865,7 @@ function LocationManager() {
     setIcon(loc.icon || "map-pin");
     setLatitude(loc.latitude ?? null);
     setLongitude(loc.longitude ?? null);
+    setPhotoUrl(loc.photoUrl ?? null);
     setDialogOpen(true);
   };
 
@@ -841,7 +878,25 @@ function LocationManager() {
     setIcon("map-pin");
     setLatitude(null);
     setLongitude(null);
+    setPhotoUrl(null);
+    setUploadingPhoto(false);
   };
+
+  async function uploadSitePhoto(file: File) {
+    setUploadingPhoto(true);
+    try {
+      const { objectUrl } = await prepareAndUploadFile(file, { preset: "evidence" });
+      setPhotoUrl(objectUrl);
+    } catch (err) {
+      toast({
+        title: "Photo upload failed",
+        description: err instanceof Error ? err.message : "Try again",
+        variant: "destructive",
+      });
+    } finally {
+      setUploadingPhoto(false);
+    }
+  }
 
   return (
     <>
@@ -881,6 +936,7 @@ function LocationManager() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead>Photo</TableHead>
                   <TableHead>Colour</TableHead>
                   <TableHead>Name</TableHead>
                   <TableHead>Address</TableHead>
@@ -891,6 +947,12 @@ function LocationManager() {
               <TableBody>
                 {locations.map((loc) => (
                   <TableRow key={loc.id} data-testid={`row-location-${loc.id}`}>
+                    <TableCell>
+                      <LocationSitePhoto
+                        photoUrl={loc.photoUrl}
+                        className="h-10 w-14 rounded-md border border-border/60"
+                      />
+                    </TableCell>
                     <TableCell>
                       <div
                         className="w-7 h-7 rounded-full flex items-center justify-center shadow-sm"
@@ -953,6 +1015,56 @@ function LocationManager() {
               }}
             />
             <div>
+              <Label>Site photo</Label>
+              <div className="flex flex-wrap items-center gap-3 mt-1.5">
+                <LocationSitePhoto
+                  photoUrl={photoUrl}
+                  className="h-20 w-28 rounded-md border border-border/60"
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    ref={photoInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    data-testid="input-location-photo"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) void uploadSitePhoto(file);
+                      e.target.value = "";
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={uploadingPhoto}
+                    onClick={() => photoInputRef.current?.click()}
+                    data-testid="button-location-photo"
+                  >
+                    <Camera className="h-4 w-4 mr-1.5" />
+                    {uploadingPhoto ? "Uploading..." : photoUrl ? "Change photo" : "Add photo"}
+                  </Button>
+                  {photoUrl && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={uploadingPhoto}
+                      onClick={() => setPhotoUrl(null)}
+                      data-testid="button-location-photo-remove"
+                    >
+                      <X className="h-4 w-4 mr-1.5" />
+                      Remove
+                    </Button>
+                  )}
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1.5">
+                Optional. A picture of the premises so the site is easy to recognise.
+              </p>
+            </div>
+            <div>
               <Label>Colour</Label>
               <div className="flex items-center gap-3 mt-1.5">
                 <input
@@ -1009,7 +1121,7 @@ function LocationManager() {
               <Button variant="outline" onClick={closeDialog} data-testid="button-cancel-location">Cancel</Button>
               <Button
                 onClick={() => editingId !== null ? updateMutation.mutate() : createMutation.mutate()}
-                disabled={!name.trim() || createMutation.isPending || updateMutation.isPending}
+                disabled={!name.trim() || createMutation.isPending || updateMutation.isPending || uploadingPhoto}
                 data-testid="button-save-location"
               >
                 {createMutation.isPending || updateMutation.isPending ? "Saving..." : editingId !== null ? "Save Changes" : "Add Location"}

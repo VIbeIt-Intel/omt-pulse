@@ -17,6 +17,7 @@ import { migrateFleetAlerts } from "./migrate-fleet-alerts";
 import { migrateCctv } from "./cctv/migrate-cctv";
 import { migrateSecuritySurvey } from "./security-survey/migrate";
 import { migrateWorkstations } from "./migrate-workstations";
+import { migrateLocationPhoto } from "./migrate-location-photo";
 import { migrateAttachmentByteSize } from "./migrate-attachment-byte-size";
 import { migrateRetention } from "./migrate-retention";
 import { startFleetOfflineAlertMonitor } from "./fleet-alerts/detection";
@@ -378,6 +379,7 @@ app.use((req, res, next) => {
   await migrateCctv().catch((err) => console.error("CCTV migration error:", err));
   await migrateSecuritySurvey().catch((err) => console.error("Security survey migration error:", err));
   await migrateWorkstations().catch((err) => console.error("Workstations migration error:", err));
+  await migrateLocationPhoto().catch((err) => console.error("Location photo migration error:", err));
   await migrateAttachmentByteSize().catch((err) => console.error("Attachment byte size migration error:", err));
   await migrateRetention().catch((err) => console.error("Retention migration error:", err));
 
