@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Location } from "@shared/schema";
 import type { SurveyAnswer, SurveySeverity } from "@shared/schema";
-import { Camera, CheckCircle2, Loader2, MapPin, Trash2 } from "lucide-react";
+import { Camera, CheckCircle2, Loader2, MapPin, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -52,6 +52,7 @@ export function SurveyConduct({ onOpenFindings }: Props) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
   const [photoTargetItemId, setPhotoTargetItemId] = useState<number | null>(null);
 
   const [draft, setDraft] = useState<LocalSurveyDraft | null>(null);
@@ -343,6 +344,7 @@ export function SurveyConduct({ onOpenFindings }: Props) {
     } finally {
       setPhotoTargetItemId(null);
       if (fileRef.current) fileRef.current.value = "";
+      if (cameraRef.current) cameraRef.current.value = "";
     }
   }
 
@@ -480,10 +482,24 @@ export function SurveyConduct({ onOpenFindings }: Props) {
         ref={fileRef}
         type="file"
         accept="image/*"
-        capture="environment"
         className="hidden"
+        data-testid="survey-photo-upload"
         onChange={(e) => {
           const f = e.target.files?.[0];
+          e.target.value = "";
+          if (f) void onPickPhoto(f);
+        }}
+      />
+      <input
+        ref={cameraRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        data-testid="survey-photo-camera"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          e.target.value = "";
           if (f) void onPickPhoto(f);
         }}
       />
@@ -595,11 +611,25 @@ export function SurveyConduct({ onOpenFindings }: Props) {
                   variant="outline"
                   onClick={() => {
                     setPhotoTargetItemId(item.id);
-                    fileRef.current?.click();
+                    cameraRef.current?.click();
                   }}
+                  data-testid={`survey-camera-${item.id}`}
                 >
                   <Camera className="h-3.5 w-3.5 mr-1" />
-                  Photo
+                  Camera
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setPhotoTargetItemId(item.id);
+                    fileRef.current?.click();
+                  }}
+                  data-testid={`survey-upload-${item.id}`}
+                >
+                  <Upload className="h-3.5 w-3.5 mr-1" />
+                  Upload
                 </Button>
                 {photos.map((url, i) => (
                   <div key={`${url.slice(0, 24)}-${i}`} className="relative h-12 w-12 rounded overflow-hidden border">
