@@ -27,7 +27,6 @@ import {
 } from "@/components/ui/table";
 import {
   Dialog,
-  DialogClose,
   DialogContent,
   DialogHeader,
   DialogTitle,
@@ -52,7 +51,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Plus, Pencil, Trash2, Settings, ListChecks, Eye, EyeOff, MapPin, ChevronDown, ChevronUp, Tag, X, Radio, Camera, Image as ImageIcon } from "lucide-react";
 import { prepareAndUploadFile } from "@/lib/upload-media";
-import { useAuthedMediaUrl } from "@/lib/authed-media";
+import { ExpandablePhoto } from "@/components/photo-lightbox";
 import { PageHero } from "@/components/page-hero";
 import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import { cn } from "@/lib/utils";
@@ -763,152 +762,17 @@ function LocationSitePhoto({
   photoUrl: string | null | undefined;
   className?: string;
 }) {
-  const { src, loading, error } = useAuthedMediaUrl(photoUrl);
-  const [failedSrc, setFailedSrc] = useState<string | null>(null);
-  const [open, setOpen] = useState(false);
-  const [zoom, setZoom] = useState(1);
-  const [dragging, setDragging] = useState(false);
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  const dragRef = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
-  const show = Boolean(src) && !error && src !== failedSrc;
-
-  function clampZoom(value: number) {
-    return Math.max(1, Math.min(4, Math.round(value * 100) / 100));
-  }
-
-  if (!show) {
-    return (
-      <div className={cn("flex items-center justify-center bg-muted/40", className, loading && "animate-pulse")}>
-        <ImageIcon className="h-4 w-4 text-muted-foreground/50" />
-      </div>
-    );
-  }
-
   return (
-    <>
-      <button
-        type="button"
-        className="block cursor-zoom-in focus:outline-none"
-        onClick={(e) => {
-          e.stopPropagation();
-          setZoom(1);
-          setOpen(true);
-        }}
-        aria-label="View site photo"
-      >
-        <img
-          src={src!}
-          alt=""
-          className={cn("object-cover", className)}
-          onError={() => setFailedSrc(src)}
-        />
-      </button>
-      <Dialog
-        open={open}
-        onOpenChange={(next) => {
-          setOpen(next);
-          if (!next) {
-            setZoom(1);
-            setDragging(false);
-            dragRef.current = null;
-          }
-        }}
-      >
-        <DialogContent
-          className="h-[92vh] w-[96vw] max-w-[96vw] p-2 bg-black/90 border-0"
-          hideDefaultClose
-        >
-          <DialogTitle className="sr-only">Site photo</DialogTitle>
-          <DialogClose className="absolute right-3 top-3 z-10 rounded-full bg-black/75 hover:bg-black/95 text-white border border-white/30 p-2 transition-colors focus:outline-none">
-            <X className="h-5 w-5" />
-            <span className="sr-only">Close</span>
-          </DialogClose>
-          <div className="absolute left-3 top-3 z-10 flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-9 border-white/30 bg-black/75 px-3 text-white hover:bg-black/95"
-              onClick={() => setZoom((z) => clampZoom(z - 0.25))}
-            >
-              -
-            </Button>
-            <div className="min-w-16 rounded-md border border-white/20 bg-black/60 px-2 py-1 text-center text-xs text-white">
-              {Math.round(zoom * 100)}%
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-9 border-white/30 bg-black/75 px-3 text-white hover:bg-black/95"
-              onClick={() => setZoom((z) => clampZoom(z + 0.25))}
-            >
-              +
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-9 border-white/30 bg-black/75 px-3 text-white hover:bg-black/95"
-              onClick={() => setZoom(1)}
-            >
-              Reset
-            </Button>
-          </div>
-          <div
-            ref={scrollRef}
-            className={cn(
-              "h-full overflow-auto rounded",
-              zoom > 1 && "cursor-grab",
-              dragging && "cursor-grabbing",
-            )}
-            onWheel={(e) => {
-              if (!e.ctrlKey && !e.metaKey && Math.abs(e.deltaY) < Math.abs(e.deltaX)) return;
-              e.preventDefault();
-              setZoom((z) => clampZoom(z + (e.deltaY < 0 ? 0.2 : -0.2)));
-            }}
-            onMouseDown={(e) => {
-              if (zoom <= 1 || !scrollRef.current) return;
-              e.preventDefault();
-              setDragging(true);
-              dragRef.current = {
-                x: e.clientX,
-                y: e.clientY,
-                left: scrollRef.current.scrollLeft,
-                top: scrollRef.current.scrollTop,
-              };
-            }}
-            onMouseMove={(e) => {
-              if (!dragging || !scrollRef.current || !dragRef.current) return;
-              const dx = e.clientX - dragRef.current.x;
-              const dy = e.clientY - dragRef.current.y;
-              scrollRef.current.scrollLeft = dragRef.current.left - dx;
-              scrollRef.current.scrollTop = dragRef.current.top - dy;
-            }}
-            onMouseUp={() => {
-              setDragging(false);
-              dragRef.current = null;
-            }}
-            onMouseLeave={() => {
-              setDragging(false);
-              dragRef.current = null;
-            }}
-          >
-            <img
-              src={src!}
-              alt=""
-              className="mx-auto max-w-none rounded object-contain"
-              style={{
-                maxHeight: zoom === 1 ? "100%" : "none",
-                height: zoom === 1 ? "100%" : undefined,
-                width: `${zoom * 100}%`,
-                objectFit: "contain",
-              }}
-            />
-          </div>
-        </DialogContent>
-      </Dialog>
-    </>
+    <ExpandablePhoto
+      photoUrl={photoUrl}
+      className={className}
+      title="Site photo"
+      fallback={
+        <div className={cn("flex items-center justify-center bg-muted/40", className)}>
+          <ImageIcon className="h-4 w-4 text-muted-foreground/50" />
+        </div>
+      }
+    />
   );
 }
 

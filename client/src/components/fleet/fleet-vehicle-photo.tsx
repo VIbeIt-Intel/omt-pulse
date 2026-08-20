@@ -1,9 +1,9 @@
-import { useState } from "react";
 import { Car } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useAuthedMediaUrl } from "@/lib/authed-media";
+import { ExpandablePhoto } from "@/components/photo-lightbox";
 
 const SIZE_CLASS = {
+  xs: { box: "h-9 w-9 rounded-md", icon: "h-4 w-4" },
   sm: { box: "h-14 w-14 rounded-lg", icon: "h-6 w-6" },
   md: { box: "h-20 w-20 rounded-xl", icon: "h-8 w-8" },
   lg: { box: "h-28 w-28 sm:h-32 sm:w-32 rounded-xl", icon: "h-10 w-10 sm:h-12 sm:w-12" },
@@ -22,24 +22,17 @@ export function FleetVehiclePhoto({ photoUrl, size = "sm", className }: FleetVeh
     "shrink-0 overflow-hidden border border-border/60 bg-muted/40",
     className,
   );
-  const { src, loading, error } = useAuthedMediaUrl(photoUrl);
-  const [failedSrc, setFailedSrc] = useState<string | null>(null);
-  const showPhoto = Boolean(src) && !error && src !== failedSrc;
-
-  if (showPhoto) {
-    return (
-      <img
-        src={src!}
-        alt=""
-        className={cn(boxClass, "object-cover")}
-        onError={() => setFailedSrc(src)}
-      />
-    );
-  }
 
   return (
-    <div className={cn(boxClass, "flex items-center justify-center", loading && "animate-pulse")}>
-      <Car className={cn(cfg.icon, "text-muted-foreground/60")} />
-    </div>
+    <ExpandablePhoto
+      photoUrl={photoUrl}
+      className={boxClass}
+      title="Vehicle photo"
+      fallback={
+        <div className={cn(boxClass, "flex items-center justify-center")}>
+          <Car className={cn(cfg.icon, "text-muted-foreground/60")} />
+        </div>
+      }
+    />
   );
 }

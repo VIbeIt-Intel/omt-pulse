@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Dialog, DialogClose, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { FileText, Loader2, Mic, Paperclip, X } from "lucide-react";
+import { FileText, Loader2, Mic, Paperclip } from "lucide-react";
 import { resolveAttachmentKind } from "@/lib/attachment-kind";
+import { PhotoLightbox } from "@/components/photo-lightbox";
+import { useAuthedMediaUrl } from "@/lib/authed-media";
 
 function AudioAttachmentPlayer({
   url,
@@ -115,8 +116,12 @@ export function AttachmentPreview({
     url.startsWith("/objects/") ||
     url.startsWith("https://") ||
     url.startsWith("http://");
+  const isImage = kind !== "audio" && kind !== "file";
+  const needsAuthFetch = url.startsWith("/objects/");
+  const { src, loading, error } = useAuthedMediaUrl(isImage && isServable && needsAuthFetch ? url : null);
   const [broken, setBroken] = useState(() => !isServable);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const imageSrc = needsAuthFetch ? src : isServable ? url : null;
 
   if (kind === "audio") {
     return (
@@ -143,11 +148,19 @@ export function AttachmentPreview({
     );
   }
 
-  if (broken) {
+  if (broken || error || (!loading && !imageSrc)) {
     return (
       <div className="flex flex-col items-center justify-center h-20 text-muted-foreground gap-1">
         <FileText className="h-6 w-6 opacity-40" />
         <span className="text-xs opacity-60">File unavailable</span>
+      </div>
+    );
+  }
+
+  if (loading || !imageSrc) {
+    return (
+      <div className="flex items-center justify-center h-20 text-muted-foreground">
+        <Loader2 className="h-5 w-5 animate-spin opacity-60" />
       </div>
     );
   }
@@ -161,22 +174,19 @@ export function AttachmentPreview({
         aria-label={`View ${filename ?? alt}`}
       >
         <img
-          src={url}
+          src={imageSrc}
           alt={alt}
           className="w-full h-20 object-cover rounded"
           onError={() => setBroken(true)}
         />
       </button>
-      <Dialog open={lightboxOpen} onOpenChange={setLightboxOpen}>
-        <DialogContent className="max-w-3xl p-2 bg-black/90 border-0" hideDefaultClose>
-          <DialogTitle className="sr-only">{filename ?? alt}</DialogTitle>
-          <DialogClose className="absolute right-3 top-3 z-10 rounded-full bg-black/75 hover:bg-black/95 text-white border border-white/30 p-2 transition-colors focus:outline-none">
-            <X className="h-5 w-5" />
-            <span className="sr-only">Close</span>
-          </DialogClose>
-          <img src={url} alt={alt} className="w-full max-h-[85vh] object-contain rounded" />
-        </DialogContent>
-      </Dialog>
+      <PhotoLightbox
+        open={lightboxOpen}
+        onOpenChange={setLightboxOpen}
+        src={imageSrc}
+        alt={alt}
+        title={filename ?? alt}
+      />
     </>
   );
 }

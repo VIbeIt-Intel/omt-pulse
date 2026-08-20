@@ -108,6 +108,8 @@ interface AttachmentsDialogProps {
   incidentId: number;
   canAdd?: boolean;
   canDelete?: boolean;
+  title?: string;
+  onOpenRecord?: () => void;
 }
 
 function isFieldVisible(fields: FormField[], key: string, _fieldsLoaded: boolean): boolean {
@@ -2221,6 +2223,8 @@ export function AttachmentsDialog({
   incidentId,
   canAdd = true,
   canDelete = false,
+  title,
+  onOpenRecord,
 }: AttachmentsDialogProps) {
   const { data: incident } = useQuery<Incident>({
     queryKey: ["/api/incidents", incidentId],
@@ -2237,7 +2241,7 @@ export function AttachmentsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle data-testid="text-attachments-title">Evidence</DialogTitle>
+          <DialogTitle data-testid="text-attachments-title">{title ?? "Evidence"}</DialogTitle>
         </DialogHeader>
         <IncidentEvidenceSection
           incidentId={incidentId}
@@ -2247,6 +2251,13 @@ export function AttachmentsDialog({
           liveEndedAt={incident?.liveEndedAt}
           incidentCreatedAt={incident?.createdAt}
         />
+        {onOpenRecord ? (
+          <div className="flex justify-end pt-2">
+            <Button type="button" variant="outline" size="sm" onClick={onOpenRecord}>
+              Open in book
+            </Button>
+          </div>
+        ) : null}
       </DialogContent>
     </Dialog>
   );

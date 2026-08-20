@@ -35,6 +35,7 @@ import {
   Network,
   Route as RouteIcon,
   Signal,
+  Paperclip,
   UserRound,
   type LucideIcon,
 } from "lucide-react";
@@ -50,6 +51,9 @@ import {
 import { USER_ROLE_LABELS } from "@/lib/user-roles";
 import { GeoMapPreview } from "@/components/incident-location-sheet";
 import { FleetBatteryMeter } from "@/components/fleet/fleet-battery-meter";
+import { FleetVehiclePhoto } from "@/components/fleet/fleet-vehicle-photo";
+import { ExpandablePhoto } from "@/components/photo-lightbox";
+import { AttachmentsDialog } from "@/components/incident-dialog";
 import {
   Sheet,
   SheetContent,
@@ -129,6 +133,7 @@ type OccurrenceRow = {
   reporterFirstName: string | null;
   reporterLastName: string | null;
   panicClosedAt?: string | Date | null;
+  attachmentCount?: number;
 };
 
 /** True when the incident started as a panic alert (including later reclassified types e.g. Fire). */
@@ -343,11 +348,13 @@ function OccurrenceList({
   loading,
   emptyMessage,
   onOpenOccurrence,
+  onOpenAttachments,
 }: {
   incidents: OccurrenceRow[];
   loading: boolean;
   emptyMessage: string;
   onOpenOccurrence: (incidentId: number) => void;
+  onOpenAttachments: (incident: OccurrenceRow) => void;
 }) {
   if (loading) {
     return (
@@ -365,20 +372,23 @@ function OccurrenceList({
     <ul className="divide-y divide-slate-800/80">
       {incidents.map((inc) => {
         const panicOriginated = isPanicOriginated(inc);
+        const hasAttachments = (inc.attachmentCount ?? 0) > 0;
         return (
           <li key={inc.id}>
-            <button
-              type="button"
-              onClick={() => onOpenOccurrence(inc.id)}
+            <div
               className={cn(
-                "w-full text-left px-3 py-3 hover:bg-slate-800/50 transition-colors",
+                "w-full px-3 py-3 hover:bg-slate-800/50 transition-colors",
                 inc.isLive && "bg-orange-950/15",
                 severityRowAccent(inc.severity, panicOriginated),
               )}
               data-testid={`ops-occurrence-row-${inc.id}`}
             >
               <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0 flex-1">
+                <button
+                  type="button"
+                  onClick={() => onOpenAttachments(inc)}
+                  className="min-w-0 flex-1 text-left"
+                >
                   <div className="flex items-center gap-1.5 flex-wrap">
                     {panicOriginated && (
                       <span title="Originated from panic alert">
@@ -391,6 +401,15 @@ function OccurrenceList({
                     <p className="font-medium text-sm text-slate-200 truncate">
                       {inc.categoryName ?? "Uncategorised"}
                     </p>
+                    {hasAttachments && (
+                      <span
+                        className="inline-flex items-center gap-0.5 rounded border border-slate-600/70 bg-slate-800/80 px-1 py-0 text-[8px] font-bold uppercase text-slate-300"
+                        title="Has attachments"
+                      >
+                        <Paperclip className="h-2.5 w-2.5" />
+                        {inc.attachmentCount}
+                      </span>
+                    )}
                     {inc.isLive && (
                       <span className="inline-flex rounded border border-orange-500/40 bg-orange-950/40 px-1 py-0 text-[8px] font-bold uppercase text-orange-300">
                         Live
@@ -416,7 +435,7 @@ function OccurrenceList({
                       {inc.locationName}
                     </p>
                   )}
-                </div>
+                </button>
                 <div className="text-[10px] text-slate-500 tabular-nums shrink-0 text-right leading-tight">
                   <p>
                     <span className="text-slate-600">Logged</span>{" "}
@@ -426,9 +445,16 @@ function OccurrenceList({
                     <span className="text-slate-600">Occurred</span>{" "}
                     <span>{formatOccurrenceTime(inc)}</span>
                   </p>
+                  <button
+                    type="button"
+                    onClick={() => onOpenOccurrence(inc.id)}
+                    className="mt-1 text-[10px] font-semibold text-blue-300 hover:text-blue-200 hover:underline"
+                  >
+                    Book →
+                  </button>
                 </div>
               </div>
-            </button>
+            </div>
           </li>
         );
       })}
@@ -660,6 +686,11 @@ export function OperationsDashboard({
   const [clock, setClock] = useState(() => new Date());
   const [lastRefresh, setLastRefresh] = useState(() => new Date());
   const [selectedTeamMember, setSelectedTeamMember] = useState<DashboardUserSummary | null>(null);
+  const [attachmentsPreview, setAttachmentsPreview] = useState<{
+    id: number;
+    subject: string;
+    bookPeriod?: Period;
+  } | null>(null);
   /** Team row → focus that person on the Live Incidents overview map. */
   const [mapFocusUserId, setMapFocusUserId] = useState<string | null>(null);
   const [selectedFacility, setSelectedFacility] = useState<string>(() => {
@@ -1170,11 +1201,9 @@ export function OperationsDashboard({
                       "?";
                     return (
                       <li key={user.id}>
-                        <button
-                          type="button"
-                          onClick={() => focusTeamMemberOnMap(user)}
+                        <div
                           className={cn(
-                            "w-full text-left px-3 py-2.5 border-l-2 transition-colors cursor-pointer focus-visible:outline-none focus-visible:bg-slate-800/50",
+                            "flex items-center gap-2.5 min-w-0 px-3 py-2.5 border-l-2 transition-colors",
                             mapFocusUserId === user.id
                               ? "bg-emerald-950/40 border-l-emerald-400 ring-1 ring-inset ring-emerald-500/30"
                               : isLongIdle
@@ -1183,23 +1212,42 @@ export function OperationsDashboard({
                           )}
                           data-testid={`ops-team-row-${user.id}`}
                         >
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <div
+                          <ExpandablePhoto
+                            photoUrl={user.avatarUrl}
                             className={cn(
-                              "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold tracking-wide",
+                              "h-8 w-8 rounded-full",
                               isLongIdle
-                                ? "bg-slate-800 text-amber-200/90 ring-1 ring-amber-800/35"
+                                ? "ring-1 ring-amber-800/35"
                                 : status === "available"
-                                  ? "bg-slate-800 text-emerald-200/90 ring-1 ring-emerald-800/40"
+                                  ? "ring-1 ring-emerald-800/40"
                                   : status === "responding"
-                                    ? "bg-slate-800 text-orange-200/90 ring-1 ring-orange-800/40"
-                                    : "bg-slate-800/90 text-slate-300 ring-1 ring-slate-700/60",
+                                    ? "ring-1 ring-orange-800/40"
+                                    : "ring-1 ring-slate-700/60",
                             )}
-                            aria-hidden
+                            title={`${user.firstName} ${user.lastName}`}
+                            fallback={
+                              <div
+                                className={cn(
+                                  "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold tracking-wide",
+                                  isLongIdle
+                                    ? "bg-slate-800 text-amber-200/90 ring-1 ring-amber-800/35"
+                                    : status === "available"
+                                      ? "bg-slate-800 text-emerald-200/90 ring-1 ring-emerald-800/40"
+                                      : status === "responding"
+                                        ? "bg-slate-800 text-orange-200/90 ring-1 ring-orange-800/40"
+                                        : "bg-slate-800/90 text-slate-300 ring-1 ring-slate-700/60",
+                                )}
+                                aria-hidden
+                              >
+                                {initials}
+                              </div>
+                            }
+                          />
+                          <button
+                            type="button"
+                            onClick={() => focusTeamMemberOnMap(user)}
+                            className="min-w-0 flex-1 text-left cursor-pointer focus-visible:outline-none"
                           >
-                            {initials}
-                          </div>
-                          <div className="min-w-0 flex-1">
                             <p
                               className={cn(
                                 "text-[13px] font-semibold tracking-tight truncate leading-snug",
@@ -1224,7 +1272,7 @@ export function OperationsDashboard({
                                 <MapPin className="h-3 w-3 shrink-0 text-emerald-500/80" aria-hidden />
                               ) : null}
                             </div>
-                          </div>
+                          </button>
                           <div className="shrink-0 w-[76px] text-right">
                             <p
                               className={cn(
@@ -1265,7 +1313,6 @@ export function OperationsDashboard({
                             </span>
                           )}
                         </div>
-                        </button>
                       </li>
                     );
                   })}
@@ -1334,19 +1381,31 @@ export function OperationsDashboard({
                       : undefined;
                     return (
                       <li key={device.id}>
-                        <button
-                          type="button"
-                          onClick={openVehicle}
-                          disabled={!openVehicle}
+                        <div
                           className={cn(
-                            "w-full text-left px-3 py-2 border-l-2 border-l-transparent transition-colors",
+                            "flex items-center gap-2 min-w-0 px-3 py-2 border-l-2 border-l-transparent transition-colors",
                             openVehicle
-                              ? "hover:bg-cyan-950/25 cursor-pointer focus-visible:outline-none focus-visible:bg-cyan-950/30"
-                              : "cursor-default",
+                              ? "hover:bg-cyan-950/25"
+                              : "",
                           )}
                           data-testid={`ops-fleet-row-${device.id}`}
                         >
-                          <div className="flex items-center gap-2 min-w-0">
+                          <FleetVehiclePhoto
+                            photoUrl={device.vehiclePhotoUrl}
+                            size="xs"
+                            className="border-slate-700/70 bg-slate-800/40"
+                          />
+                          <button
+                            type="button"
+                            onClick={openVehicle}
+                            disabled={!openVehicle}
+                            className={cn(
+                              "min-w-0 flex-1 flex items-center gap-2 text-left",
+                              openVehicle
+                                ? "cursor-pointer focus-visible:outline-none"
+                                : "cursor-default",
+                            )}
+                          >
                             <span
                               className={cn("h-2 w-2 shrink-0 rounded-full", motionCfg.dot)}
                               title={motionCfg.label}
@@ -1440,8 +1499,8 @@ export function OperationsDashboard({
                             {openVehicle && (
                               <ChevronRight className="h-3.5 w-3.5 shrink-0 text-slate-600" />
                             )}
-                          </div>
-                        </button>
+                          </button>
+                        </div>
                       </li>
                     );
                   })}
@@ -1540,64 +1599,83 @@ export function OperationsDashboard({
 
                     return (
                       <li key={inc.id} className="border-b border-slate-800/80">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setHighlightId(inc.id);
-                            onOpenLiveMonitor(inc.id);
-                          }}
+                        <div
                           className={cn(
-                            "w-full text-left px-3 py-2.5 hover:bg-slate-800/60 transition-colors",
+                            "flex items-stretch",
                             severityRowAccent(inc.severity, isPanic),
                             isHighlighted && "bg-slate-700/50 ring-1 ring-inset ring-emerald-500/40",
                           )}
-                          data-testid={`ops-queue-row-${inc.id}`}
                         >
-                          <div className="flex items-start justify-between gap-1">
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                {isPanic && <Siren className="h-3.5 w-3.5 text-red-400 shrink-0" />}
-                                <p className="font-semibold text-sm text-slate-100 truncate">
-                                  {inc.categoryName ?? "Incident"}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setHighlightId(inc.id);
+                              onOpenLiveMonitor(inc.id);
+                            }}
+                            className="min-w-0 flex-1 text-left px-3 py-2.5 hover:bg-slate-800/60 transition-colors"
+                            data-testid={`ops-queue-row-${inc.id}`}
+                          >
+                            <div className="flex items-start justify-between gap-1">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  {isPanic && <Siren className="h-3.5 w-3.5 text-red-400 shrink-0" />}
+                                  <p className="font-semibold text-sm text-slate-100 truncate">
+                                    {inc.categoryName ?? "Incident"}
+                                  </p>
+                                  {inc.severity && inc.severity !== "none" && (
+                                    <span
+                                      className={cn(
+                                        "inline-flex items-center gap-1 rounded border px-1 py-0 text-[8px] font-bold uppercase",
+                                        severityBadgeClass(inc.severity),
+                                      )}
+                                    >
+                                      {inc.severity}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-[10px] text-slate-500 mt-0.5">#{inc.id}</p>
+                                {starterName && (
+                                  <p className="text-xs text-slate-300 mt-1 truncate">{starterName}</p>
+                                )}
+                                <p className="text-[11px] text-slate-500 truncate mt-0.5 flex items-center gap-1">
+                                  <MapPin className="h-3 w-3 shrink-0 text-slate-600" />
+                                  {locText}
                                 </p>
-                                {inc.severity && inc.severity !== "none" && (
-                                  <span
-                                    className={cn(
-                                      "inline-flex items-center gap-1 rounded border px-1 py-0 text-[8px] font-bold uppercase",
-                                      severityBadgeClass(inc.severity),
-                                    )}
-                                  >
-                                    {inc.severity}
-                                  </span>
-                                )}
+                                <div className="mt-1.5 flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] text-slate-500">
+                                  {inc.liveStartedAt && (
+                                    <span className="inline-flex items-center gap-0.5">
+                                      <Clock className="h-3 w-3" />
+                                      {formatGpsAge(inc.liveStartedAt)}
+                                    </span>
+                                  )}
+                                  {gpsAge && <span>GPS {gpsAge}</span>}
+                                  {joinerCount > 0 && (
+                                    <span className="text-emerald-500/90 inline-flex items-center gap-0.5">
+                                      <Users className="h-3 w-3" />
+                                      {joinerCount}
+                                    </span>
+                                  )}
+                                </div>
                               </div>
-                              <p className="text-[10px] text-slate-500 mt-0.5">#{inc.id}</p>
-                              {starterName && (
-                                <p className="text-xs text-slate-300 mt-1 truncate">{starterName}</p>
-                              )}
-                              <p className="text-[11px] text-slate-500 truncate mt-0.5 flex items-center gap-1">
-                                <MapPin className="h-3 w-3 shrink-0 text-slate-600" />
-                                {locText}
-                              </p>
-                              <div className="mt-1.5 flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] text-slate-500">
-                                {inc.liveStartedAt && (
-                                  <span className="inline-flex items-center gap-0.5">
-                                    <Clock className="h-3 w-3" />
-                                    {formatGpsAge(inc.liveStartedAt)}
-                                  </span>
-                                )}
-                                {gpsAge && <span>GPS {gpsAge}</span>}
-                                {joinerCount > 0 && (
-                                  <span className="text-emerald-500/90 inline-flex items-center gap-0.5">
-                                    <Users className="h-3 w-3" />
-                                    {joinerCount}
-                                  </span>
-                                )}
-                              </div>
+                              <ChevronRight className="h-4 w-4 text-slate-600 shrink-0" />
                             </div>
-                            <ChevronRight className="h-4 w-4 text-slate-600 shrink-0" />
-                          </div>
-                        </button>
+                          </button>
+                          <button
+                            type="button"
+                            title="View attachments"
+                            aria-label={`View attachments for ${inc.categoryName ?? "incident"}`}
+                            className="shrink-0 px-2.5 text-slate-500 hover:text-slate-200 hover:bg-slate-800/70"
+                            onClick={() =>
+                              setAttachmentsPreview({
+                                id: inc.id,
+                                subject: inc.categoryName ?? "Incident",
+                              })
+                            }
+                            data-testid={`ops-queue-attachments-${inc.id}`}
+                          >
+                            <Paperclip className="h-4 w-4" />
+                          </button>
+                        </div>
                       </li>
                     );
                   })}
@@ -1644,6 +1722,13 @@ export function OperationsDashboard({
               loading={incidentsLoading}
               emptyMessage="No occurrences logged today yet."
               onOpenOccurrence={(id) => onOpenOccurrence(id, "day")}
+              onOpenAttachments={(inc) =>
+                setAttachmentsPreview({
+                  id: inc.id,
+                  subject: inc.categoryName ?? "Uncategorised",
+                  bookPeriod: "day",
+                })
+              }
             />
           </div>
         </div>
@@ -1673,6 +1758,13 @@ export function OperationsDashboard({
               loading={incidentsLoading}
               emptyMessage="No other occurrences this week."
               onOpenOccurrence={(id) => onOpenOccurrence(id, "week")}
+              onOpenAttachments={(inc) =>
+                setAttachmentsPreview({
+                  id: inc.id,
+                  subject: inc.categoryName ?? "Uncategorised",
+                  bookPeriod: "week",
+                })
+              }
             />
           </div>
         </div>
@@ -1693,13 +1785,27 @@ export function OperationsDashboard({
           {selectedTeamMember ? (
             <>
               <SheetHeader className="text-left space-y-1">
-                <SheetTitle className="text-slate-50">
-                  {selectedTeamMember.firstName} {selectedTeamMember.lastName}
-                </SheetTitle>
-                <SheetDescription className="text-slate-400">
-                  {teamRoleLabel(selectedTeamMember.role)} ·{" "}
-                  {teamStatusLabel(teamMemberStatus(selectedTeamMember))}
-                </SheetDescription>
+                <div className="flex items-center gap-3 pr-8">
+                  <ExpandablePhoto
+                    photoUrl={selectedTeamMember.avatarUrl}
+                    className="h-12 w-12 rounded-full ring-1 ring-slate-700"
+                    title={`${selectedTeamMember.firstName} ${selectedTeamMember.lastName}`}
+                    fallback={
+                      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-800 text-sm font-semibold text-slate-200 ring-1 ring-slate-700">
+                        {`${selectedTeamMember.firstName?.charAt(0) ?? ""}${selectedTeamMember.lastName?.charAt(0) ?? ""}`.toUpperCase() || "?"}
+                      </div>
+                    }
+                  />
+                  <div className="min-w-0">
+                    <SheetTitle className="text-slate-50">
+                      {selectedTeamMember.firstName} {selectedTeamMember.lastName}
+                    </SheetTitle>
+                    <SheetDescription className="text-slate-400">
+                      {teamRoleLabel(selectedTeamMember.role)} ·{" "}
+                      {teamStatusLabel(teamMemberStatus(selectedTeamMember))}
+                    </SheetDescription>
+                  </div>
+                </div>
               </SheetHeader>
 
               <div className="mt-5 space-y-4">
@@ -1810,6 +1916,28 @@ export function OperationsDashboard({
           ) : null}
         </SheetContent>
       </Sheet>
+
+      {attachmentsPreview !== null && (
+        <AttachmentsDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setAttachmentsPreview(null);
+          }}
+          incidentId={attachmentsPreview.id}
+          title={`${attachmentsPreview.subject} · Attachments`}
+          canAdd={false}
+          canDelete={false}
+          onOpenRecord={
+            attachmentsPreview.bookPeriod
+              ? () => {
+                  const preview = attachmentsPreview;
+                  setAttachmentsPreview(null);
+                  onOpenOccurrence(preview.id, preview.bookPeriod);
+                }
+              : undefined
+          }
+        />
+      )}
     </>
   );
 }
