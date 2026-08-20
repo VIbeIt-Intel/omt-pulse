@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/table";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogHeader,
   DialogTitle,
@@ -765,23 +766,46 @@ function LocationSitePhoto({
 }) {
   const { src, loading, error } = useAuthedMediaUrl(photoUrl);
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
   const show = Boolean(src) && !error && src !== failedSrc;
 
-  if (show) {
+  if (!show) {
     return (
-      <img
-        src={src!}
-        alt=""
-        className={cn("object-cover", className)}
-        onError={() => setFailedSrc(src)}
-      />
+      <div className={cn("flex items-center justify-center bg-muted/40", className, loading && "animate-pulse")}>
+        <ImageIcon className="h-4 w-4 text-muted-foreground/50" />
+      </div>
     );
   }
 
   return (
-    <div className={cn("flex items-center justify-center bg-muted/40", className, loading && "animate-pulse")}>
-      <ImageIcon className="h-4 w-4 text-muted-foreground/50" />
-    </div>
+    <>
+      <button
+        type="button"
+        className="block cursor-zoom-in focus:outline-none"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen(true);
+        }}
+        aria-label="View site photo"
+      >
+        <img
+          src={src!}
+          alt=""
+          className={cn("object-cover", className)}
+          onError={() => setFailedSrc(src)}
+        />
+      </button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-4xl p-2 bg-black/90 border-0" hideDefaultClose>
+          <DialogTitle className="sr-only">Site photo</DialogTitle>
+          <DialogClose className="absolute right-3 top-3 z-10 rounded-full bg-black/75 hover:bg-black/95 text-white border border-white/30 p-2 transition-colors focus:outline-none">
+            <X className="h-5 w-5" />
+            <span className="sr-only">Close</span>
+          </DialogClose>
+          <img src={src!} alt="" className="w-full max-h-[85vh] object-contain rounded" />
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
