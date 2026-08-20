@@ -7,7 +7,6 @@ import {
   uniqueSystemResponseModes,
   type SeverityGroupKey,
 } from "@/lib/incident-categories";
-import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { INCIDENT_ICONS, getIconSvg } from "@/lib/incident-icons";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -51,7 +50,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Pencil, Trash2, Settings, ListChecks, Eye, EyeOff, MapPin, ChevronDown, ChevronUp, Tag, Map, Upload, X, ScanSearch, Radio, Camera, Image as ImageIcon } from "lucide-react";
+import { Plus, Pencil, Trash2, Settings, ListChecks, Eye, EyeOff, MapPin, ChevronDown, ChevronUp, Tag, X, Radio, Camera, Image as ImageIcon } from "lucide-react";
 import { prepareAndUploadFile } from "@/lib/upload-media";
 import { useAuthedMediaUrl } from "@/lib/authed-media";
 import { PageHero } from "@/components/page-hero";
@@ -59,8 +58,6 @@ import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { GoogleAddressPinPicker } from "@/components/google-address-pin-picker";
-import type { CustomMap } from "@shared/schema";
-
 const fieldTypeLabels: Record<string, string> = {
   text: "Text",
   number: "Number",
@@ -767,7 +764,15 @@ function LocationSitePhoto({
   const { src, loading, error } = useAuthedMediaUrl(photoUrl);
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const [dragging, setDragging] = useState(false);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
   const show = Boolean(src) && !error && src !== failedSrc;
+
+  function clampZoom(value: number) {
+    return Math.max(1, Math.min(4, Math.round(value * 100) / 100));
+  }
 
   if (!show) {
     return (
@@ -784,6 +789,7 @@ function LocationSitePhoto({
         className="block cursor-zoom-in focus:outline-none"
         onClick={(e) => {
           e.stopPropagation();
+          setZoom(1);
           setOpen(true);
         }}
         aria-label="View site photo"
@@ -795,14 +801,104 @@ function LocationSitePhoto({
           onError={() => setFailedSrc(src)}
         />
       </button>
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) {
+            setZoom(1);
+            setDragging(false);
+            dragRef.current = null;
+          }
+        }}
+      >
         <DialogContent className="max-w-4xl p-2 bg-black/90 border-0" hideDefaultClose>
           <DialogTitle className="sr-only">Site photo</DialogTitle>
           <DialogClose className="absolute right-3 top-3 z-10 rounded-full bg-black/75 hover:bg-black/95 text-white border border-white/30 p-2 transition-colors focus:outline-none">
             <X className="h-5 w-5" />
             <span className="sr-only">Close</span>
           </DialogClose>
-          <img src={src!} alt="" className="w-full max-h-[85vh] object-contain rounded" />
+          <div className="absolute left-3 top-3 z-10 flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-9 border-white/30 bg-black/75 px-3 text-white hover:bg-black/95"
+              onClick={() => setZoom((z) => clampZoom(z - 0.25))}
+            >
+              -
+            </Button>
+            <div className="min-w-16 rounded-md border border-white/20 bg-black/60 px-2 py-1 text-center text-xs text-white">
+              {Math.round(zoom * 100)}%
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-9 border-white/30 bg-black/75 px-3 text-white hover:bg-black/95"
+              onClick={() => setZoom((z) => clampZoom(z + 0.25))}
+            >
+              +
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-9 border-white/30 bg-black/75 px-3 text-white hover:bg-black/95"
+              onClick={() => setZoom(1)}
+            >
+              Reset
+            </Button>
+          </div>
+          <div
+            ref={scrollRef}
+            className={cn(
+              "max-h-[85vh] overflow-auto rounded",
+              zoom > 1 && "cursor-grab",
+              dragging && "cursor-grabbing",
+            )}
+            onWheel={(e) => {
+              if (!e.ctrlKey && !e.metaKey && Math.abs(e.deltaY) < Math.abs(e.deltaX)) return;
+              e.preventDefault();
+              setZoom((z) => clampZoom(z + (e.deltaY < 0 ? 0.2 : -0.2)));
+            }}
+            onMouseDown={(e) => {
+              if (zoom <= 1 || !scrollRef.current) return;
+              e.preventDefault();
+              setDragging(true);
+              dragRef.current = {
+                x: e.clientX,
+                y: e.clientY,
+                left: scrollRef.current.scrollLeft,
+                top: scrollRef.current.scrollTop,
+              };
+            }}
+            onMouseMove={(e) => {
+              if (!dragging || !scrollRef.current || !dragRef.current) return;
+              const dx = e.clientX - dragRef.current.x;
+              const dy = e.clientY - dragRef.current.y;
+              scrollRef.current.scrollLeft = dragRef.current.left - dx;
+              scrollRef.current.scrollTop = dragRef.current.top - dy;
+            }}
+            onMouseUp={() => {
+              setDragging(false);
+              dragRef.current = null;
+            }}
+            onMouseLeave={() => {
+              setDragging(false);
+              dragRef.current = null;
+            }}
+          >
+            <img
+              src={src!}
+              alt=""
+              className="mx-auto max-w-none rounded object-contain"
+              style={{
+                maxHeight: zoom === 1 ? "85vh" : "none",
+                width: `${zoom * 100}%`,
+              }}
+            />
+          </div>
         </DialogContent>
       </Dialog>
     </>
@@ -998,9 +1094,41 @@ function LocationManager() {
                       </div>
                     </TableCell>
                     <TableCell className="font-medium">{loc.name}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{loc.address || "-"}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {loc.address ? (
+                        <a
+                          href={
+                            loc.latitude != null && loc.longitude != null
+                              ? `https://www.google.com/maps?q=${loc.latitude},${loc.longitude}`
+                              : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(loc.address)}`
+                          }
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary hover:underline"
+                          onClick={(e) => e.stopPropagation()}
+                          data-testid={`link-location-address-${loc.id}`}
+                        >
+                          {loc.address}
+                        </a>
+                      ) : (
+                        "-"
+                      )}
+                    </TableCell>
                     <TableCell className="text-xs text-muted-foreground font-mono">
-                      {loc.latitude != null && loc.longitude != null ? `${loc.latitude.toFixed(4)}, ${loc.longitude.toFixed(4)}` : "-"}
+                      {loc.latitude != null && loc.longitude != null ? (
+                        <a
+                          href={`https://www.google.com/maps?q=${loc.latitude},${loc.longitude}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary hover:underline"
+                          onClick={(e) => e.stopPropagation()}
+                          data-testid={`link-location-coords-${loc.id}`}
+                        >
+                          {`${loc.latitude.toFixed(4)}, ${loc.longitude.toFixed(4)}`}
+                        </a>
+                      ) : (
+                        "-"
+                      )}
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
@@ -1171,295 +1299,10 @@ function LocationManager() {
   );
 }
 
-function CustomMapLeafletPreview({ map, height = 420 }: { map: CustomMap; height?: number }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<L.Map | null>(null);
-
-  useEffect(() => {
-    if (!containerRef.current || mapInstanceRef.current) return;
-    const w = map.imageWidth || 1000;
-    const h = map.imageHeight || 1000;
-    const bounds: L.LatLngBoundsExpression = [[0, 0], [h, w]];
-    const leafletMap = L.map(containerRef.current, {
-      crs: L.CRS.Simple,
-      minZoom: -3,
-      maxZoom: 4,
-      zoomSnap: 0.25,
-    });
-    L.imageOverlay(map.imageUrl, bounds).addTo(leafletMap);
-    leafletMap.fitBounds(bounds);
-    mapInstanceRef.current = leafletMap;
-    return () => {
-      leafletMap.remove();
-      mapInstanceRef.current = null;
-    };
-  }, [map]);
-
-  return <div ref={containerRef} style={{ height: `${height}px`, width: "100%", borderRadius: "6px", zIndex: 0 }} />;
-}
-
-function CustomMapsManager() {
-  const { toast } = useToast();
-  const [collapsed, setCollapsed] = useState(false);
-  const [deleteId, setDeleteId] = useState<number | null>(null);
-  const [previewMap, setPreviewMap] = useState<CustomMap | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [mapName, setMapName] = useState("");
-  const [formOpen, setFormOpen] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
-
-  const { data: maps = [], isLoading } = useQuery<CustomMap[]>({
-    queryKey: ["/api/custom-maps"],
-  });
-
-  const createMutation = useMutation({
-    mutationFn: async ({ name, imageUrl, imageWidth, imageHeight }: { name: string; imageUrl: string; imageWidth?: number; imageHeight?: number }) => {
-      const res = await apiRequest("POST", "/api/custom-maps", { name, imageUrl, imageWidth: imageWidth ?? null, imageHeight: imageHeight ?? null, sortOrder: 0 });
-      return res.json() as Promise<CustomMap>;
-    },
-    onSuccess: (newMap) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/custom-maps"] });
-      toast({ title: "Custom map uploaded" });
-      setMapName("");
-      setFormOpen(false);
-      setPreviewMap(newMap);
-    },
-    onError: (error: Error) => {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: async (id: number) => {
-      const res = await apiRequest("DELETE", `/api/custom-maps/${id}`);
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/custom-maps"] });
-      toast({ title: "Map deleted" });
-      setDeleteId(null);
-    },
-    onError: (error: Error) => {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-    },
-  });
-
-  async function handleUpload() {
-    const file = fileRef.current?.files?.[0];
-    if (!file) return toast({ title: "Please select an image file", variant: "destructive" });
-    if (!mapName.trim()) return toast({ title: "Please enter a name", variant: "destructive" });
-
-    setUploading(true);
-    try {
-      const urlRes = await fetch("/api/uploads", {
-        method: "POST",
-        headers: { "Content-Type": file.type || "application/octet-stream" },
-        body: file,
-        credentials: "include",
-      });
-      const { objectUrl } = await urlRes.json();
-
-      // Measure image dimensions then immediately revoke the blob URL
-      const dims = await new Promise<{ width: number; height: number }>((resolve) => {
-        const blobUrl = URL.createObjectURL(file);
-        const img = new Image();
-        img.onload = () => { URL.revokeObjectURL(blobUrl); resolve({ width: img.naturalWidth, height: img.naturalHeight }); };
-        img.onerror = () => { URL.revokeObjectURL(blobUrl); resolve({ width: 0, height: 0 }); };
-        img.src = blobUrl;
-      });
-
-      await createMutation.mutateAsync({ name: mapName.trim(), imageUrl: objectUrl, imageWidth: dims.width || undefined, imageHeight: dims.height || undefined });
-    } catch (err) {
-      toast({ title: "Upload failed", description: err instanceof Error ? err.message : "Upload failed", variant: "destructive" });
-    } finally {
-      setUploading(false);
-      if (fileRef.current) fileRef.current.value = "";
-    }
-  }
-
-  return (
-    <>
-      <Card>
-        <CardHeader
-          className="cursor-pointer select-none"
-          onClick={() => setCollapsed((c) => !c)}
-          data-testid="header-custom-maps"
-        >
-          <div className="flex items-center justify-between gap-4">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Map className="h-4 w-4" />
-              Custom Maps
-            </CardTitle>
-            <div className="flex items-center gap-2">
-              {!collapsed && (
-                <Button size="sm" onClick={(e) => { e.stopPropagation(); setFormOpen((o) => !o); }} data-testid="button-add-custom-map">
-                  <Upload className="h-3.5 w-3.5 mr-1.5" />
-                  Upload Map
-                </Button>
-              )}
-              {collapsed ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronUp className="h-4 w-4 text-muted-foreground" />}
-            </div>
-          </div>
-        </CardHeader>
-
-        {!collapsed && (
-          <CardContent className="space-y-4">
-            {/* Upload form (inline, toggleable) */}
-            {formOpen && (
-              <div className="rounded-lg border border-dashed border-border bg-muted/30 p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium">New Custom Map</p>
-                  <button onClick={() => setFormOpen(false)} className="text-muted-foreground hover:text-foreground" data-testid="button-close-map-form">
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-                <div>
-                  <Label htmlFor="custom-map-name">Map Name <span className="text-red-500">*</span></Label>
-                  <Input
-                    id="custom-map-name"
-                    value={mapName}
-                    onChange={(e) => setMapName(e.target.value)}
-                    placeholder="e.g. Building A — Ground Floor"
-                    data-testid="input-custom-map-name"
-                    className="mt-1"
-                  />
-                </div>
-                <div>
-                  <Label>Image File <span className="text-red-500">*</span></Label>
-                  <input
-                    ref={fileRef}
-                    type="file"
-                    accept="image/*"
-                    data-testid="input-custom-map-file"
-                    className="mt-1 block w-full text-sm text-muted-foreground file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border file:border-input file:text-sm file:bg-background file:text-foreground hover:file:bg-muted cursor-pointer"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">Supported formats: PNG, JPG, JPEG, GIF, WebP</p>
-                </div>
-                <div className="flex justify-end gap-2 pt-1">
-                  <Button variant="outline" size="sm" onClick={() => setFormOpen(false)} data-testid="button-cancel-map-upload">Cancel</Button>
-                  <Button
-                    size="sm"
-                    onClick={handleUpload}
-                    disabled={uploading || createMutation.isPending}
-                    data-testid="button-submit-map-upload"
-                  >
-                    <Upload className="h-3.5 w-3.5 mr-1.5" />
-                    {uploading || createMutation.isPending ? "Uploading..." : "Upload"}
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {/* Map list */}
-            {isLoading ? (
-              <div className="space-y-3">
-                {[1, 2].map((i) => <Skeleton key={i} className="h-16 w-full" />)}
-              </div>
-            ) : maps.length === 0 ? (
-              <div className="py-10 text-center">
-                <Map className="mx-auto h-10 w-10 text-muted-foreground/30" />
-                <p className="mt-3 text-sm text-muted-foreground">No custom maps uploaded yet.</p>
-                <p className="text-xs text-muted-foreground mt-1">Upload a floor plan, site diagram or estate map to get started.</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {maps.map((m) => (
-                  <div
-                    key={m.id}
-                    className="flex items-center gap-3 rounded-lg border border-border bg-card p-3"
-                    data-testid={`row-custom-map-${m.id}`}
-                  >
-                    {/* Thumbnail */}
-                    <div className="w-16 h-12 flex-shrink-0 rounded overflow-hidden border border-border bg-muted flex items-center justify-center">
-                      <img
-                        src={m.imageUrl}
-                        alt={m.name}
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).style.display = "none";
-                        }}
-                        data-testid={`img-custom-map-${m.id}`}
-                      />
-                    </div>
-                    {/* Info */}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate" data-testid={`text-custom-map-name-${m.id}`}>{m.name}</p>
-                      {m.imageWidth && m.imageHeight ? (
-                        <p className="text-xs text-muted-foreground" data-testid={`text-custom-map-dims-${m.id}`}>
-                          {m.imageWidth} × {m.imageHeight} px
-                        </p>
-                      ) : null}
-                    </div>
-                    {/* Actions */}
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={() => setPreviewMap(m)}
-                      title="Preview map"
-                      data-testid={`button-preview-custom-map-${m.id}`}
-                    >
-                      <ScanSearch className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={() => setDeleteId(m.id)}
-                      data-testid={`button-delete-custom-map-${m.id}`}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        )}
-      </Card>
-
-      <AlertDialog open={deleteId !== null} onOpenChange={() => setDeleteId(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Custom Map</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will permanently remove the map. Any incidents pinned to this map will lose their pin placement but will not be deleted. Continue?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => deleteId !== null && deleteMutation.mutate(deleteId)}
-              data-testid="button-confirm-delete-custom-map"
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Leaflet overlay preview dialog */}
-      <Dialog open={previewMap !== null} onOpenChange={(open) => { if (!open) setPreviewMap(null); }}>
-        <DialogContent className="max-w-3xl" data-testid="dialog-custom-map-preview">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Map className="h-4 w-4" />
-              {previewMap?.name}
-            </DialogTitle>
-          </DialogHeader>
-          <p className="text-xs text-muted-foreground -mt-1">
-            This is a Leaflet image overlay — the same projection used when placing incident pins. Use scroll to zoom.
-          </p>
-          {previewMap && <CustomMapLeafletPreview key={previewMap.id} map={previewMap} height={480} />}
-        </DialogContent>
-      </Dialog>
-    </>
-  );
-}
-
 export default function AdminPage() {
   const { data: formFields = [] } = useQuery<FormField[]>({ queryKey: ["/api/form-fields"] });
   const { data: categories = [] } = useQuery<Category[]>({ queryKey: ["/api/categories"] });
   const { data: locations = [] } = useQuery<Location[]>({ queryKey: ["/api/locations"] });
-  const { data: customMaps = [] } = useQuery<CustomMap[]>({ queryKey: ["/api/custom-maps"] });
 
   return (
     <div className="flex flex-col h-full">
@@ -1473,14 +1316,13 @@ export default function AdminPage() {
           insights={[
             { label: "Form fields", value: String(formFields.length) },
             { label: "Types", value: String(categories.length) },
-            { label: "Locations", value: String(locations.length + customMaps.length) },
+            { label: "Locations", value: String(locations.length) },
           ]}
         />
 
         <FormFieldManager />
         <PredefinedTypesManager />
         <LocationManager />
-        <CustomMapsManager />
       </div>
     </div>
   );
