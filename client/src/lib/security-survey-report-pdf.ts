@@ -60,6 +60,24 @@ function severityCellStyle(
   }
 }
 
+/** RGB fill/text for YES/NO/N/A answer cells in the checklist PDF. */
+function answerCellStyle(
+  answer: string | null | undefined,
+): { fillColor: [number, number, number]; textColor: [number, number, number] } | null {
+  if (!answer) return null;
+  switch (answer.toLowerCase()) {
+    case "yes":
+      return { fillColor: [22, 163, 74], textColor: [255, 255, 255] }; // green-600
+    case "no":
+      return { fillColor: [220, 38, 38], textColor: [255, 255, 255] }; // red-600
+    case "na":
+    case "n/a":
+      return { fillColor: [148, 163, 184], textColor: [15, 23, 42] }; // slate-400
+    default:
+      return null;
+  }
+}
+
 function formatAddressLine(survey: SecuritySurveyDetail): string {
   const addr = survey.locationAddress?.trim();
   const lat = survey.locationLatitude;
@@ -134,6 +152,7 @@ export async function buildSecuritySurveyReportPdf(
     : null;
 
   const severitiesForRows: Array<string | null> = [];
+  const answersForRows: Array<string | null> = [];
 
   autoTable(doc, {
     startY: y,
@@ -179,8 +198,9 @@ export async function buildSecuritySurveyReportPdf(
   y = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 6;
 
   if (sitePhotoData) {
-    const sitePhotoW = 56;
-    const sitePhotoH = 42;
+    // Fuller width under the Field/Value summary (A4 content ≈ 182mm).
+    const sitePhotoW = 120;
+    const sitePhotoH = 90;
     if (y + sitePhotoH > 270) {
       doc.addPage();
       y = 16;
@@ -206,11 +226,13 @@ export async function buildSecuritySurveyReportPdf(
     const f = findingByItem.get(item.id);
     const sev = f?.severity ?? null;
     severitiesForRows.push(typeof sev === "string" ? sev : null);
+    const ans = f ? String(f.answer) : null;
+    answersForRows.push(ans);
     return [
       String(i + 1),
       item.category,
       item.prompt,
-      f ? String(f.answer).toUpperCase() : "—",
+      ans ? ans.toUpperCase() : "—",
       f ? severityLabel(f.severity) : "—",
       f?.notes?.trim() || "—",
     ];
@@ -233,14 +255,24 @@ export async function buildSecuritySurveyReportPdf(
       5: { cellWidth: 45 },
     },
     didParseCell: (data) => {
-      if (data.section !== "body" || data.column.index !== 4) return;
-      const raw = severitiesForRows[data.row.index];
-      const style = severityCellStyle(raw);
-      if (!style) return;
-      data.cell.styles.fillColor = style.fillColor;
-      data.cell.styles.textColor = style.textColor;
-      data.cell.styles.fontStyle = "bold";
-      data.cell.styles.halign = "center";
+      if (data.section !== "body") return;
+      if (data.column.index === 3) {
+        const style = answerCellStyle(answersForRows[data.row.index]);
+        if (!style) return;
+        data.cell.styles.fillColor = style.fillColor;
+        data.cell.styles.textColor = style.textColor;
+        data.cell.styles.fontStyle = "bold";
+        data.cell.styles.halign = "center";
+        return;
+      }
+      if (data.column.index === 4) {
+        const style = severityCellStyle(severitiesForRows[data.row.index]);
+        if (!style) return;
+        data.cell.styles.fillColor = style.fillColor;
+        data.cell.styles.textColor = style.textColor;
+        data.cell.styles.fontStyle = "bold";
+        data.cell.styles.halign = "center";
+      }
     },
   });
 

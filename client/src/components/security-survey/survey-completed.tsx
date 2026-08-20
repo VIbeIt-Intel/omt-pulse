@@ -48,6 +48,12 @@ import type {
 import { SEVERITY_CHIP } from "@/lib/security-survey-types";
 import { cn } from "@/lib/utils";
 
+const ANSWER_CHIP: Record<string, string> = {
+  yes: "bg-green-600 text-white",
+  no: "bg-red-600 text-white",
+  na: "bg-slate-400 text-slate-900",
+};
+
 type Props = {
   canArchive: boolean;
   initialSurveyId?: number | null;
@@ -413,7 +419,7 @@ function SurveyReportDetail({
         <ExpandablePhoto
           photoUrl={detail.locationPhotoUrl}
           title={`${siteName} site photo`}
-          className="h-40 w-full max-w-sm rounded-md border object-cover"
+          className="aspect-[4/3] w-full rounded-md border object-cover"
         />
       ) : null}
 
@@ -478,13 +484,25 @@ function SurveyReportDetail({
               {detail.items.map((item, i) => {
                 const f = findingByItem.get(item.id);
                 const severity = f?.severity ? String(f.severity) : null;
+                const answerKey = f ? String(f.answer).toLowerCase() : null;
                 return (
                   <tr key={item.id} className="border-t align-top">
                     <td className="px-2 py-1.5 text-muted-foreground">{i + 1}</td>
                     <td className="px-2 py-1.5">{item.category}</td>
                     <td className="px-2 py-1.5">{item.prompt}</td>
-                    <td className="px-2 py-1.5 uppercase">
-                      {f ? String(f.answer) : "—"}
+                    <td className="px-2 py-1.5">
+                      {answerKey ? (
+                        <span
+                          className={cn(
+                            "inline-flex rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase",
+                            ANSWER_CHIP[answerKey] ?? "bg-muted",
+                          )}
+                        >
+                          {answerKey}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
                     </td>
                     <td className="px-2 py-1.5">
                       {severity ? (
