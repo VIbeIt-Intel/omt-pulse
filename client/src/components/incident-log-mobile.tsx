@@ -1,6 +1,11 @@
 import type { Incident, Category } from "@shared/schema";
 import { getIconSvg } from "@/lib/incident-icons";
-import { resolveEffectiveSeverity, getReporterDisplayName, type IncidentWithMeta } from "@/lib/incident-display";
+import {
+  resolveEffectiveSeverity,
+  getReporterDisplayName,
+  incidentHasEvidence,
+  type IncidentWithMeta,
+} from "@/lib/incident-display";
 import { ChevronRight } from "lucide-react";
 
 export type IncidentWithCount = IncidentWithMeta;
@@ -136,13 +141,17 @@ export function IncidentLogMobileList({
               const reporter = getReporterDisplayName(incident);
               const incNum = incidentNumberMap.get(incident.id) ?? String(incident.id);
               const loc = getLocationDisplay(incident);
-              const hasEvidence = incident.attachmentCount > 0;
+              const hasEvidence = incidentHasEvidence(incident);
+              const why = incident.description?.trim()
+                && incident.description.trim().toLowerCase() !== "live incident started"
+                ? incident.description.trim()
+                : null;
               const meta = [
                 !showCategory || !showDateTime ? null : incNum,
                 showDateTime ? incident.incidentTime : null,
                 reporter,
                 showLocation && loc.label !== "-" ? loc.label : null,
-                hasEvidence ? "Evidence: Yes" : null,
+                hasEvidence ? "Evidence" : null,
               ]
                 .filter(Boolean)
                 .join(" · ");
@@ -173,7 +182,9 @@ export function IncidentLogMobileList({
                     {meta ? (
                       <p className="mt-0.5 truncate text-xs text-muted-foreground">{meta}</p>
                     ) : null}
-                    {showCategory && showDateTime ? (
+                    {why ? (
+                      <p className="mt-0.5 truncate text-[11px] text-muted-foreground/90">{why}</p>
+                    ) : showCategory && showDateTime ? (
                       <p className="mt-0.5 truncate text-[11px] text-muted-foreground/80">{incNum}</p>
                     ) : null}
                   </div>

@@ -13,6 +13,7 @@ import {
   resolveEffectiveSeverity,
   getReporterDisplayName,
   incidentHasViewableLocation,
+  incidentHasEvidence,
   type IncidentWithMeta,
 } from "@/lib/incident-display";
 
@@ -131,7 +132,7 @@ export function OccurrenceBookDesktopTable({
             const cat = categories.find((c) => c.id === incident.categoryId);
             const severity = resolveEffectiveSeverity(incident, cat);
             const reporter = getReporterDisplayName(incident);
-            const hasEvidence = incident.attachmentCount > 0;
+            const hasEvidence = incidentHasEvidence(incident);
 
             return (
               <TableRow

@@ -2826,7 +2826,10 @@ export async function registerRoutes(
     }
     const categories = await storage.getCategories(orgId, commandFilter);
     const categoryNameById = new Map(categories.map((c) => [c.id, c.name]));
-    const attachmentCounts = await storage.getAttachmentCountsByOrg(orgId);
+    const [attachmentCounts, evidenceNoteCounts] = await Promise.all([
+      storage.getAttachmentCountsByOrg(orgId),
+      storage.getEvidenceNoteCountsByOrg(orgId),
+    ]);
     // Batch-resolve closer names from closedByUserId FKs
     const closerIds = [...new Set(incidentList.map(inc => (inc as any).closedByUserId).filter(Boolean))] as string[];
     const closerMap: Record<string, string> = {};
@@ -2848,6 +2851,7 @@ export async function registerRoutes(
     const incidentsWithCounts = incidentList.map(inc => ({
       ...inc,
       attachmentCount: attachmentCounts[inc.id] || 0,
+      evidenceNoteCount: evidenceNoteCounts[inc.id] || 0,
       categoryName: inc.categoryId != null ? (categoryNameById.get(inc.categoryId) ?? null) : null,
       closedByName: closerMap[(inc as any).closedByUserId] ?? null,
       reporterFirstName: inc.userId ? (reporterMap[inc.userId]?.firstName ?? null) : null,
@@ -3511,7 +3515,36 @@ export async function registerRoutes(
       ? { liveEndLat: endLatVal, liveEndLng: endLngVal }
       : {};
     const panicClosure = isPanic ? { panicClosedAt: new Date() } : {};
-    const updated = await storage.updateIncident(id, { isLive: false, responderLat: null, responderLng: null, responderArrivedAt: null, liveEndedAt: new Date(), liveClosedManually: true, closedByUserId: userId, ...panicClosure, ...closureFields, ...endPositionFields } as any, orgId);
+    // Persist a useful Occurrence Book location when the live flow never copied
+    // destination → locationName (manual end-live / monitor close / stale client).
+    const placeholderLoc = !incident.locationName?.trim()
+      || incident.locationName.trim().toLowerCase() === "live incident";
+    const locationClosure: Record<string, unknown> = {};
+    if (placeholderLoc) {
+      const destName = incident.destinationName?.trim();
+      if (destName && destName.toLowerCase() !== "live incident") {
+        locationClosure.locationName = destName;
+      } else if (incident.destinationLat != null && incident.destinationLng != null) {
+        locationClosure.locationName = `${Number(incident.destinationLat).toFixed(5)}, ${Number(incident.destinationLng).toFixed(5)}`;
+      } else if (incident.liveStartLat != null && incident.liveStartLng != null) {
+        locationClosure.locationName = `${Number(incident.liveStartLat).toFixed(5)}, ${Number(incident.liveStartLng).toFixed(5)}`;
+      } else if (endLatVal != null && endLngVal != null) {
+        locationClosure.locationName = `${endLatVal.toFixed(5)}, ${endLngVal.toFixed(5)}`;
+      }
+    }
+    if (incident.latitude == null && incident.longitude == null) {
+      if (incident.destinationLat != null && incident.destinationLng != null) {
+        locationClosure.latitude = Number(incident.destinationLat);
+        locationClosure.longitude = Number(incident.destinationLng);
+      } else if (incident.liveStartLat != null && incident.liveStartLng != null) {
+        locationClosure.latitude = Number(incident.liveStartLat);
+        locationClosure.longitude = Number(incident.liveStartLng);
+      } else if (endLatVal != null && endLngVal != null) {
+        locationClosure.latitude = endLatVal;
+        locationClosure.longitude = endLngVal;
+      }
+    }
+    const updated = await storage.updateIncident(id, { isLive: false, responderLat: null, responderLng: null, responderArrivedAt: null, liveEndedAt: new Date(), liveClosedManually: true, closedByUserId: userId, ...panicClosure, ...closureFields, ...endPositionFields, ...locationClosure } as any, orgId);
     // Close all active responders for this incident
     const activeResponders = await storage.getActiveLiveResponders(id, orgId);
     await storage.closeAllLiveResponders(id, orgId);
@@ -4160,9 +4193,6 @@ export async function registerRoutes(
 
   app.patch("/api/incidents/:id", async (req, res) => {
     const { organizationId: orgId, role, id: userId } = req.currentUser!;
-    if (role !== "administrator" && !req.currentUser!.canEditIncidents) {
-      return res.status(403).json({ message: "You do not have permission to edit incidents" });
-    }
     const id = parseInt(req.params.id as string);
     const parsed = insertIncidentSchema.partial().safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
@@ -4178,6 +4208,13 @@ export async function registerRoutes(
     // Block edits to incidents that fall outside the caller's active Command scope.
     if (!(await assertCommandAccess(req, (oldIncident as any).commandId))) {
       return res.status(404).json({ message: "Incident not found" });
+    }
+    // Live-incident creators must be able to finalize arrival (location, notes,
+    // category) even when canEditIncidents is off for general OB editing.
+    const isLiveOwnerFinalize = oldIncident.userId === userId
+      && (oldIncident.isLive || !!oldIncident.liveStartedAt);
+    if (role !== "administrator" && !req.currentUser!.canEditIncidents && !isLiveOwnerFinalize) {
+      return res.status(403).json({ message: "You do not have permission to edit incidents" });
     }
     if (isAccessController(role) && oldIncident.userId !== userId) {
       return res.status(403).json({ message: "You can only edit your own incidents" });

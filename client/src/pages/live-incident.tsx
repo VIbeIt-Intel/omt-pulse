@@ -2104,35 +2104,7 @@ export default function LiveIncidentPage() {
 
     setArrivalSubmitting(true);
     try {
-      // 1. Patch the incident with arrival details (location, time, category, notes)
-      const at = arrivalTimeRef.current;
-      const otherNoteTrimmed = arrivalOtherType.trim();
-      // Resolve final location: destination name > last GPS fix > liveStart coords > null
-      const liveLocationName = (() => {
-        if (active?.destinationName?.trim()) return active.destinationName.trim();
-        const pos = lastPosRef.current;
-        if (pos) return `${pos.lat.toFixed(4)}, ${pos.lng.toFixed(4)}`;
-        if (active?.liveStartLat != null && active?.liveStartLng != null) {
-          return `${active.liveStartLat.toFixed(4)}, ${active.liveStartLng.toFixed(4)}`;
-        }
-        return null;
-      })();
-      const arrivalPos = lastPosRef.current ?? (
-        active?.liveStartLat != null && active?.liveStartLng != null
-          ? { lat: active.liveStartLat, lng: active.liveStartLng }
-          : null
-      );
-      await apiRequest("PATCH", `/api/incidents/${liveId}`, {
-        ...(arrivalCategoryId ? { categoryId: arrivalCategoryId } : {}),
-        ...(otherNoteTrimmed ? { otherCategoryNote: otherNoteTrimmed } : {}),
-        description: finalDescription || "",
-        locationName: liveLocationName,
-        incidentDate: at.toISOString().slice(0, 10),
-        incidentTime: at.toTimeString().slice(0, 5),
-        ...(arrivalPos ? { latitude: arrivalPos.lat, longitude: arrivalPos.lng } : {}),
-        ...(Object.keys(arrivalCustomFields).length > 0 ? { customFields: arrivalCustomFields } : {}),
-      });
-      // 2. Save all media attachments (upload any pending blobs first)
+      // 1. Save media attachments first (survive a later PATCH/end-live failure)
       for (const mediaRecord of arrivalMedia) {
         let record = mediaRecord;
         if (record.url.startsWith("blob:")) {
@@ -2164,6 +2136,40 @@ export default function LiveIncidentPage() {
           });
         }
       }
+      // 2. Patch the incident with arrival details (location, time, category, notes)
+      const at = arrivalTimeRef.current;
+      const otherNoteTrimmed = arrivalOtherType.trim();
+      // Prefer live list / current destination over stale pendingActive (often missing destinationName)
+      const liveSource = (liveIncidents.find((i) => i.id === liveId) as typeof active | undefined)
+        ?? currentIncident
+        ?? active;
+      const liveLocationName = (() => {
+        if (destination?.name?.trim()) return destination.name.trim();
+        if (liveSource?.destinationName?.trim()) return liveSource.destinationName.trim();
+        const pos = lastPosRef.current;
+        if (pos) return `${pos.lat.toFixed(4)}, ${pos.lng.toFixed(4)}`;
+        if (liveSource?.liveStartLat != null && liveSource?.liveStartLng != null) {
+          return `${Number(liveSource.liveStartLat).toFixed(4)}, ${Number(liveSource.liveStartLng).toFixed(4)}`;
+        }
+        return null;
+      })();
+      const arrivalPos = lastPosRef.current ?? (
+        liveSource?.liveStartLat != null && liveSource?.liveStartLng != null
+          ? { lat: Number(liveSource.liveStartLat), lng: Number(liveSource.liveStartLng) }
+          : liveSource?.destinationLat != null && liveSource?.destinationLng != null
+            ? { lat: Number(liveSource.destinationLat), lng: Number(liveSource.destinationLng) }
+            : null
+      );
+      await apiRequest("PATCH", `/api/incidents/${liveId}`, {
+        ...(arrivalCategoryId ? { categoryId: arrivalCategoryId } : {}),
+        ...(otherNoteTrimmed ? { otherCategoryNote: otherNoteTrimmed } : {}),
+        description: finalDescription || "",
+        locationName: liveLocationName,
+        incidentDate: at.toISOString().slice(0, 10),
+        incidentTime: at.toTimeString().slice(0, 5),
+        ...(arrivalPos ? { latitude: arrivalPos.lat, longitude: arrivalPos.lng } : {}),
+        ...(Object.keys(arrivalCustomFields).length > 0 ? { customFields: arrivalCustomFields } : {}),
+      });
       // 3. Capture closure GPS coords (best-effort, 5 s timeout)
       const closureCoords = await new Promise<{ liveConvertLat: number; liveConvertLng: number } | null>((resolve) => {
         if (!navigator.geolocation) { resolve(null); return; }

@@ -2,10 +2,40 @@ import type { Incident, Category, Location } from "@shared/schema";
 
 export type IncidentWithMeta = Incident & {
   attachmentCount: number;
+  /** Text notes count from /api/incidents — counted as evidence alongside attachments. */
+  evidenceNoteCount?: number;
   reporterFirstName?: string | null;
   reporterLastName?: string | null;
   closedByName?: string | null;
 };
+
+const PLACEHOLDER_LOCATION_NAMES = new Set([
+  "live incident",
+  "gps tracking",
+  "current location",
+]);
+
+function isPlaceholderLocationName(name: string | null | undefined): boolean {
+  const trimmed = name?.trim() ?? "";
+  if (!trimmed) return true;
+  return PLACEHOLDER_LOCATION_NAMES.has(trimmed.toLowerCase());
+}
+
+function formatCoordLabel(lat: number, lng: number): string {
+  return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+}
+
+function finiteCoords(
+  lat: number | string | null | undefined,
+  lng: number | string | null | undefined,
+): { lat: number; lng: number } | null {
+  if (lat == null || lng == null) return null;
+  const la = Number(lat);
+  const ln = Number(lng);
+  if (!Number.isFinite(la) || !Number.isFinite(ln)) return null;
+  if (Math.abs(la) < 0.0001 && Math.abs(ln) < 0.0001) return null;
+  return { lat: la, lng: ln };
+}
 
 type JoinerNavIncident = Pick<
   Incident,
@@ -97,15 +127,64 @@ export function resolveLiveNavTarget(
   return base;
 }
 
-/** Destination set during a live incident (excludes placeholder locationName). */
+/** Destination set during a live incident (excludes placeholder names). */
 export function liveIncidentDestination(
   incident: Pick<Incident, "destinationName" | "destinationLat" | "destinationLng">,
 ): { name: string; lat: number | null; lng: number | null } | null {
-  const name = incident.destinationName?.trim();
-  if (!name || name === "Live Incident") return null;
-  const lat = incident.destinationLat != null ? Number(incident.destinationLat) : null;
-  const lng = incident.destinationLng != null ? Number(incident.destinationLng) : null;
-  return { name, lat, lng };
+  const coords = finiteCoords(incident.destinationLat, incident.destinationLng);
+  const rawName = incident.destinationName?.trim() ?? "";
+  const name = !isPlaceholderLocationName(rawName)
+    ? rawName
+    : coords
+      ? formatCoordLabel(coords.lat, coords.lng)
+      : "";
+  if (!name) return null;
+  return {
+    name,
+    lat: coords?.lat ?? (incident.destinationLat != null ? Number(incident.destinationLat) : null),
+    lng: coords?.lng ?? (incident.destinationLng != null ? Number(incident.destinationLng) : null),
+  };
+}
+
+/**
+ * Occurrence Book / list label for where an incident happened.
+ * Prefers named location, then live destination, then any usable GPS pair.
+ */
+export function resolveIncidentLocationLabel(
+  incident: Incident,
+  locations: Location[],
+  customMapName?: string | null,
+): string {
+  if (incident.customMapId != null) {
+    return customMapName?.trim() || "Custom Map";
+  }
+  if (incident.customMapX != null || incident.customMapY != null) {
+    return "Map removed";
+  }
+
+  if (!isPlaceholderLocationName(incident.locationName)) {
+    return incident.locationName!.trim();
+  }
+
+  if (incident.locationId != null) {
+    const loc = locations.find((l) => l.id === incident.locationId);
+    if (loc?.name?.trim()) return loc.name.trim();
+  }
+
+  const liveDest = liveIncidentDestination(incident);
+  if (liveDest) return liveDest.name;
+
+  const coords = resolveIncidentCoords(incident, locations);
+  if (coords) return formatCoordLabel(coords.lat, coords.lng);
+
+  return "-";
+}
+
+/** True when the incident has file attachments and/or evidence notes. */
+export function incidentHasEvidence(
+  incident: Pick<IncidentWithMeta, "attachmentCount" | "evidenceNoteCount">,
+): boolean {
+  return (Number(incident.attachmentCount) || 0) + (Number(incident.evidenceNoteCount) || 0) > 0;
 }
 
 export type EffectiveSeverity = "red" | "orange" | "yellow" | null;
@@ -134,18 +213,30 @@ export function resolveIncidentCoords(
   incident: Incident,
   locations: Location[],
 ): { lat: number; lng: number } | null {
-  if (incident.latitude != null && incident.longitude != null) {
-    return { lat: incident.latitude, lng: incident.longitude };
-  }
+  const direct = finiteCoords(incident.latitude, incident.longitude);
+  if (direct) return direct;
+
   if (incident.locationId != null) {
     const loc = locations.find((l) => l.id === incident.locationId);
-    if (loc?.latitude != null && loc?.longitude != null) {
-      return { lat: loc.latitude, lng: loc.longitude };
-    }
+    const fromLoc = finiteCoords(loc?.latitude, loc?.longitude);
+    if (fromLoc) return fromLoc;
   }
-  if (incident.liveStartLat != null && incident.liveStartLng != null) {
-    return { lat: incident.liveStartLat, lng: incident.liveStartLng };
-  }
+
+  const destination = finiteCoords(incident.destinationLat, incident.destinationLng);
+  if (destination) return destination;
+
+  const liveStart = finiteCoords(incident.liveStartLat, incident.liveStartLng);
+  if (liveStart) return liveStart;
+
+  const liveEnd = finiteCoords(
+    (incident as Incident & { liveEndLat?: number | null }).liveEndLat,
+    (incident as Incident & { liveEndLng?: number | null }).liveEndLng,
+  );
+  if (liveEnd) return liveEnd;
+
+  const liveConvert = finiteCoords(incident.liveConvertLat, incident.liveConvertLng);
+  if (liveConvert) return liveConvert;
+
   return null;
 }
 

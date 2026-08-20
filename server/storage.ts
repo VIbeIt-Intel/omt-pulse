@@ -211,6 +211,7 @@ export interface IStorage {
   createAttachment(data: InsertAttachment & { uploadedByUserId?: string | null }): Promise<Attachment>;
   deleteAttachment(id: number, orgId: string): Promise<boolean>;
   getAttachmentCountsByOrg(orgId: string): Promise<Record<number, number>>;
+  getEvidenceNoteCountsByOrg(orgId: string): Promise<Record<number, number>>;
 
   // Post-incident text evidence notes (org-scoped)
   getEvidenceNotesByIncident(incidentId: number, orgId: string): Promise<EvidenceNoteWithAuthor[]>;
@@ -1483,10 +1484,22 @@ export class DatabaseStorage implements IStorage {
   async getAttachmentCountsByOrg(orgId: string): Promise<Record<number, number>> {
     const rows = await db.select({
       incidentId: incidentAttachments.incidentId,
-      count: sql<number>`count(*)`,
+      count: sql<number>`count(*)::int`,
     }).from(incidentAttachments)
       .where(eq(incidentAttachments.organizationId, orgId))
       .groupBy(incidentAttachments.incidentId);
+    const map: Record<number, number> = {};
+    for (const r of rows) map[r.incidentId] = Number(r.count);
+    return map;
+  }
+
+  async getEvidenceNoteCountsByOrg(orgId: string): Promise<Record<number, number>> {
+    const rows = await db.select({
+      incidentId: incidentEvidenceNotes.incidentId,
+      count: sql<number>`count(*)::int`,
+    }).from(incidentEvidenceNotes)
+      .where(eq(incidentEvidenceNotes.organizationId, orgId))
+      .groupBy(incidentEvidenceNotes.incidentId);
     const map: Record<number, number> = {};
     for (const r of rows) map[r.incidentId] = Number(r.count);
     return map;

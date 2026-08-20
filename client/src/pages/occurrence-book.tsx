@@ -13,7 +13,14 @@ import { IncidentSapsSummary, isSapsFormField } from "@/components/incident-saps
 import { IncidentLogMobileList } from "@/components/incident-log-mobile";
 import { GeoLocationSheet, IncidentLocationSheet, type GeoMapView } from "@/components/incident-location-sheet";
 import { CoordinateLink } from "@/components/coordinate-link";
-import { resolveEffectiveSeverity, incidentHasViewableLocation, liveIncidentDestination, type IncidentWithMeta } from "@/lib/incident-display";
+import {
+  resolveEffectiveSeverity,
+  incidentHasViewableLocation,
+  incidentHasEvidence,
+  liveIncidentDestination,
+  resolveIncidentLocationLabel,
+  type IncidentWithMeta,
+} from "@/lib/incident-display";
 import { downloadIncidentDocket } from "@/lib/incident-docket";
 import { PanicConfirmOverlay } from "@/components/panic-confirm-overlay";
 import { PageHero } from "@/components/page-hero";
@@ -330,21 +337,10 @@ export default function OccurrenceBook() {
   const getLocationDisplay = (incident: Incident) => {
     if (incident.customMapId != null) {
       const cm = customMaps.find((m) => m.id === incident.customMapId);
-      const mapName = cm?.name ?? "Custom Map";
-      return { type: "customMap" as const, label: mapName };
+      return { type: "customMap" as const, label: cm?.name ?? "Custom Map" };
     }
-    if (incident.customMapX != null || incident.customMapY != null) {
-      return { type: "text" as const, label: "Map removed" };
-    }
-    if (incident.locationName) return { type: "text" as const, label: incident.locationName };
-    if (incident.locationId) {
-      const loc = locations.find((l) => l.id === incident.locationId);
-      return { type: "text" as const, label: loc?.name || "-" };
-    }
-    if (incident.latitude != null && incident.longitude != null) {
-      return { type: "text" as const, label: `${incident.latitude.toFixed(5)}, ${incident.longitude.toFixed(5)}` };
-    }
-    return { type: "text" as const, label: "-" };
+    const label = resolveIncidentLocationLabel(incident, locations);
+    return { type: "text" as const, label };
   };
 
   const openLocationView = (incident: IncidentWithCount) => {
@@ -356,15 +352,7 @@ export default function OccurrenceBook() {
     if (docketBusy) return;
     const cat = categories.find((c) => c.id === inc.categoryId);
     const locDisplay = getLocationDisplay(inc);
-    const liveDest = liveIncidentDestination(inc);
-    const rawLocation =
-      liveDest?.name
-      ?? (inc.locationName?.trim() === "Live Incident"
-        ? ""
-        : locDisplay.label !== "-"
-          ? locDisplay.label
-          : "");
-    const locationLabel = rawLocation.trim() ? rawLocation : "—";
+    const locationLabel = locDisplay.label !== "-" ? locDisplay.label : "—";
     try {
       setDocketBusy(true);
       await downloadIncidentDocket({
@@ -854,14 +842,11 @@ export default function OccurrenceBook() {
             const cat = categories.find((c) => c.id === inc.categoryId);
             const locDisplay = getLocationDisplay(inc);
             const liveDest = liveIncidentDestination(inc);
-            const isPlaceholderLiveLoc = inc.locationName?.trim() === "Live Incident";
-            const locationLabel = liveDest
-              ? liveDest.name
-              : (isPlaceholderLiveLoc ? null : (locDisplay.label !== "-" ? locDisplay.label : null));
+            const locationLabel = locDisplay.label !== "-" ? locDisplay.label : null;
             const canOpenLocation = incidentHasViewableLocation(inc, locations);
             const responderVisits = annotateResponderVisits(viewingIncidentResponders);
             const effectiveSeverity = resolveEffectiveSeverity(inc, cat);
-            const hasEvidence = inc.attachmentCount > 0;
+            const hasEvidence = incidentHasEvidence(inc);
             return (
               <>
                 <SheetHeader className="mb-4 pr-8">
