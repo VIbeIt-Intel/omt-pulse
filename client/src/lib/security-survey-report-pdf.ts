@@ -1,6 +1,8 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import type { SecuritySurveyDetail } from "@/lib/security-survey-types";
+import { apiUrl } from "@/lib/api-base";
+import { mediaSrc } from "@/lib/authed-media";
 import intelafriLogo from "@assets/IntelAfri_Logo_13_January_2025_2_1778851888379.png";
 
 function fmtTs(value: string | Date | null | undefined): string {
@@ -17,7 +19,10 @@ function safeFilePart(s: string): string {
 async function loadImageAsDataUrl(src: string): Promise<string | null> {
   try {
     if (src.startsWith("data:")) return src;
-    const resp = await fetch(src, { credentials: "include" });
+    const path = mediaSrc(src);
+    const fetchUrl =
+      path.startsWith("blob:") || /^https?:\/\//i.test(path) ? path : apiUrl(path);
+    const resp = await fetch(fetchUrl, { credentials: "include" });
     if (!resp.ok) return null;
     const blob = await resp.blob();
     return await new Promise((resolve, reject) => {
@@ -36,6 +41,39 @@ function severityLabel(s: string | null | undefined): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
+/** RGB fill/text for survey severity cells in the checklist PDF. */
+function severityCellStyle(
+  severity: string | null | undefined,
+): { fillColor: [number, number, number]; textColor: [number, number, number] } | null {
+  if (!severity) return null;
+  switch (severity.toLowerCase()) {
+    case "critical":
+      return { fillColor: [220, 38, 38], textColor: [255, 255, 255] };
+    case "high":
+      return { fillColor: [249, 115, 22], textColor: [255, 255, 255] };
+    case "medium":
+      return { fillColor: [251, 191, 36], textColor: [0, 0, 0] };
+    case "low":
+      return { fillColor: [5, 150, 105], textColor: [255, 255, 255] };
+    default:
+      return null;
+  }
+}
+
+function formatAddressLine(survey: SecuritySurveyDetail): string {
+  const addr = survey.locationAddress?.trim();
+  const lat = survey.locationLatitude;
+  const lng = survey.locationLongitude;
+  const coords =
+    lat != null && lng != null && Number.isFinite(lat) && Number.isFinite(lng)
+      ? `${lat.toFixed(5)}, ${lng.toFixed(5)}`
+      : null;
+  if (addr && coords) return `${addr} (${coords})`;
+  if (addr) return addr;
+  if (coords) return coords;
+  return "—";
+}
+
 export type SurveyPdfResult = {
   blob: Blob;
   base64: string;
@@ -50,7 +88,11 @@ export async function buildSecuritySurveyReportPdf(
   const margin = 14;
   let y = 12;
 
-  const logoData = await loadImageAsDataUrl(intelafriLogo);
+  const [logoData, sitePhotoData] = await Promise.all([
+    loadImageAsDataUrl(intelafriLogo),
+    survey.locationPhotoUrl ? loadImageAsDataUrl(survey.locationPhotoUrl) : Promise.resolve(null),
+  ]);
+
   if (logoData) {
     try {
       doc.addImage(logoData, "PNG", margin, y, 28, 12);
@@ -81,15 +123,37 @@ export async function buildSecuritySurveyReportPdf(
   doc.setTextColor(0);
   y += 8;
 
+  const sitePhotoW = 42;
+  const sitePhotoH = 32;
+  const tableRightInset = sitePhotoData ? sitePhotoW + 6 : 0;
+
+  if (sitePhotoData) {
+    try {
+      const format = sitePhotoData.includes("image/png") ? "PNG" : "JPEG";
+      doc.addImage(
+        sitePhotoData,
+        format,
+        210 - margin - sitePhotoW,
+        y,
+        sitePhotoW,
+        sitePhotoH,
+      );
+    } catch {
+      /* ignore site photo failures */
+    }
+  }
+
+  const severitiesForRows: Array<string | null> = [];
+
   autoTable(doc, {
     startY: y,
-    margin: { left: margin, right: margin },
+    margin: { left: margin, right: margin + tableRightInset },
     theme: "grid",
     head: [["Field", "Value"]],
     body: [
       ["Client", clientName],
       ["Site", siteName],
-      ["Address", survey.locationAddress || "—"],
+      ["Address", formatAddressLine(survey)],
       ["Template", survey.templateName || "—"],
       ["Started", fmtTs(survey.startedAt)],
       ["Completed", fmtTs(survey.completedAt)],
@@ -99,7 +163,10 @@ export async function buildSecuritySurveyReportPdf(
     headStyles: { fillColor: [16, 185, 129], textColor: 255 },
   });
 
-  y = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
+  y = Math.max(
+    (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY,
+    sitePhotoData ? y + sitePhotoH : 0,
+  ) + 8;
 
   const findingByItem = new Map(
     survey.findings
@@ -109,6 +176,8 @@ export async function buildSecuritySurveyReportPdf(
 
   const rows = survey.items.map((item, i) => {
     const f = findingByItem.get(item.id);
+    const sev = f?.severity ?? null;
+    severitiesForRows.push(typeof sev === "string" ? sev : null);
     return [
       String(i + 1),
       item.category,
@@ -134,6 +203,16 @@ export async function buildSecuritySurveyReportPdf(
       3: { cellWidth: 16 },
       4: { cellWidth: 20 },
       5: { cellWidth: 45 },
+    },
+    didParseCell: (data) => {
+      if (data.section !== "body" || data.column.index !== 4) return;
+      const raw = severitiesForRows[data.row.index];
+      const style = severityCellStyle(raw);
+      if (!style) return;
+      data.cell.styles.fillColor = style.fillColor;
+      data.cell.styles.textColor = style.textColor;
+      data.cell.styles.fontStyle = "bold";
+      data.cell.styles.halign = "center";
     },
   });
 

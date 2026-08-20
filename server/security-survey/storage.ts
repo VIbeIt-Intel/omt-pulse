@@ -31,6 +31,9 @@ export type SurveyListItem = SecuritySurvey & {
 export type SurveyDetail = SecuritySurvey & {
   locationName: string | null;
   locationAddress: string | null;
+  locationPhotoUrl: string | null;
+  locationLatitude: number | null;
+  locationLongitude: number | null;
   surveyorName: string;
   templateName: string;
   organizationName: string;
@@ -315,6 +318,9 @@ export async function getSurveyDetail(
       survey: securitySurveys,
       locationName: locations.name,
       locationAddress: locations.address,
+      locationPhotoUrl: locations.photoUrl,
+      locationLatitude: locations.latitude,
+      locationLongitude: locations.longitude,
       surveyorFirst: users.firstName,
       surveyorLast: users.lastName,
       templateName: surveyTemplates.name,
@@ -356,6 +362,9 @@ export async function getSurveyDetail(
     ...row.survey,
     locationName: row.locationName,
     locationAddress: row.locationAddress,
+    locationPhotoUrl: row.locationPhotoUrl ?? null,
+    locationLatitude: row.locationLatitude ?? null,
+    locationLongitude: row.locationLongitude ?? null,
     surveyorName: `${row.surveyorFirst} ${row.surveyorLast}`.trim(),
     templateName: row.templateName,
     organizationName: row.organizationName,

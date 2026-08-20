@@ -75,6 +75,9 @@ export type SecuritySurveyDetail = {
   recommendations: string | null;
   locationName: string | null;
   locationAddress: string | null;
+  locationPhotoUrl: string | null;
+  locationLatitude: number | null;
+  locationLongitude: number | null;
   surveyorName: string;
   templateName: string;
   organizationName: string;
