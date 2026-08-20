@@ -1,9 +1,10 @@
-/** Dedicated field devices — gate desks, shared shift mobiles, patrol posts. */
-export const WORKSTATION_TYPES = ["gate_desk", "mobile_shared", "patrol_post"] as const;
+/** Dedicated field devices — gate desks, warehouse offices, shared mobiles, patrol posts. */
+export const WORKSTATION_TYPES = ["gate_desk", "warehouse", "mobile_shared", "patrol_post"] as const;
 export type WorkstationType = (typeof WORKSTATION_TYPES)[number];
 
 export const WORKSTATION_TYPE_LABELS: Record<WorkstationType, string> = {
   gate_desk: "Gate / access desk (fixed)",
+  warehouse: "Warehouse / site office (fixed)",
   mobile_shared: "Shared mobile (shift handoff)",
   patrol_post: "Patrol post (fixed or shared)",
 };
@@ -12,6 +13,7 @@ export const WORKSTATION_TYPE_LABELS: Record<WorkstationType, string> = {
 export function defaultRoleForWorkstationType(type: string): string {
   if (type === "gate_desk") return "access_controller";
   if (type === "patrol_post") return "patrol_user";
+  // warehouse + mobile_shared: general field reporting from the premises device
   return "reporter";
 }
 
@@ -32,7 +34,12 @@ export function isGateDeskWorkstation(type: string): boolean {
 }
 
 export function workstationRequiresShiftPin(type: string): boolean {
-  return type === "gate_desk" || type === "mobile_shared" || type === "patrol_post";
+  return (
+    type === "gate_desk"
+    || type === "warehouse"
+    || type === "mobile_shared"
+    || type === "patrol_post"
+  );
 }
 
 export function isKioskWorkstation(type: string, kioskMode: boolean): boolean {
