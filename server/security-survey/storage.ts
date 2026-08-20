@@ -13,6 +13,10 @@ import {
   type SurveyFinding,
   type SurveyFindingPhoto,
 } from "@shared/schema";
+import {
+  computeSurveyRiskSummary,
+  type SurveyRiskRating,
+} from "@shared/security-survey-risk";
 import { db, storage } from "../storage";
 import { eq, and, desc, asc, inArray, gte, lte, sql } from "drizzle-orm";
 
@@ -26,6 +30,10 @@ export type SurveyListItem = SecuritySurvey & {
   templateName: string;
   answeredCount: number;
   totalItems: number;
+  /** Weighted risk score from finding severities (same bands as PDF). */
+  riskScore: number;
+  riskRating: SurveyRiskRating;
+  riskLabel: string;
 };
 
 export type SurveyDetail = SecuritySurvey & {
@@ -271,16 +279,24 @@ export async function listSurveys(
   if (rows.length === 0) return [];
 
   const surveyIds = rows.map((r) => r.survey.id);
-  const findingCounts = await db
+
+  // One pass: finding counts + severities for risk (avoids N+1 / heavy payloads).
+  const findingRows = await db
     .select({
       surveyId: surveyFindings.surveyId,
-      count: sql<number>`count(*)::int`,
+      severity: surveyFindings.severity,
     })
     .from(surveyFindings)
-    .where(inArray(surveyFindings.surveyId, surveyIds))
-    .groupBy(surveyFindings.surveyId);
+    .where(inArray(surveyFindings.surveyId, surveyIds));
 
-  const countMap = new Map(findingCounts.map((c) => [c.surveyId, c.count]));
+  const countMap = new Map<number, number>();
+  const severitiesBySurvey = new Map<number, Array<{ severity: string | null }>>();
+  for (const row of findingRows) {
+    countMap.set(row.surveyId, (countMap.get(row.surveyId) ?? 0) + 1);
+    const list = severitiesBySurvey.get(row.surveyId) ?? [];
+    list.push({ severity: row.severity });
+    severitiesBySurvey.set(row.surveyId, list);
+  }
 
   const templateIds = [...new Set(rows.map((r) => r.survey.templateId))];
   const itemCounts = await db
@@ -293,20 +309,26 @@ export async function listSurveys(
     .groupBy(surveyTemplateItems.templateId);
   const itemCountMap = new Map(itemCounts.map((c) => [c.templateId, c.count]));
 
-  return rows.map((r) => ({
-    ...r.survey,
-    locationName: r.locationName ?? "Unknown site",
-    surveyorName: `${r.surveyorFirst} ${r.surveyorLast}`.trim(),
-    templateName: r.templateName,
-    answeredCount:
-      (r.survey.progressJson as { answered?: number } | null)?.answered ??
-      countMap.get(r.survey.id) ??
-      0,
-    totalItems:
-      (r.survey.progressJson as { total?: number } | null)?.total ??
-      itemCountMap.get(r.survey.templateId) ??
-      0,
-  }));
+  return rows.map((r) => {
+    const risk = computeSurveyRiskSummary(severitiesBySurvey.get(r.survey.id) ?? []);
+    return {
+      ...r.survey,
+      locationName: r.locationName ?? "Unknown site",
+      surveyorName: `${r.surveyorFirst} ${r.surveyorLast}`.trim(),
+      templateName: r.templateName,
+      answeredCount:
+        (r.survey.progressJson as { answered?: number } | null)?.answered ??
+        countMap.get(r.survey.id) ??
+        0,
+      totalItems:
+        (r.survey.progressJson as { total?: number } | null)?.total ??
+        itemCountMap.get(r.survey.templateId) ??
+        0,
+      riskScore: risk.score,
+      riskRating: risk.rating,
+      riskLabel: risk.label,
+    };
+  });
 }
 
 export async function getSurveyDetail(

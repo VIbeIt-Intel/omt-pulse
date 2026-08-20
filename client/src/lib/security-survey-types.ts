@@ -60,6 +60,10 @@ export type SecuritySurveyListItem = {
   templateName: string;
   answeredCount: number;
   totalItems: number;
+  /** Precomputed from finding severities (PDF scoring). */
+  riskScore: number;
+  riskRating: "low" | "medium" | "high" | "critical";
+  riskLabel: string;
 };
 
 export type SecuritySurveyDetail = {
@@ -118,5 +122,13 @@ export const SEVERITY_CHIP: Record<string, string> = {
   critical: "bg-red-600 text-white",
   high: "bg-orange-500 text-white",
   medium: "bg-amber-400 text-black",
+  low: "bg-emerald-600 text-white",
+};
+
+/** Overall risk badge colours (match PDF / detail gauge). */
+export const RISK_RATING_CHIP: Record<string, string> = {
+  critical: "bg-red-900 text-white",
+  high: "bg-red-600 text-white",
+  medium: "bg-orange-500 text-white",
   low: "bg-emerald-600 text-white",
 };

@@ -45,7 +45,7 @@ import type {
   SecuritySurveyDetail,
   SecuritySurveyListItem,
 } from "@/lib/security-survey-types";
-import { SEVERITY_CHIP } from "@/lib/security-survey-types";
+import { SEVERITY_CHIP, RISK_RATING_CHIP } from "@/lib/security-survey-types";
 import { computeSurveyRiskSummary } from "@/lib/security-survey-risk";
 import { cn } from "@/lib/utils";
 
@@ -275,11 +275,26 @@ export function SurveyCompleted({ canArchive, initialSurveyId }: Props) {
                   {s.completedAt ? ` → ${new Date(s.completedAt).toLocaleString()}` : ""}
                 </p>
               </div>
-              <div className="text-right shrink-0">
-                <Badge variant="secondary" className="capitalize">
-                  {String(s.status).replace(/_/g, " ")}
-                </Badge>
-                <p className="text-[11px] text-muted-foreground mt-1">
+              <div className="text-right shrink-0 space-y-1">
+                <div className="flex flex-wrap items-center justify-end gap-1">
+                  <Badge variant="secondary" className="capitalize">
+                    {String(s.status).replace(/_/g, " ")}
+                  </Badge>
+                  {s.riskRating != null && (
+                    <span
+                      className={cn(
+                        "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                        RISK_RATING_CHIP[s.riskRating] ?? "bg-muted text-foreground",
+                      )}
+                      title={s.riskLabel || undefined}
+                      data-testid={`survey-list-risk-${s.id}`}
+                    >
+                      {s.riskLabel?.replace(/ Risk$/i, "") || s.riskRating}
+                      {typeof s.riskScore === "number" ? ` · ${s.riskScore}` : ""}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-muted-foreground">
                   {s.answeredCount}/{s.totalItems}
                 </p>
               </div>
