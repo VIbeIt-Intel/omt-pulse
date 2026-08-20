@@ -1739,7 +1739,9 @@ export async function registerRoutes(
     const org = await storage.getOrganization(orgId);
     if (!org) return res.status(404).json({ message: "Organization not found" });
 
-    const orgUsers = await storage.getActiveUsersByOrg(orgId);
+    const orgUsers = (await storage.getActiveUsersByOrg(orgId)).filter(
+      (u) => !isPositionUserEmail(u.email),
+    );
     const counts: Record<string, number> = {};
     for (const u of orgUsers) {
       counts[u.role] = (counts[u.role] ?? 0) + 1;
@@ -4504,7 +4506,7 @@ export async function registerRoutes(
     const users = await storage.getUsersByOrg(orgId);
     res.json(
       users
-        .filter((u) => u.isActive)
+        .filter((u) => u.isActive && !isPositionUserEmail(u.email))
         .map((u) => ({ id: u.id, firstName: u.firstName, lastName: u.lastName, role: u.role })),
     );
   });
@@ -5766,7 +5768,9 @@ export async function registerRoutes(
   // Returns minimal user info for all active org members — used by the DM picker (all roles)
   app.get("/api/chat/users", async (req, res) => {
     const { organizationId: orgId } = req.currentUser!;
-    const orgUsers = await storage.getActiveUsersByOrg(orgId);
+    const orgUsers = (await storage.getActiveUsersByOrg(orgId)).filter(
+      (u) => !isPositionUserEmail(u.email),
+    );
     const safe = orgUsers.map((u) => ({
       id: u.id,
       firstName: u.firstName,

@@ -22,6 +22,7 @@ import {
   trackerPositions,
 } from "@shared/schema";
 import { toObjectPath } from "@shared/object-url";
+import { isPositionUserEmail } from "@shared/workstations";
 
 export type TrackerDeviceSummary = {
   id: number;
@@ -2633,9 +2634,13 @@ export class DatabaseStorage implements IStorage {
       return { totalIncidents, liveCount, chartData, users: [] };
     }
 
-    const orgUsers = await db.select().from(users).where(
-      and(eq(users.organizationId, orgId), eq(users.isActive, true))
-    );
+    // Team / dashboard people = humans only. Synthetic @omt.device position
+    // accounts belong under Sites, not the Team list.
+    const orgUsers = (
+      await db.select().from(users).where(
+        and(eq(users.organizationId, orgId), eq(users.isActive, true)),
+      )
+    ).filter((u) => !isPositionUserEmail(u.email));
 
     const liveIncidentsList = await db
       .select({

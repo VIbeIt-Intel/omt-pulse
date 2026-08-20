@@ -7,6 +7,8 @@ import { db } from "../storage";
 import { eq } from "drizzle-orm";
 import {
   createWorkstation,
+  deactivateOrphanedPositionUsers,
+  deleteWorkstation,
   enrolWorkstationByCode,
   ensurePositionUser,
   findUserByShiftPin,
@@ -115,6 +117,23 @@ export function registerWorkstationRoutes(app: Express) {
     const updated = await updateWorkstation(id, orgId, partial.data);
     if (!updated) return res.status(404).json({ message: "Workstation not found" });
     res.json(updated);
+  });
+
+  /** Soft-delete position: deactivates workstation + linked @omt.device user; clears device binding. */
+  app.delete("/api/workstations/:id", requireAdmin, async (req, res) => {
+    const id = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid id" });
+    const orgId = req.currentUser!.organizationId;
+    const ok = await deleteWorkstation(id, orgId);
+    if (!ok) return res.status(404).json({ message: "Workstation not found" });
+    res.json({ ok: true });
+  });
+
+  /** Maintenance: deactivate orphaned @omt.device accounts not linked to an active position. */
+  app.post("/api/workstations/cleanup-orphaned-position-users", requireAdmin, async (req, res) => {
+    const orgId = req.currentUser!.organizationId;
+    const result = await deactivateOrphanedPositionUsers(orgId);
+    res.json(result);
   });
 
   /** Non-destructive: show existing code, or issue one if missing/expired (never unbinds). */

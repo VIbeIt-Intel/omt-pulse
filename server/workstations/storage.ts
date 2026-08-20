@@ -6,6 +6,8 @@ import {
   commands,
   users,
   commandUsers,
+  fcmTokens,
+  pushSubscriptions,
   type Workstation,
   type WorkstationWithDetails,
   type InsertWorkstation,
@@ -14,10 +16,12 @@ import {
   WORKSTATION_TYPES,
   defaultRoleForWorkstationType,
   isFixedDeskWorkstation,
+  isPositionUserEmail,
+  POSITION_USER_EMAIL_SUFFIX,
   positionUserEmail,
 } from "@shared/workstations";
 import { db } from "../storage";
-import { and, eq, asc, isNotNull } from "drizzle-orm";
+import { and, eq, asc, isNotNull, like } from "drizzle-orm";
 
 const SALT_ROUNDS = 10;
 const ENROLMENT_TTL_MS = 48 * 60 * 60 * 1000;
@@ -95,7 +99,7 @@ export async function getWorkstationsByOrg(orgId: string): Promise<WorkstationWi
     .leftJoin(locations, eq(workstations.locationId, locations.id))
     .leftJoin(commands, eq(workstations.commandId, commands.id))
     .leftJoin(users, eq(workstations.currentOperatorUserId, users.id))
-    .where(eq(workstations.organizationId, orgId))
+    .where(and(eq(workstations.organizationId, orgId), eq(workstations.isActive, true)))
     .orderBy(asc(workstations.name));
 
   return rows.map((r) =>
@@ -117,13 +121,24 @@ export async function getWorkstationByDeviceToken(token: string): Promise<Workst
 export async function ensurePositionUser(ws: Workstation): Promise<string> {
   if (ws.positionUserId) {
     const [existing] = await db.select().from(users).where(eq(users.id, ws.positionUserId)).limit(1);
-    if (existing?.isActive) return existing.id;
+    if (existing) {
+      if (!existing.isActive) {
+        await db.update(users).set({ isActive: true }).where(eq(users.id, existing.id));
+      }
+      if (ws.commandId != null) {
+        await ensureCommandMembership(existing.id, ws.commandId, ws.organizationId);
+      }
+      return existing.id;
+    }
   }
 
   const email = positionUserEmail(ws.id, ws.organizationId);
   const [byEmail] = await db.select().from(users).where(eq(users.email, email)).limit(1);
   if (byEmail) {
     await db.update(workstations).set({ positionUserId: byEmail.id }).where(eq(workstations.id, ws.id));
+    if (!byEmail.isActive) {
+      await db.update(users).set({ isActive: true }).where(eq(users.id, byEmail.id));
+    }
     if (ws.commandId != null) {
       await ensureCommandMembership(byEmail.id, ws.commandId, ws.organizationId);
     }
@@ -160,6 +175,51 @@ export async function ensurePositionUser(ws: Workstation): Promise<string> {
   }
 
   return created.id;
+}
+
+/**
+ * Soft-remove a synthetic position account: deactivate, clear presence/GPS,
+ * and drop push tokens so it cannot linger on Team or alert fans-out.
+ */
+async function softRemovePositionUser(userId: string): Promise<void> {
+  const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+  if (!user || !isPositionUserEmail(user.email)) return;
+
+  await db
+    .update(users)
+    .set({
+      isActive: false,
+      lastSeenAt: null,
+      lastLat: null,
+      lastLng: null,
+      lastPositionAt: null,
+    })
+    .where(eq(users.id, userId));
+
+  await db.delete(fcmTokens).where(eq(fcmTokens.userId, userId));
+  await db.delete(pushSubscriptions).where(eq(pushSubscriptions.userId, userId));
+}
+
+/** Unbind device + deactivate linked position user (position soft-removed). */
+async function clearWorkstationDeviceAndPositionUser(ws: Workstation): Promise<void> {
+  if (ws.positionUserId) {
+    await softRemovePositionUser(ws.positionUserId);
+  }
+
+  await db
+    .update(workstations)
+    .set({
+      deviceToken: null,
+      enrolledAt: null,
+      enrolmentCode: null,
+      enrolmentExpiresAt: null,
+      currentOperatorUserId: null,
+      operatorSessionStartedAt: null,
+      lastSeenAt: null,
+      lastLat: null,
+      lastLng: null,
+    })
+    .where(eq(workstations.id, ws.id));
 }
 
 async function ensureCommandMembership(userId: string, commandId: number, organizationId: string) {
@@ -210,6 +270,9 @@ export async function updateWorkstation(
     throw new Error("Invalid workstation type");
   }
 
+  const existing = await getWorkstationById(id, orgId);
+  if (!existing) return undefined;
+
   const [row] = await db
     .update(workstations)
     .set(data)
@@ -217,6 +280,12 @@ export async function updateWorkstation(
     .returning();
 
   if (!row) return undefined;
+
+  if (data.isActive === false && existing.isActive !== false) {
+    await clearWorkstationDeviceAndPositionUser(row);
+  } else if (data.isActive === true && !existing.isActive) {
+    await ensurePositionUser(row);
+  }
 
   if (row.positionUserId && (data.name != null || data.type != null)) {
     const patch: Partial<typeof users.$inferInsert> = {};
@@ -237,6 +306,67 @@ export async function updateWorkstation(
   }
 
   return getWorkstationById(id, orgId);
+}
+
+/** Soft-delete a position: deactivate workstation + linked synthetic user; clear device binding. */
+export async function deleteWorkstation(id: number, orgId: string): Promise<boolean> {
+  const existing = await getWorkstationById(id, orgId);
+  if (!existing) return false;
+
+  await clearWorkstationDeviceAndPositionUser(existing);
+
+  const [row] = await db
+    .update(workstations)
+    .set({ isActive: false })
+    .where(and(eq(workstations.id, id), eq(workstations.organizationId, orgId)))
+    .returning();
+
+  return !!row;
+}
+
+/**
+ * One-time / maintenance: deactivate @omt.device users that are not linked to an
+ * active workstation. Does not touch locations or workstation rows.
+ */
+export async function deactivateOrphanedPositionUsers(orgId: string): Promise<{ deactivated: number }> {
+  const suffix = `%${POSITION_USER_EMAIL_SUFFIX}`;
+  const positionAccounts = await db
+    .select({ id: users.id, email: users.email })
+    .from(users)
+    .where(
+      and(
+        eq(users.organizationId, orgId),
+        eq(users.isActive, true),
+        like(users.email, suffix),
+      ),
+    );
+
+  if (positionAccounts.length === 0) return { deactivated: 0 };
+
+  const linkedActive = await db
+    .select({ positionUserId: workstations.positionUserId })
+    .from(workstations)
+    .where(
+      and(
+        eq(workstations.organizationId, orgId),
+        eq(workstations.isActive, true),
+        isNotNull(workstations.positionUserId),
+      ),
+    );
+
+  const keep = new Set(
+    linkedActive.map((r) => r.positionUserId).filter((id): id is string => !!id),
+  );
+
+  let deactivated = 0;
+  for (const account of positionAccounts) {
+    if (keep.has(account.id)) continue;
+    if (!isPositionUserEmail(account.email)) continue;
+    await softRemovePositionUser(account.id);
+    deactivated += 1;
+  }
+
+  return { deactivated };
 }
 
 /**

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import type { Location, WorkstationWithDetails } from "@shared/schema";
@@ -55,6 +55,7 @@ import {
   Plus,
   RefreshCw,
   Settings,
+  Trash2,
 } from "lucide-react";
 
 type OrgCommand = { id: number; name: string; isCentral: boolean };
@@ -102,6 +103,7 @@ export default function WorkstationsAdminPage() {
   const [commandId, setCommandId] = useState("");
   const [enrolDialog, setEnrolDialog] = useState<{ code: string; name: string; expiresAt: string } | null>(null);
   const [reenrolConfirm, setReenrolConfirm] = useState<WorkstationWithDetails | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<WorkstationWithDetails | null>(null);
   const [mapPreview, setMapPreview] = useState<Location | null>(null);
 
   const { data: workstations = [], isLoading } = useQuery<WorkstationWithDetails[]>({
@@ -115,6 +117,22 @@ export default function WorkstationsAdminPage() {
   const { data: commands = [] } = useQuery<OrgCommand[]>({
     queryKey: ["/api/commands"],
   });
+
+  // One-time maintenance path: deactivate orphaned @omt.device accounts (not linked to an active position).
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        await apiRequest("POST", "/api/workstations/cleanup-orphaned-position-users", {});
+      } catch {
+        // Non-blocking — Team already hides @omt.device users.
+      }
+      if (cancelled) return;
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -187,12 +205,28 @@ export default function WorkstationsAdminPage() {
     onError: (e: Error) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/workstations/${id}`, undefined);
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["/api/workstations"] });
+      setDeleteConfirm(null);
+      toast({
+        title: "Position removed",
+        description: "The position and its device account were deactivated. Site location data is unchanged.",
+      });
+    },
+    onError: (e: Error) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
+  });
+
   function copyCode(code: string) {
     void navigator.clipboard.writeText(code);
     toast({ title: "Code copied" });
   }
 
-  const actionPending = showCodeMutation.isPending || regenerateMutation.isPending;
+  const actionPending =
+    showCodeMutation.isPending || regenerateMutation.isPending || deleteMutation.isPending;
 
   const enrolledCount = workstations.filter((ws) => ws.enrolledAt).length;
   const premisesGroups = useMemo(
@@ -363,29 +397,42 @@ export default function WorkstationsAdminPage() {
                             {ws.currentOperatorName ?? "—"}
                           </TableCell>
                           <TableCell className="text-right">
-                            {ws.enrolledAt ? (
+                            <div className="inline-flex items-center justify-end gap-1.5">
+                              {ws.enrolledAt ? (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={actionPending}
+                                  onClick={() => setReenrolConfirm(ws)}
+                                >
+                                  <RefreshCw className="h-3.5 w-3.5 mr-1" />
+                                  Re-enrol
+                                </Button>
+                              ) : (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={actionPending}
+                                  onClick={() => showCodeMutation.mutate(ws)}
+                                >
+                                  <Eye className="h-3.5 w-3.5 mr-1" />
+                                  Show code
+                                </Button>
+                              )}
                               <Button
                                 type="button"
-                                variant="outline"
-                                size="sm"
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-destructive hover:text-destructive"
                                 disabled={actionPending}
-                                onClick={() => setReenrolConfirm(ws)}
+                                title="Remove position"
+                                onClick={() => setDeleteConfirm(ws)}
                               >
-                                <RefreshCw className="h-3.5 w-3.5 mr-1" />
-                                Re-enrol
+                                <Trash2 className="h-3.5 w-3.5" />
                               </Button>
-                            ) : (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                disabled={actionPending}
-                                onClick={() => showCodeMutation.mutate(ws)}
-                              >
-                                <Eye className="h-3.5 w-3.5 mr-1" />
-                                Show code
-                              </Button>
-                            )}
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -553,6 +600,34 @@ export default function WorkstationsAdminPage() {
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 "Unbind & new code"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!deleteConfirm} onOpenChange={(open) => !open && setDeleteConfirm(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove position {deleteConfirm?.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This deactivates the position and its dedicated device account. Enrolled phones will stop working as this position. The site/location record is kept.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteMutation.isPending || !deleteConfirm}
+              onClick={(e) => {
+                e.preventDefault();
+                if (deleteConfirm) deleteMutation.mutate(deleteConfirm.id);
+              }}
+            >
+              {deleteMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                "Remove position"
               )}
             </AlertDialogAction>
           </AlertDialogFooter>
