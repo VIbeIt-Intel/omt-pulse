@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Location } from "@shared/schema";
 import type { SurveyAnswer, SurveySeverity } from "@shared/schema";
-import { Camera, CheckCircle2, Loader2, MapPin, Trash2, Upload } from "lucide-react";
+import { Camera, CheckCircle2, Loader2, MapPin, Pencil, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -392,19 +392,46 @@ export function SurveyConduct({ onOpenFindings }: Props) {
           <div className="rounded-lg border p-3 space-y-2">
             <p className="text-sm font-medium">Resume draft</p>
             {localDrafts.map((d) => (
-              <button
+              <div
                 key={d.id}
-                type="button"
-                className="flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm hover:bg-muted/50"
-                onClick={() => void resumeDraft(d)}
+                className="flex items-center gap-2 rounded-md border px-3 py-2"
+                data-testid={`survey-draft-${d.id}`}
               >
-                <span>
-                  {d.locationName} · {d.templateName}
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  {new Date(d.updatedAt).toLocaleString()}
-                </span>
-              </button>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm">
+                    {d.locationName} · {d.templateName}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {new Date(d.updatedAt).toLocaleString()}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-8 w-8 shrink-0"
+                  title="Continue draft"
+                  onClick={() => void resumeDraft(d)}
+                  data-testid={`survey-draft-edit-${d.id}`}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-8 w-8 shrink-0"
+                  title="Remove draft"
+                  onClick={async () => {
+                    await removeSurveyDraft(d.id);
+                    await refetchDrafts();
+                    toast({ title: "Draft removed" });
+                  }}
+                  data-testid={`survey-draft-delete-${d.id}`}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
             ))}
           </div>
         )}

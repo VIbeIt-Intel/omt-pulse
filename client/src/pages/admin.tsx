@@ -10,6 +10,7 @@ import {
 import "leaflet/dist/leaflet.css";
 import { INCIDENT_ICONS, getIconSvg } from "@/lib/incident-icons";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useSearch } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { FormField, Location, Category } from "@shared/schema";
@@ -927,6 +928,8 @@ function LocationMapPreview({
 
 function LocationManager() {
   const { toast } = useToast();
+  const search = useSearch();
+  const openedEditQuery = useRef<number | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -1013,6 +1016,19 @@ function LocationManager() {
     setPhone(loc.phone || "");
     setDialogOpen(true);
   };
+
+  useEffect(() => {
+    const params = new URLSearchParams(search);
+    const raw = params.get("editLocation");
+    const id = raw ? Number(raw) : NaN;
+    if (!Number.isFinite(id) || locations.length === 0) return;
+    if (openedEditQuery.current === id) return;
+    const loc = locations.find((l) => l.id === id);
+    if (!loc) return;
+    openedEditQuery.current = id;
+    setCollapsed(false);
+    openEdit(loc);
+  }, [search, locations]);
 
   const closeDialog = () => {
     setDialogOpen(false);

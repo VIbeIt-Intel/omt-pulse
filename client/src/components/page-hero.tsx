@@ -4,6 +4,7 @@ import {
   Bell,
   BookOpen,
   Car,
+  ClipboardList,
   Footprints,
   LayoutGrid,
   Network,
@@ -27,6 +28,7 @@ export type PageHeroInsight = {
 const DEFAULT_PHONE_ICONS: Record<string, LucideIcon> = {
   "Access Control": ShieldCheck,
   Patrol: Footprints,
+  "Site Survey": ClipboardList,
   Cameras: Video,
   Users: Users,
   Positions: LayoutGrid,

@@ -269,7 +269,7 @@ export default function WorkstationsAdminPage() {
                         <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
                       </div>
                       <Button type="button" variant="outline" size="sm" className="h-8 shrink-0" asChild>
-                        <Link href="/admin#field-setup-locations">
+                        <Link href={`/admin?editLocation=${loc.id}#field-setup-locations`}>
                           <Settings className="h-3.5 w-3.5 mr-1.5" />
                           Edit premises
                         </Link>
