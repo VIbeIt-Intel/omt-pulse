@@ -924,81 +924,112 @@ function LocationMapPreview({
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<google.maps.Map | null>(null);
   const markerRef = useRef<google.maps.Marker | null>(null);
+  const [mapsReady, setMapsReady] = useState(false);
   const [mapsError, setMapsError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!open || !location || !mapRef.current) return;
+    if (!open) return;
+    let cancelled = false;
+    setMapsReady(false);
+    setMapsError(null);
+    loadGoogleMaps()
+      .then(() => {
+        if (!cancelled) setMapsReady(true);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setMapsError(err instanceof Error ? err.message : "Map could not load");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || !location || !mapsReady) return;
 
     let cancelled = false;
     setLoading(true);
     setMapsError(null);
 
-    loadGoogleMaps()
-      .then(async () => {
-        if (cancelled || !mapRef.current) return;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          if (cancelled || !mapRef.current) return;
 
-        let lat = location.latitude;
-        let lng = location.longitude;
+          let lat = location.latitude;
+          let lng = location.longitude;
 
-        if ((lat == null || lng == null) && location.address?.trim()) {
-          const geocoder = new google.maps.Geocoder();
-          const result = await geocoder.geocode({ address: location.address.trim() });
-          const first = result.results[0];
-          if (!first?.geometry?.location) {
-            throw new Error("Could not find that address on the map");
+          if ((lat == null || lng == null) && location.address?.trim()) {
+            const geocoder = new google.maps.Geocoder();
+            const result = await geocoder.geocode({ address: location.address.trim() });
+            const first = result.results[0];
+            if (!first?.geometry?.location) {
+              throw new Error("Could not find that address on the map");
+            }
+            lat = first.geometry.location.lat();
+            lng = first.geometry.location.lng();
           }
-          lat = first.geometry.location.lat();
-          lng = first.geometry.location.lng();
-        }
 
-        if (lat == null || lng == null) {
-          throw new Error("This location has no map pin yet");
-        }
+          if (lat == null || lng == null) {
+            throw new Error("This location has no map pin yet");
+          }
+          if (cancelled || !mapRef.current) return;
 
-        const center = { lat, lng };
-        if (!mapInstanceRef.current) {
-          mapInstanceRef.current = new google.maps.Map(mapRef.current, {
+          const center = { lat, lng };
+
+          if (markerRef.current) {
+            markerRef.current.setMap(null);
+            markerRef.current = null;
+          }
+          if (mapInstanceRef.current) {
+            google.maps.event.clearInstanceListeners(mapInstanceRef.current);
+            mapInstanceRef.current = null;
+          }
+
+          const map = new google.maps.Map(mapRef.current, {
             center,
             zoom: 17,
             mapTypeId: "hybrid",
             mapTypeControl: true,
             streetViewControl: false,
             fullscreenControl: true,
+            gestureHandling: "greedy",
           });
-        } else {
-          mapInstanceRef.current.setCenter(center);
-          mapInstanceRef.current.setZoom(17);
-        }
+          mapInstanceRef.current = map;
+          markerRef.current = new google.maps.Marker({
+            map,
+            position: center,
+            title: location.name,
+          });
 
-        if (markerRef.current) markerRef.current.setMap(null);
-        markerRef.current = new google.maps.Marker({
-          map: mapInstanceRef.current,
-          position: center,
-          title: location.name,
-        });
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        setMapsError(err instanceof Error ? err.message : "Map could not load");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+          google.maps.event.addListenerOnce(map, "idle", () => {
+            google.maps.event.trigger(map, "resize");
+            map.setCenter(center);
+          });
+        } catch (err: unknown) {
+          if (cancelled) return;
+          setMapsError(err instanceof Error ? err.message : "Map could not load");
+        } finally {
+          if (!cancelled) setLoading(false);
+        }
+      })();
+    }, 80);
 
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
+      if (markerRef.current) {
+        markerRef.current.setMap(null);
+        markerRef.current = null;
+      }
+      if (mapInstanceRef.current) {
+        google.maps.event.clearInstanceListeners(mapInstanceRef.current);
+        mapInstanceRef.current = null;
+      }
     };
-  }, [open, location]);
-
-  useEffect(() => {
-    if (open) return;
-    if (markerRef.current) {
-      markerRef.current.setMap(null);
-      markerRef.current = null;
-    }
-    mapInstanceRef.current = null;
-  }, [open]);
+  }, [open, location, mapsReady]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1012,8 +1043,8 @@ function LocationMapPreview({
             <p className="text-sm text-muted-foreground truncate">{location.address}</p>
           ) : null}
         </DialogHeader>
-        <div className="relative mx-4 mb-4 h-[calc(92vh-5.5rem)] rounded-md border overflow-hidden bg-muted/30">
-          {loading && (
+        <div className="relative mx-4 mb-4 h-[calc(92vh-5.5rem)] min-h-[320px] rounded-md border overflow-hidden bg-muted/30">
+          {(loading || (!mapsReady && !mapsError)) && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/50">
               <p className="text-sm text-muted-foreground">Loading map…</p>
             </div>
@@ -1023,7 +1054,7 @@ function LocationMapPreview({
               <p className="text-sm text-destructive">{mapsError}</p>
             </div>
           ) : null}
-          <div ref={mapRef} className="h-full w-full" data-testid="location-in-app-map" />
+          <div ref={mapRef} className="absolute inset-0 h-full w-full" data-testid="location-in-app-map" />
         </div>
       </DialogContent>
     </Dialog>
