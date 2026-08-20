@@ -391,16 +391,6 @@ function SurveyReportDetail({
             {detail.surveyorName} · {String(detail.status).replace(/_/g, " ")} · #{detail.id}
           </p>
         </div>
-        <ExpandablePhoto
-          photoUrl={detail.locationPhotoUrl}
-          title={`${siteName} site photo`}
-          className="h-20 w-28 rounded-md border object-cover"
-          fallback={
-            <div className="flex h-20 w-28 items-center justify-center rounded-md border border-dashed bg-muted/40">
-              <MapPin className="h-5 w-5 text-muted-foreground/40" />
-            </div>
-          }
-        />
       </div>
 
       <div className="overflow-hidden rounded-md border text-sm">
@@ -418,6 +408,14 @@ function SurveyReportDetail({
           </div>
         ))}
       </div>
+
+      {detail.locationPhotoUrl ? (
+        <ExpandablePhoto
+          photoUrl={detail.locationPhotoUrl}
+          title={`${siteName} site photo`}
+          className="h-40 w-full max-w-sm rounded-md border object-cover"
+        />
+      ) : null}
 
       <div className="flex flex-wrap gap-2">
         <Button size="sm" variant="outline" onClick={onDownloadPdf}>

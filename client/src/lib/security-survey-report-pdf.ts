@@ -123,37 +123,27 @@ export async function buildSecuritySurveyReportPdf(
   doc.setTextColor(0);
   y += 8;
 
-  const sitePhotoW = 42;
-  const sitePhotoH = 32;
-  const tableRightInset = sitePhotoData ? sitePhotoW + 6 : 0;
-
-  if (sitePhotoData) {
-    try {
-      const format = sitePhotoData.includes("image/png") ? "PNG" : "JPEG";
-      doc.addImage(
-        sitePhotoData,
-        format,
-        210 - margin - sitePhotoW,
-        y,
-        sitePhotoW,
-        sitePhotoH,
-      );
-    } catch {
-      /* ignore site photo failures */
-    }
-  }
+  const addressLine = formatAddressLine(survey);
+  const hasMapCoords =
+    survey.locationLatitude != null &&
+    survey.locationLongitude != null &&
+    Number.isFinite(survey.locationLatitude) &&
+    Number.isFinite(survey.locationLongitude);
+  const mapsUrl = hasMapCoords
+    ? `https://www.google.com/maps?q=${survey.locationLatitude},${survey.locationLongitude}`
+    : null;
 
   const severitiesForRows: Array<string | null> = [];
 
   autoTable(doc, {
     startY: y,
-    margin: { left: margin, right: margin + tableRightInset },
+    margin: { left: margin, right: margin },
     theme: "grid",
     head: [["Field", "Value"]],
     body: [
       ["Client", clientName],
       ["Site", siteName],
-      ["Address", formatAddressLine(survey)],
+      ["Address", addressLine],
       ["Template", survey.templateName || "—"],
       ["Started", fmtTs(survey.startedAt)],
       ["Completed", fmtTs(survey.completedAt)],
@@ -161,12 +151,50 @@ export async function buildSecuritySurveyReportPdf(
     ],
     styles: { fontSize: 9, cellPadding: 2 },
     headStyles: { fillColor: [16, 185, 129], textColor: 255 },
+    didParseCell: (data) => {
+      if (
+        mapsUrl &&
+        data.section === "body" &&
+        data.column.index === 1 &&
+        data.row.index === 2
+      ) {
+        data.cell.styles.textColor = [37, 99, 235];
+      }
+    },
+    didDrawCell: (data) => {
+      if (
+        !mapsUrl ||
+        data.section !== "body" ||
+        data.column.index !== 1 ||
+        data.row.index !== 2
+      ) {
+        return;
+      }
+      doc.link(data.cell.x, data.cell.y, data.cell.width, data.cell.height, {
+        url: mapsUrl,
+      });
+    },
   });
 
-  y = Math.max(
-    (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY,
-    sitePhotoData ? y + sitePhotoH : 0,
-  ) + 8;
+  y = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 6;
+
+  if (sitePhotoData) {
+    const sitePhotoW = 56;
+    const sitePhotoH = 42;
+    if (y + sitePhotoH > 270) {
+      doc.addPage();
+      y = 16;
+    }
+    try {
+      const format = sitePhotoData.includes("image/png") ? "PNG" : "JPEG";
+      doc.addImage(sitePhotoData, format, margin, y, sitePhotoW, sitePhotoH);
+      y += sitePhotoH + 8;
+    } catch {
+      y += 2;
+    }
+  } else {
+    y += 2;
+  }
 
   const findingByItem = new Map(
     survey.findings
