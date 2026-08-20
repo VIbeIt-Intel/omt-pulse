@@ -4,6 +4,14 @@ import type { SecuritySurveyDetail } from "@/lib/security-survey-types";
 import { apiUrl } from "@/lib/api-base";
 import { mediaSrc } from "@/lib/authed-media";
 import intelafriLogo from "@assets/IntelAfri_Logo_13_January_2025_2_1778851888379.png";
+import {
+  computeSurveyRiskSummary,
+  generateSurveyRecommendations,
+  riskGaugeFraction,
+  RISK_RATING_COLORS,
+  SEVERITY_RGB,
+  type SurveyRiskSummary,
+} from "@/lib/security-survey-risk";
 
 function fmtTs(value: string | Date | null | undefined): string {
   if (!value) return "—";
@@ -46,18 +54,9 @@ function severityCellStyle(
   severity: string | null | undefined,
 ): { fillColor: [number, number, number]; textColor: [number, number, number] } | null {
   if (!severity) return null;
-  switch (severity.toLowerCase()) {
-    case "critical":
-      return { fillColor: [220, 38, 38], textColor: [255, 255, 255] };
-    case "high":
-      return { fillColor: [249, 115, 22], textColor: [255, 255, 255] };
-    case "medium":
-      return { fillColor: [251, 191, 36], textColor: [0, 0, 0] };
-    case "low":
-      return { fillColor: [5, 150, 105], textColor: [255, 255, 255] };
-    default:
-      return null;
-  }
+  const style = SEVERITY_RGB[severity.toLowerCase()];
+  if (!style) return null;
+  return { fillColor: style.fill, textColor: style.text };
 }
 
 /** RGB fill/text for YES/NO/N/A answer cells in the checklist PDF. */
@@ -67,12 +66,12 @@ function answerCellStyle(
   if (!answer) return null;
   switch (answer.toLowerCase()) {
     case "yes":
-      return { fillColor: [22, 163, 74], textColor: [255, 255, 255] }; // green-600
+      return { fillColor: [22, 163, 74], textColor: [255, 255, 255] };
     case "no":
-      return { fillColor: [220, 38, 38], textColor: [255, 255, 255] }; // red-600
+      return { fillColor: [220, 38, 38], textColor: [255, 255, 255] };
     case "na":
     case "n/a":
-      return { fillColor: [148, 163, 184], textColor: [15, 23, 42] }; // slate-400
+      return { fillColor: [148, 163, 184], textColor: [15, 23, 42] };
     default:
       return null;
   }
@@ -92,6 +91,76 @@ function formatAddressLine(survey: SecuritySurveyDetail): string {
   return "—";
 }
 
+/** Draw overall risk rating text + colour-coded score bar under the header. */
+function drawRiskGauge(
+  doc: jsPDF,
+  margin: number,
+  y: number,
+  risk: SurveyRiskSummary,
+): number {
+  const pageW = doc.internal.pageSize.getWidth();
+  const contentW = pageW - margin * 2;
+  const barH = 7;
+  const barY = y + 10;
+  const [r, g, b] = risk.color;
+  const fillW = Math.max(2, contentW * riskGaugeFraction(risk.score));
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.setTextColor(15, 23, 42);
+  doc.text("Overall Risk Rating", margin, y);
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  doc.setTextColor(r, g, b);
+  doc.text(risk.label.toUpperCase(), margin, y + 6);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.setTextColor(51, 65, 85);
+  doc.text(`Total score: ${risk.score}`, margin + 72, y + 6);
+
+  // Track
+  doc.setFillColor(226, 232, 240);
+  doc.roundedRect(margin, barY, contentW, barH, 1.2, 1.2, "F");
+
+  // Filled portion
+  doc.setFillColor(r, g, b);
+  doc.roundedRect(margin, barY, fillW, barH, 1.2, 1.2, "F");
+
+  // Zone tick marks (15 / 35 / 60 on a 0–80 scale)
+  doc.setDrawColor(148, 163, 184);
+  doc.setLineWidth(0.2);
+  for (const tick of [15, 35, 60]) {
+    const x = margin + contentW * (tick / 80);
+    doc.line(x, barY - 0.5, x, barY + barH + 0.5);
+  }
+
+  // Zone legend
+  const legendY = barY + barH + 5;
+  doc.setFontSize(7);
+  const zones: Array<{ key: keyof typeof RISK_RATING_COLORS; range: string }> = [
+    { key: "low", range: "0–15" },
+    { key: "medium", range: "16–35" },
+    { key: "high", range: "36–60" },
+    { key: "critical", range: "61+" },
+  ];
+  let lx = margin;
+  for (const z of zones) {
+    const c = RISK_RATING_COLORS[z.key].rgb;
+    doc.setFillColor(c[0], c[1], c[2]);
+    doc.roundedRect(lx, legendY - 2.2, 3.2, 3.2, 0.4, 0.4, "F");
+    doc.setTextColor(71, 85, 105);
+    doc.setFont("helvetica", "normal");
+    const label = `${RISK_RATING_COLORS[z.key].label.replace(" Risk", "")} ${z.range}`;
+    doc.text(label, lx + 4.2, legendY);
+    lx += doc.getTextWidth(label) + 8;
+  }
+
+  doc.setTextColor(0);
+  return legendY + 6;
+}
+
 export type SurveyPdfResult = {
   blob: Blob;
   base64: string;
@@ -105,6 +174,9 @@ export async function buildSecuritySurveyReportPdf(
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const margin = 14;
   let y = 12;
+
+  const risk = computeSurveyRiskSummary(survey.findings);
+  const autoRecs = generateSurveyRecommendations(survey.findings);
 
   const [logoData, sitePhotoData] = await Promise.all([
     loadImageAsDataUrl(intelafriLogo),
@@ -121,6 +193,7 @@ export async function buildSecuritySurveyReportPdf(
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(16);
+  doc.setTextColor(15, 23, 42);
   doc.text("OMT Site Survey Report", margin + 32, y + 8);
   y += 18;
 
@@ -129,6 +202,7 @@ export async function buildSecuritySurveyReportPdf(
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(11);
+  doc.setTextColor(15, 23, 42);
   doc.text(`${clientName} — ${siteName}`, margin, y);
   y += 6;
   doc.setFontSize(9);
@@ -140,6 +214,9 @@ export async function buildSecuritySurveyReportPdf(
   );
   doc.setTextColor(0);
   y += 8;
+
+  y = drawRiskGauge(doc, margin, y, risk);
+  y += 2;
 
   const addressLine = formatAddressLine(survey);
   const hasMapCoords =
@@ -163,6 +240,7 @@ export async function buildSecuritySurveyReportPdf(
       ["Client", clientName],
       ["Site", siteName],
       ["Address", addressLine],
+      ["Overall risk", `${risk.label} (score ${risk.score})`],
       ["Template", survey.templateName || "—"],
       ["Started", fmtTs(survey.startedAt)],
       ["Completed", fmtTs(survey.completedAt)],
@@ -171,6 +249,10 @@ export async function buildSecuritySurveyReportPdf(
     styles: { fontSize: 9, cellPadding: 2 },
     headStyles: { fillColor: [16, 185, 129], textColor: 255 },
     didParseCell: (data) => {
+      if (data.section === "body" && data.column.index === 1 && data.row.index === 3) {
+        data.cell.styles.textColor = risk.color;
+        data.cell.styles.fontStyle = "bold";
+      }
       if (
         mapsUrl &&
         data.section === "body" &&
@@ -278,22 +360,6 @@ export async function buildSecuritySurveyReportPdf(
 
   y = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
 
-  if (survey.recommendations?.trim()) {
-    if (y > 250) {
-      doc.addPage();
-      y = 16;
-    }
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    doc.text("Recommendations", margin, y);
-    y += 5;
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    const lines = doc.splitTextToSize(survey.recommendations.trim(), 180);
-    doc.text(lines, margin, y);
-    y += lines.length * 4.2 + 6;
-  }
-
   const photoFindings = survey.findings.filter((f) => f.photos.length > 0);
   if (photoFindings.length > 0) {
     if (y > 240) {
@@ -302,6 +368,7 @@ export async function buildSecuritySurveyReportPdf(
     }
     doc.setFont("helvetica", "bold");
     doc.setFontSize(11);
+    doc.setTextColor(15, 23, 42);
     doc.text("Evidence photos", margin, y);
     y += 6;
 
@@ -327,6 +394,81 @@ export async function buildSecuritySurveyReportPdf(
           y += 2;
         }
       }
+    }
+  }
+
+  // Recommendations at end of report (auto from High/Critical + optional surveyor notes)
+  if (y > 230) {
+    doc.addPage();
+    y = 16;
+  }
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.setTextColor(15, 23, 42);
+  doc.text("Recommendations", margin, y);
+  y += 5;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(100);
+  doc.text(
+    "Priority actions generated from High and Critical findings. Address Critical items first.",
+    margin,
+    y,
+  );
+  y += 6;
+  doc.setTextColor(0);
+
+  if (autoRecs.length === 0 && !survey.recommendations?.trim()) {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(71, 85, 105);
+    doc.text(
+      "No High or Critical findings requiring immediate action were recorded on this survey.",
+      margin,
+      y,
+    );
+    y += 6;
+  } else {
+    for (let i = 0; i < autoRecs.length; i++) {
+      const rec = autoRecs[i]!;
+      const sevStyle = SEVERITY_RGB[rec.severity] ?? SEVERITY_RGB.high;
+      const bullet = `${i + 1}. [${rec.severity.toUpperCase()} · ${rec.category}] ${rec.text}`;
+      const lines = doc.splitTextToSize(bullet, 180) as string[];
+      const blockH = lines.length * 4.2 + 2;
+      if (y + blockH > 275) {
+        doc.addPage();
+        y = 16;
+      }
+      doc.setFillColor(sevStyle.fill[0], sevStyle.fill[1], sevStyle.fill[2]);
+      doc.roundedRect(margin, y - 2.5, 2.2, 2.2, 0.3, 0.3, "F");
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(15, 23, 42);
+      doc.text(lines, margin + 4, y);
+      y += blockH;
+    }
+
+    if (survey.recommendations?.trim()) {
+      if (y > 250) {
+        doc.addPage();
+        y = 16;
+      }
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9);
+      doc.setTextColor(51, 65, 85);
+      doc.text("Additional surveyor recommendations", margin, y);
+      y += 4.5;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(15, 23, 42);
+      const lines = doc.splitTextToSize(survey.recommendations.trim(), 180) as string[];
+      if (y + lines.length * 4.2 > 275) {
+        doc.addPage();
+        y = 16;
+      }
+      doc.text(lines, margin, y);
+      y += lines.length * 4.2 + 4;
     }
   }
 

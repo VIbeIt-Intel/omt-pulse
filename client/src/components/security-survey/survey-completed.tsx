@@ -46,6 +46,7 @@ import type {
   SecuritySurveyListItem,
 } from "@/lib/security-survey-types";
 import { SEVERITY_CHIP } from "@/lib/security-survey-types";
+import { computeSurveyRiskSummary } from "@/lib/security-survey-risk";
 import { cn } from "@/lib/utils";
 
 const ANSWER_CHIP: Record<string, string> = {
@@ -53,6 +54,24 @@ const ANSWER_CHIP: Record<string, string> = {
   no: "bg-red-600 text-white",
   na: "bg-slate-400 text-slate-900",
 };
+
+/** Prefer `{ message }` from `502: {"message":"..."}` style apiRequest errors. */
+function apiErrorMessage(err: unknown): string {
+  if (!(err instanceof Error) || !err.message.trim()) return "Could not send";
+  const raw = err.message.trim();
+  const jsonStart = raw.indexOf("{");
+  if (jsonStart >= 0) {
+    try {
+      const parsed = JSON.parse(raw.slice(jsonStart)) as { message?: unknown };
+      if (typeof parsed.message === "string" && parsed.message.trim()) {
+        return parsed.message.trim();
+      }
+    } catch {
+      /* keep raw */
+    }
+  }
+  return raw.replace(/^\d{3}:\s*/, "");
+}
 
 type Props = {
   canArchive: boolean;
@@ -161,9 +180,21 @@ export function SurveyCompleted({ canArchive, initialSurveyId }: Props) {
       toast({ title: "Add at least one recipient email", variant: "destructive" });
       return;
     }
+    const invalid = recipients.find((r) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(r));
+    if (invalid) {
+      toast({
+        title: "Invalid email",
+        description: `"${invalid}" is not a valid address`,
+        variant: "destructive",
+      });
+      return;
+    }
     setEmailBusy(true);
     try {
       const { base64, filename } = await buildSecuritySurveyReportPdfBase64(detail);
+      if (!base64) {
+        throw new Error("Could not build PDF attachment");
+      }
       await apiRequest("POST", `/api/security-surveys/${detail.id}/email-pdf`, {
         pdfBase64: base64,
         filename,
@@ -174,7 +205,7 @@ export function SurveyCompleted({ canArchive, initialSurveyId }: Props) {
     } catch (err) {
       toast({
         title: "Email failed",
-        description: err instanceof Error ? err.message : "Could not send",
+        description: apiErrorMessage(err),
         variant: "destructive",
       });
     } finally {
@@ -334,6 +365,27 @@ function SurveyReportDetail({
       ),
     [detail.findings],
   );
+  const risk = useMemo(
+    () => computeSurveyRiskSummary(detail.findings),
+    [detail.findings],
+  );
+  const riskPct = Math.min(100, Math.round((Math.min(risk.score, 80) / 80) * 100));
+  const riskBarClass =
+    risk.rating === "critical"
+      ? "bg-red-900"
+      : risk.rating === "high"
+        ? "bg-red-600"
+        : risk.rating === "medium"
+          ? "bg-orange-500"
+          : "bg-emerald-600";
+  const riskTextClass =
+    risk.rating === "critical"
+      ? "text-red-900"
+      : risk.rating === "high"
+        ? "text-red-600"
+        : risk.rating === "medium"
+          ? "text-orange-500"
+          : "text-emerald-600";
 
   function openLocationMap() {
     if (!hasCoords) return;
@@ -399,6 +451,24 @@ function SurveyReportDetail({
         </div>
       </div>
 
+      <div className="rounded-md border p-3 space-y-2" data-testid="survey-risk-summary">
+        <div className="flex items-baseline justify-between gap-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Overall risk
+          </p>
+          <p className="text-xs text-muted-foreground">Score {risk.score}</p>
+        </div>
+        <p className={cn("text-sm font-semibold", riskTextClass)}>
+          {risk.label}
+        </p>
+        <div className="h-2 overflow-hidden rounded-full bg-muted">
+          <div
+            className={cn("h-full rounded-full transition-all", riskBarClass)}
+            style={{ width: `${Math.max(4, riskPct)}%` }}
+          />
+        </div>
+      </div>
+
       <div className="overflow-hidden rounded-md border text-sm">
         <div className="grid grid-cols-[7rem_1fr] bg-emerald-500 px-2.5 py-1.5 text-xs font-semibold text-white">
           <span>Field</span>
@@ -447,11 +517,20 @@ function SurveyReportDetail({
           Email PDF
         </Label>
         <Input
+          type="email"
+          inputMode="email"
+          autoComplete="email"
           placeholder="recipient@example.com"
           value={emailTo}
           onChange={(e) => onEmailToChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              onEmailPdf();
+            }
+          }}
         />
-        <Button size="sm" onClick={onEmailPdf} disabled={emailBusy}>
+        <Button type="button" size="sm" onClick={onEmailPdf} disabled={emailBusy}>
           {emailBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
           Send
         </Button>
