@@ -200,3 +200,27 @@ async function seedDefaultTemplatesForOrgs() {
     );
   }
 }
+
+/** Ensure Standard + Warehouse templates exist for one org (safe to call on template list). */
+export async function ensureOrgSurveyTemplates(orgId: string): Promise<void> {
+  if (!orgId) return;
+  const anyTemplate = await db.execute(sql`
+    SELECT id FROM survey_templates WHERE organization_id = ${orgId} LIMIT 1
+  `);
+  if (anyTemplate.rows.length === 0) {
+    await ensureTemplate(
+      orgId,
+      "Standard Site Survey",
+      "Default eight-category security site survey checklist.",
+      true,
+      DEFAULT_SURVEY_TEMPLATE_ITEMS,
+    );
+  }
+  await ensureTemplate(
+    orgId,
+    "Warehouse Site Survey",
+    "Warehouse / logistics site checklist — loading bays, high-value stock, yard and dock security.",
+    false,
+    WAREHOUSE_SURVEY_TEMPLATE_ITEMS,
+  );
+}

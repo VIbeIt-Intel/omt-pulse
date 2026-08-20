@@ -30,6 +30,7 @@ import {
   convertFindingToIncident,
 } from "./storage";
 import { z } from "zod";
+import { ensureOrgSurveyTemplates } from "./migrate";
 
 function requireUser(req: Request, res: Response): boolean {
   if (!req.currentUser) {
@@ -91,6 +92,7 @@ export function registerSecuritySurveyRoutes(app: Express): void {
   app.get("/api/security-surveys/templates", async (req, res) => {
     if (!requireAccess(req, res)) return;
     try {
+      await ensureOrgSurveyTemplates(req.currentUser!.organizationId);
       const templates = await listTemplates(req.currentUser!.organizationId);
       res.json(templates);
     } catch (err) {

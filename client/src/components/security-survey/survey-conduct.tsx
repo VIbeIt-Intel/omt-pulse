@@ -410,32 +410,44 @@ export function SurveyConduct({ onOpenFindings }: Props) {
         <div className="space-y-3 rounded-lg border p-4">
           <div className="space-y-1.5">
             <Label>Site</Label>
-            <Select value={locationId} onValueChange={setLocationId}>
+            <Select value={locationId || undefined} onValueChange={setLocationId}>
               <SelectTrigger data-testid="survey-location">
                 <SelectValue placeholder="Select premises" />
               </SelectTrigger>
               <SelectContent>
-                {locations.map((l) => (
-                  <SelectItem key={l.id} value={String(l.id)}>
-                    {l.name}
-                  </SelectItem>
-                ))}
+                {locations.length === 0 ? (
+                  <div className="px-2 py-3 text-sm text-muted-foreground">
+                    No sites yet. Add a location in Field Admin first.
+                  </div>
+                ) : (
+                  locations.map((l) => (
+                    <SelectItem key={l.id} value={String(l.id)}>
+                      {l.name}
+                    </SelectItem>
+                  ))
+                )}
               </SelectContent>
             </Select>
           </div>
           <div className="space-y-1.5">
             <Label>Template</Label>
-            <Select value={templateId} onValueChange={setTemplateId}>
+            <Select value={templateId || undefined} onValueChange={setTemplateId}>
               <SelectTrigger data-testid="survey-template">
                 <SelectValue placeholder="Select template" />
               </SelectTrigger>
               <SelectContent>
-                {templates.map((t) => (
-                  <SelectItem key={t.id} value={String(t.id)}>
-                    {t.name}
-                    {t.isDefault ? " (default)" : ""}
-                  </SelectItem>
-                ))}
+                {templates.length === 0 ? (
+                  <div className="px-2 py-3 text-sm text-muted-foreground">
+                    No templates yet. Open Library and add Standard or Warehouse, then come back here.
+                  </div>
+                ) : (
+                  templates.map((t) => (
+                    <SelectItem key={t.id} value={String(t.id)}>
+                      {t.name}
+                      {t.isDefault ? " (default)" : ""}
+                    </SelectItem>
+                  ))
+                )}
               </SelectContent>
             </Select>
           </div>
