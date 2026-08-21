@@ -91,7 +91,38 @@ function formatAddressLine(survey: SecuritySurveyDetail): string {
   return "—";
 }
 
-/** Draw overall risk rating text + colour-coded score bar under the header. */
+/** Shared vertical rhythm for all major section headings (mm). */
+const SECTION_SPACE_BEFORE = 10;
+const SECTION_SPACE_AFTER = 6;
+const SECTION_HEADING_SIZE = 11;
+const PAGE_CONTENT_BOTTOM = 275;
+
+/**
+ * Draw a section heading with consistent space above/below.
+ * Callers pass `y` at the bottom of the previous block (no extra gap needed).
+ */
+function drawSectionHeading(
+  doc: jsPDF,
+  margin: number,
+  y: number,
+  title: string,
+  minBodyMm = 28,
+): number {
+  if (y + SECTION_SPACE_BEFORE + minBodyMm > PAGE_CONTENT_BOTTOM) {
+    doc.addPage();
+    y = 16;
+  } else {
+    y += SECTION_SPACE_BEFORE;
+  }
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(SECTION_HEADING_SIZE);
+  doc.setTextColor(15, 23, 42);
+  doc.text(title, margin, y);
+  doc.setTextColor(0);
+  return y + SECTION_SPACE_AFTER;
+}
+
+/** Draw colour-coded risk score bar (heading drawn separately via drawSectionHeading). */
 function drawRiskGauge(
   doc: jsPDF,
   margin: number,
@@ -101,24 +132,19 @@ function drawRiskGauge(
   const pageW = doc.internal.pageSize.getWidth();
   const contentW = pageW - margin * 2;
   const barH = 7;
-  const barY = y + 10;
+  const barY = y + 8;
   const [r, g, b] = risk.color;
   const fillW = Math.max(2, contentW * riskGaugeFraction(risk.score));
 
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.setTextColor(15, 23, 42);
-  doc.text("Overall Risk Rating", margin, y);
-
-  doc.setFont("helvetica", "bold");
   doc.setFontSize(12);
   doc.setTextColor(r, g, b);
-  doc.text(risk.label.toUpperCase(), margin, y + 6);
+  doc.text(risk.label.toUpperCase(), margin, y);
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
   doc.setTextColor(51, 65, 85);
-  doc.text(`Total score: ${risk.score}`, margin + 72, y + 6);
+  doc.text(`Total score: ${risk.score}`, margin + 72, y);
 
   // Track
   doc.setFillColor(226, 232, 240);
@@ -173,7 +199,7 @@ export async function buildSecuritySurveyReportPdf(
 ): Promise<SurveyPdfResult> {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const margin = 14;
-  let y = 12;
+  let y = 14;
 
   const risk = computeSurveyRiskSummary(survey.findings);
   const autoRecs = generateSurveyRecommendations(survey.findings);
@@ -183,9 +209,13 @@ export async function buildSecuritySurveyReportPdf(
     survey.locationPhotoUrl ? loadImageAsDataUrl(survey.locationPhotoUrl) : Promise.resolve(null),
   ]);
 
+  // Header: logo alone on its own row, then title + meta below
+  const logoW = 32;
+  const logoH = 14;
   if (logoData) {
     try {
-      doc.addImage(logoData, "PNG", margin, y, 28, 12);
+      doc.addImage(logoData, "PNG", margin, y, logoW, logoH);
+      y += logoH + 8;
     } catch {
       /* ignore logo failures */
     }
@@ -194,8 +224,8 @@ export async function buildSecuritySurveyReportPdf(
   doc.setFont("helvetica", "bold");
   doc.setFontSize(16);
   doc.setTextColor(15, 23, 42);
-  doc.text("OMT Site Survey Report", margin + 32, y + 8);
-  y += 18;
+  doc.text("OMT Site Survey Report", margin, y);
+  y += 8;
 
   const clientName = survey.clientNameOverride || survey.organizationName || "Client";
   const siteName = survey.locationName || "Site";
@@ -213,10 +243,9 @@ export async function buildSecuritySurveyReportPdf(
     y,
   );
   doc.setTextColor(0);
-  y += 8;
 
+  y = drawSectionHeading(doc, margin, y, "Overall Risk Rating", 36);
   y = drawRiskGauge(doc, margin, y, risk);
-  y += 2;
 
   const addressLine = formatAddressLine(survey);
   const hasMapCoords =
@@ -277,26 +306,29 @@ export async function buildSecuritySurveyReportPdf(
     },
   });
 
-  y = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 6;
+  y = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
 
   if (sitePhotoData) {
     // Fuller width under the Field/Value summary (A4 content ≈ 182mm).
     const sitePhotoW = 120;
     const sitePhotoH = 90;
-    if (y + sitePhotoH > 270) {
+    const photoTopGap = 8;
+    if (y + photoTopGap + sitePhotoH > PAGE_CONTENT_BOTTOM) {
       doc.addPage();
       y = 16;
+    } else {
+      y += photoTopGap;
     }
     try {
       const format = sitePhotoData.includes("image/png") ? "PNG" : "JPEG";
       doc.addImage(sitePhotoData, format, margin, y, sitePhotoW, sitePhotoH);
-      y += sitePhotoH + 8;
+      y += sitePhotoH;
     } catch {
-      y += 2;
+      /* keep y at photo start */
     }
-  } else {
-    y += 2;
   }
+
+  y = drawSectionHeading(doc, margin, y, "Checklist", 40);
 
   const findingByItem = new Map(
     survey.findings
@@ -358,19 +390,11 @@ export async function buildSecuritySurveyReportPdf(
     },
   });
 
-  y = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
+  y = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
 
   const photoFindings = survey.findings.filter((f) => f.photos.length > 0);
   if (photoFindings.length > 0) {
-    if (y > 240) {
-      doc.addPage();
-      y = 16;
-    }
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    doc.setTextColor(15, 23, 42);
-    doc.text("Evidence photos", margin, y);
-    y += 6;
+    y = drawSectionHeading(doc, margin, y, "Evidence photos", 40);
 
     for (const f of photoFindings) {
       for (const photo of f.photos.slice(0, 4)) {
@@ -398,15 +422,7 @@ export async function buildSecuritySurveyReportPdf(
   }
 
   // Recommendations at end of report (auto from High/Critical + optional surveyor notes)
-  if (y > 230) {
-    doc.addPage();
-    y = 16;
-  }
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.setTextColor(15, 23, 42);
-  doc.text("Recommendations", margin, y);
-  y += 5;
+  y = drawSectionHeading(doc, margin, y, "Recommendations", 36);
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
@@ -416,7 +432,7 @@ export async function buildSecuritySurveyReportPdf(
     margin,
     y,
   );
-  y += 6;
+  y += 7;
   doc.setTextColor(0);
 
   if (autoRecs.length === 0 && !survey.recommendations?.trim()) {
@@ -435,8 +451,8 @@ export async function buildSecuritySurveyReportPdf(
       const sevStyle = SEVERITY_RGB[rec.severity] ?? SEVERITY_RGB.high;
       const bullet = `${i + 1}. [${rec.severity.toUpperCase()} · ${rec.category}] ${rec.text}`;
       const lines = doc.splitTextToSize(bullet, 180) as string[];
-      const blockH = lines.length * 4.2 + 2;
-      if (y + blockH > 275) {
+      const blockH = lines.length * 4.2 + 3.5;
+      if (y + blockH > PAGE_CONTENT_BOTTOM) {
         doc.addPage();
         y = 16;
       }
@@ -453,17 +469,19 @@ export async function buildSecuritySurveyReportPdf(
       if (y > 250) {
         doc.addPage();
         y = 16;
+      } else {
+        y += 4;
       }
       doc.setFont("helvetica", "bold");
       doc.setFontSize(9);
       doc.setTextColor(51, 65, 85);
       doc.text("Additional surveyor recommendations", margin, y);
-      y += 4.5;
+      y += 5;
       doc.setFont("helvetica", "normal");
       doc.setFontSize(9);
       doc.setTextColor(15, 23, 42);
       const lines = doc.splitTextToSize(survey.recommendations.trim(), 180) as string[];
-      if (y + lines.length * 4.2 > 275) {
+      if (y + lines.length * 4.2 > PAGE_CONTENT_BOTTOM) {
         doc.addPage();
         y = 16;
       }
