@@ -11,6 +11,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  SurveyFindingPhotoControls,
+  findingAllowsEvidencePhotos,
+} from "@/components/security-survey/survey-finding-photo-controls";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import type {
@@ -142,17 +146,12 @@ export function SurveyFindings() {
               {f.notes?.trim() && (
                 <p className="text-xs text-muted-foreground">{f.notes}</p>
               )}
-              {f.photos.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {f.photos.map((p) => (
-                    <img
-                      key={p.id}
-                      src={p.objectUrl}
-                      alt=""
-                      className="h-14 w-14 rounded object-cover border"
-                    />
-                  ))}
-                </div>
+              {findingAllowsEvidencePhotos(f.answer) && (
+                <SurveyFindingPhotoControls
+                  surveyId={Number(surveyId)}
+                  finding={f}
+                  canEdit={detail.status !== "archived"}
+                />
               )}
               <div className="flex flex-wrap gap-2">
                 {detail.status !== "completed" && detail.status !== "archived" && (

@@ -35,6 +35,10 @@ import {
   formatCoordLabel,
   type GeoMapView,
 } from "@/components/incident-location-sheet";
+import {
+  SurveyFindingPhotoControls,
+  findingAllowsEvidencePhotos,
+} from "@/components/security-survey/survey-finding-photo-controls";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import {
@@ -401,6 +405,7 @@ function SurveyReportDetail({
         : risk.rating === "medium"
           ? "text-orange-500"
           : "text-emerald-600";
+  const canEditPhotos = detail.status !== "archived";
 
   function openLocationMap() {
     if (!hasCoords) return;
@@ -563,7 +568,7 @@ function SurveyReportDetail({
       <div className="space-y-2">
         <p className="text-sm font-medium">Checklist</p>
         <div className="overflow-x-auto rounded-md border">
-          <table className="w-full min-w-[28rem] text-left text-xs">
+          <table className="w-full min-w-[32rem] text-left text-xs">
             <thead>
               <tr className="bg-slate-800 text-white">
                 <th className="px-2 py-1.5 font-semibold">#</th>
@@ -572,6 +577,7 @@ function SurveyReportDetail({
                 <th className="px-2 py-1.5 font-semibold">Answer</th>
                 <th className="px-2 py-1.5 font-semibold">Severity</th>
                 <th className="px-2 py-1.5 font-semibold">Notes</th>
+                <th className="px-2 py-1.5 font-semibold">Evidence</th>
               </tr>
             </thead>
             <tbody>
@@ -579,6 +585,7 @@ function SurveyReportDetail({
                 const f = findingByItem.get(item.id);
                 const severity = f?.severity ? String(f.severity) : null;
                 const answerKey = f ? String(f.answer).toLowerCase() : null;
+                const showEvidence = f != null && findingAllowsEvidencePhotos(f.answer);
                 return (
                   <tr key={item.id} className="border-t align-top">
                     <td className="px-2 py-1.5 text-muted-foreground">{i + 1}</td>
@@ -614,6 +621,18 @@ function SurveyReportDetail({
                     </td>
                     <td className="px-2 py-1.5 text-muted-foreground">
                       {f?.notes?.trim() || "—"}
+                    </td>
+                    <td className="px-2 py-1.5 min-w-[7.5rem]">
+                      {showEvidence && f ? (
+                        <SurveyFindingPhotoControls
+                          surveyId={detail.id}
+                          finding={f}
+                          canEdit={canEditPhotos}
+                          compact
+                        />
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
                     </td>
                   </tr>
                 );
@@ -651,17 +670,12 @@ function SurveyReportDetail({
             {f.notes?.trim() && (
               <p className="text-xs text-muted-foreground">{f.notes}</p>
             )}
-            {f.photos.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {f.photos.map((p) => (
-                  <ExpandablePhoto
-                    key={p.id}
-                    photoUrl={p.objectUrl}
-                    className="h-14 w-14 rounded object-cover border"
-                    title={f.prompt}
-                  />
-                ))}
-              </div>
+            {findingAllowsEvidencePhotos(f.answer) && (
+              <SurveyFindingPhotoControls
+                surveyId={detail.id}
+                finding={f}
+                canEdit={canEditPhotos}
+              />
             )}
             <div className="pt-1">
               {f.convertedIncidentId ? (
