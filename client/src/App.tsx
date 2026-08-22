@@ -445,7 +445,7 @@ function NativePushBanner({
         </span>
         <span className="text-amber-700/80 dark:text-amber-400/80 hidden sm:inline truncate">
           {isDenied
-            ? "— allow notifications for OMT Pulse in Android Settings."
+            ? "— tap Open settings. If Notifications is greyed out, use ⋮ → Allow restricted settings first."
             : isSyncError
               ? "— permission is on but this device is not registered yet. Tap Try again."
               : "— tap Enable to turn on panic and live incident alerts."}
@@ -775,25 +775,26 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
         <div className="capacitor-shell-column flex flex-col flex-1 min-w-0 relative">
           {/* Full INTEL header — dashboard only */}
           {location === "/dashboard" && (
-          <header className="relative grid grid-cols-[1fr_auto_1fr] items-center p-2 border-b border-border bg-background text-foreground shrink-0 gap-2 z-40 min-h-[3rem]">
+          <header className="relative grid grid-cols-[1fr_auto_1fr] items-center p-2 border-b border-border bg-background text-foreground shrink-0 gap-2 z-40 min-h-[3rem] min-w-0">
             {/* Left */}
-            <div className="flex items-center text-foreground z-10">
-              <SidebarTrigger data-testid="button-sidebar-toggle" className="text-foreground" />
+            <div className="flex items-center gap-2 text-foreground z-10 min-w-0">
+              <SidebarTrigger data-testid="button-sidebar-toggle" className="text-foreground shrink-0" />
+              <ConnectivityBadge className="hidden sm:inline-flex lg:hidden shrink-0" />
             </div>
 
             {/* Centre — online pill left of Intel logo (logo at true header centre) */}
-            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center pointer-events-none">
-              <ConnectivityBadge className="absolute right-full mr-4 shrink-0 pointer-events-auto -translate-x-1" />
+            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center pointer-events-none max-w-[min(52vw,14rem)]">
+              <ConnectivityBadge className="absolute right-full mr-3 shrink-0 pointer-events-auto hidden lg:inline-flex" />
               <img
                 src={intelafriLogo}
                 alt="IntelAfri"
-                className="relative h-9 object-contain shrink-0 invert dark:invert-0 pointer-events-auto"
+                className="relative h-8 sm:h-9 object-contain shrink-0 invert dark:invert-0 pointer-events-auto max-w-full"
                 data-testid="img-header-logo"
               />
             </div>
 
             {/* Right — action icons grouped, then avatar */}
-            <div className="flex items-center gap-2 justify-end text-foreground z-10 col-start-3">
+            <div className="flex items-center gap-1 sm:gap-2 justify-end text-foreground z-10 col-start-3 min-w-0">
               <div className="flex items-center gap-0">
               {user.role === "administrator" && (
                 <Tooltip>

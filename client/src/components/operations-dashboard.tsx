@@ -997,7 +997,7 @@ export function OperationsDashboard({
   return (
     <>
     <div
-      className="flex flex-col h-full min-h-0 bg-[#0f1419] text-slate-100"
+      className="flex flex-col h-full min-h-0 overflow-y-auto overscroll-y-contain ops-scroll xl:overflow-hidden bg-[#0f1419] text-slate-100"
       data-testid="operations-dashboard"
     >
       {/* ── Top status bar ── */}
@@ -1164,7 +1164,7 @@ export function OperationsDashboard({
           testId="ops-site-monitor-header"
           right={groupSiteSelectors}
         />
-        <div className="grid grid-cols-2 gap-px bg-slate-800/40 h-[min(320px,34vh)] min-h-[180px] overflow-hidden">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-px bg-slate-800/40 h-auto max-h-[min(280px,28dvh)] md:max-h-[min(180px,20dvh)] xl:h-[min(280px,30vh)] min-h-[120px] overflow-hidden">
           <div className="flex flex-col min-h-0 overflow-hidden bg-[#131a22]">
             <OpsSubSectionHeader title="Team" icon={Users} tone="emerald" count={siteTeam.length} />
             {!siteMonitorLoading && siteTeam.length > 0 && (
@@ -1512,9 +1512,9 @@ export function OperationsDashboard({
       </div>
 
       {/* ── Incidents + today's occurrences ── */}
-      <div className="flex flex-1 min-h-0 overflow-hidden gap-px bg-slate-800/40">
+      <div className="flex flex-none xl:flex-1 xl:min-h-0 flex-col xl:flex-row xl:overflow-hidden gap-px bg-slate-800/40">
         <div
-          className="flex-1 min-w-0 flex flex-col border-r border-slate-800/80 bg-[#131a22]"
+          className="flex-none xl:flex-1 min-h-[min(360px,44dvh)] xl:min-h-0 min-w-0 flex flex-col border-r border-slate-800/80 bg-[#131a22]"
           data-testid="ops-live-panel"
         >
           <OpsSectionHeader
@@ -1529,7 +1529,7 @@ export function OperationsDashboard({
             }
           />
           <div
-            className="relative flex-1 min-h-[260px] bg-[#0a0e14]"
+            className="relative flex-1 min-h-[180px] xl:min-h-[220px] bg-[#0a0e14]"
             data-testid="ops-live-overview-map"
           >
             <ControlRoomMap
@@ -1698,7 +1698,7 @@ export function OperationsDashboard({
         </div>
 
         <div
-          className="flex-1 min-w-0 flex flex-col border-r border-slate-800/80 bg-[#131a22]"
+          className="flex-none xl:flex-1 min-h-[min(280px,36dvh)] xl:min-h-0 min-w-0 flex flex-col border-r border-slate-800/80 bg-[#131a22]"
           data-testid="ops-occurrences-today-panel"
         >
           <OpsSectionHeader
@@ -1716,7 +1716,7 @@ export function OperationsDashboard({
               </button>
             }
           />
-          <div className="flex-1 overflow-y-auto ops-scroll">
+          <div className="flex-1 min-h-0 overflow-y-auto ops-scroll">
             <OccurrenceList
               incidents={todayIncidents}
               loading={incidentsLoading}
@@ -1734,7 +1734,7 @@ export function OperationsDashboard({
         </div>
 
         <div
-          className="flex-1 min-w-0 flex flex-col bg-[#131a22]"
+          className="flex-none xl:flex-1 min-h-[min(280px,36dvh)] xl:min-h-0 min-w-0 flex flex-col bg-[#131a22]"
           data-testid="ops-occurrences-week-panel"
         >
           <OpsSectionHeader
@@ -1752,7 +1752,7 @@ export function OperationsDashboard({
               </button>
             }
           />
-          <div className="flex-1 overflow-y-auto ops-scroll">
+          <div className="flex-1 min-h-0 overflow-y-auto ops-scroll">
             <OccurrenceList
               incidents={weekIncidents}
               loading={incidentsLoading}

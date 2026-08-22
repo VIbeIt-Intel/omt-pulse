@@ -1,19 +1,19 @@
 import { useState, useMemo, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-/** Matches Tailwind `lg:` — desktop Control Room vs mobile field home. */
-function useIsLgUp(): boolean {
-  const [isLgUp, setIsLgUp] = useState(() =>
-    typeof window !== "undefined" ? window.matchMedia("(min-width: 1024px)").matches : false,
+/** Matches Tailwind `md:` — Control Room on tablet+; phone stays on field home. */
+function useIsMdUp(): boolean {
+  const [isMdUp, setIsMdUp] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia("(min-width: 768px)").matches : false,
   );
   useEffect(() => {
-    const mq = window.matchMedia("(min-width: 1024px)");
-    const apply = () => setIsLgUp(mq.matches);
+    const mq = window.matchMedia("(min-width: 768px)");
+    const apply = () => setIsMdUp(mq.matches);
     apply();
     mq.addEventListener("change", apply);
     return () => mq.removeEventListener("change", apply);
   }, []);
-  return isLgUp;
+  return isMdUp;
 }
 import type { Location } from "@shared/schema";
 import {
@@ -537,8 +537,8 @@ export default function CommandDashboard() {
   const canAccessControl = canViewAccessControlModule(currentUser?.role ?? "");
   const canPatrol = canAccessPatrolModule(currentUser?.role ?? "");
   const isDispatch = currentUser?.role ? isDispatchStaff(currentUser.role) : false;
-  const isLgUp = useIsLgUp();
-  const showDesktopOps = Boolean(isDispatch && isLgUp);
+  const isMdUp = useIsMdUp();
+  const showDesktopOps = Boolean(isDispatch && isMdUp);
   const showMobileHome = !showDesktopOps;
 
   const { data: activePatrol } = useQuery<{ id: number; routeName?: string | null } | null>({
@@ -757,7 +757,7 @@ export default function CommandDashboard() {
   }
 
   const mobileDashboard = (
-    <div className="h-full overflow-y-auto bg-background">
+    <div className="h-full min-h-0 overflow-y-auto overflow-x-hidden bg-background">
       {( !isGateOperator && (pendingPanics.length > 0 || joinableLiveIncidents.length > 0 || visibleLiveIncidents.length > 0)) && (
         <div
           className="sticky top-0 z-30 border-b border-border/80 bg-background/95 backdrop-blur-md shadow-sm"
@@ -973,7 +973,7 @@ export default function CommandDashboard() {
         </div>
       ) : null}
 
-      {showMobileHome ? <div className="h-full">{mobileDashboard}</div> : null}
+      {showMobileHome ? <div className="h-full min-h-0 overflow-hidden">{mobileDashboard}</div> : null}
 
       <IncidentDialog open={logIncidentOpen} onOpenChange={setLogIncidentOpen} />
 
