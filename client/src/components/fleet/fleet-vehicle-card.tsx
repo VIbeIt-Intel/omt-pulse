@@ -42,7 +42,7 @@ export function FleetVehicleCard({ device, onClick, alertCount = 0 }: FleetVehic
       data-testid={`fleet-card-${device.id}`}
     >
       <div className="flex items-start gap-3">
-        <FleetVehiclePhoto photoUrl={device.vehiclePhotoUrl} size="sm" />
+        <FleetVehiclePhoto photoUrl={device.vehiclePhotoUrl} size="sm" expandable={false} />
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">

@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Dialog, DialogClose, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -143,16 +143,24 @@ export function ExpandablePhoto({
   alt = "",
   title = "Photo",
   fallback,
+  expandable = true,
 }: {
   photoUrl: string | null | undefined;
   className?: string;
   alt?: string;
   title?: string;
   fallback?: ReactNode;
+  /** When false, render a static thumbnail (for use inside clickable cards). */
+  expandable?: boolean;
 }) {
   const { src, loading, error } = useAuthedMediaUrl(photoUrl);
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    setFailedSrc(null);
+  }, [photoUrl, src]);
+
   const show = Boolean(src) && !error && src !== failedSrc;
 
   if (!show) {
@@ -160,31 +168,48 @@ export function ExpandablePhoto({
     return loading ? <div className="animate-pulse">{fallback}</div> : <>{fallback}</>;
   }
 
+  const thumb = (
+    <img
+      src={src!}
+      alt={alt}
+      className={cn("object-cover", className)}
+      onError={() => setFailedSrc(src)}
+    />
+  );
+
   return (
     <>
-      <button
-        type="button"
-        className="block shrink-0 cursor-zoom-in focus:outline-none"
-        onClick={(e) => {
-          e.stopPropagation();
-          setOpen(true);
-        }}
-        aria-label={`View ${title}`}
-      >
-        <img
+      {expandable ? (
+        <div
+          role="button"
+          tabIndex={0}
+          className="block shrink-0 cursor-zoom-in focus:outline-none"
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpen(true);
+          }}
+          onKeyDown={(e) => {
+            if (e.key !== "Enter" && e.key !== " ") return;
+            e.preventDefault();
+            e.stopPropagation();
+            setOpen(true);
+          }}
+          aria-label={`View ${title}`}
+        >
+          {thumb}
+        </div>
+      ) : (
+        thumb
+      )}
+      {expandable && (
+        <PhotoLightbox
+          open={open}
+          onOpenChange={setOpen}
           src={src!}
           alt={alt}
-          className={cn("object-cover", className)}
-          onError={() => setFailedSrc(src)}
+          title={title}
         />
-      </button>
-      <PhotoLightbox
-        open={open}
-        onOpenChange={setOpen}
-        src={src!}
-        alt={alt}
-        title={title}
-      />
+      )}
     </>
   );
 }

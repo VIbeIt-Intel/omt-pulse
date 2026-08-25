@@ -13,9 +13,16 @@ type FleetVehiclePhotoProps = {
   photoUrl: string | null | undefined;
   size?: keyof typeof SIZE_CLASS;
   className?: string;
+  /** When false, thumbnail is not tappable (use inside clickable list cards). */
+  expandable?: boolean;
 };
 
-export function FleetVehiclePhoto({ photoUrl, size = "sm", className }: FleetVehiclePhotoProps) {
+export function FleetVehiclePhoto({
+  photoUrl,
+  size = "sm",
+  className,
+  expandable = true,
+}: FleetVehiclePhotoProps) {
   const cfg = SIZE_CLASS[size];
   const boxClass = cn(
     cfg.box,
@@ -28,6 +35,7 @@ export function FleetVehiclePhoto({ photoUrl, size = "sm", className }: FleetVeh
       photoUrl={photoUrl}
       className={boxClass}
       title="Vehicle photo"
+      expandable={expandable}
       fallback={
         <div className={cn(boxClass, "flex items-center justify-center")}>
           <Car className={cn(cfg.icon, "text-muted-foreground/60")} />
