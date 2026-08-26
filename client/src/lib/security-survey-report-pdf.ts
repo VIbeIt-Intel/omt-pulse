@@ -5,11 +5,14 @@ import { apiUrl } from "@/lib/api-base";
 import { mediaSrc } from "@/lib/authed-media";
 import intelafriLogo from "@assets/IntelAfri_Logo_13_January_2025_2_1778851888379.png";
 import {
+  bucketSurveyRecommendations,
   computeSurveyRiskSummary,
-  generateSurveyRecommendations,
+  HIGH_RECS_PREVIEW_LIMIT,
   riskGaugeFraction,
   RISK_RATING_COLORS,
   SEVERITY_RGB,
+  shortRecommendationLabel,
+  type GeneratedRecommendation,
   type SurveyRiskSummary,
 } from "@/lib/security-survey-risk";
 
@@ -187,6 +190,76 @@ function drawRiskGauge(
   return legendY + 6;
 }
 
+/**
+ * Compact recommendation group for PDF.
+ * Critical uses full action text; High uses short labels and an optional cap.
+ */
+function drawRecGroup(
+  doc: jsPDF,
+  margin: number,
+  y: number,
+  title: string,
+  recs: GeneratedRecommendation[],
+  opts: { fullText: boolean; limit: number | null },
+): number {
+  if (recs.length === 0) return y;
+
+  if (y + 16 > PAGE_CONTENT_BOTTOM) {
+    doc.addPage();
+    y = 16;
+  }
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.setTextColor(51, 65, 85);
+  doc.text(`${title} (${recs.length})`, margin, y);
+  y += 5;
+
+  const visible =
+    opts.limit != null && recs.length > opts.limit ? recs.slice(0, opts.limit) : recs;
+  const hidden = recs.length - visible.length;
+
+  for (let i = 0; i < visible.length; i++) {
+    const rec = visible[i]!;
+    const sevStyle = SEVERITY_RGB[rec.severity] ?? SEVERITY_RGB.high;
+    const body = opts.fullText
+      ? `${i + 1}. [${rec.category}] ${rec.text}`
+      : `${i + 1}. [${rec.category}] ${shortRecommendationLabel(rec, 110)}`;
+    const lines = doc.splitTextToSize(body, 178) as string[];
+    const blockH = lines.length * 3.6 + 2.2;
+    if (y + blockH > PAGE_CONTENT_BOTTOM) {
+      doc.addPage();
+      y = 16;
+    }
+    doc.setFillColor(sevStyle.fill[0], sevStyle.fill[1], sevStyle.fill[2]);
+    doc.roundedRect(margin, y - 2.2, 2, 2, 0.3, 0.3, "F");
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(opts.fullText ? 8.5 : 8);
+    doc.setTextColor(15, 23, 42);
+    doc.text(lines, margin + 4, y);
+    y += blockH;
+  }
+
+  if (hidden > 0) {
+    if (y + 8 > PAGE_CONTENT_BOTTOM) {
+      doc.addPage();
+      y = 16;
+    }
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(8);
+    doc.setTextColor(100);
+    doc.text(
+      `+ ${hidden} more High items — see Checklist for full detail.`,
+      margin + 4,
+      y,
+    );
+    y += 5;
+    doc.setTextColor(0);
+  }
+
+  return y + 2;
+}
+
 export type SurveyPdfResult = {
   blob: Blob;
   base64: string;
@@ -202,7 +275,7 @@ export async function buildSecuritySurveyReportPdf(
   let y = 14;
 
   const risk = computeSurveyRiskSummary(survey.findings);
-  const autoRecs = generateSurveyRecommendations(survey.findings);
+  const recBuckets = bucketSurveyRecommendations(survey.findings);
 
   const [logoData, sitePhotoData] = await Promise.all([
     loadImageAsDataUrl(intelafriLogo),
@@ -392,50 +465,107 @@ export async function buildSecuritySurveyReportPdf(
 
   y = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
 
-  const photoFindings = survey.findings.filter((f) => f.photos.length > 0);
-  if (photoFindings.length > 0) {
-    y = drawSectionHeading(doc, margin, y, "Evidence photos", 40);
+  // Evidence: one checkpoint heading + notes, then ALL photos underneath (never re-print heading per photo).
+  const evidenceItems = survey.items
+    .map((item) => {
+      const f = findingByItem.get(item.id);
+      if (!f || f.photos.length === 0) return null;
+      return { item, finding: f };
+    })
+    .filter((x): x is NonNullable<typeof x> => x != null);
 
-    for (const f of photoFindings) {
-      for (const photo of f.photos.slice(0, 4)) {
+  if (evidenceItems.length > 0) {
+    y = drawSectionHeading(doc, margin, y, "Evidence by checkpoint", 40);
+
+    const photoW = 82;
+    const photoH = 52;
+    const photoGap = 6;
+    const contentW = doc.internal.pageSize.getWidth() - margin * 2;
+
+    for (const { item, finding } of evidenceItems) {
+      // Preload so we only draw the heading once we know which images will render.
+      const loaded: string[] = [];
+      for (const photo of finding.photos.slice(0, 4)) {
         const dataUrl = await loadImageAsDataUrl(photo.objectUrl);
-        if (!dataUrl) continue;
-        if (y > 230) {
+        if (dataUrl) loaded.push(dataUrl);
+      }
+      if (loaded.length === 0) continue;
+
+      const heading = `${item.category}: ${item.prompt.slice(0, 100)}`;
+      const headingLines = doc.splitTextToSize(heading, contentW) as string[];
+      const notes = finding.notes?.trim()
+        ? (doc.splitTextToSize(`Notes: ${finding.notes.trim().slice(0, 220)}`, contentW) as string[])
+        : [];
+      const headerBlockH = headingLines.length * 4 + (notes.length ? notes.length * 3.6 + 2 : 0) + 4;
+      // Prefer keeping heading + first photo row together.
+      if (y + headerBlockH + photoH > PAGE_CONTENT_BOTTOM) {
+        doc.addPage();
+        y = 16;
+      }
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9);
+      doc.setTextColor(15, 23, 42);
+      doc.text(headingLines, margin, y);
+      y += headingLines.length * 4 + 2;
+
+      if (notes.length > 0) {
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(7.5);
+        doc.setTextColor(71, 85, 105);
+        doc.text(notes, margin, y);
+        y += notes.length * 3.6 + 2;
+        doc.setTextColor(0);
+      }
+
+      // Grid of photos only — no caption/heading between images.
+      let col = 0;
+      for (const dataUrl of loaded) {
+        if (col === 0 && y + photoH > PAGE_CONTENT_BOTTOM) {
           doc.addPage();
           y = 16;
+          doc.setFont("helvetica", "italic");
+          doc.setFontSize(7.5);
+          doc.setTextColor(100);
+          doc.text("(continued)", margin, y);
+          doc.setTextColor(0);
+          y += 4;
         }
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(8);
-        doc.setTextColor(80);
-        doc.text(`${f.category}: ${f.prompt.slice(0, 80)}`, margin, y);
-        doc.setTextColor(0);
-        y += 4;
+        const x = margin + col * (photoW + photoGap);
         try {
           const format = dataUrl.includes("image/png") ? "PNG" : "JPEG";
-          doc.addImage(dataUrl, format, margin, y, 80, 50);
-          y += 54;
+          doc.addImage(dataUrl, format, x, y, photoW, photoH);
         } catch {
-          y += 2;
+          /* skip bad image */
+        }
+        col += 1;
+        if (col >= 2) {
+          col = 0;
+          y += photoH + photoGap;
         }
       }
+      if (col !== 0) y += photoH + photoGap;
+      y += 4;
     }
   }
 
-  // Recommendations at end of report (auto from High/Critical + optional surveyor notes)
+  // Recommendations at end — Critical full; High capped to avoid a wall of text
   y = drawSectionHeading(doc, margin, y, "Recommendations", 36);
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
   doc.setTextColor(100);
   doc.text(
-    "Priority actions generated from High and Critical findings. Address Critical items first.",
+    "Priority actions from Critical and High findings. Address Critical items first.",
     margin,
     y,
   );
-  y += 7;
+  y += 6;
   doc.setTextColor(0);
 
-  if (autoRecs.length === 0 && !survey.recommendations?.trim()) {
+  const hasAuto =
+    recBuckets.critical.length > 0 || recBuckets.high.length > 0;
+  if (!hasAuto && !survey.recommendations?.trim()) {
     doc.setFont("helvetica", "normal");
     doc.setFontSize(9);
     doc.setTextColor(71, 85, 105);
@@ -446,47 +576,37 @@ export async function buildSecuritySurveyReportPdf(
     );
     y += 6;
   } else {
-    for (let i = 0; i < autoRecs.length; i++) {
-      const rec = autoRecs[i]!;
-      const sevStyle = SEVERITY_RGB[rec.severity] ?? SEVERITY_RGB.high;
-      const bullet = `${i + 1}. [${rec.severity.toUpperCase()} · ${rec.category}] ${rec.text}`;
-      const lines = doc.splitTextToSize(bullet, 180) as string[];
-      const blockH = lines.length * 4.2 + 3.5;
-      if (y + blockH > PAGE_CONTENT_BOTTOM) {
-        doc.addPage();
-        y = 16;
-      }
-      doc.setFillColor(sevStyle.fill[0], sevStyle.fill[1], sevStyle.fill[2]);
-      doc.roundedRect(margin, y - 2.5, 2.2, 2.2, 0.3, 0.3, "F");
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(9);
-      doc.setTextColor(15, 23, 42);
-      doc.text(lines, margin + 4, y);
-      y += blockH;
-    }
+    y = drawRecGroup(doc, margin, y, "Critical", recBuckets.critical, {
+      fullText: true,
+      limit: null,
+    });
+    y = drawRecGroup(doc, margin, y, "High", recBuckets.high, {
+      fullText: false,
+      limit: HIGH_RECS_PREVIEW_LIMIT,
+    });
 
     if (survey.recommendations?.trim()) {
       if (y > 250) {
         doc.addPage();
         y = 16;
       } else {
-        y += 4;
+        y += 3;
       }
       doc.setFont("helvetica", "bold");
       doc.setFontSize(9);
       doc.setTextColor(51, 65, 85);
-      doc.text("Additional surveyor recommendations", margin, y);
+      doc.text("Surveyor notes", margin, y);
       y += 5;
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(9);
+      doc.setFontSize(8.5);
       doc.setTextColor(15, 23, 42);
       const lines = doc.splitTextToSize(survey.recommendations.trim(), 180) as string[];
-      if (y + lines.length * 4.2 > PAGE_CONTENT_BOTTOM) {
+      if (y + lines.length * 3.8 > PAGE_CONTENT_BOTTOM) {
         doc.addPage();
         y = 16;
       }
       doc.text(lines, margin, y);
-      y += lines.length * 4.2 + 4;
+      y += lines.length * 3.8 + 4;
     }
   }
 

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import {
   Archive,
+  ChevronDown,
   Download,
   ExternalLink,
   Loader2,
@@ -51,7 +52,12 @@ import type {
   SecuritySurveyListItem,
 } from "@/lib/security-survey-types";
 import { SEVERITY_CHIP, RISK_RATING_CHIP } from "@/lib/security-survey-types";
-import { computeSurveyRiskSummary } from "@/lib/security-survey-risk";
+import {
+  bucketSurveyRecommendations,
+  computeSurveyRiskSummary,
+  HIGH_RECS_PREVIEW_LIMIT,
+  shortRecommendationLabel,
+} from "@/lib/security-survey-risk";
 import { cn } from "@/lib/utils";
 
 const ANSWER_CHIP: Record<string, string> = {
@@ -420,6 +426,12 @@ function SurveyReportDetail({
     () => computeSurveyRiskSummary(detail.findings),
     [detail.findings],
   );
+  const recBuckets = useMemo(
+    () => bucketSurveyRecommendations(detail.findings),
+    [detail.findings],
+  );
+  const [showAllHighRecs, setShowAllHighRecs] = useState(false);
+  const [showFullSurveyorNotes, setShowFullSurveyorNotes] = useState(false);
   const riskPct = Math.min(100, Math.round((Math.min(risk.score, 80) / 80) * 100));
   const riskBarClass =
     risk.rating === "critical"
@@ -438,6 +450,14 @@ function SurveyReportDetail({
           ? "text-orange-500"
           : "text-emerald-600";
   const canEditPhotos = detail.status !== "archived";
+  const highVisible = showAllHighRecs
+    ? recBuckets.high
+    : recBuckets.high.slice(0, HIGH_RECS_PREVIEW_LIMIT);
+  const highHidden = Math.max(0, recBuckets.high.length - highVisible.length);
+  const surveyorNotes = detail.recommendations?.trim() || "";
+  const surveyorNotesLong = surveyorNotes.length > 220;
+  const hasAutoRecs =
+    recBuckets.critical.length > 0 || recBuckets.high.length > 0;
 
   function openLocationMap() {
     if (!hasCoords) return;
@@ -598,14 +618,114 @@ function SurveyReportDetail({
         </Button>
       </div>
 
-      {detail.recommendations?.trim() && (
-        <div className="rounded-md bg-muted/50 p-3 text-sm">
-          <p className="font-medium text-xs uppercase text-muted-foreground mb-1">
-            Recommendations
-          </p>
-          {detail.recommendations}
+      {hasAutoRecs || surveyorNotes ? (
+        <div className="rounded-md border p-3 space-y-3" data-testid="survey-recommendations">
+          <div>
+            <p className="font-medium text-xs uppercase text-muted-foreground">
+              Recommendations
+            </p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              Critical first · High capped until you expand
+            </p>
+          </div>
+
+          {recBuckets.critical.length > 0 && (
+            <div className="space-y-1.5">
+              <p className="text-[11px] font-semibold text-red-800 dark:text-red-300">
+                Critical ({recBuckets.critical.length})
+              </p>
+              <ul className="space-y-1.5">
+                {recBuckets.critical.map((rec, i) => (
+                  <li
+                    key={`crit-${i}-${rec.category}`}
+                    className="rounded-md border border-red-900/20 bg-red-950/5 px-2.5 py-1.5 text-xs leading-snug"
+                  >
+                    <span className="font-medium text-muted-foreground">{rec.category}</span>
+                    <span className="mx-1 text-muted-foreground">·</span>
+                    {rec.text}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {recBuckets.high.length > 0 && (
+            <div className="space-y-1.5">
+              <p className="text-[11px] font-semibold text-orange-700 dark:text-orange-300">
+                High ({recBuckets.high.length})
+              </p>
+              <ul className="space-y-1">
+                {highVisible.map((rec, i) => (
+                  <li
+                    key={`high-${i}-${rec.category}`}
+                    className="text-xs leading-snug text-muted-foreground"
+                  >
+                    <span className="font-medium text-foreground/80">{rec.category}</span>
+                    <span className="mx-1">·</span>
+                    {showAllHighRecs ? rec.text : shortRecommendationLabel(rec, 100)}
+                  </li>
+                ))}
+              </ul>
+              {highHidden > 0 && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={() => setShowAllHighRecs(true)}
+                  data-testid="survey-recs-show-more-high"
+                >
+                  Show {highHidden} more High
+                </Button>
+              )}
+              {showAllHighRecs && recBuckets.high.length > HIGH_RECS_PREVIEW_LIMIT && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={() => setShowAllHighRecs(false)}
+                >
+                  Show fewer
+                </Button>
+              )}
+            </div>
+          )}
+
+          {surveyorNotes ? (
+            <div className="rounded-md bg-muted/50 p-2.5 text-sm">
+              <p className="font-medium text-[11px] uppercase text-muted-foreground mb-1">
+                Surveyor notes
+              </p>
+              <p
+                className={cn(
+                  "text-sm leading-snug whitespace-pre-wrap",
+                  !showFullSurveyorNotes && surveyorNotesLong && "line-clamp-3",
+                )}
+              >
+                {surveyorNotes}
+              </p>
+              {surveyorNotesLong && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="mt-1 h-7 px-2 text-xs"
+                  onClick={() => setShowFullSurveyorNotes((v) => !v)}
+                >
+                  {showFullSurveyorNotes ? "Show less" : "Show more"}
+                  <ChevronDown
+                    className={cn(
+                      "ml-1 h-3.5 w-3.5 transition-transform",
+                      showFullSurveyorNotes && "rotate-180",
+                    )}
+                  />
+                </Button>
+              )}
+            </div>
+          ) : null}
         </div>
-      )}
+      ) : null}
 
       <div className="space-y-2">
         <p className="text-sm font-medium">Checklist</p>
@@ -699,6 +819,13 @@ function SurveyReportDetail({
                 {f.answer}
               </Badge>
             </div>
+            {findingAllowsEvidencePhotos(f.answer) && (
+              <SurveyFindingPhotoControls
+                surveyId={detail.id}
+                finding={f}
+                canEdit={canEditPhotos}
+              />
+            )}
             {f.severity && (
               <span
                 className={cn(
@@ -711,13 +838,6 @@ function SurveyReportDetail({
             )}
             {f.notes?.trim() && (
               <p className="text-xs text-muted-foreground">{f.notes}</p>
-            )}
-            {findingAllowsEvidencePhotos(f.answer) && (
-              <SurveyFindingPhotoControls
-                surveyId={detail.id}
-                finding={f}
-                canEdit={canEditPhotos}
-              />
             )}
             <div className="pt-1">
               {f.convertedIncidentId ? (

@@ -673,7 +673,11 @@ export function SurveyConduct({ onOpenFindings, editSurveyId, onExitEdit }: Prop
           const f = findingFor(item.id);
           const photos = [...(f?.photoUrls ?? []), ...(f?.photoDataUrls ?? [])];
           return (
-            <div key={item.id} className="rounded-lg border p-3 space-y-3">
+            <div
+              key={item.id}
+              className="rounded-lg border border-border/80 bg-card p-3 space-y-3 shadow-sm"
+              data-testid={`survey-checkpoint-${item.id}`}
+            >
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <Badge variant="outline" className="mb-1 text-[10px]">
@@ -685,6 +689,74 @@ export function SurveyConduct({ onOpenFindings, editSurveyId, onExitEdit }: Prop
                   )}
                 </div>
                 {savingItemId === item.id && <Loader2 className="h-4 w-4 animate-spin shrink-0" />}
+              </div>
+
+              {/* Evidence sits directly under the checkpoint heading so photos stay bound to this card. */}
+              <div
+                className="rounded-md border border-dashed border-border/70 bg-muted/30 p-2 space-y-2"
+                data-testid={`survey-evidence-${item.id}`}
+              >
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Evidence for this checkpoint
+                </p>
+                <div className="flex flex-wrap gap-2 items-center">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setPhotoTargetItemId(item.id);
+                      cameraRef.current?.click();
+                    }}
+                    data-testid={`survey-camera-${item.id}`}
+                  >
+                    <Camera className="h-3.5 w-3.5 mr-1" />
+                    Camera
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setPhotoTargetItemId(item.id);
+                      fileRef.current?.click();
+                    }}
+                    data-testid={`survey-upload-${item.id}`}
+                  >
+                    <Upload className="h-3.5 w-3.5 mr-1" />
+                    Upload
+                  </Button>
+                  {photos.map((url, i) => (
+                    <div
+                      key={`${url.slice(0, 24)}-${i}`}
+                      className="relative h-12 w-12 rounded overflow-hidden border"
+                    >
+                      <img src={url} alt="" className="h-full w-full object-cover" />
+                      <button
+                        type="button"
+                        className="absolute top-0 right-0 bg-black/60 p-0.5"
+                        onClick={() => {
+                          const urls = f?.photoUrls ?? [];
+                          const dataUrls = f?.photoDataUrls ?? [];
+                          if (i < urls.length) {
+                            void saveFinding(item.id, {
+                              photoUrls: urls.filter((_, idx) => idx !== i),
+                              answer: f?.answer ?? "na",
+                            });
+                          } else {
+                            const di = i - urls.length;
+                            void saveFinding(item.id, {
+                              photoDataUrls: dataUrls.filter((_, idx) => idx !== di),
+                              answer: f?.answer ?? "na",
+                            });
+                          }
+                        }}
+                      >
+                        <Trash2 className="h-3 w-3 text-white" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
 
               <div className="grid grid-cols-3 gap-2">
@@ -720,7 +792,7 @@ export function SurveyConduct({ onOpenFindings, editSurveyId, onExitEdit }: Prop
               )}
 
               <Textarea
-                placeholder="Notes"
+                placeholder="Notes for this checkpoint"
                 value={f?.notes ?? ""}
                 onChange={(e) => {
                   if (!draft) return;
@@ -753,74 +825,18 @@ export function SurveyConduct({ onOpenFindings, editSurveyId, onExitEdit }: Prop
                 rows={2}
                 className="text-sm"
               />
-
-              <div className="flex flex-wrap gap-2 items-center">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    setPhotoTargetItemId(item.id);
-                    cameraRef.current?.click();
-                  }}
-                  data-testid={`survey-camera-${item.id}`}
-                >
-                  <Camera className="h-3.5 w-3.5 mr-1" />
-                  Camera
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    setPhotoTargetItemId(item.id);
-                    fileRef.current?.click();
-                  }}
-                  data-testid={`survey-upload-${item.id}`}
-                >
-                  <Upload className="h-3.5 w-3.5 mr-1" />
-                  Upload
-                </Button>
-                {photos.map((url, i) => (
-                  <div key={`${url.slice(0, 24)}-${i}`} className="relative h-12 w-12 rounded overflow-hidden border">
-                    <img src={url} alt="" className="h-full w-full object-cover" />
-                    <button
-                      type="button"
-                      className="absolute top-0 right-0 bg-black/60 p-0.5"
-                      onClick={() => {
-                        const urls = f?.photoUrls ?? [];
-                        const dataUrls = f?.photoDataUrls ?? [];
-                        if (i < urls.length) {
-                          void saveFinding(item.id, {
-                            photoUrls: urls.filter((_, idx) => idx !== i),
-                            answer: f?.answer ?? "na",
-                          });
-                        } else {
-                          const di = i - urls.length;
-                          void saveFinding(item.id, {
-                            photoDataUrls: dataUrls.filter((_, idx) => idx !== di),
-                            answer: f?.answer ?? "na",
-                          });
-                        }
-                      }}
-                    >
-                      <Trash2 className="h-3 w-3 text-white" />
-                    </button>
-                  </div>
-                ))}
-              </div>
             </div>
           );
         })}
       </div>
 
       <div className="space-y-2 rounded-lg border p-3">
-        <Label>Recommendations</Label>
+        <Label>Recommendations (optional summary)</Label>
         <Textarea
           value={recommendations}
           onChange={(e) => setRecommendations(e.target.value)}
-          rows={3}
-          placeholder="Summary recommendations for the client"
+          rows={2}
+          placeholder="Brief client summary — detailed actions are generated from Critical/High findings"
         />
         <Button
           className="w-full"

@@ -133,6 +133,13 @@ export function SurveyFindings() {
                 </div>
                 <Badge className="uppercase shrink-0">{f.answer}</Badge>
               </div>
+              {findingAllowsEvidencePhotos(f.answer) && (
+                <SurveyFindingPhotoControls
+                  surveyId={Number(surveyId)}
+                  finding={f}
+                  canEdit={detail.status !== "archived"}
+                />
+              )}
               {f.severity && (
                 <span
                   className={cn(
@@ -145,13 +152,6 @@ export function SurveyFindings() {
               )}
               {f.notes?.trim() && (
                 <p className="text-xs text-muted-foreground">{f.notes}</p>
-              )}
-              {findingAllowsEvidencePhotos(f.answer) && (
-                <SurveyFindingPhotoControls
-                  surveyId={Number(surveyId)}
-                  finding={f}
-                  canEdit={detail.status !== "archived"}
-                />
               )}
               <div className="flex flex-wrap gap-2">
                 {detail.status !== "completed" && detail.status !== "archived" && (

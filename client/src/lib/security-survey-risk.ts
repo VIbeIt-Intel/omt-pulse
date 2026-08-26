@@ -20,9 +20,13 @@ function sentenceCase(s: string): string {
   return t.charAt(0).toUpperCase() + t.slice(1);
 }
 
+/** Shared pitch: one multi-purpose site device for capture, patrol, and warehouse control. */
+const MULTI_PURPOSE_DEVICE =
+  "Equip the site with a multi-purpose device (tablet/phone running OMT Pulse) that captures visitor/driver licences and IDs, supports digital patrol rounds, and handles pallet/stock control — one tool for gate, patrol, and warehouse, not paper logbooks.";
+
 /**
  * Map a High/Critical finding to a professional, actionable recommendation.
- * Prefers checkpoint wording; falls back to category-aware defaults.
+ * Access / guard / warehouse themes insist on a multi-purpose capture + patrol device.
  */
 export function recommendationForFinding(f: SurveyRiskFindingLike): string {
   const prompt = (f.prompt ?? "").trim();
@@ -30,23 +34,41 @@ export function recommendationForFinding(f: SurveyRiskFindingLike): string {
   const hay = `${prompt} ${notes}`.toLowerCase();
   const cat = (f.category ?? "").toLowerCase();
 
-  if (/visitor|vehicle\s*log|truck\s*\/?\s*visitor|contractor\s*log/.test(hay)) {
-    return "Install and enforce a visitor and vehicle logbook at the main access point, with every arrival and departure recorded.";
+  // --- Multi-purpose device themes (dedupe to one shared line where possible) ---
+  if (/visitor|vehicle\s*log|truck\s*\/?\s*visitor|contractor\s*log|licence|license|id\s*capture|driver.?s?\s*licen/.test(hay)) {
+    return MULTI_PURPOSE_DEVICE;
   }
+  if (/logbook/.test(hay) && (/post|gate|guard|visitor|vehicle|seal/.test(hay) || cat.includes("guard") || cat.includes("access"))) {
+    return MULTI_PURPOSE_DEVICE;
+  }
+  if (/pallet|seal\s*control|stock\s*control|warehouse\s*control|goods\s*in|dispatch/.test(hay) || (cat.includes("warehouse") && /control|log|record|seal|pallet/.test(hay))) {
+    return "Deploy a multi-purpose OMT device for pallet and seal control at receiving/dispatch, with the same unit used for licence capture at the gate and digital patrols on site.";
+  }
+  if (/credential|keys?|access\s*card|roller-?shutter\s*remote|remotes/.test(hay)) {
+    return "Move credential, key, and remote issue/return onto a multi-purpose site device (licence capture + digital issue log) so access media are accounted for in real time — same device also covers patrol and pallet control.";
+  }
+  if (/access point|staffed|reception|access-controlled|entrance/.test(hay) && (cat.includes("access") || cat.includes("guard"))) {
+    return "Staff the main access point with a multi-purpose device for licence/ID capture and digital visitor-vehicle logging; use the same unit for patrol check-ins and pallet control across the site.";
+  }
+  if (/guard.*(manned|post|house)|manned as scheduled|gate\s*\/\s*guard|patrol/.test(hay) || (cat.includes("guard") && /post|manned|attend|duty|round/.test(hay))) {
+    return "Put a multi-purpose device on the guard post for licence capture and digital attendance, and use it for scheduled patrol rounds plus pallet/seal checks — one device, not separate paper processes.";
+  }
+  if (cat.includes("access") && /control|visitor|vehicle|gate|entry|credential|key|card/.test(hay)) {
+    return MULTI_PURPOSE_DEVICE;
+  }
+  if (cat.includes("guard") && !/radio|panic/.test(hay)) {
+    return "Standardise the guard force on a multi-purpose OMT device for gate licence capture, digital patrols, and warehouse pallet/seal control.";
+  }
+
+  // --- Site systems / physical (not device pitch) ---
   if (/nvr|time\s*sync|recording\s*\/?\s*nvr|retention/.test(hay)) {
     return "Restore NVR time sync and confirm recording retention so footage remains usable for investigations.";
   }
   if (/live\s*view|control\s*room/.test(hay)) {
     return "Enable remote live viewing from the control room and verify operators can review critical camera feeds in real time.";
   }
-  if (/guard.*(manned|post|house)|manned as scheduled|gate\s*\/\s*guard/.test(hay)) {
-    return "Ensure the guard post is manned as scheduled and attendance is verified against the duty roster.";
-  }
   if (/radio|panic\s*device/.test(hay)) {
-    return "Ensure radios and panic devices are functional, charged, and tested at the start of each shift.";
-  }
-  if (/logbook/.test(hay) && (/post|gate|guard/.test(hay) || cat.includes("guard"))) {
-    return "Keep the post/gate logbook current with vehicle, visitor, seal, and incident entries at the time of occurrence.";
+    return "Ensure radios and panic devices are functional, charged, and tested at the start of each shift; pair with the multi-purpose OMT device for digital incident and patrol logging.";
   }
   if (/fence|wall|breach|climb\s*point/.test(hay)) {
     return "Repair perimeter fence/wall breaches and climb points to restore a continuous secure boundary.";
@@ -57,14 +79,8 @@ export function recommendationForFinding(f: SurveyRiskFindingLike): string {
   if (/vegetation|line of sight|scrap\s*cleared/.test(hay)) {
     return "Clear vegetation and scrap along the perimeter to restore line of sight for patrols and CCTV.";
   }
-  if (/access point|staffed|reception|access-controlled|entrance/.test(hay) && cat.includes("access")) {
-    return "Staff or electronically control the main access point during all operating hours.";
-  }
-  if (/credential|keys?|access\s*card|roller-?shutter\s*remote|remotes/.test(hay)) {
-    return "Account for all keys, access cards, and remotes; remove unissued credentials from circulation.";
-  }
   if (/loading-?bay|dock\s*door/.test(hay)) {
-    return "Secure loading-bay and dock doors when not actively in use.";
+    return "Secure loading-bay and dock doors when not actively in use; use the site multi-purpose device to log bay open/close and pallet movements.";
   }
   if (/lighting|lit after dark|adequately lit/.test(hay) || cat.includes("lighting")) {
     if (/lighting|lit|dark|aisle|bay|parking|yard|perimeter/.test(hay)) {
@@ -96,20 +112,23 @@ export function recommendationForFinding(f: SurveyRiskFindingLike): string {
     return "Escalate immediate security risks to site management and implement interim controls until remediated.";
   }
   if (/high-?value|bonded\s*stock/.test(hay)) {
-    return "Secure high-value or bonded stock areas separately from general warehousing with controlled access.";
+    return "Secure high-value or bonded stock separately and control entry with the multi-purpose site device (licence/ID capture + digital access log), with the same unit used for patrol and pallet checks.";
   }
 
   if (cat.includes("perimeter")) {
     return "Remediate identified perimeter weaknesses and verify the boundary is secure on follow-up inspection.";
   }
   if (cat.includes("access")) {
-    return "Strengthen access control at the affected point and verify compliance on the next site visit.";
+    return MULTI_PURPOSE_DEVICE;
   }
   if (cat.includes("cctv")) {
     return "Restore CCTV recording, coverage, and live-view capability so the site can be monitored effectively.";
   }
   if (cat.includes("guard")) {
-    return "Ensure guard posts are manned as scheduled and radios/panic devices remain functional.";
+    return "Standardise the guard force on a multi-purpose OMT device for gate licence capture, digital patrols, and warehouse pallet/seal control.";
+  }
+  if (cat.includes("warehouse")) {
+    return "Deploy a multi-purpose OMT device for pallet and seal control at receiving/dispatch, with the same unit used for licence capture at the gate and digital patrols on site.";
   }
   if (cat.includes("alarm")) {
     return "Verify alarm and duress systems are tested, armed correctly, and reporting as required.";
@@ -136,6 +155,16 @@ export type GeneratedRecommendation = {
   text: string;
   prompt: string;
 };
+
+export type RecommendationBuckets = {
+  critical: GeneratedRecommendation[];
+  high: GeneratedRecommendation[];
+  /** Default High items to show before "show more" / PDF ellipsis. */
+  highPreviewLimit: number;
+};
+
+/** Default cap for High recommendations shown up front (Critical always fully listed). */
+export const HIGH_RECS_PREVIEW_LIMIT = 4;
 
 /** Auto-recommendations from High and Critical findings only (Critical first). */
 export function generateSurveyRecommendations(
@@ -172,4 +201,24 @@ export function generateSurveyRecommendations(
   }
 
   return out;
+}
+
+/** Split auto-recs for compact UI / PDF (Critical first; High may be truncated). */
+export function bucketSurveyRecommendations(
+  findings: SurveyRiskFindingLike[],
+  highPreviewLimit = HIGH_RECS_PREVIEW_LIMIT,
+): RecommendationBuckets {
+  const all = generateSurveyRecommendations(findings);
+  return {
+    critical: all.filter((r) => r.severity === "critical"),
+    high: all.filter((r) => r.severity === "high"),
+    highPreviewLimit,
+  };
+}
+
+/** Short one-line label for dense lists (prefer recommendation text, not the checkpoint prompt). */
+export function shortRecommendationLabel(rec: GeneratedRecommendation, maxLen = 96): string {
+  const raw = (rec.text || rec.prompt).replace(/\?+$/, "").trim();
+  if (raw.length <= maxLen) return raw;
+  return `${raw.slice(0, maxLen - 1).trimEnd()}…`;
 }
