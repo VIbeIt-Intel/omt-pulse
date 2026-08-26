@@ -47,6 +47,40 @@ async function loadImageAsDataUrl(src: string): Promise<string | null> {
   }
 }
 
+/** Scale to fit maxW×maxH without distorting (object-fit: contain). */
+function containSize(
+  srcW: number,
+  srcH: number,
+  maxW: number,
+  maxH: number,
+): { w: number; h: number } {
+  const aspect = srcW / Math.max(srcH, 1);
+  let w = maxW;
+  let h = w / aspect;
+  if (h > maxH) {
+    h = maxH;
+    w = h * aspect;
+  }
+  return { w, h };
+}
+
+/** Draw image inside a cell, centered, never stretched. */
+function addImageContained(
+  doc: jsPDF,
+  dataUrl: string,
+  cellX: number,
+  cellY: number,
+  cellW: number,
+  cellH: number,
+): void {
+  const format = dataUrl.includes("image/png") ? "PNG" : "JPEG";
+  const props = doc.getImageProperties(dataUrl);
+  const { w, h } = containSize(props.width, props.height, cellW, cellH);
+  const x = cellX + (cellW - w) / 2;
+  const y = cellY + (cellH - h) / 2;
+  doc.addImage(dataUrl, format, x, y, w, h);
+}
+
 function severityLabel(s: string | null | undefined): string {
   if (!s) return "—";
   return s.charAt(0).toUpperCase() + s.slice(1);
@@ -383,19 +417,21 @@ export async function buildSecuritySurveyReportPdf(
 
   if (sitePhotoData) {
     // Fuller width under the Field/Value summary (A4 content ≈ 182mm).
-    const sitePhotoW = 120;
-    const sitePhotoH = 90;
+    const sitePhotoMaxW = 120;
+    const sitePhotoMaxH = 90;
     const photoTopGap = 8;
-    if (y + photoTopGap + sitePhotoH > PAGE_CONTENT_BOTTOM) {
+    if (y + photoTopGap + sitePhotoMaxH > PAGE_CONTENT_BOTTOM) {
       doc.addPage();
       y = 16;
     } else {
       y += photoTopGap;
     }
     try {
+      const props = doc.getImageProperties(sitePhotoData);
+      const { w, h } = containSize(props.width, props.height, sitePhotoMaxW, sitePhotoMaxH);
       const format = sitePhotoData.includes("image/png") ? "PNG" : "JPEG";
-      doc.addImage(sitePhotoData, format, margin, y, sitePhotoW, sitePhotoH);
-      y += sitePhotoH;
+      doc.addImage(sitePhotoData, format, margin, y, w, h);
+      y += h;
     } catch {
       /* keep y at photo start */
     }
@@ -477,6 +513,7 @@ export async function buildSecuritySurveyReportPdf(
   if (evidenceItems.length > 0) {
     y = drawSectionHeading(doc, margin, y, "Evidence by checkpoint", 40);
 
+    // 2-up grid cells; images are contained (never stretched) inside each cell.
     const photoW = 82;
     const photoH = 52;
     const photoGap = 6;
@@ -531,10 +568,9 @@ export async function buildSecuritySurveyReportPdf(
           doc.setTextColor(0);
           y += 4;
         }
-        const x = margin + col * (photoW + photoGap);
+        const cellX = margin + col * (photoW + photoGap);
         try {
-          const format = dataUrl.includes("image/png") ? "PNG" : "JPEG";
-          doc.addImage(dataUrl, format, x, y, photoW, photoH);
+          addImageContained(doc, dataUrl, cellX, y, photoW, photoH);
         } catch {
           /* skip bad image */
         }
