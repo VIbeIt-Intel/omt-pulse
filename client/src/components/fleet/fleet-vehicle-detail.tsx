@@ -286,7 +286,12 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
     return { km: null, source: "gps" as const };
   }, [dayBuckets, yesterdayKey, todayKey, device.lastTripDistanceKm, device.lastPositionAt]);
 
-  const activeDayKey = selectedDayKey ?? dayBuckets[0]?.key ?? null;
+  // Prefer Today when it has GPS; otherwise the most recent day with history.
+  const activeDayKey =
+    selectedDayKey
+    ?? dayBuckets.find((d) => d.key === todayKey)?.key
+    ?? dayBuckets[0]?.key
+    ?? null;
   const activeDay = dayBuckets.find((d) => d.key === activeDayKey) ?? null;
   const activePositions = activeDay?.positions ?? [];
 
@@ -694,11 +699,13 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
                 <Skeleton className="h-[320px]" />
               </div>
             ) : dayBuckets.length === 0 ? (
-              <div className="p-6 sm:p-8 text-center space-y-2 max-w-lg mx-auto">
+              <div className="min-h-[240px] flex flex-col items-center justify-center p-6 sm:p-8 text-center space-y-2 max-w-lg mx-auto bg-muted/20">
+                <Route className="h-8 w-8 text-muted-foreground/50 mb-1" />
+                <p className="text-sm font-medium text-foreground/80">No movement history yet</p>
                 <p className="text-sm text-muted-foreground">
                   {device.lastSeenAt
                     ? "Tracker is online but has not sent a GPS fix yet (common when ignition is off)."
-                    : "No GPS history yet for this vehicle."}
+                    : "No GPS history yet for this vehicle. The route map will appear after the tracker reports positions while driving."}
                 </p>
                 {device.lastSeenAt && (
                   <p className="text-xs text-muted-foreground">
