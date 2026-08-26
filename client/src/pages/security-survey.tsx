@@ -1,7 +1,11 @@
 import { useState } from "react";
-import { ClipboardList, BookOpen, CheckSquare, Library } from "lucide-react";
-import { canManageSurveyTemplates } from "@shared/security-survey";
+import { ArrowLeft, ClipboardList, BookOpen, CheckSquare, Library } from "lucide-react";
+import {
+  canConductSecuritySurvey,
+  canManageSurveyTemplates,
+} from "@shared/security-survey";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
 import { PageHero } from "@/components/page-hero";
 import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import { cn } from "@/lib/utils";
@@ -12,16 +16,33 @@ import { SurveyCompleted } from "@/components/security-survey/survey-completed";
 
 type Props = {
   userRole: string;
+  userId: string;
 };
 
 type TabId = "conduct" | "findings" | "library" | "completed";
 
-export default function SecuritySurveyPage({ userRole }: Props) {
+export default function SecuritySurveyPage({ userRole, userId }: Props) {
   const canManage = canManageSurveyTemplates(userRole);
+  const canEditReports = canConductSecuritySurvey(userRole);
   const [tab, setTab] = useState<TabId>("conduct");
   const [focusSurveyId, setFocusSurveyId] = useState<number | null>(null);
+  const [editSurveyId, setEditSurveyId] = useState<number | null>(null);
 
   const colCount = 3 + (canManage ? 1 : 0);
+
+  function openFullscreenEdit(surveyId: number) {
+    setFocusSurveyId(null);
+    setEditSurveyId(surveyId);
+  }
+
+  function exitFullscreenEdit(opts?: { reopenDetail?: boolean }) {
+    const id = editSurveyId;
+    setEditSurveyId(null);
+    if (opts?.reopenDetail && id != null) {
+      setFocusSurveyId(id);
+      setTab("completed");
+    }
+  }
 
   return (
     <div className="h-full flex flex-col bg-background" data-testid="security-survey-page">
@@ -108,10 +129,52 @@ export default function SecuritySurveyPage({ userRole }: Props) {
           className="flex-1 overflow-y-auto mt-0 data-[state=inactive]:hidden"
         >
           <div className={cn(OPS_PAGE_SHELL, "py-4 pb-10")}>
-            <SurveyCompleted canArchive={canManage} initialSurveyId={focusSurveyId} />
+            <SurveyCompleted
+              canArchive={canManage}
+              canEditReports={canEditReports}
+              canManageReports={canManage}
+              currentUserId={userId}
+              initialSurveyId={focusSurveyId}
+              onEditReport={openFullscreenEdit}
+            />
           </div>
         </TabsContent>
       </Tabs>
+
+      {editSurveyId != null && (
+        <div
+          className="fixed inset-0 z-[60] flex flex-col bg-background"
+          data-testid="survey-edit-fullscreen"
+        >
+          <div className="shrink-0 border-b px-3 py-2.5 flex items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => exitFullscreenEdit({ reopenDetail: true })}
+              data-testid="survey-edit-back"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back to report
+            </Button>
+            <p className="text-sm font-medium truncate">Edit report</p>
+          </div>
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            <div className={cn(OPS_PAGE_SHELL, "py-4 pb-10")}>
+              <SurveyConduct
+                editSurveyId={editSurveyId}
+                onExitEdit={() => exitFullscreenEdit({ reopenDetail: true })}
+                onOpenFindings={(id) => {
+                  setEditSurveyId(null);
+                  setFocusSurveyId(id);
+                  setTab("completed");
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

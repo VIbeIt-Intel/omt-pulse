@@ -1018,7 +1018,7 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
               </Route>
               <Route path="/security-survey">
                 {canAccessSecuritySurveyModule(user.role) ? (
-                  <SecuritySurveyPage userRole={user.role} />
+                  <SecuritySurveyPage userRole={user.role} userId={user.id} />
                 ) : (
                   <RoleGuard role="none" allowed={[]}>{null}</RoleGuard>
                 )}

@@ -43,12 +43,47 @@ import { cn } from "@/lib/utils";
 
 type Props = {
   onOpenFindings?: (surveyId: number) => void;
+  /** When set, load this server survey into the active editor (fullscreen edit). */
+  editSurveyId?: number | null;
+  onExitEdit?: () => void;
 };
 
 const ANSWERS: SurveyAnswer[] = ["yes", "no", "na"];
 const SEVERITIES: SurveySeverity[] = ["critical", "high", "medium", "low"];
 
-export function SurveyConduct({ onOpenFindings }: Props) {
+function draftFromSurveyDetail(survey: SecuritySurveyDetail, localId: string): LocalSurveyDraft {
+  const findings: Record<number, LocalFindingDraft> = {};
+  for (const f of survey.findings) {
+    if (f.templateItemId == null) continue;
+    findings[f.templateItemId] = {
+      templateItemId: f.templateItemId,
+      category: f.category,
+      prompt: f.prompt,
+      answer: f.answer as SurveyAnswer,
+      severity: (f.severity as SurveySeverity) ?? null,
+      notes: f.notes ?? "",
+      lat: f.lat,
+      lng: f.lng,
+      gpsAccuracyM: f.gpsAccuracyM,
+      photoUrls: f.photos.map((p) => p.objectUrl),
+      serverFindingId: f.id,
+    };
+  }
+  return {
+    id: localId,
+    serverSurveyId: survey.id,
+    locationId: survey.locationId,
+    locationName: survey.locationName ?? `Site #${survey.locationId}`,
+    templateId: survey.templateId,
+    templateName: survey.templateName,
+    clientNameOverride: survey.clientNameOverride,
+    recommendations: survey.recommendations ?? "",
+    findings,
+    updatedAt: Date.now(),
+  };
+}
+
+export function SurveyConduct({ onOpenFindings, editSurveyId, onExitEdit }: Props) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -62,6 +97,8 @@ export function SurveyConduct({ onOpenFindings }: Props) {
   const [clientOverride, setClientOverride] = useState("");
   const [recommendations, setRecommendations] = useState("");
   const [savingItemId, setSavingItemId] = useState<number | null>(null);
+  const [editLoading, setEditLoading] = useState(false);
+  const loadedEditIdRef = useRef<number | null>(null);
 
   const { data: locations = [] } = useQuery<Location[]>({ queryKey: ["/api/locations"] });
   const { data: templates = [] } = useQuery<SurveyTemplateSummary[]>({
@@ -81,6 +118,82 @@ export function SurveyConduct({ onOpenFindings }: Props) {
       window.removeEventListener("omt:survey-synced", onChange);
     };
   }, [refetchDrafts]);
+
+  useEffect(() => {
+    if (editSurveyId == null) {
+      loadedEditIdRef.current = null;
+      return;
+    }
+    if (loadedEditIdRef.current === editSurveyId) return;
+    let cancelled = false;
+
+    async function loadForEdit(surveyId: number) {
+      setEditLoading(true);
+      try {
+        const existingDrafts = await listSurveyDrafts();
+        const localMatch = existingDrafts.find((d) => d.serverSurveyId === surveyId);
+
+        let survey: SecuritySurveyDetail;
+        const res = await apiRequest("GET", `/api/security-surveys/${surveyId}`);
+        survey = (await res.json()) as SecuritySurveyDetail;
+
+        if (survey.status === "archived") {
+          throw new Error("Archived surveys cannot be edited");
+        }
+
+        if (survey.status === "completed") {
+          const reopen = await apiRequest("PATCH", `/api/security-surveys/${surveyId}`, {
+            status: "in_progress",
+          });
+          survey = (await reopen.json()) as SecuritySurveyDetail;
+          void qc.invalidateQueries({ queryKey: ["/api/security-surveys"] });
+        }
+
+        if (cancelled) return;
+
+        const localId = localMatch?.id ?? newSurveyDraftId();
+        const fromServer = draftFromSurveyDetail(survey, localId);
+        // Prefer server answers; keep any offline-only photo payloads from a matching draft.
+        if (localMatch) {
+          for (const [itemIdStr, finding] of Object.entries(fromServer.findings)) {
+            const localF = localMatch.findings[Number(itemIdStr)];
+            if (localF?.photoDataUrls?.length) {
+              finding.photoDataUrls = localF.photoDataUrls;
+            }
+          }
+        }
+
+        await saveSurveyDraft(fromServer);
+        if (cancelled) return;
+
+        loadedEditIdRef.current = surveyId;
+        setDraft(fromServer);
+        setActiveSurvey(survey);
+        setRecommendations(fromServer.recommendations ?? survey.recommendations ?? "");
+        toast({
+          title: "Editing report",
+          description: "Make changes, then complete the survey again when finished.",
+        });
+      } catch (err) {
+        if (cancelled) return;
+        toast({
+          title: "Could not open editor",
+          description: err instanceof Error ? err.message : "Unknown error",
+          variant: "destructive",
+        });
+        onExitEdit?.();
+      } finally {
+        if (!cancelled) setEditLoading(false);
+      }
+    }
+
+    void loadForEdit(editSurveyId);
+    return () => {
+      cancelled = true;
+    };
+    // onExitEdit is only used for failure exit; omit from deps to avoid reload loops
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional
+  }, [editSurveyId, qc, toast]);
 
   const defaultTemplateId = useMemo(() => {
     const d = templates.find((t) => t.isDefault) ?? templates[0];
@@ -103,9 +216,11 @@ export function SurveyConduct({ onOpenFindings }: Props) {
 
   const items = activeSurvey?.items ?? templateDetail?.items ?? [];
   const answeredCount = useMemo(() => {
-    if (activeSurvey) return activeSurvey.findings.length;
     if (!draft) return 0;
-    return items.filter((it) => draft.findings[it.id]?.answer).length;
+    const fromDraft = items.filter((it) => draft.findings[it.id]?.answer).length;
+    if (fromDraft > 0) return fromDraft;
+    if (activeSurvey) return activeSurvey.findings.length;
+    return 0;
   }, [activeSurvey, draft, items]);
 
   const pct = items.length > 0 ? Math.round((answeredCount / items.length) * 100) : 0;
@@ -384,6 +499,14 @@ export function SurveyConduct({ onOpenFindings }: Props) {
     onError: (err: Error) =>
       toast({ title: "Cannot complete", description: err.message, variant: "destructive" }),
   });
+
+  if (editLoading || (editSurveyId != null && !draft)) {
+    return (
+      <div className="flex justify-center py-16" data-testid="survey-edit-loading">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   if (!draft) {
     return (
@@ -712,6 +835,17 @@ export function SurveyConduct({ onOpenFindings }: Props) {
           )}
           Complete survey
         </Button>
+        {editSurveyId != null && (
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            onClick={() => onExitEdit?.()}
+            data-testid="survey-edit-cancel"
+          >
+            Cancel editing
+          </Button>
+        )}
         {answeredCount < items.length && (
           <p className="text-xs text-muted-foreground text-center">
             Answer all {items.length} items to complete ({answeredCount} done)

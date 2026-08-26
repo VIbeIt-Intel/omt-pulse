@@ -9,6 +9,7 @@ import {
   Mail,
   AlertTriangle,
   MapPin,
+  Pencil,
 } from "lucide-react";
 import type { Location } from "@shared/schema";
 import { Button } from "@/components/ui/button";
@@ -79,10 +80,23 @@ function apiErrorMessage(err: unknown): string {
 
 type Props = {
   canArchive: boolean;
+  /** Field roles that may conduct surveys (and therefore edit reports). */
+  canEditReports?: boolean;
+  /** Admin/supervisor — may edit any non-archived report. */
+  canManageReports?: boolean;
+  currentUserId?: string;
   initialSurveyId?: number | null;
+  onEditReport?: (surveyId: number) => void;
 };
 
-export function SurveyCompleted({ canArchive, initialSurveyId }: Props) {
+export function SurveyCompleted({
+  canArchive,
+  canEditReports = false,
+  canManageReports = false,
+  currentUserId,
+  initialSurveyId,
+  onEditReport,
+}: Props) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [status, setStatus] = useState("completed");
@@ -320,6 +334,12 @@ export function SurveyCompleted({ canArchive, initialSurveyId }: Props) {
             <SurveyReportDetail
               detail={detail}
               canArchive={canArchive}
+              canEdit={
+                canEditReports &&
+                detail.status !== "archived" &&
+                (canManageReports ||
+                  (!!currentUserId && detail.surveyorUserId === currentUserId))
+              }
               emailTo={emailTo}
               emailBusy={emailBusy}
               archivePending={archiveMutation.isPending}
@@ -330,6 +350,14 @@ export function SurveyCompleted({ canArchive, initialSurveyId }: Props) {
               onArchive={() => archiveMutation.mutate(detail.id)}
               onConvert={(findingId) => convertMutation.mutate(findingId)}
               onOpenMap={setMapView}
+              onEditReport={
+                onEditReport
+                  ? () => {
+                      setDetailId(null);
+                      onEditReport(detail.id);
+                    }
+                  : undefined
+              }
             />
           )}
         </SheetContent>
@@ -343,6 +371,7 @@ export function SurveyCompleted({ canArchive, initialSurveyId }: Props) {
 function SurveyReportDetail({
   detail,
   canArchive,
+  canEdit,
   emailTo,
   emailBusy,
   archivePending,
@@ -353,9 +382,11 @@ function SurveyReportDetail({
   onArchive,
   onConvert,
   onOpenMap,
+  onEditReport,
 }: {
   detail: SecuritySurveyDetail;
   canArchive: boolean;
+  canEdit: boolean;
   emailTo: string;
   emailBusy: boolean;
   archivePending: boolean;
@@ -366,6 +397,7 @@ function SurveyReportDetail({
   onArchive: () => void;
   onConvert: (findingId: number) => void;
   onOpenMap: (view: GeoMapView) => void;
+  onEditReport?: () => void;
 }) {
   const clientName = detail.clientNameOverride || detail.organizationName;
   const siteName = detail.locationName || "Site";
@@ -514,6 +546,16 @@ function SurveyReportDetail({
       ) : null}
 
       <div className="flex flex-wrap gap-2">
+        {canEdit && onEditReport && (
+          <Button
+            size="sm"
+            onClick={onEditReport}
+            data-testid="survey-edit-report"
+          >
+            <Pencil className="h-3.5 w-3.5 mr-1" />
+            Edit report
+          </Button>
+        )}
         <Button size="sm" variant="outline" onClick={onDownloadPdf}>
           <Download className="h-3.5 w-3.5 mr-1" />
           PDF
