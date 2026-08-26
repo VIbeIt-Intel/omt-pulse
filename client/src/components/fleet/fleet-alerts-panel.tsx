@@ -189,6 +189,7 @@ export function FleetAlertsPanel({
           return typeof key === "string" && key.startsWith("/api/fleet-alerts");
         },
       });
+      void qc.invalidateQueries({ queryKey: ["/api/notifications"] });
       toast({ title: "Alert acknowledged" });
     },
     onError: (e: Error) => {

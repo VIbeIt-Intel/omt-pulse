@@ -358,6 +358,10 @@ async function dispatchLiveIncidentPush(orgId: string, triggerUserId: string, in
   } catch { /* best-effort */ }
 }
 
+function fleetAlertDetailUrl(alert: Pick<FleetAlertSummary, "id" | "deviceId">): string {
+  return `/fleet?device=${alert.deviceId}&alert=${alert.id}`;
+}
+
 async function dispatchFleetAlertPush(
   orgId: string,
   alert: FleetAlertSummary,
@@ -365,24 +369,38 @@ async function dispatchFleetAlertPush(
 ) {
   const title = alert.title;
   const body = alert.message;
-  const detailUrl = `/fleet?device=${alert.deviceId}`;
+  const detailUrl = fleetAlertDetailUrl(alert);
   const payload = JSON.stringify({
     type: "fleet_alert",
     title,
     body,
     url: detailUrl,
     deviceId: String(alert.deviceId),
+    alertId: String(alert.id),
     alertType: alert.alertType,
   });
 
   const commandIds = commandId != null ? [commandId] : undefined;
+  const notifyRoles = [...FLEET_ALERT_NOTIFY_ROLES];
   const subs = await storage.getPushSubscriptionsByOrg(
     orgId,
     undefined,
-    [...FLEET_ALERT_NOTIFY_ROLES],
+    notifyRoles,
     commandIds,
   );
-  const pushedUserIds = new Set<string>();
+  const loggedUserIds = new Set<string>();
+
+  const logFleetNotification = (userId: string): Promise<unknown> => {
+    if (loggedUserIds.has(userId)) return Promise.resolve();
+    loggedUserIds.add(userId);
+    return storage.createNotificationLog({
+      organizationId: orgId,
+      userId,
+      title,
+      body,
+      url: detailUrl,
+    }).catch(() => {});
+  };
 
   if (subs.length > 0) {
     await Promise.allSettled(
@@ -393,14 +411,7 @@ async function dispatchFleetAlertPush(
             payload,
             URGENT_PUSH,
           );
-          pushedUserIds.add(sub.userId);
-          storage.createNotificationLog({
-            organizationId: orgId,
-            userId: sub.userId,
-            title,
-            body,
-            url: detailUrl,
-          }).catch(() => {});
+          await logFleetNotification(sub.userId);
         } catch (err: unknown) {
           const statusCode = typeof err === "object" && err !== null && "statusCode" in err
             ? (err as { statusCode: number }).statusCode
@@ -416,7 +427,7 @@ async function dispatchFleetAlertPush(
   const fcmSubs = await storage.getFcmTokensByOrg(
     orgId,
     undefined,
-    [...FLEET_ALERT_NOTIFY_ROLES],
+    notifyRoles,
     commandIds,
   );
   if (fcmSubs.length > 0) {
@@ -427,31 +438,27 @@ async function dispatchFleetAlertPush(
         type: "fleet_alert",
         url: detailUrl,
         deviceId: String(alert.deviceId),
+        alertId: String(alert.id),
         alertType: alert.alertType,
       },
       notificationTag: `fleet-alert-${alert.deviceId}-${alert.alertType}`,
     });
-    for (const s of fcmSubs) pushedUserIds.add(s.userId);
+    // Mirror live-incident: FCM delivery must also populate the in-app Notifications feed.
+    await Promise.allSettled(fcmSubs.map((s) => logFleetNotification(s.userId)));
   }
 
   try {
     const allActive = await storage.getActiveUsersByOrg(orgId);
+    const commandMemberIds = commandIds
+      ? await storage.getUserIdsInCommands(orgId, commandIds)
+      : null;
     const noPushUsers = allActive.filter(
       (u) =>
         FLEET_ALERT_NOTIFY_ROLES.includes(u.role as (typeof FLEET_ALERT_NOTIFY_ROLES)[number])
-        && !pushedUserIds.has(u.id),
+        && !loggedUserIds.has(u.id)
+        && (!commandMemberIds || commandMemberIds.has(u.id)),
     );
-    await Promise.allSettled(
-      noPushUsers.map((u) =>
-        storage.createNotificationLog({
-          organizationId: orgId,
-          userId: u.id,
-          title,
-          body,
-          url: detailUrl,
-        }).catch(() => {}),
-      ),
-    );
+    await Promise.allSettled(noPushUsers.map((u) => logFleetNotification(u.id)));
   } catch { /* best-effort */ }
 }
 
@@ -1317,6 +1324,7 @@ import { registerSecuritySurveyRoutes } from "./security-survey/routes";
 import { registerWorkstationRoutes, attachWorkstation } from "./workstations/routes";
 import { hashShiftPin } from "./workstations/storage";
 import { registerFleetAlertPushHandler } from "./fleet-alerts/push";
+import { getFleetAlerts } from "./fleet-alerts/storage";
 import { registerPatrolPushHandler, type PatrolPushRequest } from "./patrol/push";
 import { FLEET_ALERT_NOTIFY_ROLES } from "@shared/fleet-alerts";
 import type { FleetAlertSummary } from "@shared/schema";
@@ -1461,12 +1469,89 @@ export async function registerRoutes(
     res.json({ registered: tokens.length > 0 });
   });
 
-  // Notification history — last 7 days by default for the current user
+  // Notification history — last 7 days by default for the current user.
+  // Dispatch staff also see fleet alerts here (same window as Fleet "Recent alerts").
   app.get("/api/notifications", async (req, res) => {
-    const { id: userId, organizationId: orgId } = req.currentUser!;
+    const { id: userId, organizationId: orgId, role } = req.currentUser!;
     const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const logs = await storage.getNotificationLogsByUser(userId, orgId, since);
-    res.json(logs);
+
+    const canSeeFleet =
+      role === "administrator"
+      || FLEET_ALERT_NOTIFY_ROLES.includes(role as (typeof FLEET_ALERT_NOTIFY_ROLES)[number])
+      || isDispatchStaff(role);
+
+    if (!canSeeFleet) {
+      res.json(logs);
+      return;
+    }
+
+    const fleetAlerts = await getFleetAlerts(orgId, { hours: 168, limit: 100 });
+    type FeedItem = (typeof logs)[number] & {
+      fleetAlertId?: number | null;
+      fleetAcknowledgedAt?: string | Date | null;
+    };
+
+    const coveredAlertIds = new Set<number>();
+    const feed: FeedItem[] = logs.map((log) => {
+      const match = log.url?.match(/[?&]alert=(\d+)/);
+      if (match) {
+        const alertId = Number(match[1]);
+        if (Number.isFinite(alertId)) coveredAlertIds.add(alertId);
+        const fleet = fleetAlerts.find((a) => a.id === alertId);
+        if (fleet) {
+          return {
+            ...log,
+            fleetAlertId: fleet.id,
+            fleetAcknowledgedAt: fleet.acknowledgedAt ?? null,
+          };
+        }
+        return log;
+      }
+
+      // Legacy push logs: `/fleet?device=N` without alert id
+      if (log.url?.startsWith("/fleet?device=")) {
+        const deviceMatch = log.url.match(/[?&]device=(\d+)/);
+        const deviceId = deviceMatch ? Number(deviceMatch[1]) : NaN;
+        if (Number.isFinite(deviceId)) {
+          const logTime = new Date(log.createdAt).getTime();
+          const fleet = fleetAlerts.find((a) => {
+            if (a.deviceId !== deviceId || a.title !== log.title) return false;
+            if (coveredAlertIds.has(a.id)) return false;
+            return Math.abs(new Date(a.triggeredAt).getTime() - logTime) < 5 * 60_000;
+          });
+          if (fleet) {
+            coveredAlertIds.add(fleet.id);
+            return {
+              ...log,
+              fleetAlertId: fleet.id,
+              fleetAcknowledgedAt: fleet.acknowledgedAt ?? null,
+            };
+          }
+        }
+      }
+      return log;
+    });
+
+    for (const alert of fleetAlerts) {
+      if (coveredAlertIds.has(alert.id)) continue;
+
+      feed.push({
+        id: -alert.id,
+        organizationId: orgId,
+        userId,
+        title: alert.title,
+        body: alert.message,
+        url: fleetAlertDetailUrl(alert),
+        incidentId: null,
+        createdAt: alert.triggeredAt,
+        fleetAlertId: alert.id,
+        fleetAcknowledgedAt: alert.acknowledgedAt ?? null,
+      });
+    }
+
+    feed.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    res.json(feed);
   });
 
   app.get("/api/auth/has-users", async (_req, res) => {

@@ -56,9 +56,9 @@ import EnableAlertsPage from "@/pages/enable-alerts";
 import PrivacyPage from "@/pages/privacy";
 import NotificationsPage from "@/pages/notifications";
 import ChatPage from "@/pages/chat";
-import { Bell, CreditCard, Loader2, LogOut, X, Camera, CheckCheck, Radio, HelpCircle, MessageCircle, ArrowLeft } from "lucide-react";
+import { Bell, CreditCard, Loader2, LogOut, X, Camera, CheckCheck, HelpCircle, MessageCircle, ArrowLeft } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { type NotificationLog, timeAgo, formatDate, markAllRead } from "@/pages/notifications";
+import { type NotificationLog, markAllRead, NotificationList } from "@/pages/notifications";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
@@ -471,13 +471,6 @@ function NotificationSheet({ open, onOpenChange, onMarkAllRead }: { open: boolea
     enabled: open,
   });
 
-  const grouped = notifications.reduce<Record<string, NotificationLog[]>>((acc, n) => {
-    const day = formatDate(n.createdAt);
-    if (!acc[day]) acc[day] = [];
-    acc[day].push(n);
-    return acc;
-  }, {});
-
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full sm:max-w-md flex flex-col p-0" data-testid="sheet-notifications">
@@ -504,46 +497,11 @@ function NotificationSheet({ open, onOpenChange, onMarkAllRead }: { open: boolea
           </Button>
         </SheetHeader>
         <div className="flex-1 overflow-y-auto">
-          {isLoading ? (
-            <div className="flex flex-col gap-2 p-4">
-              {[...Array(4)].map((_, i) => (
-                <div key={i} className="h-16 rounded-lg bg-muted animate-pulse" />
-              ))}
-            </div>
-          ) : notifications.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground p-8">
-              <CheckCheck className="h-10 w-10 opacity-30" />
-              <p className="text-sm font-medium">No notifications in the last 7 days</p>
-              <p className="text-xs text-center">Push alerts from live incidents will appear here.</p>
-            </div>
-          ) : (
-            <div className="divide-y">
-              {Object.entries(grouped).map(([day, items]) => (
-                <div key={day}>
-                  <div className="px-4 py-2 bg-muted/40 text-xs font-medium text-muted-foreground sticky top-0">
-                    {day}
-                  </div>
-                  {items.map((n) => (
-                    <div key={n.id} className="flex items-start gap-3 px-4 py-3 hover:bg-muted/30 transition-colors" data-testid={`sheet-notif-item-${n.id}`}>
-                      <div className="mt-0.5 shrink-0 h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-                        <Radio className="h-4 w-4 text-primary" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium leading-snug">{n.title}</p>
-                        <p className="text-xs text-muted-foreground mt-0.5 leading-snug">{n.body}</p>
-                        {n.url && (
-                          <Link href={n.url} onClick={() => onOpenChange(false)}>
-                            <span className="text-xs text-primary hover:underline cursor-pointer">View →</span>
-                          </Link>
-                        )}
-                      </div>
-                      <span className="text-xs text-muted-foreground shrink-0 mt-0.5">{timeAgo(n.createdAt)}</span>
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </div>
-          )}
+          <NotificationList
+            notifications={notifications}
+            isLoading={isLoading}
+            onNavigate={() => onOpenChange(false)}
+          />
         </div>
         <div className="border-t px-4 py-3 shrink-0">
           <Link href="/notifications" onClick={() => onOpenChange(false)}>

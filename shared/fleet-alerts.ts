@@ -17,7 +17,8 @@ export const DEFAULT_FLEET_GEOFENCE_RADIUS_M = 2000;
 /** Minimum gap between repeat pushes for the same alert type on one vehicle. */
 export const FLEET_ALERT_COOLDOWN_MS = 15 * 60 * 1000;
 
-export const FLEET_ALERT_NOTIFY_ROLES = ["administrator", "supervisor"] as const;
+/** Who receives fleet alert push + in-app notification feed entries (matches Fleet UI access). */
+export const FLEET_ALERT_NOTIFY_ROLES = ["administrator", "supervisor", "control_room"] as const;
 
 export const FLEET_ALERT_LABELS: Record<FleetAlertType, string> = {
   speeding: "Speeding",

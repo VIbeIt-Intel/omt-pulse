@@ -157,8 +157,10 @@ export function resolvePushDeepLink(data: Record<string, unknown> | undefined): 
   }
   if (type === "fleet_alert") {
     const deviceId = data?.deviceId;
+    const alertId = data?.alertId;
     if (deviceId != null && String(deviceId)) {
-      return `/fleet?device=${deviceId}`;
+      const alertQs = alertId != null && String(alertId) ? `&alert=${alertId}` : "";
+      return `/fleet?device=${deviceId}${alertQs}`;
     }
     return "/fleet";
   }

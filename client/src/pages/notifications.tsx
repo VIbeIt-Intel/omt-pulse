@@ -1,12 +1,13 @@
-import { useMemo } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { Bell, ArrowLeft, Radio, CheckCheck } from "lucide-react";
+import { ArrowLeft, Radio, CheckCheck, Check, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { PageHero } from "@/components/page-hero";
 import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import { cn } from "@/lib/utils";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 const LAST_SEEN_KEY = "omt_notif_last_seen";
 
@@ -19,6 +20,9 @@ export type NotificationLog = {
   url: string | null;
   incidentId: number | null;
   createdAt: string;
+  /** Present when this feed item is tied to a fleet alert (for Ack). */
+  fleetAlertId?: number | null;
+  fleetAcknowledgedAt?: string | null;
 };
 
 export function timeAgo(dateStr: string): string {
@@ -45,7 +49,45 @@ export function markAllRead() {
   window.dispatchEvent(new Event("omt_notif_seen"));
 }
 
-export function NotificationList({ notifications, isLoading }: { notifications: NotificationLog[]; isLoading: boolean }) {
+function invalidateFleetAndNotifications(qc: ReturnType<typeof useQueryClient>) {
+  void qc.invalidateQueries({ queryKey: ["/api/notifications"] });
+  void qc.invalidateQueries({
+    predicate: (q) => {
+      const key = q.queryKey[0];
+      return typeof key === "string" && key.startsWith("/api/fleet-alerts");
+    },
+  });
+}
+
+export function NotificationList({
+  notifications,
+  isLoading,
+  onNavigate,
+}: {
+  notifications: NotificationLog[];
+  isLoading: boolean;
+  onNavigate?: () => void;
+}) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [ackingId, setAckingId] = useState<number | null>(null);
+
+  const acknowledgeMutation = useMutation({
+    mutationFn: async (alertId: number) => {
+      setAckingId(alertId);
+      const res = await apiRequest("POST", `/api/fleet-alerts/${alertId}/acknowledge`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      invalidateFleetAndNotifications(qc);
+      toast({ title: "Alert acknowledged" });
+    },
+    onError: (e: Error) => {
+      toast({ title: "Could not acknowledge", description: e.message, variant: "destructive" });
+    },
+    onSettled: () => setAckingId(null),
+  });
+
   const grouped = notifications.reduce<Record<string, NotificationLog[]>>((acc, n) => {
     const day = formatDate(n.createdAt);
     if (!acc[day]) acc[day] = [];
@@ -68,7 +110,9 @@ export function NotificationList({ notifications, isLoading }: { notifications: 
       <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground p-8">
         <CheckCheck className="h-12 w-12 opacity-30" />
         <p className="text-sm font-medium">No notifications in the last 7 days</p>
-        <p className="text-xs text-center">Push alerts from live incidents will appear here.</p>
+        <p className="text-xs text-center">
+          Live incidents, fleet alerts, and other push alerts will appear here.
+        </p>
       </div>
     );
   }
@@ -80,41 +124,71 @@ export function NotificationList({ notifications, isLoading }: { notifications: 
           <div className="px-4 py-2 bg-muted/40 text-xs font-medium text-muted-foreground sticky top-0">
             {day}
           </div>
-          {items.map((n) => (
-            <div
-              key={n.id}
-              className="flex items-start gap-3 px-4 py-3 hover:bg-muted/30 transition-colors"
-              data-testid={`notification-item-${n.id}`}
-            >
-              <div className="mt-0.5 shrink-0 h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-                <Radio className="h-4 w-4 text-primary" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium leading-snug" data-testid={`notification-title-${n.id}`}>
-                  {n.title}
-                </p>
-                <p className="text-xs text-muted-foreground mt-0.5 leading-snug" data-testid={`notification-body-${n.id}`}>
-                  {n.body}
-                </p>
-                {n.url && (
-                  n.url.startsWith("http") ? (
-                    <a href={n.url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline cursor-pointer" data-testid={`notification-link-${n.id}`}>
-                      View →
-                    </a>
-                  ) : (
-                    <Link href={n.url}>
-                      <span className="text-xs text-primary hover:underline cursor-pointer" data-testid={`notification-link-${n.id}`}>
+          {items.map((n) => {
+            const fleetId = n.fleetAlertId ?? null;
+            const fleetAcked = !!n.fleetAcknowledgedAt;
+            const canAck = fleetId != null && !fleetAcked;
+            return (
+              <div
+                key={n.id}
+                className="flex items-start gap-3 px-4 py-3 hover:bg-muted/30 transition-colors"
+                data-testid={`notification-item-${n.id}`}
+              >
+                <div className="mt-0.5 shrink-0 h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+                  <Radio className="h-4 w-4 text-primary" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium leading-snug" data-testid={`notification-title-${n.id}`}>
+                    {n.title}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5 leading-snug" data-testid={`notification-body-${n.id}`}>
+                    {n.body}
+                  </p>
+                  {fleetAcked && (
+                    <p className="text-[10px] font-medium text-emerald-500/90 mt-0.5">Acknowledged</p>
+                  )}
+                  {n.url && (
+                    n.url.startsWith("http") ? (
+                      <a href={n.url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline cursor-pointer" data-testid={`notification-link-${n.id}`}>
                         View →
-                      </span>
-                    </Link>
-                  )
-                )}
+                      </a>
+                    ) : (
+                      <Link href={n.url} onClick={onNavigate}>
+                        <span className="text-xs text-primary hover:underline cursor-pointer" data-testid={`notification-link-${n.id}`}>
+                          View →
+                        </span>
+                      </Link>
+                    )
+                  )}
+                </div>
+                <div className="flex flex-col items-end gap-1.5 shrink-0">
+                  <span className="text-xs text-muted-foreground mt-0.5" data-testid={`notification-time-${n.id}`}>
+                    {timeAgo(n.createdAt)}
+                  </span>
+                  {canAck && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      disabled={ackingId === fleetId && acknowledgeMutation.isPending}
+                      onClick={() => acknowledgeMutation.mutate(fleetId)}
+                      data-testid={`notification-ack-${fleetId}`}
+                    >
+                      {ackingId === fleetId && acknowledgeMutation.isPending ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <>
+                          <Check className="h-3.5 w-3.5 mr-1" />
+                          Ack
+                        </>
+                      )}
+                    </Button>
+                  )}
+                </div>
               </div>
-              <span className="text-xs text-muted-foreground shrink-0 mt-0.5" data-testid={`notification-time-${n.id}`}>
-                {timeAgo(n.createdAt)}
-              </span>
-            </div>
-          ))}
+            );
+          })}
         </div>
       ))}
     </div>
