@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { FleetAlertSummary } from "@shared/schema";
 import { FLEET_ALERT_LABELS, type FleetAlertType } from "@shared/fleet-alerts";
+import { AlertMetaBadges, AcknowledgedPill } from "@/components/alert-meta";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -67,50 +68,60 @@ export function FleetAlertRow({
       >
         <Icon className="h-4 w-4" />
       </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-          <p className={cn("font-medium truncate", compact ? "text-sm" : "text-sm", acknowledged && "text-muted-foreground")}>
+      <div className="min-w-0 flex-1 space-y-1">
+        <div className="flex items-start justify-between gap-2">
+          <p
+            className={cn(
+              "font-medium truncate",
+              compact ? "text-sm" : "text-sm",
+              acknowledged && "text-muted-foreground",
+            )}
+          >
             {vehicleName}
           </p>
-          <span className="text-[10px] font-semibold uppercase text-muted-foreground">
-            {FLEET_ALERT_LABELS[type] ?? alert.alertType}
+          <span className="text-[11px] text-muted-foreground shrink-0 tabular-nums">
+            {formatWhen(alert.triggeredAt.toString())}
           </span>
-          {acknowledged && (
-            <span className="text-[10px] font-medium text-emerald-500/90">Acknowledged</span>
-          )}
         </div>
-        <p className={cn("text-xs mt-0.5 line-clamp-2", acknowledged ? "text-muted-foreground/80" : "text-muted-foreground")}>
+        <p className={cn("text-xs line-clamp-2", acknowledged ? "text-muted-foreground/80" : "text-muted-foreground")}>
           {alert.message}
         </p>
-        <p className="text-[11px] text-muted-foreground mt-1">
-          {formatWhen(alert.triggeredAt.toString())}
-          {acknowledged && alert.acknowledgedAt
-            ? ` · ack ${formatWhen(alert.acknowledgedAt.toString())}`
-            : ""}
-        </p>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 pt-0.5">
+          <AlertMetaBadges category="Fleet" alertType={type} />
+          {acknowledged ? (
+            <AcknowledgedPill
+              acknowledgedAt={alert.acknowledgedAt}
+              formatWhen={formatWhen}
+            />
+          ) : onAcknowledge ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-6 px-2 text-[11px] gap-1 border-border/80 bg-background/60 hover:bg-muted/60"
+              disabled={acknowledging}
+              onClick={(e) => {
+                e.stopPropagation();
+                onAcknowledge();
+              }}
+            >
+              {acknowledging ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <>
+                  <Check className="h-3 w-3" strokeWidth={2.5} />
+                  Acknowledge
+                </>
+              )}
+            </Button>
+          ) : null}
+        </div>
+        {!compact && (
+          <p className="text-[11px] text-muted-foreground">
+            {FLEET_ALERT_LABELS[type] ?? alert.alertType}
+          </p>
+        )}
       </div>
-      {onAcknowledge && !acknowledged && (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="shrink-0 h-8 px-2.5"
-          disabled={acknowledging}
-          onClick={(e) => {
-            e.stopPropagation();
-            onAcknowledge();
-          }}
-        >
-          {acknowledging ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <>
-              <Check className="h-3.5 w-3.5 mr-1" />
-              Ack
-            </>
-          )}
-        </Button>
-      )}
     </div>
   );
 

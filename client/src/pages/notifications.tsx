@@ -1,13 +1,25 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { ArrowLeft, Radio, CheckCheck, Check, Loader2 } from "lucide-react";
+import {
+  ArrowLeft,
+  Radio,
+  CheckCheck,
+  Check,
+  Loader2,
+  Gauge,
+  Clock,
+  WifiOff,
+  MapPin,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHero } from "@/components/page-hero";
 import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { AlertMetaBadges, AcknowledgedPill } from "@/components/alert-meta";
+import { isFleetAlertType, type FleetAlertType } from "@shared/fleet-alerts";
 
 const LAST_SEEN_KEY = "omt_notif_last_seen";
 
@@ -23,6 +35,23 @@ export type NotificationLog = {
   /** Present when this feed item is tied to a fleet alert (for Ack). */
   fleetAlertId?: number | null;
   fleetAcknowledgedAt?: string | null;
+  fleetAlertType?: string | null;
+};
+
+const FLEET_ICONS: Record<FleetAlertType, typeof Gauge> = {
+  speeding: Gauge,
+  idle: Clock,
+  offline: WifiOff,
+  geofence_enter: MapPin,
+  geofence_leave: MapPin,
+};
+
+const FLEET_ICON_COLORS: Record<FleetAlertType, string> = {
+  speeding: "text-red-400 bg-red-950/40 border-red-800/50",
+  idle: "text-amber-400 bg-amber-950/40 border-amber-800/50",
+  offline: "text-slate-400 bg-slate-900/60 border-slate-700/50",
+  geofence_enter: "text-blue-400 bg-blue-950/40 border-blue-800/50",
+  geofence_leave: "text-orange-400 bg-orange-950/40 border-orange-800/50",
 };
 
 export function timeAgo(dateStr: string): string {
@@ -57,6 +86,13 @@ function invalidateFleetAndNotifications(qc: ReturnType<typeof useQueryClient>) 
       return typeof key === "string" && key.startsWith("/api/fleet-alerts");
     },
   });
+}
+
+function notificationCategory(n: NotificationLog): string {
+  if (n.fleetAlertId != null) return "Fleet";
+  if (n.incidentId != null) return "Incident";
+  if (n.url?.includes("live") || n.url?.includes("panic")) return "Live";
+  return "Alert";
 }
 
 export function NotificationList({
@@ -118,7 +154,7 @@ export function NotificationList({
   }
 
   return (
-    <div className="divide-y">
+    <div className="divide-y divide-border/60">
       {Object.entries(grouped).map(([day, items]) => (
         <div key={day}>
           <div className="px-4 py-2 bg-muted/40 text-xs font-medium text-muted-foreground sticky top-0">
@@ -128,62 +164,110 @@ export function NotificationList({
             const fleetId = n.fleetAlertId ?? null;
             const fleetAcked = !!n.fleetAcknowledgedAt;
             const canAck = fleetId != null && !fleetAcked;
+            const isAcking = ackingId === fleetId && acknowledgeMutation.isPending;
+            const category = notificationCategory(n);
+            const alertType = isFleetAlertType(n.fleetAlertType) ? n.fleetAlertType : null;
+            const Icon = alertType ? FLEET_ICONS[alertType] : Radio;
+            const iconClass = fleetAcked
+              ? "text-muted-foreground bg-muted/40 border-border/60"
+              : alertType
+                ? FLEET_ICON_COLORS[alertType]
+                : "text-primary bg-primary/10 border-primary/20";
+
             return (
               <div
                 key={n.id}
-                className="flex items-start gap-3 px-4 py-3 hover:bg-muted/30 transition-colors"
+                className={cn(
+                  "flex items-start gap-3 px-4 py-3.5 hover:bg-muted/30 transition-colors",
+                  fleetAcked && "opacity-90",
+                )}
                 data-testid={`notification-item-${n.id}`}
               >
-                <div className="mt-0.5 shrink-0 h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-                  <Radio className="h-4 w-4 text-primary" />
+                <div
+                  className={cn(
+                    "mt-0.5 shrink-0 h-8 w-8 rounded-lg border flex items-center justify-center",
+                    iconClass,
+                  )}
+                >
+                  <Icon className="h-4 w-4" />
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium leading-snug" data-testid={`notification-title-${n.id}`}>
-                    {n.title}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-0.5 leading-snug" data-testid={`notification-body-${n.id}`}>
+                <div className="flex-1 min-w-0 space-y-1.5">
+                  <div className="flex items-start justify-between gap-3">
+                    <p
+                      className={cn(
+                        "text-sm font-medium leading-snug",
+                        fleetAcked && "text-muted-foreground",
+                      )}
+                      data-testid={`notification-title-${n.id}`}
+                    >
+                      {n.title}
+                    </p>
+                    <span
+                      className="text-[11px] text-muted-foreground shrink-0 mt-0.5 tabular-nums"
+                      data-testid={`notification-time-${n.id}`}
+                    >
+                      {timeAgo(n.createdAt)}
+                    </span>
+                  </div>
+                  <p
+                    className={cn(
+                      "text-xs leading-snug",
+                      fleetAcked ? "text-muted-foreground/80" : "text-muted-foreground",
+                    )}
+                    data-testid={`notification-body-${n.id}`}
+                  >
                     {n.body}
                   </p>
-                  {fleetAcked && (
-                    <p className="text-[10px] font-medium text-emerald-500/90 mt-0.5">Acknowledged</p>
-                  )}
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 pt-0.5">
+                    <AlertMetaBadges category={category} alertType={alertType} />
+                    {fleetAcked && (
+                      <AcknowledgedPill
+                        acknowledgedAt={n.fleetAcknowledgedAt}
+                        formatWhen={timeAgo}
+                      />
+                    )}
+                    {canAck && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-6 px-2 text-[11px] gap-1 border-border/80 bg-background/60 hover:bg-muted/60"
+                        disabled={isAcking}
+                        onClick={() => acknowledgeMutation.mutate(fleetId)}
+                        data-testid={`notification-ack-${fleetId}`}
+                      >
+                        {isAcking ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <>
+                            <Check className="h-3 w-3" strokeWidth={2.5} />
+                            Acknowledge
+                          </>
+                        )}
+                      </Button>
+                    )}
+                  </div>
                   {n.url && (
                     n.url.startsWith("http") ? (
-                      <a href={n.url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline cursor-pointer" data-testid={`notification-link-${n.id}`}>
+                      <a
+                        href={n.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-block text-xs text-primary hover:underline cursor-pointer"
+                        data-testid={`notification-link-${n.id}`}
+                      >
                         View →
                       </a>
                     ) : (
                       <Link href={n.url} onClick={onNavigate}>
-                        <span className="text-xs text-primary hover:underline cursor-pointer" data-testid={`notification-link-${n.id}`}>
+                        <span
+                          className="inline-block text-xs text-primary hover:underline cursor-pointer"
+                          data-testid={`notification-link-${n.id}`}
+                        >
                           View →
                         </span>
                       </Link>
                     )
-                  )}
-                </div>
-                <div className="flex flex-col items-end gap-1.5 shrink-0">
-                  <span className="text-xs text-muted-foreground mt-0.5" data-testid={`notification-time-${n.id}`}>
-                    {timeAgo(n.createdAt)}
-                  </span>
-                  {canAck && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-7 px-2 text-xs"
-                      disabled={ackingId === fleetId && acknowledgeMutation.isPending}
-                      onClick={() => acknowledgeMutation.mutate(fleetId)}
-                      data-testid={`notification-ack-${fleetId}`}
-                    >
-                      {ackingId === fleetId && acknowledgeMutation.isPending ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <>
-                          <Check className="h-3.5 w-3.5 mr-1" />
-                          Ack
-                        </>
-                      )}
-                    </Button>
                   )}
                 </div>
               </div>

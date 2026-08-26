@@ -1490,6 +1490,7 @@ export async function registerRoutes(
     type FeedItem = (typeof logs)[number] & {
       fleetAlertId?: number | null;
       fleetAcknowledgedAt?: string | Date | null;
+      fleetAlertType?: string | null;
     };
 
     const coveredAlertIds = new Set<number>();
@@ -1504,6 +1505,7 @@ export async function registerRoutes(
             ...log,
             fleetAlertId: fleet.id,
             fleetAcknowledgedAt: fleet.acknowledgedAt ?? null,
+            fleetAlertType: fleet.alertType,
           };
         }
         return log;
@@ -1526,6 +1528,7 @@ export async function registerRoutes(
               ...log,
               fleetAlertId: fleet.id,
               fleetAcknowledgedAt: fleet.acknowledgedAt ?? null,
+              fleetAlertType: fleet.alertType,
             };
           }
         }
@@ -1547,6 +1550,7 @@ export async function registerRoutes(
         createdAt: alert.triggeredAt,
         fleetAlertId: alert.id,
         fleetAcknowledgedAt: alert.acknowledgedAt ?? null,
+        fleetAlertType: alert.alertType,
       });
     }
 

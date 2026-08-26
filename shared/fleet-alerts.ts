@@ -27,3 +27,44 @@ export const FLEET_ALERT_LABELS: Record<FleetAlertType, string> = {
   geofence_enter: "Entered geofence",
   geofence_leave: "Left geofence",
 };
+
+/** Short uppercase type codes for compact UI badges. */
+export const FLEET_ALERT_TYPE_CODES: Record<FleetAlertType, string> = {
+  speeding: "SPEEDING",
+  idle: "IDLE",
+  offline: "OFFLINE",
+  geofence_enter: "GEOFENCE",
+  geofence_leave: "GEOFENCE",
+};
+
+/** Derived severity for display (not stored on alerts yet). */
+export const FLEET_ALERT_SEVERITIES = ["high", "medium", "info"] as const;
+export type FleetAlertSeverity = (typeof FLEET_ALERT_SEVERITIES)[number];
+
+export const FLEET_ALERT_SEVERITY: Record<FleetAlertType, FleetAlertSeverity> = {
+  speeding: "high",
+  idle: "medium",
+  offline: "medium",
+  geofence_enter: "info",
+  geofence_leave: "medium",
+};
+
+export const FLEET_ALERT_SEVERITY_LABELS: Record<FleetAlertSeverity, string> = {
+  high: "High",
+  medium: "Medium",
+  info: "Info",
+};
+
+export function isFleetAlertType(value: string | null | undefined): value is FleetAlertType {
+  return !!value && (FLEET_ALERT_TYPES as readonly string[]).includes(value);
+}
+
+export function getFleetAlertTypeCode(alertType: string | null | undefined): string | null {
+  if (!isFleetAlertType(alertType)) return null;
+  return FLEET_ALERT_TYPE_CODES[alertType];
+}
+
+export function getFleetAlertSeverity(alertType: string | null | undefined): FleetAlertSeverity | null {
+  if (!isFleetAlertType(alertType)) return null;
+  return FLEET_ALERT_SEVERITY[alertType];
+}
