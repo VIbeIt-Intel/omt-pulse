@@ -37,7 +37,12 @@ import { FleetVehiclePhoto } from "@/components/fleet/fleet-vehicle-photo";
 import { FleetBatteryMeter } from "@/components/fleet/fleet-battery-meter";
 import { FleetAlertsPanel } from "@/components/fleet/fleet-alerts-panel";
 import { FleetAlertRulesForm } from "@/components/fleet/fleet-alert-rules-form";
-import { GeoLocationSheet, type GeoMapView } from "@/components/incident-location-sheet";
+import {
+  GeoLocationSheet,
+  GeoMapPreview,
+  formatCoordLabel,
+  type GeoMapView,
+} from "@/components/incident-location-sheet";
 import type { TrackerDeviceSummary } from "@/components/operations-dashboard";
 import type { ResolvedFleetAlertRules } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
@@ -62,6 +67,10 @@ import {
   vehicleDisplayName,
 } from "@/lib/fleet-intelligence";
 import { cn } from "@/lib/utils";
+
+function mapsUrl(lat: number, lng: number): string {
+  return `https://www.google.com/maps?q=${lat},${lng}`;
+}
 
 type OrgUser = { id: string; firstName: string; lastName: string; role: string };
 type Command = { id: number; name: string; isCentral: boolean };
@@ -366,6 +375,21 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
   }
 
   const displayPhotoUrl = form.vehiclePhotoUrl;
+  const hasCurrentGps =
+    device.lastLat != null
+    && device.lastLng != null
+    && Number.isFinite(device.lastLat)
+    && Number.isFinite(device.lastLng)
+    && !(Math.abs(device.lastLat) < 0.0001 && Math.abs(device.lastLng) < 0.0001);
+
+  const openCurrentLocationMap = () => {
+    if (!hasCurrentGps) return;
+    setMapPin({
+      lat: device.lastLat!,
+      lng: device.lastLng!,
+      title: `${vehicleTitle(device)} — current location`,
+    });
+  };
 
   return (
     <div className="space-y-4">
@@ -442,19 +466,13 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
               </p>
               <p className="text-[9px] text-muted-foreground">km total</p>
             </div>
-            {device.lastLat != null && device.lastLng != null && (
+            {hasCurrentGps && (
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 className="h-auto self-stretch py-2 text-xs"
-                onClick={() =>
-                  setMapPin({
-                    lat: device.lastLat!,
-                    lng: device.lastLng!,
-                    title: `${vehicleTitle(device)} — last position`,
-                  })
-                }
+                onClick={openCurrentLocationMap}
               >
                 <MapPin className="h-3.5 w-3.5 mr-1" />
                 Map
@@ -462,6 +480,82 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
             )}
           </div>
         </div>
+      </Card>
+
+      <Card className="overflow-hidden" data-testid="fleet-current-location">
+        <div className="px-4 py-3 border-b flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
+            <div className="min-w-0">
+              <p className="text-sm font-medium">Current location</p>
+              {hasCurrentGps ? (
+                <p className="text-[11px] text-muted-foreground font-mono truncate">
+                  {formatCoordLabel(device.lastLat!, device.lastLng!)}
+                  {device.lastPositionAt
+                    ? ` · ${formatFreshnessAgo(device.lastPositionAt)}`
+                    : ""}
+                </p>
+              ) : (
+                <p className="text-[11px] text-muted-foreground">
+                  No GPS fix for this vehicle yet
+                </p>
+              )}
+            </div>
+          </div>
+          {hasCurrentGps && (
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs"
+                onClick={() =>
+                  window.open(
+                    mapsUrl(device.lastLat!, device.lastLng!),
+                    "_blank",
+                    "noopener,noreferrer",
+                  )
+                }
+              >
+                Open in Maps
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs"
+                onClick={openCurrentLocationMap}
+              >
+                Expand
+              </Button>
+            </div>
+          )}
+        </div>
+        {hasCurrentGps ? (
+          <GeoMapPreview
+            lat={device.lastLat!}
+            lng={device.lastLng!}
+            label={`${vehicleTitle(device)} — current location`}
+            open
+            className="min-h-[220px] sm:min-h-[260px] rounded-none border-0"
+            testId="fleet-vehicle-current-map"
+          />
+        ) : (
+          <div className="px-4 py-8 sm:py-10 text-center space-y-2 max-w-lg mx-auto">
+            <p className="text-sm text-muted-foreground">
+              {device.lastSeenAt
+                ? "Tracker is online but has not sent a GPS fix yet (common when ignition is off)."
+                : "Waiting for the first GPS position from this tracker."}
+            </p>
+            {device.lastSeenAt && (
+              <p className="text-xs text-muted-foreground">
+                SMS the tracker SIM: <span className="font-mono">WHERE,000000#</span> then{" "}
+                <span className="font-mono">TIMER,30,60#</span> so it reports while parked. Or turn
+                ignition on outdoors once.
+              </p>
+            )}
+          </div>
+        )}
       </Card>
 
       <Card className="p-4 sm:p-5">
@@ -556,9 +650,14 @@ export function FleetVehicleDetail({ device, users, commands, onBack }: FleetVeh
         <TabsContent value="travel" className="space-y-4 mt-0">
           <Card className="overflow-hidden">
             <div className="px-4 py-3 border-b flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <Radio className="h-4 w-4 text-muted-foreground" />
-                <p className="text-sm font-medium">Route map</p>
+              <div className="flex items-center gap-2 min-w-0">
+                <Radio className="h-4 w-4 text-muted-foreground shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">Route map</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Day history · not live position
+                  </p>
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <p className="text-xs text-muted-foreground hidden sm:inline">Last 30 days</p>
