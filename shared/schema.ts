@@ -1108,6 +1108,11 @@ export const companyAssets = pgTable("company_assets", {
   lastLng: doublePrecision("last_lng"),
   lastBatteryPercent: integer("last_battery_percent"),
   lastSeenAt: timestamp("last_seen_at"),
+  /** Secret held by the tracker app after enrolment. */
+  deviceToken: text("device_token").unique(),
+  enrolmentCode: text("enrolment_code"),
+  enrolmentExpiresAt: timestamp("enrolment_expires_at"),
+  enrolledAt: timestamp("enrolled_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -1119,6 +1124,10 @@ export const insertCompanyAssetSchema = createInsertSchema(companyAssets).omit({
   lastLng: true,
   lastBatteryPercent: true,
   lastSeenAt: true,
+  deviceToken: true,
+  enrolmentCode: true,
+  enrolmentExpiresAt: true,
+  enrolledAt: true,
 });
 export type InsertCompanyAsset = z.infer<typeof insertCompanyAssetSchema>;
 export type CompanyAsset = typeof companyAssets.$inferSelect;

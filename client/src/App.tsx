@@ -54,6 +54,7 @@ import OnboardingPage from "@/pages/onboarding";
 import InvitePage from "@/pages/invite";
 import LandingPage from "@/pages/landing";
 import EnableAlertsPage from "@/pages/enable-alerts";
+import AssetTrackerPage from "@/pages/asset-tracker";
 import PrivacyPage from "@/pages/privacy";
 import NotificationsPage from "@/pages/notifications";
 import ChatPage from "@/pages/chat";
@@ -77,6 +78,7 @@ import { SetupWizardController } from "@/components/setup-wizard";
 import { isDispatchStaff, canUseLiveIncidentWorkflow } from "@shared/user-roles";
 import { Capacitor } from "@capacitor/core";
 import { clearCachedAuthUser } from "@/lib/auth-cache";
+import { getAssetTrackerToken } from "@/lib/asset-tracker";
 import { fetchAuthMe } from "@/lib/auth-me";
 import type { AuthUser } from "@/lib/auth-user";
 
@@ -1029,6 +1031,7 @@ function UnauthenticatedApp() {
       <Route path="/privacy" component={PrivacyPage} />
       <Route path="/positions/enrol" component={WorkstationEnrolPage} />
       <Route path="/workstation/enrol" component={WorkstationEnrolPage} />
+      <Route path="/asset-tracker" component={AssetTrackerPage} />
       <Route component={RedirectToLogin} />
     </Switch>
   );
@@ -1115,6 +1118,9 @@ function AppRouter() {
   if (location.startsWith("/positions/enrol") || location.startsWith("/workstation/enrol")) {
     return <WorkstationEnrolPage />;
   }
+  if (location.startsWith("/asset-tracker")) {
+    return <AssetTrackerPage />;
+  }
   return <AppContent />;
 }
 
@@ -1144,6 +1150,12 @@ function RootRouter() {
   }
   if (location.startsWith("/positions/enrol") || location.startsWith("/workstation/enrol")) {
     return <WorkstationEnrolPage />;
+  }
+  if (location.startsWith("/asset-tracker")) {
+    return <AssetTrackerPage />;
+  }
+  if (!isLoading && !user && isCapacitorNative() && getAssetTrackerToken() && location === "/") {
+    return <AssetTrackerPage />;
   }
 
   // Login and register are public — no install gate.

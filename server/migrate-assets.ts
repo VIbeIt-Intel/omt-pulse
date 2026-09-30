@@ -35,4 +35,20 @@ export async function migrateAssets(): Promise<void> {
   await safe("company_assets.command_idx", sql`
     CREATE INDEX IF NOT EXISTS company_assets_command_idx ON company_assets (command_id)
   `);
+  await safe("company_assets.device_token", sql`
+    ALTER TABLE company_assets ADD COLUMN IF NOT EXISTS device_token TEXT
+  `);
+  await safe("company_assets.enrolment_code", sql`
+    ALTER TABLE company_assets ADD COLUMN IF NOT EXISTS enrolment_code TEXT
+  `);
+  await safe("company_assets.enrolment_expires_at", sql`
+    ALTER TABLE company_assets ADD COLUMN IF NOT EXISTS enrolment_expires_at TIMESTAMP
+  `);
+  await safe("company_assets.enrolled_at", sql`
+    ALTER TABLE company_assets ADD COLUMN IF NOT EXISTS enrolled_at TIMESTAMP
+  `);
+  await safe("company_assets.device_token_idx", sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS company_assets_device_token_idx
+    ON company_assets (device_token) WHERE device_token IS NOT NULL
+  `);
 }

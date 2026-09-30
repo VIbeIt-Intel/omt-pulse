@@ -1134,6 +1134,9 @@ const AUTH_WHITELIST = [
   "/workstations/shift-logout",
   "/workstations/unenrol",
   "/workstations/heartbeat",
+  "/assets/enrol",
+  "/assets/heartbeat",
+  "/assets/tracker",
 ];
 
 const SUBSCRIPTION_WHITELIST = [

@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
-import { Lock, Eye, EyeOff, Mail, ArrowLeft, MonitorSmartphone } from "lucide-react";
+import { Lock, Eye, EyeOff, Mail, ArrowLeft, MonitorSmartphone, TabletSmartphone } from "lucide-react";
 import { HeartbeatLine } from "@/components/heartbeat-line";
 import { OmtShield } from "@/components/omt-shield";
 import { Button } from "@/components/ui/button";
@@ -201,6 +201,14 @@ export default function LoginPage() {
                 >
                   <MonitorSmartphone className="h-4 w-4" />
                   Enrol dedicated device
+                </Link>
+                <Link
+                  href="/asset-tracker"
+                  className="mt-3 flex items-center justify-center gap-2 text-sm text-primary hover:underline"
+                  data-testid="link-asset-tracker"
+                >
+                  <TabletSmartphone className="h-4 w-4" />
+                  Track a company asset
                 </Link>
               </div>
               <p className="mt-3 text-center text-xs text-muted-foreground">
