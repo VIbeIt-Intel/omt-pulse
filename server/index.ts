@@ -14,6 +14,7 @@ import { migrateAccessControl } from "./migrate-access-control";
 import { migrateBillingRates } from "./migrate-billing-rates";
 import { migratePatrol } from "./migrate-patrol";
 import { migrateFleetAlerts } from "./migrate-fleet-alerts";
+import { migrateAssets } from "./migrate-assets";
 import { migrateCctv } from "./cctv/migrate-cctv";
 import { migrateSecuritySurvey } from "./security-survey/migrate";
 import { migrateWorkstations } from "./migrate-workstations";
@@ -376,6 +377,7 @@ app.use((req, res, next) => {
   await migrateBillingRates().catch((err) => console.error("Billing rates migration error:", err));
   await migratePatrol().catch((err) => console.error("Patrol migration error:", err));
   await migrateFleetAlerts().catch((err) => console.error("Fleet alerts migration error:", err));
+  await migrateAssets().catch((err) => console.error("Assets migration error:", err));
   await migrateCctv().catch((err) => console.error("CCTV migration error:", err));
   await migrateSecuritySurvey().catch((err) => console.error("Security survey migration error:", err));
   await migrateWorkstations().catch((err) => console.error("Workstations migration error:", err));

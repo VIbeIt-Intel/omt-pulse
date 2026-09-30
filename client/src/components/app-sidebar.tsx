@@ -1,4 +1,4 @@
-import { BookOpen, Settings, BarChart3, LogOut, Users, Upload, Bell, Radio, LayoutDashboard, MessageSquare, Shield, Network, Car, ShieldCheck, Footprints, ChevronRight, Building2, Video, ClipboardList } from "lucide-react";
+import { BookOpen, Settings, BarChart3, LogOut, Users, Upload, Bell, Radio, LayoutDashboard, MessageSquare, Shield, Network, Car, Package, ShieldCheck, Footprints, ChevronRight, Building2, Video, ClipboardList } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useLocation, Link } from "wouter";
 import { HeartbeatLine } from "@/components/heartbeat-line";
@@ -230,6 +230,7 @@ function getNavItems(role: string, isSuperadmin: boolean): {
     primary.push({ title: "Analytics", url: "/analytics", icon: BarChart3 });
     primary.push({ title: "Live Monitor", url: "/live-monitor", icon: Radio });
     primary.push({ title: "Fleet", url: "/fleet", icon: Car });
+    primary.push({ title: "Assets", url: "/assets", icon: Package });
     primary.push({ title: "Cameras", url: "/cctv", icon: Video });
   }
   if (canUseLiveIncidentWorkflow(role) && !isDispatchStaff(role)) {

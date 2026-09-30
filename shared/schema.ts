@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { pgTable, text, varchar, integer, timestamp, doublePrecision, serial, boolean, jsonb, unique, date, bigint } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+import type { AssetType } from "./assets";
 import type { WorkstationType } from "./workstations";
 
 export const organizations = pgTable("organizations", {
@@ -1092,3 +1093,32 @@ export const surveyFindingPhotos = pgTable("survey_finding_photos", {
 });
 
 export type SurveyFindingPhoto = typeof surveyFindingPhotos.$inferSelect;
+
+/** Company property (tablets, plant, cases) registered for asset tracking. */
+export const companyAssets = pgTable("company_assets", {
+  id: serial("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  commandId: integer("command_id").references(() => commands.id, { onDelete: "set null" }),
+  name: text("name").notNull(),
+  assetType: text("asset_type").$type<AssetType>().notNull().default("tablet"),
+  assetTag: text("asset_tag"),
+  notes: text("notes"),
+  assignedUserId: varchar("assigned_user_id").references(() => users.id, { onDelete: "set null" }),
+  lastLat: doublePrecision("last_lat"),
+  lastLng: doublePrecision("last_lng"),
+  lastBatteryPercent: integer("last_battery_percent"),
+  lastSeenAt: timestamp("last_seen_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertCompanyAssetSchema = createInsertSchema(companyAssets).omit({
+  id: true,
+  createdAt: true,
+  organizationId: true,
+  lastLat: true,
+  lastLng: true,
+  lastBatteryPercent: true,
+  lastSeenAt: true,
+});
+export type InsertCompanyAsset = z.infer<typeof insertCompanyAssetSchema>;
+export type CompanyAsset = typeof companyAssets.$inferSelect;
