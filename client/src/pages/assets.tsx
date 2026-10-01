@@ -4,6 +4,7 @@ import { useLocation, useSearch } from "wouter";
 import { ArrowLeft, ChevronRight, Copy, Package, Plus, Smartphone, Trash2, User } from "lucide-react";
 import { ASSET_TYPE_LABELS, type AssetType } from "@shared/assets";
 import { AssetAddSheet } from "@/components/assets/asset-add-sheet";
+import { GeoMapPreview } from "@/components/incident-location-sheet";
 import { PageHero } from "@/components/page-hero";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -68,6 +69,26 @@ function formatLastSeen(value: string | null): string {
   const hours = Math.round(mins / 60);
   if (hours < 48) return `${hours} h ago`;
   return `${Math.round(hours / 24)} d ago`;
+}
+
+function formatTrackedClock(value: string | null): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  return date.toLocaleString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function lastTrackedLabel(value: string | null): string {
+  if (!value) return "Not tracked yet";
+  const relative = formatLastSeen(value);
+  if (relative === "Not reporting") return "Not tracked yet";
+  return `Last tracked ${relative.charAt(0).toLowerCase()}${relative.slice(1)}`;
 }
 
 export default function AssetsPage() {
@@ -213,7 +234,7 @@ export default function AssetsPage() {
             )}
           </Card>
         ) : selected ? (
-          <Card className="p-5 space-y-5 max-w-xl" data-testid="asset-detail">
+          <Card className="p-5 space-y-5 max-w-4xl" data-testid="asset-detail">
             <Button variant="ghost" size="sm" className="-ml-2 h-8" onClick={closeAsset}>
               <ArrowLeft className="h-4 w-4 mr-1" />
               Assets
@@ -226,24 +247,31 @@ export default function AssetsPage() {
               </p>
             </div>
             <div className="space-y-2 text-sm">
-              <p>{formatLastSeen(selected.lastSeenAt)}</p>
+              <div>
+                <p className="font-medium">{lastTrackedLabel(selected.lastSeenAt)}</p>
+                {formatTrackedClock(selected.lastSeenAt) && (
+                  <p className="text-muted-foreground">{formatTrackedClock(selected.lastSeenAt)}</p>
+                )}
+              </div>
               <p className="flex items-center gap-1.5 text-muted-foreground">
                 <User className="h-3.5 w-3.5 shrink-0" />
                 {selected.assignedUserName ?? "Unassigned"}
               </p>
               {selected.commandName && <p className="text-muted-foreground">{selected.commandName}</p>}
               {selected.notes && <p className="text-muted-foreground whitespace-pre-wrap">{selected.notes}</p>}
-              {selected.lastLat != null && selected.lastLng != null && (
-                <a
-                  className="inline-flex text-primary hover:underline"
-                  href={`https://www.google.com/maps?q=${selected.lastLat},${selected.lastLng}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  View last position
-                </a>
-              )}
             </div>
+            {selected.lastLat != null && selected.lastLng != null ? (
+              <GeoMapPreview
+                lat={selected.lastLat}
+                lng={selected.lastLng}
+                label={`${selected.name} — last tracked`}
+                open
+                className="h-[320px] min-h-[280px] rounded-lg"
+                testId="asset-last-position-map"
+              />
+            ) : (
+              <p className="text-sm text-muted-foreground">No position recorded yet.</p>
+            )}
             {canManage && (
               <div className="flex flex-wrap gap-2">
                 <Button
@@ -282,8 +310,11 @@ export default function AssetsPage() {
                   </div>
                   <div className="space-y-1 text-sm">
                     <p className={asset.lastSeenAt ? "text-foreground" : "text-muted-foreground"}>
-                      {formatLastSeen(asset.lastSeenAt)}
+                      {lastTrackedLabel(asset.lastSeenAt)}
                     </p>
+                    {formatTrackedClock(asset.lastSeenAt) && (
+                      <p className="text-xs text-muted-foreground">{formatTrackedClock(asset.lastSeenAt)}</p>
+                    )}
                     <p className="flex items-center gap-1.5 text-muted-foreground truncate">
                       <User className="h-3.5 w-3.5 shrink-0" />
                       <span className="truncate">{asset.assignedUserName ?? "Unassigned"}</span>
