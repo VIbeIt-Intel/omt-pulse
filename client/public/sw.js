@@ -1,4 +1,4 @@
-const CACHE_NAME = "omt-v303";
+const CACHE_NAME = "omt-v304";
 
 // When the page asks us to nuke everything (after a new deploy), wipe all
 // caches and tell every controlled tab to reload. The page also unregisters
@@ -81,6 +81,13 @@ self.addEventListener("fetch", (event) => {
 
   // Always fetch a fresh service worker script so CACHE_NAME bumps propagate.
   if (url.pathname === "/sw.js") {
+    event.respondWith(fetch(event.request));
+    return;
+  }
+
+  // File downloads must hit the network. A navigate to the tracker APK would
+  // otherwise be replaced with the sign-in shell.
+  if (url.pathname.endsWith(".apk")) {
     event.respondWith(fetch(event.request));
     return;
   }

@@ -1137,6 +1137,7 @@ const AUTH_WHITELIST = [
   "/assets/enrol",
   "/assets/heartbeat",
   "/assets/tracker",
+  "/assets/tracker-app",
 ];
 
 const SUBSCRIPTION_WHITELIST = [

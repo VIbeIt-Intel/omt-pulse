@@ -1,3 +1,5 @@
+import fs from "fs";
+import path from "path";
 import type { Express, Request, Response } from "express";
 import { z } from "zod";
 import { and, eq } from "drizzle-orm";
@@ -64,10 +66,27 @@ function latestFix(body: unknown): z.infer<typeof fixSchema> | null {
   return one.success ? one.data : null;
 }
 
+function trackerAppPath(): string | null {
+  const candidates = [
+    path.resolve(__dirname, "public", "omt-tracker.apk"),
+    path.resolve(process.cwd(), "dist", "public", "omt-tracker.apk"),
+  ];
+  return candidates.find((candidate) => fs.existsSync(candidate)) ?? null;
+}
+
 export function registerAssetRoutes(
   app: Express,
   getCommandScope: (req: Request) => Promise<AssetCommandScope>,
 ) {
+  app.get("/api/assets/tracker-app", (_req, res) => {
+    const file = trackerAppPath();
+    if (!file) return res.status(404).json({ message: "Tracker app is not available" });
+    res.setHeader("Content-Type", "application/vnd.android.package-archive");
+    res.setHeader("Content-Disposition", 'attachment; filename="omt-tracker.apk"');
+    res.setHeader("Cache-Control", "no-cache");
+    res.sendFile(file);
+  });
+
   app.get("/api/assets", async (req, res) => {
     if (!requireDispatch(req, res)) return;
     const { organizationId } = req.currentUser!;

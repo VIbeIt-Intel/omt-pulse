@@ -337,7 +337,7 @@ export default function AssetsPage() {
           <DialogHeader>
             <DialogTitle>Tracker code for {trackerCode?.assetName}</DialogTitle>
             <DialogDescription>
-              On the tablet, open omtpulse.com/asset-tracker and enter this code. It expires in 48 hours.
+              On the tablet, open omtpulse.com/api/assets/tracker-app to install OMT Tracker, then enter this code. The tablet keeps reporting after you leave the app. The code expires in 48 hours.
               {trackerCode?.trackerLinked
                 ? " Entering it on a tablet links that tablet and replaces the previous tracker."
                 : ""}

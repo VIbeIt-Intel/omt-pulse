@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">OMT Tracker</string>
+    <string name="notification_title">OMT asset location</string>
+    <string name="notification_text">Sharing this tablet\'s location</string>
+    <string name="channel_name">Asset location</string>
+</resources>
