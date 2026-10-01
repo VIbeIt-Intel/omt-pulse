@@ -3,11 +3,8 @@ package com.intelafri.omttracker;
 import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.PowerManager;
-import android.provider.Settings;
 import android.text.TextUtils;
 import android.view.View;
 import android.widget.Button;
@@ -28,7 +25,6 @@ import java.util.concurrent.Executors;
 
 public class MainActivity extends AppCompatActivity {
     private static final int REQ_RUNTIME = 41;
-    private static final int REQ_BACKGROUND = 42;
 
     private final ExecutorService network = Executors.newSingleThreadExecutor();
     private TextView statusView;
@@ -77,7 +73,7 @@ public class MainActivity extends AppCompatActivity {
         String name = TrackerStore.name(this);
         StringBuilder text = new StringBuilder();
         text.append("Reporting as ").append(TextUtils.isEmpty(name) ? "this asset" : name).append(".\n\n");
-        text.append("You can leave this screen. Tracking continues while the location notification is showing.");
+        text.append("You can leave this screen. Tracking continues while the location notification is showing. After a restart, open OMT Tracker once.");
         long sent = TrackerStore.lastSentAt(this);
         if (sent > 0) {
             text.append("\n\nLast sent ")
@@ -112,7 +108,6 @@ public class MainActivity extends AppCompatActivity {
                     enrolling = false;
                     enrolButton.setEnabled(true);
                     TrackerStore.saveEnrolment(this, result.deviceToken, result.name);
-                    askBackgroundAndBattery();
                     TrackerService.start(this);
                     render();
                 });
@@ -148,29 +143,6 @@ public class MainActivity extends AppCompatActivity {
         return false;
     }
 
-    private void askBackgroundAndBattery() {
-        if (Build.VERSION.SDK_INT >= 29
-                && ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED
-                && hasForegroundLocation()) {
-            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.ACCESS_BACKGROUND_LOCATION}, REQ_BACKGROUND);
-            return;
-        }
-        askBatteryExemption();
-    }
-
-    private void askBatteryExemption() {
-        PowerManager power = (PowerManager) getSystemService(POWER_SERVICE);
-        if (power != null && !power.isIgnoringBatteryOptimizations(getPackageName())) {
-            Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
-            intent.setData(Uri.parse("package:" + getPackageName()));
-            try {
-                startActivity(intent);
-            } catch (Exception ignored) {
-                // Some tablets hide this screen. The foreground service still runs.
-            }
-        }
-    }
-
     private boolean hasForegroundLocation() {
         return ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
                 || ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
@@ -181,9 +153,6 @@ public class MainActivity extends AppCompatActivity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == REQ_RUNTIME && hasForegroundLocation()) {
             enrol();
-        }
-        if (requestCode == REQ_BACKGROUND) {
-            askBatteryExemption();
         }
         render();
     }
