@@ -2,6 +2,12 @@ plugins {
     id "com.android.application"
 }
 
+def keystoreProps = new Properties()
+def keystorePropsFile = rootProject.file("keystore.properties")
+if (keystorePropsFile.exists()) {
+    keystorePropsFile.withInputStream { keystoreProps.load(it) }
+}
+
 configurations.configureEach {
     resolutionStrategy.eachDependency { details ->
         if (details.requested.group == "org.jetbrains.kotlin" && details.requested.name.startsWith("kotlin-stdlib")) {
@@ -16,15 +22,31 @@ android {
 
     defaultConfig {
         applicationId "com.intelafri.omttracker"
-        minSdk 26
-        targetSdk 35
-        versionCode 1
-        versionName "1.0.0"
+        minSdk 23
+        targetSdk 34
+        versionCode 3
+        versionName "1.0.2"
+    }
+
+    signingConfigs {
+        release {
+            if (keystorePropsFile.exists()) {
+                storeFile rootProject.file(keystoreProps["storeFile"])
+                storePassword keystoreProps["storePassword"]
+                keyAlias keystoreProps["keyAlias"]
+                keyPassword keystoreProps["keyPassword"]
+            }
+            enableV1Signing true
+            enableV2Signing true
+        }
     }
 
     buildTypes {
         release {
             minifyEnabled false
+            if (keystorePropsFile.exists()) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 
@@ -37,4 +59,24 @@ android {
 dependencies {
     implementation "androidx.appcompat:appcompat:1.7.0"
     implementation "androidx.core:core:1.15.0"
+}
+
+tasks.register("signReleaseV1") {
+    dependsOn("assembleRelease")
+    doLast {
+        def apk = layout.buildDirectory.file("outputs/apk/release/app-release.apk").get().asFile
+        def sdk = System.getenv("LOCALAPPDATA") + "\\Android\\Sdk\\build-tools\\35.0.0\\apksigner.bat"
+        def ks = rootProject.file(keystoreProps["storeFile"])
+        exec {
+            environment "OMT_KS_PASS", keystoreProps["storePassword"]
+            commandLine sdk, "sign",
+                    "--v1-signing-enabled", "true",
+                    "--v2-signing-enabled", "true",
+                    "--ks", ks.absolutePath,
+                    "--ks-key-alias", keystoreProps["keyAlias"],
+                    "--ks-pass", "env:OMT_KS_PASS",
+                    "--key-pass", "env:OMT_KS_PASS",
+                    apk.absolutePath
+        }
+    }
 }

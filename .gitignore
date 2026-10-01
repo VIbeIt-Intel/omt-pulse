@@ -13,3 +13,5 @@ tracker-android/.gradle/
 tracker-android/build/
 tracker-android/app/build/
 tracker-android/local.properties
+tracker-android/keystore.properties
+tracker-android/app/*.keystore
