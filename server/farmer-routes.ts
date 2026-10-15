@@ -112,6 +112,16 @@ function panicPoint(incident: {
     ?? pair(incident.responderLat, incident.responderLng);
 }
 
+/** The phone session stays on Central. Reads and "is there already a vuur" must include the farm group the report is filed under. */
+async function phoneCommandIds(req: Request, ctx: FarmerRouteCtx): Promise<number[] | undefined> {
+  const scope = await ctx.getCommandScope(req);
+  const stamped = await stampCommandId(req, ctx);
+  const filter = scope.commandFilter;
+  if (!filter) return undefined;
+  if (stamped != null && !filter.includes(stamped)) return [...filter, stamped];
+  return filter;
+}
+
 async function stampCommandId(req: Request, _ctx: FarmerRouteCtx): Promise<number | null> {
   const own = await storage.getUserCommands(req.currentUser!.id);
   // The farmer phone never switches group. Membership also includes Central,
@@ -262,7 +272,7 @@ export function registerFarmerRoutes(app: Express, ctx: FarmerRouteCtx) {
   app.get("/api/fire/active", async (req, res) => {
     if (!req.currentUser) return res.status(401).json({ message: "Unauthorized" });
     const orgId = req.currentUser.organizationId;
-    const { commandFilter } = await ctx.getCommandScope(req);
+    const commandFilter = await phoneCommandIds(req, ctx);
     const live = await storage.getLiveIncidents(orgId, commandFilter);
     const fires = live
       .filter((inc) => (inc.categoryName ?? "").toLowerCase() === FIRE_CATEGORY_NAME.toLowerCase() && !inc.panicClosedAt)
@@ -300,7 +310,7 @@ export function registerFarmerRoutes(app: Express, ctx: FarmerRouteCtx) {
     const note = parsed.data.note?.trim() || "";
     const windLine = windSentence(parsed.data.wind);
 
-    const { commandFilter } = await ctx.getCommandScope(req);
+    const commandFilter = await phoneCommandIds(req, ctx);
     const live = await storage.getLiveIncidents(orgId, commandFilter ?? [commandId]);
     const active = live.find(
       (inc) => (inc.categoryName ?? "").toLowerCase() === FIRE_CATEGORY_NAME.toLowerCase() && !inc.panicClosedAt,
@@ -413,7 +423,10 @@ export function registerFarmerRoutes(app: Express, ctx: FarmerRouteCtx) {
     if ((category?.name ?? "").toLowerCase() !== FIRE_CATEGORY_NAME.toLowerCase()) {
       return res.status(400).json({ message: "Not a fire" });
     }
-    if (!(await ctx.assertWriteCommandAccess(req, incident.commandId))) {
+    const reporter = incident.userId === req.currentUser.id;
+    const stamped = await stampCommandId(req, ctx);
+    const ownGroup = stamped != null && incident.commandId === stamped;
+    if (!(await ctx.assertWriteCommandAccess(req, incident.commandId)) && !reporter && !ownGroup) {
       return res.status(403).json({ message: "You cannot close this fire" });
     }
     await storage.closePanic(id, orgId);
@@ -423,7 +436,7 @@ export function registerFarmerRoutes(app: Express, ctx: FarmerRouteCtx) {
   app.get("/api/crime", async (req, res) => {
     if (!req.currentUser) return res.status(401).json({ message: "Unauthorized" });
     const orgId = req.currentUser.organizationId;
-    const { commandFilter } = await ctx.getCommandScope(req);
+    const commandFilter = await phoneCommandIds(req, ctx);
     const [incidents, categories] = await Promise.all([
       storage.getIncidents(orgId, undefined, commandFilter),
       storage.getCategories(orgId, commandFilter),
