@@ -378,7 +378,7 @@ export function registerFarmerRoutes(app: Express, ctx: FarmerRouteCtx) {
       commandId,
       title,
       body,
-      url: "/vuur",
+      url: `/live-incident?join=${incident.id}`,
       incidentId: incident.id,
       pushType: "fire",
       urgent: true,

@@ -143,7 +143,9 @@ export function resolvePushDeepLink(data: Record<string, unknown> | undefined): 
   if (type === "panic" && incidentId != null && String(incidentId)) {
     return `/live-incident?join=${incidentId}`;
   }
-  if (type === "fire") return "/vuur";
+  if (type === "fire" && incidentId != null && String(incidentId)) {
+    return `/live-incident?join=${incidentId}`;
+  }
   if (type === "crime") return "/misdaad";
   if (type === "incident_started" && incidentId != null && String(incidentId)) {
     return `/live-incident?join=${incidentId}`;

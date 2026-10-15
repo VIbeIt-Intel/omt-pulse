@@ -51,8 +51,16 @@ export function FireAlertBanner() {
     for (const id of fresh) heard.add(id);
     sessionStorage.setItem(SEEN_KEY, JSON.stringify([...heard]));
     try {
-      const audio = new Audio("/patrol_alert.wav");
+      const audio = new Audio("/alarm.mp3");
       audio.volume = 1;
+      let plays = 0;
+      audio.onended = () => {
+        plays += 1;
+        if (plays < 3) {
+          audio.currentTime = 0;
+          void audio.play().catch(() => {});
+        }
+      };
       void audio.play().catch(() => {});
     } catch { /* autoplay */ }
   }, [incomingKey, isFetched, user]);
@@ -63,7 +71,7 @@ export function FireAlertBanner() {
 
   return (
     <Link
-      href="/vuur"
+      href={`/live-incident?join=${latest.id}`}
       className="flex items-center gap-2 bg-orange-600 text-white px-4 py-2 text-sm font-semibold"
       data-testid="banner-fire-alert"
     >
