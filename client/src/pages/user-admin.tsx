@@ -95,6 +95,13 @@ const userFormSchema = z.object({
 
 type UserFormValues = z.infer<typeof userFormSchema>;
 
+function makeOneTimePassword(): string {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+  const bytes = new Uint8Array(12);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
+}
+
 function PermissionsSection({ form }: { form: ReturnType<typeof useForm<UserFormValues>> }) {
   const role = form.watch("role");
   const isAdmin = role === "administrator";
@@ -182,7 +189,7 @@ function ShareScreen({
     firstName: shareInfo.firstName,
     email: shareInfo.email,
     password: shareInfo.password,
-    inviteUrl,
+    inviteUrl: shareInfo.password ? undefined : inviteUrl,
     orgName,
   });
 
@@ -215,7 +222,7 @@ function ShareScreen({
                 : shareInfo.inviteEmailReason
                   ? `Invite email could not be sent (${shareInfo.inviteEmailReason}). Copy or WhatsApp the link below.`
                   : "Copy or WhatsApp the invite link below."
-              : "Copy this message with web sign-in details. Mobile app install is arranged by IntelAfri."}
+              : "Send this on WhatsApp together with the app file. The password works once, inside the app."}
           </p>
         </div>
       </div>
@@ -684,12 +691,30 @@ function UserDialog({
               {!isEdit && (
                 <div className="border-t pt-2.5 space-y-2">
                   <p className="text-xs text-muted-foreground">
-                    By default we email an invite so they set their own password. Only fill password
-                    below if you want to set one yourself and share it manually (e.g. WhatsApp).
+                    Leave the password blank to email an invite link. Or generate a one-time password and send it on WhatsApp with the app file. It works once, inside the app, then he chooses his own.
                   </p>
                   <FormField control={form.control} name="password" render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Password <span className="text-muted-foreground font-normal">(optional)</span></FormLabel>
+                      <div className="flex items-center justify-between gap-2">
+                        <FormLabel>One-time password <span className="text-muted-foreground font-normal">(optional)</span></FormLabel>
+                        <button
+                          type="button"
+                          className="text-xs font-semibold text-primary"
+                          data-testid="button-generate-one-time-password"
+                          onClick={() => {
+                            const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+                            const bytes = new Uint8Array(12);
+                            crypto.getRandomValues(bytes);
+                            const token = Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
+                            form.setValue("password", token, { shouldValidate: true });
+                            form.setValue("confirmPassword", token, { shouldValidate: true });
+                            setShowPassword(true);
+                            setShowConfirm(true);
+                          }}
+                        >
+                          Generate
+                        </button>
+                      </div>
                       <FormControl>
                         <div className="relative">
                           <Input {...field} type={showPassword ? "text" : "password"} placeholder="Leave blank to email an invite" className="pr-10" data-testid="input-user-password" autoComplete="new-password" />
@@ -731,13 +756,35 @@ function UserDialog({
               </div>
               <DialogFooter className="shrink-0 border-t pt-2 mt-1.5">
                 <Button type="button" variant="outline" onClick={handleClose}>Cancel</Button>
-                <Button type="submit" disabled={mutation.isPending} data-testid="button-save-user">
-                  {mutation.isPending
-                    ? "Saving..."
-                    : isEdit
-                      ? "Save Changes"
-                      : "Create & email invite"}
-                </Button>
+                {!isEdit && (
+                  <Button
+                    type="button"
+                    disabled={mutation.isPending}
+                    data-testid="button-create-whatsapp"
+                    onClick={async () => {
+                      const ok = await form.trigger();
+                      if (!ok) return;
+                      const current = form.getValues("password") ?? "";
+                      const token = current.length >= 10 ? current : makeOneTimePassword();
+                      form.setValue("password", token);
+                      form.setValue("confirmPassword", token);
+                      setShowPassword(true);
+                      setShowConfirm(true);
+                      mutation.mutate({ ...form.getValues(), password: token, confirmPassword: token });
+                    }}
+                  >
+                    {mutation.isPending ? "Saving..." : "Create for WhatsApp"}
+                  </Button>
+                )}
+                {(isEdit || !(form.watch("password")?.length)) && (
+                  <Button type="submit" disabled={mutation.isPending} data-testid="button-save-user">
+                    {mutation.isPending
+                      ? "Saving..."
+                      : isEdit
+                        ? "Save Changes"
+                        : "Create & email invite"}
+                  </Button>
+                )}
               </DialogFooter>
             </form>
           </Form>

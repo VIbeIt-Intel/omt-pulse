@@ -27,6 +27,7 @@ import { formatOrgAddress } from "@shared/org-address";
 import { resolveAttachmentByteSize } from "@shared/attachment-byte-size";
 import { isPositionUserEmail } from "@shared/workstations";
 import { toObjectPath } from "@shared/object-url";
+import { registerFarmerRoutes } from "./farmer-routes";
 
 const objectStorageService = new ObjectStorageService();
 
@@ -2336,7 +2337,7 @@ export async function registerRoutes(
       password: hashedPassword,
       shiftPinHash,
       isActive: true,
-      mustChangePassword: useInvite,
+      mustChangePassword: true,
       inviteToken,
       inviteTokenExpiresAt,
     });
@@ -6258,6 +6259,14 @@ export async function registerRoutes(
 
   registerPatrolPushHandler(async (req) => {
     await dispatchPatrolPush(req);
+  });
+
+  registerFarmerRoutes(app, {
+    getCommandScope,
+    alertAudienceCommandIds,
+    sendFcmBatch,
+    dedupeByEndpoint,
+    assertWriteCommandAccess,
   });
 
   return httpServer;

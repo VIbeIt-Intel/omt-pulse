@@ -15,6 +15,15 @@ type Step = { heading: string; items: string[] };
 
 const ANDROID_APP_STEPS: Step[] = [
   {
+    heading: "If Allow does nothing / toggle is greyed out (sideloaded APK)",
+    items: [
+      "Open Settings → Apps → OMT Pulse",
+      "Tap the three-dot menu (top right) → Allow restricted settings",
+      "Go back, tap Notifications → turn Allow notifications On",
+      "Re-open OMT Pulse and tap Enable below",
+    ],
+  },
+  {
     heading: "Samsung (Galaxy)",
     items: [
       "Open Settings → Apps → OMT Pulse",
@@ -234,7 +243,7 @@ export default function EnableAlertsPage() {
       setDone(true);
     } catch {
       setError(nativeApp
-        ? "Notifications were not allowed. Open Settings → Apps → OMT Pulse → Notifications, turn them on, then tap Enable again."
+        ? "Notifications were not allowed. If the toggle is greyed out: Settings → Apps → OMT Pulse → ⋮ → Allow restricted settings, then turn Notifications on and tap Enable again."
         : "Something went wrong. Make sure you're logged in to OMT Pulse, then try again.");
     } finally {
       setBusy(false);

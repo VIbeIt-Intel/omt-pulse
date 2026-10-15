@@ -1,5 +1,6 @@
 import { Switch, Route, useLocation, Link } from "wouter";
 import { canAccessPatrolModule } from "@shared/user-roles";
+import { usesFarmerPhone } from "@/lib/farmer-phone";
 import { canAccessSecuritySurveyModule } from "@shared/security-survey";
 import { useEffect, useLayoutEffect, useState, useRef, useCallback } from "react";
 import {
@@ -38,6 +39,10 @@ import LiveIncidentPage from "@/pages/live-incident";
 import LiveSeverityPage from "@/pages/live-severity";
 import LiveMonitorPage from "@/pages/live-monitor";
 import CommandDashboard from "@/pages/command-dashboard";
+import FarmerHome from "@/pages/farmer-home";
+import FarmerVuur from "@/pages/farmer-vuur";
+import FarmerMisdaad from "@/pages/farmer-misdaad";
+import { FireAlertBanner } from "@/components/fire-alert-banner";
 import CommandsPage from "@/pages/commands";
 import FleetPage from "@/pages/fleet";
 import AssetsPage from "@/pages/assets";
@@ -615,6 +620,10 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
       if (event.data?.type === "INVALIDATE_PANIC") {
         qc.invalidateQueries({ queryKey: ["/api/panic/recent"] });
       }
+      if (event.data?.type === "INVALIDATE_FARMER") {
+        qc.invalidateQueries({ queryKey: ["/api/fire/active"] });
+        qc.invalidateQueries({ queryKey: ["/api/crime"] });
+      }
       if (event.data?.type === "PLAY_PATROL_SOUND") {
         try {
           const audio = new Audio("/patrol_alert.wav");
@@ -716,6 +725,20 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
     return null;
   }
 
+  if (usesFarmerPhone(user.role)) {
+    const boerAllowed =
+      location === "/dashboard"
+      || location === "/vuur"
+      || location === "/misdaad"
+      || location.startsWith("/chat")
+      || location.startsWith("/live-incident")
+      || location.startsWith("/notifications");
+    if (!boerAllowed) {
+      navigate("/dashboard");
+      return null;
+    }
+  }
+
   // SUBSCRIPTION WALL DISABLED — re-enable this block when billing goes live
   // if (user.subscriptionStatus === "expired" && location !== "/billing") {
   //   if (user.role === "administrator") {
@@ -732,10 +755,12 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
     <PrivateRadioHost>
     <SidebarProvider style={style as React.CSSProperties}>
       <div className="flex h-screen w-full">
-        <AppSidebar user={user} onLogout={() => logoutMutation.mutate()} avatarPreview={avatarPreview} />
+        {!usesFarmerPhone(user.role) && (
+          <AppSidebar user={user} onLogout={() => logoutMutation.mutate()} avatarPreview={avatarPreview} />
+        )}
         <div className="capacitor-shell-column flex flex-col flex-1 min-w-0 relative">
           {/* Full INTEL header — dashboard only */}
-          {location === "/dashboard" && (
+          {location === "/dashboard" && !usesFarmerPhone(user.role) && (
           <header className="relative grid grid-cols-[1fr_auto_1fr] items-center p-2 border-b border-border bg-background text-foreground shrink-0 gap-2 z-40 min-h-[3rem] min-w-0">
             {/* Left */}
             <div className="flex items-center gap-2 text-foreground z-10 min-w-0">
@@ -865,7 +890,7 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
           )}
 
           {/* Slim back-button header — all secondary pages */}
-          {location !== "/dashboard" && location !== "/live-incident" && location !== "/live-severity" && location !== "/live-monitor" && !location.startsWith("/chat") && location !== "/" && location !== "/occurrence-book" && (
+          {location !== "/dashboard" && location !== "/live-incident" && location !== "/live-severity" && location !== "/live-monitor" && (!location.startsWith("/chat") || usesFarmerPhone(user.role)) && location !== "/" && location !== "/occurrence-book" && (
           <header
             className="flex items-center px-2 border-b border-border bg-background text-foreground shrink-0 h-12 z-40"
             data-testid="header-secondary"
@@ -898,6 +923,7 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
           <PermissionDeniedBanner />
           <BatteryOptimizationHint />
           <PanicAlertSiren currentUserId={user.id} />
+          <FireAlertBanner />
           {(user.role === "administrator" || user.isSuperadmin) && <SetupWizardController />}
           <main className="flex-1 overflow-hidden bg-background text-foreground">
             <Switch>
@@ -949,7 +975,11 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
                   <LiveSeverityPage />
                 </RoleGuard>
               </Route>
-              <Route path="/dashboard" component={CommandDashboard} />
+              <Route path="/vuur" component={FarmerVuur} />
+              <Route path="/misdaad" component={FarmerMisdaad} />
+              <Route path="/dashboard">
+                {usesFarmerPhone(user.role) ? <FarmerHome /> : <CommandDashboard />}
+              </Route>
               <Route path="/live-monitor">
                 <RoleGuard role={user.role} allowed={["administrator", "supervisor", "control_room"]}>
                   <LiveMonitorPage />
@@ -1002,7 +1032,7 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
               <Route component={NotFound} />
             </Switch>
           </main>
-          <PersistentRadioDock />
+          {!usesFarmerPhone(user.role) && <PersistentRadioDock />}
         </div>
       </div>
       <PermissionPrimerModal />
@@ -1163,10 +1193,14 @@ function RootRouter() {
     return <AppRouter />;
   }
 
-  // Visitor at "/" with no session → marketing landing page, no install gate.
+  // Visitor at "/" with no session. The installed app opens on Sign in.
+  // The sales page stays on the website.
   if (location === "/" && !user) {
     if (isLoading) {
       return <MarketingDarkGate />;
+    }
+    if (isCapacitorNative()) {
+      return <AppRouter />;
     }
     return <PublicLanding />;
   }

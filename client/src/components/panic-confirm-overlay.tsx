@@ -14,15 +14,44 @@ import { enqueueOutboxJob } from "@/lib/offline-outbox";
 import { LocationPermissionGuide } from "@/components/location-permission-guide";
 import { preloadLocationSettingsModule } from "@/lib/open-location-settings";
 
+type PanicLabels = {
+  title: string;
+  before: string;
+  emphasis: string;
+  after: string;
+  confirm: string;
+  sending: string;
+  cancel: string;
+  gpsReady: string;
+  locationOff: string;
+  sendWithoutGps: string;
+  goBack: string;
+};
+
+const ENGLISH_PANIC: PanicLabels = {
+  title: "Send PANIC Alert?",
+  before: "This will immediately alert ",
+  emphasis: "everyone",
+  after: " in your organisation. Your GPS location will be shared.",
+  confirm: "CONFIRM — Send Alert",
+  sending: "Sending alert…",
+  cancel: "Cancel",
+  gpsReady: "GPS ready — your position will be included.",
+  locationOff: "Location is off or unavailable. Turn on GPS below (no app update needed).",
+  sendWithoutGps: "Send alert anyway (no GPS)",
+  goBack: "Go back",
+};
+
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   confirmTestId: string;
   /** Extra line for org-specific copy (e.g. occurrence book). */
   notifyHint?: string;
+  labels?: PanicLabels;
 };
 
-export function PanicConfirmOverlay({ open, onOpenChange, confirmTestId, notifyHint }: Props) {
+export function PanicConfirmOverlay({ open, onOpenChange, confirmTestId, notifyHint, labels = ENGLISH_PANIC }: Props) {
   const { toast } = useToast();
   const [sending, setSending] = useState(false);
   const [locationProbe, setLocationProbe] = useState<PanicLocationResult | null>(null);
@@ -165,7 +194,7 @@ export function PanicConfirmOverlay({ open, onOpenChange, confirmTestId, notifyH
               className="w-full h-12 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-sm transition-all disabled:opacity-60"
               data-testid={`${confirmTestId}-send-without-location`}
             >
-              {sending ? "Sending…" : "Send alert anyway (no GPS)"}
+              {sending ? labels.sending : labels.sendWithoutGps}
             </button>
             <button
               type="button"
@@ -176,7 +205,7 @@ export function PanicConfirmOverlay({ open, onOpenChange, confirmTestId, notifyH
               disabled={sending}
               className="w-full h-12 rounded-2xl bg-white/10 hover:bg-white/20 text-white font-medium text-sm"
             >
-              Go back
+              {labels.goBack}
             </button>
           </div>
         </div>
@@ -198,10 +227,9 @@ export function PanicConfirmOverlay({ open, onOpenChange, confirmTestId, notifyH
           </div>
         </div>
         <div className="space-y-2">
-          <h2 className="text-2xl font-bold text-white tracking-tight">Send PANIC Alert?</h2>
+          <h2 className="text-2xl font-bold text-white tracking-tight">{labels.title}</h2>
           <p className="text-sm text-white/70 leading-relaxed">
-            This will immediately alert <strong className="text-white">everyone</strong> in your organisation.
-            Your GPS location will be shared.
+            {labels.before}<strong className="text-white">{labels.emphasis}</strong>{labels.after}
           </p>
         </div>
         {locationProbe != null && !locationReady && (
@@ -209,7 +237,7 @@ export function PanicConfirmOverlay({ open, onOpenChange, confirmTestId, notifyH
             <div className="flex items-start gap-2 rounded-xl bg-red-500/20 border border-red-500/50 px-4 py-3 text-xs text-red-100 text-left">
               <MapPin className="h-4 w-4 shrink-0 mt-0.5" />
               <span>
-                <strong className="text-white">Location is off or unavailable.</strong> Turn on GPS below (no app update needed).
+                <strong className="text-white">{labels.locationOff}</strong>
               </span>
             </div>
             <LocationPermissionGuide
@@ -224,7 +252,7 @@ export function PanicConfirmOverlay({ open, onOpenChange, confirmTestId, notifyH
         {locationReady && (
           <div className="w-full flex items-start gap-2 rounded-xl bg-green-500/15 border border-green-500/40 px-4 py-3 text-xs text-green-100 text-left">
             <MapPin className="h-4 w-4 shrink-0 mt-0.5" />
-            <span>GPS ready — your position will be included.</span>
+            <span>{labels.gpsReady}</span>
           </div>
         )}
         {typeof Notification !== "undefined" && Notification.permission !== "granted" && (
@@ -241,7 +269,7 @@ export function PanicConfirmOverlay({ open, onOpenChange, confirmTestId, notifyH
             data-testid={confirmTestId}
             className="w-full h-14 rounded-2xl bg-red-600 hover:bg-red-700 active:scale-[0.98] text-white font-bold text-base tracking-wide shadow-lg transition-all touch-manipulation disabled:opacity-60"
           >
-            {sending ? "Sending alert…" : "CONFIRM — Send Alert"}
+            {sending ? labels.sending : labels.confirm}
           </button>
           <button
             type="button"
@@ -249,7 +277,7 @@ export function PanicConfirmOverlay({ open, onOpenChange, confirmTestId, notifyH
             disabled={sending}
             className="w-full h-12 rounded-2xl bg-white/10 hover:bg-white/20 text-white font-medium text-sm transition-all touch-manipulation"
           >
-            Cancel
+            {labels.cancel}
           </button>
         </div>
       </div>

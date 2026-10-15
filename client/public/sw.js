@@ -1,4 +1,4 @@
-const CACHE_NAME = "omt-v304";
+const CACHE_NAME = "omt-v305";
 
 // When the page asks us to nuke everything (after a new deploy), wipe all
 // caches and tell every controlled tab to reload. The page also unregisters
@@ -182,6 +182,12 @@ self.addEventListener("push", (event) => {
         .then((clients) => clients.forEach((client) => client.postMessage({ type: "INVALIDATE_PANIC" })))
     );
   }
+  if (data.type === "fire" || data.type === "crime") {
+    event.waitUntil(
+      self.clients.matchAll({ type: "window", includeUncontrolled: true })
+        .then((clients) => clients.forEach((client) => client.postMessage({ type: "INVALIDATE_FARMER" })))
+    );
+  }
 
   // Silent updates
   if (data.silent === true) {
@@ -244,6 +250,40 @@ self.addEventListener("push", (event) => {
         requireInteraction: false,
         vibrate: [120, 80, 120],
         data: { url: data.url ?? "/chat" },
+      })
+    );
+    return;
+  }
+
+  // Vuur — same urgency class as panic, different pattern so the phone feels different.
+  if (data.type === "fire") {
+    event.waitUntil(
+      self.registration.showNotification(data.title ?? "VUUR", {
+        body: data.body ?? "Daar is 'n vuur in die gebied.",
+        icon: "/icon-192.png",
+        badge: "/icon-192.png",
+        tag: data.incidentId ? `fire-${data.incidentId}` : `fire-${Date.now()}`,
+        renotify: true,
+        requireInteraction: true,
+        vibrate: [300, 120, 300, 120, 900],
+        data: { url: data.url ?? "/vuur" },
+      })
+    );
+    return;
+  }
+
+  // Misdaad — a normal alert, not a siren.
+  if (data.type === "crime") {
+    event.waitUntil(
+      self.registration.showNotification(data.title ?? "MISDAAD", {
+        body: data.body ?? "Nuwe verslag in die groep.",
+        icon: "/icon-192.png",
+        badge: "/icon-192.png",
+        tag: data.incidentId ? `crime-${data.incidentId}` : `crime-${Date.now()}`,
+        renotify: true,
+        requireInteraction: false,
+        vibrate: [120, 80, 120],
+        data: { url: data.url ?? "/misdaad" },
       })
     );
     return;

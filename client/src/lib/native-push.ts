@@ -143,6 +143,8 @@ export function resolvePushDeepLink(data: Record<string, unknown> | undefined): 
   if (type === "panic" && incidentId != null && String(incidentId)) {
     return `/live-incident?join=${incidentId}`;
   }
+  if (type === "fire") return "/vuur";
+  if (type === "crime") return "/misdaad";
   if (type === "incident_started" && incidentId != null && String(incidentId)) {
     return `/live-incident?join=${incidentId}`;
   }
@@ -346,6 +348,11 @@ export async function enableNativePush(): Promise<void> {
     perm = await PushNotifications.requestPermissions();
   }
   if (perm.receive !== "granted") {
+    // Android will not show the Allow dialog again after Deny. Open the app
+    // settings screen so the user can flip Notifications on (and, for sideloaded
+    // APKs, "Allow restricted settings" if the toggle is greyed out).
+    const { openOmtAppDetailsSettings } = await import("@/lib/omt-app-settings");
+    await openOmtAppDetailsSettings();
     throw new Error("denied");
   }
 

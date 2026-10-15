@@ -66,6 +66,19 @@ export function buildArchonOnboardingMessage(info: OnboardingUserInfo): string {
 
 /** Org-admin message — login only; no install links (IntelAfri controls distribution). */
 export function buildOrgAdminAccessMessage(info: OnboardingUserInfo): string {
+  if (info.password) {
+    return [
+      `Hi ${info.firstName},`,
+      "",
+      `You're set up on OMT Pulse (${info.orgName ?? "your organisation"}).`,
+      "",
+      "Install the OMT Pulse app from the file sent with this message.",
+      "Open the app. This password works once:",
+      `Email: ${info.email}`,
+      `One-time password: ${info.password}`,
+      "Then choose your own password, and allow location and alerts.",
+    ].join("\n");
+  }
   if (info.inviteUrl) {
     return [
       `Hi ${info.firstName},`,
@@ -80,24 +93,13 @@ export function buildOrgAdminAccessMessage(info: OnboardingUserInfo): string {
       "Mobile app installation is arranged by IntelAfri — contact support@intelafri.org if you need the Android app.",
     ].join("\n");
   }
-  const passwordLine = info.password ? `   Password: ${info.password}` : "";
   return [
     `Hi ${info.firstName},`,
     "",
     `You're set up on OMT Pulse (${info.orgName ?? "your organisation"}).`,
     "",
-    "1) Sign in:",
-    `   ${appLoginUrl()}`,
-    `   Email: ${info.email}`,
-    passwordLine,
-    "",
-    "2) Allow notifications when prompted. Use the bell icon in User Admin to send an alert-setup link if needed.",
-    "",
-    "Mobile app installation is arranged by IntelAfri — contact support@intelafri.org if you need the Android app.",
-    "Questions: your organisation administrator or support@intelafri.org",
-  ]
-    .filter(Boolean)
-    .join("\n");
+    "Ask your administrator for a one-time password, then open the OMT Pulse app and sign in.",
+  ].join("\n");
 }
 
 export function archonInstallUrl(): string {
