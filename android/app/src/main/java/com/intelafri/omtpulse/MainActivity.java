@@ -1,11 +1,14 @@
 package com.intelafri.omtpulse;
 
 import android.Manifest;
+import android.app.NotificationManager;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.webkit.PermissionRequest;
 import android.webkit.WebSettings;
 import androidx.activity.result.ActivityResultLauncher;
@@ -68,6 +71,8 @@ public class MainActivity extends BridgeActivity {
         // Must run in onStart — Capacitor may replace the WebChromeClient during bridge init.
         installMediaPermissionWebChromeClient();
         handleBinaryEyeReturnIntent(getIntent());
+        deliverPushUrl(getIntent());
+        askFullScreenIntentOnce();
     }
 
     private void onWebMediaPermissionsResult(Map<String, Boolean> result) {
@@ -92,6 +97,43 @@ public class MainActivity extends BridgeActivity {
         super.onNewIntent(intent);
         setIntent(intent);
         handleBinaryEyeReturnIntent(intent);
+        deliverPushUrl(intent);
+    }
+
+    /** The vuur card writes the map path here. The web app reads it on startup. */
+    private void deliverPushUrl(Intent intent) {
+        if (intent == null || this.bridge == null || this.bridge.getWebView() == null) return;
+        String url = intent.getStringExtra(OmtMessagingService.EXTRA_URL);
+        if (url == null || !url.startsWith("/")) return;
+        intent.removeExtra(OmtMessagingService.EXTRA_URL);
+        String quoted = org.json.JSONObject.quote(url);
+        String js = "try{localStorage.setItem('omt_pending_push_url'," + quoted
+                + ");sessionStorage.setItem('omt_pending_push_url'," + quoted + ");}catch(e){}";
+        this.bridge.getWebView().evaluateJavascript(js, null);
+        this.bridge.getWebView().postDelayed(
+                () -> {
+                    if (this.bridge != null && this.bridge.getWebView() != null) {
+                        this.bridge.getWebView().evaluateJavascript(js, null);
+                    }
+                },
+                700
+        );
+    }
+
+    /** Android 14+ will not cover the lock screen until this is allowed. Ask once. */
+    private void askFullScreenIntentOnce() {
+        if (Build.VERSION.SDK_INT < 34) return;
+        if (getSharedPreferences("omt", MODE_PRIVATE).getBoolean("asked_full_screen", false)) return;
+        NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        if (manager == null || manager.canUseFullScreenIntent()) return;
+        getSharedPreferences("omt", MODE_PRIVATE).edit().putBoolean("asked_full_screen", true).apply();
+        Intent settings = new Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT);
+        settings.setData(Uri.parse("package:" + getPackageName()));
+        try {
+            startActivity(settings);
+        } catch (Exception ignored) {
+            /* The card still opens when they tap the notification. */
+        }
     }
 
     private void handleBinaryEyeReturnIntent(Intent intent) {

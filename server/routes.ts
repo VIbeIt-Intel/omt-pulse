@@ -137,6 +137,11 @@ async function sendFcmBatch(
     channelId?: string;
     /** Custom sound name (Android raw resource / APNs sound file). */
     sound?: string;
+    /**
+     * Vuur only. No system notification payload, so the phone app can draw the
+     * lock-screen card and play the siren itself. A normal notification only buzzes.
+     */
+    dataOnly?: boolean;
   },
 ): Promise<void> {
   if (!fcmReady || tokens.length === 0) return;
@@ -160,15 +165,22 @@ async function sendFcmBatch(
     android.notification = androidNotification;
   }
   const apnsSound = payload.sound ? `${payload.sound}.caf` : "default";
+  const data = payload.dataOnly
+    ? { ...(payload.data ?? {}), title: payload.title, body: payload.body }
+    : (payload.data ?? {});
   const results = await Promise.allSettled(
     tokens.map((token) =>
-      messaging.send({
-        token,
-        notification: { title: payload.title, body: payload.body },
-        data: payload.data ?? {},
-        android,
-        apns: { payload: { aps: { sound: apnsSound, contentAvailable: true } } },
-      })
+      messaging.send(
+        payload.dataOnly
+          ? { token, data, android: { priority: "high" } }
+          : {
+              token,
+              notification: { title: payload.title, body: payload.body },
+              data,
+              android,
+              apns: { payload: { aps: { sound: apnsSound, contentAvailable: true } } },
+            },
+      ),
     )
   );
   for (let i = 0; i < results.length; i++) {

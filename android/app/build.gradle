@@ -34,8 +34,8 @@ android {
         applicationId "com.intelafri.omtpulse"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 240
-        versionName "1.0.240"
+        versionCode 243
+        versionName "1.0.243"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Injected at CI build time via GOOGLE_MAPS_ANDROID_API_KEY (see .env.example).
         // Local dev: add GOOGLE_MAPS_ANDROID_API_KEY=... to android/local.properties
@@ -92,6 +92,7 @@ dependencies {
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')
+    implementation "com.google.firebase:firebase-messaging:25.0.1"
 }
 
 apply from: 'capacitor.build.gradle'

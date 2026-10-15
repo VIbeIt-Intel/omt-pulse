@@ -39,6 +39,7 @@ type FcmPayload = {
   notificationTag?: string;
   channelId?: string;
   sound?: string;
+  dataOnly?: boolean;
 };
 
 type FarmerRouteCtx = {
@@ -211,6 +212,7 @@ async function fanOut(opts: {
         notificationTag: `${opts.pushType}-${opts.incidentId}`,
         channelId: opts.alarm ? PANIC_ALERT_CHANNEL : opts.urgent ? LIVE_ALERT_CHANNEL : CRIME_ALERT_CHANNEL,
         sound: opts.alarm ? PANIC_ALERT_SOUND : opts.urgent ? LIVE_ALERT_SOUND : undefined,
+        dataOnly: opts.alarm === true,
       });
       for (const s of fcmSubs) {
         sent++;
