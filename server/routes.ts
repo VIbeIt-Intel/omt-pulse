@@ -1115,6 +1115,32 @@ async function assertReadCommandAccess(req: Request, rowCommandId: number | null
   return scope.commandFilter.includes(rowCommandId);
 }
 
+// A vuur or paniek is pushed to the reporter's group and to Central. The phone
+// never switches group, so its session stays on Central and the strict filter
+// hid Mercialene's fire ("Incident unavailable"). Anyone in that group, or in
+// Central, may open the alert they were sent.
+async function canOpenAlertedIncident(req: Request, commandId: number | null | undefined): Promise<boolean> {
+  if (await assertReadCommandAccess(req, commandId)) return true;
+  if (commandId == null) return false;
+  const own = await storage.getUserCommands(req.currentUser!.id);
+  return own.some((c) => c.id === commandId || c.isCentral);
+}
+
+async function alertReadCommandIds(req: Request): Promise<number[] | undefined> {
+  const user = req.currentUser!;
+  if (canSwitchAllCommands(user)) {
+    const scope = await getCommandScope(req);
+    return scope.accessibleCommandIds.length > 0 ? scope.accessibleCommandIds : undefined;
+  }
+  const own = await storage.getUserCommands(user.id);
+  if (own.some((c) => c.isCentral)) {
+    const all = await storage.getCommands(user.organizationId);
+    return all.map((c) => c.id);
+  }
+  const ids = own.map((c) => c.id);
+  return ids.length > 0 ? ids : [-1];
+}
+
 // WRITE check — strict to the user's owned commands. Grants do NOT confer
 // mutate rights. Use for PATCH/DELETE and any state-changing action.
 async function assertWriteCommandAccess(req: Request, rowCommandId: number | null | undefined): Promise<boolean> {
@@ -2905,14 +2931,9 @@ export async function registerRoutes(
   // Live incidents — must be registered BEFORE /api/incidents/:id to avoid "live" being treated as an id
   app.get("/api/incidents/live", async (req, res) => {
     const { organizationId: orgId } = req.currentUser!;
-    const { commandFilter, accessibleCommandIds } = await getCommandScope(req);
-    // Safety-critical read: wide-access users (admin/superadmin) must see ALL
-    // live incidents across every accessible command, not just the active group
-    // tab. A panic or live incident stamped with a different command than the
-    // admin's current desktop session must never be hidden from the Live Monitor.
-    const liveFilter = canSwitchAllCommands(req.currentUser!)
-      ? (accessibleCommandIds.length > 0 ? accessibleCommandIds : undefined)
-      : commandFilter;
+    // Safety-critical read: a vuur pushed to Central must stay visible even when
+    // the phone's session is still on Central and the pin was filed on the group.
+    const liveFilter = await alertReadCommandIds(req);
     const live = await storage.getLiveIncidents(orgId, liveFilter);
     const scopedLive = req.currentUser!.role === "access_controller"
       ? live.filter((inc) => inc.userId === req.currentUser!.id)
@@ -2975,7 +2996,7 @@ export async function registerRoutes(
     const incident = await storage.getIncident(id, orgId);
     if (!incident) return res.status(404).json({ message: "Incident not found" });
     // Active-Command authorisation (read): includes cross-Command visibility grants.
-    if (!(await assertReadCommandAccess(req, (incident as any).commandId))) {
+    if (!(await canOpenAlertedIncident(req, (incident as any).commandId))) {
       return res.status(404).json({ message: "Incident not found" });
     }
     if (usesLocationAssignmentScope(role)) {
@@ -3843,7 +3864,7 @@ export async function registerRoutes(
     const id = parseInt(req.params.id as string);
     const incident = await storage.getIncident(id, orgId);
     if (!incident) return res.status(404).json({ message: "Incident not found" });
-    if (!(await assertCommandAccess(req, (incident as any).commandId))) {
+    if (!(await canOpenAlertedIncident(req, (incident as any).commandId))) {
       return res.status(404).json({ message: "Incident not found" });
     }
     if (!incident.isLive) return res.status(400).json({ message: "Incident is not live" });
@@ -3925,7 +3946,7 @@ export async function registerRoutes(
     }
     const incident = await storage.getIncident(id, orgId);
     if (!incident || !incident.isLive) return res.status(404).json({ message: "Live incident not found" });
-    if (!(await assertCommandAccess(req, (incident as any).commandId))) {
+    if (!(await canOpenAlertedIncident(req, (incident as any).commandId))) {
       return res.status(404).json({ message: "Live incident not found" });
     }
     const responder = await storage.getActiveLiveResponderByUser(id, orgId, userId);
@@ -3954,7 +3975,7 @@ export async function registerRoutes(
     const id = parseInt(req.params.id as string);
     const incident = await storage.getIncident(id, orgId);
     if (!incident || !incident.isLive) return res.status(404).json({ message: "Live incident not found" });
-    if (!(await assertCommandAccess(req, (incident as any).commandId))) {
+    if (!(await canOpenAlertedIncident(req, (incident as any).commandId))) {
       return res.status(404).json({ message: "Live incident not found" });
     }
     const responder = await storage.getActiveLiveResponderByUser(id, orgId, userId);
@@ -3979,7 +4000,7 @@ export async function registerRoutes(
     }
     const incident = await storage.getIncident(id, orgId);
     if (!incident || !incident.isLive) return res.status(404).json({ message: "Live incident not found" });
-    if (!(await assertCommandAccess(req, (incident as any).commandId))) {
+    if (!(await canOpenAlertedIncident(req, (incident as any).commandId))) {
       return res.status(404).json({ message: "Live incident not found" });
     }
     const responder = await storage.getActiveLiveResponderByUser(id, orgId, userId);
