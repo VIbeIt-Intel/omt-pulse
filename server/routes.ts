@@ -148,6 +148,14 @@ async function sendFcmBatch(
   // pre-O. Set both so every OS version plays the custom tone.
   if (payload.channelId) androidNotification.channelId = payload.channelId;
   if (payload.sound) androidNotification.sound = payload.sound;
+  // Panic-channel alerts (panic and vuur) must show the full card on the
+  // lock screen while the app is closed. The channel is already max importance.
+  if (payload.channelId === "omt_panic") {
+    androidNotification.visibility = "PUBLIC";
+    androidNotification.notificationPriority = "PRIORITY_MAX";
+    androidNotification.defaultVibrateTimings = true;
+    android.directBootOk = true;
+  }
   if (Object.keys(androidNotification).length > 0) {
     android.notification = androidNotification;
   }
@@ -3317,11 +3325,16 @@ export async function registerRoutes(
     // If the panicker is viewing a granted (read-only) Command, fall back to
     // their FIRST owned Command (or Central) so panics never produce orphaned
     // records — a panic must always be filed in a Command the panicker owns.
-    let { defaultStampCommandId: panicCommandId } = await getCommandScope(req);
-    if (panicCommandId == null) {
-      const ownCmds = await storage.getUserCommands(userId);
-      const central = ownCmds.find(c => c.isCentral);
-      panicCommandId = central?.id ?? ownCmds[0]?.id ?? null;
+    const ownCmds = await storage.getUserCommands(userId);
+    const chosenCommand = req.session.activeCommandId;
+    const fieldCmds = ownCmds.filter((c) => !c.isCentral);
+    let panicCommandId: number | null = null;
+    if (typeof chosenCommand === "number" && ownCmds.some((c) => c.id === chosenCommand && !c.isCentral)) {
+      panicCommandId = chosenCommand;
+    } else if (fieldCmds.length > 0) {
+      panicCommandId = fieldCmds[0]!.id;
+    } else {
+      panicCommandId = ownCmds.find((c) => c.isCentral)?.id ?? ownCmds[0]?.id ?? null;
     }
     if (panicCommandId == null) {
       return res.status(403).json({ message: "Cannot raise a panic — user has no assigned Command" });
@@ -3497,6 +3510,7 @@ export async function registerRoutes(
     res.json({
       sent,
       found: allSubs.length,
+      incidentId: panicIncidentId,
       commandIds: panicAudienceCommandIds ?? null,
     });
   });

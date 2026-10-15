@@ -1,13 +1,18 @@
 import type { Express, Request } from "express";
 import { z } from "zod";
 import webpush from "web-push";
+import { isDispatchStaff } from "@shared/user-roles";
 import { storage } from "./storage";
 
 const URGENT_PUSH = { urgency: "high" as const, TTL: 3600 };
 const QUIET_PUSH = { urgency: "normal" as const, TTL: 3600 };
 const LIVE_ALERT_CHANNEL = "omt_live";
 const LIVE_ALERT_SOUND = "live_alert";
+const PANIC_ALERT_CHANNEL = "omt_panic";
+const PANIC_ALERT_SOUND = "panic_alert";
 const CRIME_ALERT_CHANNEL = "omt_chat";
+/** A group member must be this close to her before their phone can close the panic. */
+const PANIC_CLOSE_VICINITY_M = 500;
 
 export const FIRE_CATEGORY_NAME = "Vuur";
 
@@ -50,6 +55,7 @@ const fireBodySchema = z.object({
   fireLat: z.number().finite().optional(),
   fireLng: z.number().finite().optional(),
   note: z.string().trim().max(500).optional(),
+  wind: z.enum(["n", "ne", "e", "se", "s", "sw", "w", "nw"]).optional(),
 });
 
 const crimeBodySchema = z.object({
@@ -60,19 +66,61 @@ const crimeBodySchema = z.object({
   locationName: z.string().trim().max(200).optional(),
 });
 
-function pair(lat: unknown, lng: unknown): { lat: number; lng: number } | null {
-  if (typeof lat !== "number" || typeof lng !== "number") return null;
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-  return { lat, lng };
+function windSentence(wind: string | undefined): string | null {
+  const towards: Record<string, string> = {
+    n: "noorde",
+    ne: "noordooste",
+    e: "ooste",
+    se: "suidooste",
+    s: "suide",
+    sw: "suidweste",
+    w: "weste",
+    nw: "noordweste",
+  };
+  const word = wind ? towards[wind] : undefined;
+  return word ? `Die wind waai na die ${word}.` : null;
 }
 
-async function stampCommandId(req: Request, ctx: FarmerRouteCtx): Promise<number | null> {
-  const scope = await ctx.getCommandScope(req);
-  if (scope.defaultStampCommandId != null) return scope.defaultStampCommandId;
-  const userId = req.currentUser!.id;
-  const own = await storage.getUserCommands(userId);
-  const central = own.find((c) => c.isCentral);
-  return central?.id ?? own[0]?.id ?? null;
+function pair(lat: unknown, lng: unknown): { lat: number; lng: number } | null {
+  const la = typeof lat === "number" ? lat : Number(lat);
+  const ln = typeof lng === "number" ? lng : Number(lng);
+  if (!Number.isFinite(la) || !Number.isFinite(ln)) return null;
+  return { lat: la, lng: ln };
+}
+
+function haversineM(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const R = 6371000;
+  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+  const dLng = ((b.lng - a.lng) * Math.PI) / 180;
+  const sl = Math.sin(dLat / 2);
+  const sln = Math.sin(dLng / 2);
+  const x = sl * sl + Math.cos((a.lat * Math.PI) / 180) * Math.cos((b.lat * Math.PI) / 180) * sln * sln;
+  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+}
+
+function panicPoint(incident: {
+  destinationLat?: number | null;
+  destinationLng?: number | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  responderLat?: number | null;
+  responderLng?: number | null;
+}): { lat: number; lng: number } | null {
+  return pair(incident.destinationLat, incident.destinationLng)
+    ?? pair(incident.latitude, incident.longitude)
+    ?? pair(incident.responderLat, incident.responderLng);
+}
+
+async function stampCommandId(req: Request, _ctx: FarmerRouteCtx): Promise<number | null> {
+  const own = await storage.getUserCommands(req.currentUser!.id);
+  // The farmer phone never switches group. Membership also includes Central,
+  // and the session default is Central, which hid Mo's fire from Boere George.
+  // Use the group she belongs to. Central only when that is her only group.
+  const chosen = req.session.activeCommandId;
+  if (typeof chosen === "number" && own.some((c) => c.id === chosen && !c.isCentral)) return chosen;
+  const field = own.filter((c) => !c.isCentral);
+  if (field.length > 0) return field[0]!.id;
+  return own.find((c) => c.isCentral)?.id ?? own[0]?.id ?? null;
 }
 
 async function ensureNamedCategory(
@@ -108,8 +156,10 @@ async function fanOut(opts: {
   body: string;
   url: string;
   incidentId: number;
-  pushType: "fire" | "crime";
+  pushType: "fire" | "crime" | "panic_safe";
   urgent: boolean;
+  /** Same loud home-screen alarm as panic. Fire only. */
+  alarm?: boolean;
 }) {
   const commandIds = await opts.ctx.alertAudienceCommandIds(opts.orgId, opts.commandId);
   const payload = JSON.stringify({
@@ -159,8 +209,8 @@ async function fanOut(opts: {
         body: opts.body,
         data: { type: opts.pushType, incidentId: String(opts.incidentId), url: opts.url },
         notificationTag: `${opts.pushType}-${opts.incidentId}`,
-        channelId: opts.urgent ? LIVE_ALERT_CHANNEL : CRIME_ALERT_CHANNEL,
-        sound: opts.urgent ? LIVE_ALERT_SOUND : undefined,
+        channelId: opts.alarm ? PANIC_ALERT_CHANNEL : opts.urgent ? LIVE_ALERT_CHANNEL : CRIME_ALERT_CHANNEL,
+        sound: opts.alarm ? PANIC_ALERT_SOUND : opts.urgent ? LIVE_ALERT_SOUND : undefined,
       });
       for (const s of fcmSubs) {
         sent++;
@@ -246,6 +296,7 @@ export function registerFarmerRoutes(app: Express, ctx: FarmerRouteCtx) {
     const dropped = pair(parsed.data.fireLat, parsed.data.fireLng);
     const fire = dropped ?? reporter;
     const note = parsed.data.note?.trim() || "";
+    const windLine = windSentence(parsed.data.wind);
 
     const { commandFilter } = await ctx.getCommandScope(req);
     const live = await storage.getLiveIncidents(orgId, commandFilter ?? [commandId]);
@@ -254,9 +305,9 @@ export function registerFarmerRoutes(app: Express, ctx: FarmerRouteCtx) {
     );
 
     if (active) {
-      const witness = note
-        ? `${fullName} sien ook hierdie vuur. ${note}`
-        : `${fullName} sien ook hierdie vuur.`;
+      const witness = [note ? `${fullName} sien ook hierdie vuur. ${note}` : `${fullName} sien ook hierdie vuur.`, windLine]
+        .filter(Boolean)
+        .join(" ");
       await storage.createEvidenceNote({
         incidentId: active.id,
         organizationId: orgId,
@@ -290,6 +341,7 @@ export function registerFarmerRoutes(app: Express, ctx: FarmerRouteCtx) {
       `Vuur — ${fullName}`,
       reporter ? `Rapporteerder: ${reporter.lat.toFixed(5)}, ${reporter.lng.toFixed(5)}` : "Rapporteerder se ligging onbekend",
       fire ? `Vuur: ${fire.lat.toFixed(5)}, ${fire.lng.toFixed(5)}` : "Vuurlokasie onbekend",
+      windLine,
       note ? note : null,
     ].filter(Boolean).join("\n");
 
@@ -316,7 +368,9 @@ export function registerFarmerRoutes(app: Express, ctx: FarmerRouteCtx) {
     );
 
     const title = `VUUR — ${fullName}`;
-    const body = "Daar is 'n vuur in die gebied. Maak die app oop — die pin wys op die kaart.";
+    const body = windLine
+      ? `Daar is 'n vuur in die gebied. ${windLine}`
+      : "Daar is 'n vuur in die gebied. Maak die app oop — die pin wys op die kaart.";
     const { sent } = await fanOut({
       ctx,
       orgId,
@@ -328,6 +382,7 @@ export function registerFarmerRoutes(app: Express, ctx: FarmerRouteCtx) {
       incidentId: incident.id,
       pushType: "fire",
       urgent: true,
+      alarm: true,
     });
 
     storage.createAuditLog({
@@ -464,4 +519,131 @@ export function registerFarmerRoutes(app: Express, ctx: FarmerRouteCtx) {
 
     res.status(201).json({ incidentId: incident.id, sent, categoryName: kindName });
   });
+
+  // The phone can say she is safe. It cannot stand the group down.
+  app.post("/api/panic/:id/phone-says-safe", async (req, res) => {
+    const loaded = await loadOpenPanic(req);
+    if ("error" in loaded) return res.status(loaded.error.status).json({ message: loaded.error.message });
+    const { incident, orgId, id, user } = loaded;
+    if (incident.userId !== user.id) {
+      return res.status(403).json({ message: "Only the panicker's phone can send this" });
+    }
+    const name = `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || "Iemand";
+    const line = `Die foon sê ${name} is veilig. Die paniek is NIE gekanselleer nie. Net iemand van die groep wat naby is, of die kantoor, kan dit toemaak.`;
+    const description = incident.description?.trim() ? `${incident.description.trim()}\n${line}` : line;
+    await storage.updateIncident(id, { description }, orgId);
+    await storage.sendChatMessage(orgId, user.id, null, line);
+    storage.createAuditLog({
+      userId: user.id,
+      organizationId: orgId,
+      action: "panic.phone_says_safe",
+      description: line,
+      entityType: "incident",
+      entityId: String(id),
+      changes: null,
+    }).catch(() => {});
+    if (incident.commandId != null) {
+      fanOut({
+        ctx,
+        orgId,
+        triggerUserId: user.id,
+        commandId: incident.commandId,
+        title: "FOON SÊ VEILIG — PANIEK BLY OOP",
+        body: line,
+        url: `/live-incident?join=${id}`,
+        incidentId: id,
+        pushType: "panic_safe",
+        urgent: true,
+      }).catch(() => {});
+    }
+    res.json({ ok: true, closed: false });
+  });
+
+  // Office can close from the desk. A group member can close only when they are nearby. Her phone cannot.
+  app.post("/api/panic/:id/close-on-scene", async (req, res) => {
+    const loaded = await loadOpenPanic(req);
+    if ("error" in loaded) return res.status(loaded.error.status).json({ message: loaded.error.message });
+    const { incident, orgId, id, user } = loaded;
+    if (incident.userId === user.id) {
+      return res.status(403).json({ message: "The panicker's phone cannot close this panic" });
+    }
+    const office = isDispatchStaff(user.role);
+    if (!office) {
+      const commands = await storage.getUserCommands(user.id);
+      const inGroup = incident.commandId == null
+        ? commands.length > 0
+        : commands.some((c) => c.id === incident.commandId);
+      if (!inGroup) {
+        return res.status(403).json({ message: "Only someone in the group can close this panic" });
+      }
+      const here = pair(req.body?.lat, req.body?.lng);
+      const panicAt = panicPoint(incident);
+      if (!here || !panicAt) {
+        return res.status(400).json({ message: "We can't confirm you are nearby. The office must close this panic." });
+      }
+      if (haversineM(here, panicAt) > PANIC_CLOSE_VICINITY_M) {
+        return res.status(403).json({ message: "You are too far away to close this panic" });
+      }
+    }
+    await storage.updateIncident(id, { closedByUserId: user.id } as any, orgId);
+    await storage.closePanic(id, orgId);
+    const name = `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || "Iemand";
+    const line = `${name} is op die toneel en het die paniek toegemaak.`;
+    storage.createAuditLog({
+      userId: user.id,
+      organizationId: orgId,
+      action: "panic.close_on_scene",
+      description: line,
+      entityType: "incident",
+      entityId: String(id),
+      changes: null,
+    }).catch(() => {});
+    storage.sendChatMessage(orgId, user.id, null, line).catch(() => {});
+    if (incident.commandId != null) {
+      fanOut({
+        ctx,
+        orgId,
+        triggerUserId: user.id,
+        commandId: incident.commandId,
+        title: "PANIEK TOE",
+        body: line,
+        url: "/dashboard",
+        incidentId: id,
+        pushType: "panic_safe",
+        urgent: true,
+      }).catch(() => {});
+    }
+    const orgSubs = await storage.getPushSubscriptionsByOrg(orgId);
+    const silent = JSON.stringify({ type: "panic_ack_update", silent: true });
+    await Promise.allSettled(
+      ctx.dedupeByEndpoint(orgSubs).map(async (sub) => {
+        try {
+          await webpush.sendNotification(
+            { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+            silent,
+          );
+        } catch (err: unknown) {
+          const code = typeof err === "object" && err !== null && "statusCode" in err ? (err as { statusCode: number }).statusCode : 0;
+          if (code === 410 || code === 404) await storage.deletePushSubscription(sub.endpoint);
+        }
+      }),
+    );
+    res.json({ ok: true, closed: true });
+  });
+}
+
+async function loadOpenPanic(req: Request) {
+  if (!req.currentUser) return { error: { status: 401, message: "Unauthorized" } };
+  const id = parseInt(String(req.params.id), 10);
+  if (!Number.isFinite(id)) return { error: { status: 400, message: "Invalid panic" } };
+  const orgId = req.currentUser.organizationId;
+  const incident = await storage.getIncident(id, orgId);
+  if (!incident || !incident.isLive) return { error: { status: 404, message: "Panic not found" } };
+  const category = incident.categoryId != null
+    ? await storage.getCategory(incident.categoryId, orgId)
+    : undefined;
+  if ((category?.name ?? "").toLowerCase() !== "panic") {
+    return { error: { status: 400, message: "Not a panic" } };
+  }
+  return { incident, orgId, id, user: req.currentUser };
 }
