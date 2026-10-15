@@ -82,7 +82,7 @@ const userFormSchema = z.object({
   commandIds: z.array(z.number().int().positive()).min(1, "Select at least one Group"),
 }).refine((d) => {
   if (d.password && d.password.length > 0) {
-    return d.password.length >= 10;
+    return d.password.length >= 10 || /^\d{4}$/.test(d.password);
   }
   return true;
 }, { message: "Password must be at least 10 characters", path: ["password"] })
@@ -96,10 +96,9 @@ const userFormSchema = z.object({
 type UserFormValues = z.infer<typeof userFormSchema>;
 
 function makeOneTimePassword(): string {
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
-  const bytes = new Uint8Array(12);
+  const bytes = new Uint8Array(4);
   crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
+  return Array.from(bytes, (b) => String(b % 10)).join("");
 }
 
 function PermissionsSection({ form }: { form: ReturnType<typeof useForm<UserFormValues>> }) {
@@ -495,7 +494,7 @@ function UserDialog({
             <form
               onSubmit={form.handleSubmit((d) => {
                 if (!isEdit && d.password && d.password.length > 0) {
-                  if (d.password.length < 10) {
+                  if (d.password.length < 10 && !/^\d{4}$/.test(d.password)) {
                     form.setError("password", { message: "Password must be at least 10 characters" });
                     return;
                   }
@@ -764,8 +763,7 @@ function UserDialog({
                     onClick={async () => {
                       const ok = await form.trigger();
                       if (!ok) return;
-                      const current = form.getValues("password") ?? "";
-                      const token = current.length >= 10 ? current : makeOneTimePassword();
+                      const token = makeOneTimePassword();
                       form.setValue("password", token);
                       form.setValue("confirmPassword", token);
                       setShowPassword(true);

@@ -2189,7 +2189,10 @@ export async function registerRoutes(
     posting: z.string().optional().nullable(),
     role: z.enum(USER_ROLES),
     /** Optional: if omitted, user gets an email invite to set their own password. */
-    password: z.string().min(10, "Password must be at least 10 characters").optional(),
+    password: z.string().refine(
+      (value) => value.length === 0 || value.length >= 10 || /^\d{4}$/.test(value),
+      "Password must be at least 10 characters",
+    ).optional(),
     shiftPin: z.union([
       z.string().regex(/^\d{4,6}$/, "Shift PIN must be 4–6 digits"),
       z.literal(""),
@@ -2298,10 +2301,11 @@ export async function registerRoutes(
 
     const useInvite = !rawPassword || rawPassword.length === 0;
     if (!useInvite) {
-      if (rawPassword.length < 10) {
+      const oneTimeCode = /^\d{4}$/.test(rawPassword);
+      if (!oneTimeCode && rawPassword.length < 10) {
         return res.status(400).json({ message: "Password must be at least 10 characters" });
       }
-      if (await isPasswordInUse(rawPassword)) {
+      if (!oneTimeCode && await isPasswordInUse(rawPassword)) {
         return res.status(400).json({ message: PASSWORD_IN_USE_MSG });
       }
     }
