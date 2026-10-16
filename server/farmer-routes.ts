@@ -11,6 +11,8 @@ const LIVE_ALERT_SOUND = "live_alert";
 const PANIC_ALERT_CHANNEL = "omt_panic";
 const PANIC_ALERT_SOUND = "panic_alert";
 const CRIME_ALERT_CHANNEL = "omt_chat";
+const CRIME_CARD_CHANNEL = "omt_misdaad";
+const CRIME_CARD_SOUND = "crime_gate";
 /** A group member must be this close to her before their phone can close the panic. */
 const PANIC_CLOSE_VICINITY_M = 500;
 
@@ -171,6 +173,8 @@ async function fanOut(opts: {
   urgent: boolean;
   /** Same loud home-screen alarm as panic. Fire only. */
   alarm?: boolean;
+  /** Misdaad draws its own lock-screen card and gate tone. */
+  lockScreen?: "crime";
 }) {
   const commandIds = await opts.ctx.alertAudienceCommandIds(opts.orgId, opts.commandId);
   const payload = JSON.stringify({
@@ -220,9 +224,13 @@ async function fanOut(opts: {
         body: opts.body,
         data: { type: opts.pushType, incidentId: String(opts.incidentId), url: opts.url },
         notificationTag: `${opts.pushType}-${opts.incidentId}`,
-        channelId: opts.alarm ? PANIC_ALERT_CHANNEL : opts.urgent ? LIVE_ALERT_CHANNEL : CRIME_ALERT_CHANNEL,
-        sound: opts.alarm ? PANIC_ALERT_SOUND : opts.urgent ? LIVE_ALERT_SOUND : undefined,
-        dataOnly: opts.alarm === true,
+        channelId: opts.lockScreen === "crime"
+          ? CRIME_CARD_CHANNEL
+          : opts.alarm ? PANIC_ALERT_CHANNEL : opts.urgent ? LIVE_ALERT_CHANNEL : CRIME_ALERT_CHANNEL,
+        sound: opts.lockScreen === "crime"
+          ? CRIME_CARD_SOUND
+          : opts.alarm ? PANIC_ALERT_SOUND : opts.urgent ? LIVE_ALERT_SOUND : undefined,
+        dataOnly: opts.alarm === true || opts.lockScreen === "crime",
       });
       for (const s of fcmSubs) {
         sent++;
@@ -516,10 +524,11 @@ export function registerFarmerRoutes(app: Express, ctx: FarmerRouteCtx) {
       commandId,
       title,
       body,
-      url: "/misdaad",
+      url: `/misdaad?report=${incident.id}`,
       incidentId: incident.id,
       pushType: "crime",
-      urgent: false,
+      urgent: true,
+      lockScreen: "crime",
     });
 
     storage.createAuditLog({

@@ -1475,6 +1475,64 @@ export async function registerRoutes(
     res.json({ build: BUILD_ID, cacheVersion: APP_CACHE_VERSION });
   });
 
+  // Road route for the farmer phone. The app bundle has no Maps JavaScript key,
+  // so turn-by-turn is calculated here and drawn on the phone.
+  app.get("/api/maps/driving-route", async (req, res) => {
+    if (!req.currentUser) return res.status(401).json({ message: "Unauthorized" });
+    const key = process.env.VITE_GOOGLE_MAPS_API_KEY ?? process.env.GOOGLE_MAPS_API_KEY ?? "";
+    if (!key) return res.status(503).json({ message: "Driving directions are not configured" });
+    const origin = String(req.query.origin ?? "");
+    const destination = String(req.query.destination ?? "");
+    if (!/^-?\d+(\.\d+)?,-?\d+(\.\d+)?$/.test(origin) || !/^-?\d+(\.\d+)?,-?\d+(\.\d+)?$/.test(destination)) {
+      return res.status(400).json({ message: "Origin and destination must be lat,lng" });
+    }
+    const url = new URL("https://maps.googleapis.com/maps/api/directions/json");
+    url.searchParams.set("origin", origin);
+    url.searchParams.set("destination", destination);
+    url.searchParams.set("mode", "driving");
+    url.searchParams.set("key", key);
+    try {
+      const upstream = await fetch(url, { headers: { Referer: "https://omtpulse.com/" } });
+      const body = await upstream.json() as {
+        status?: string;
+        routes?: Array<{
+          legs?: Array<{
+            distance?: { value?: number; text?: string };
+            duration?: { value?: number; text?: string };
+            steps?: Array<{
+              html_instructions?: string;
+              distance?: { value?: number; text?: string };
+              duration?: { value?: number; text?: string };
+              start_location?: { lat?: number; lng?: number };
+              end_location?: { lat?: number; lng?: number };
+              polyline?: { points?: string };
+              maneuver?: string;
+            }>;
+          }>;
+        }>;
+      };
+      if (body.status !== "OK" || !body.routes?.[0]?.legs?.[0]) {
+        return res.status(502).json({ message: "No driving route", status: body.status ?? "UNKNOWN" });
+      }
+      const leg = body.routes[0].legs[0];
+      res.json({
+        distance: leg.distance?.value ?? 0,
+        duration: leg.duration?.value ?? 0,
+        steps: (leg.steps ?? []).map((step) => ({
+          instructions: step.html_instructions ?? "",
+          distance: { value: step.distance?.value ?? 0, text: step.distance?.text ?? "" },
+          duration: { value: step.duration?.value ?? 0, text: step.duration?.text ?? "" },
+          start: { lat: step.start_location?.lat ?? 0, lng: step.start_location?.lng ?? 0 },
+          end: { lat: step.end_location?.lat ?? 0, lng: step.end_location?.lng ?? 0 },
+          polyline: step.polyline?.points ?? "",
+          maneuver: step.maneuver,
+        })),
+      });
+    } catch {
+      res.status(502).json({ message: "Driving directions failed" });
+    }
+  });
+
   // --- Push Notification Routes ---
   app.get("/api/push/vapid-public-key", (_req, res) => {
     const key = process.env.VAPID_PUBLIC_KEY;
