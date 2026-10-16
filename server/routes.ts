@@ -4547,8 +4547,15 @@ export async function registerRoutes(
     // Command-scope authorisation (read — includes grants). Mutating
     // attachment routes additionally assert WRITE access below.
     if (!(await assertReadCommandAccess(req, (inc as any).commandId))) {
-      res.status(404).json({ message: "Incident not found" });
-      return null;
+      // The farmer phone session stays on Central while the report is filed
+      // under the farm group. The reporter, and anyone the alert was sent to,
+      // must still be able to open the photo.
+      const owner = inc.userId === userId;
+      const alerted = await canOpenAlertedIncident(req, (inc as any).commandId);
+      if (!owner && !alerted) {
+        res.status(404).json({ message: "Incident not found" });
+        return null;
+      }
     }
     if (usesLocationAssignmentScope(role)) {
       const assigned = await storage.getUserLocationAssignments(userId, orgId);
@@ -4583,7 +4590,10 @@ export async function registerRoutes(
     const inc = await verifyIncidentAccess(req, res, incidentId);
     if (!inc) return;
     // Mutation: granted (read-only) visibility must not allow attaching files.
-    if (!(await assertWriteCommandAccess(req, (inc as any).commandId))) {
+    // The person who filed the report may add the photo even though the phone
+    // session is still on Central.
+    const owner = inc.userId === userId;
+    if (!(await assertWriteCommandAccess(req, (inc as any).commandId)) && !owner) {
       return res.status(403).json({ message: "Cross-Command visibility is read-only" });
     }
     const parsed = attachmentBodySchema.safeParse(req.body);
