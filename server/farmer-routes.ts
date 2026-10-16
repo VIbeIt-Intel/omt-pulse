@@ -84,6 +84,25 @@ function windSentence(wind: string | undefined): string | null {
   return word ? `Die wind waai na die ${word}.` : null;
 }
 
+async function placeFromPin(coords: { lat: number; lng: number } | null): Promise<string> {
+  if (!coords) return "";
+  const fallback = `${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}`;
+  const key = process.env.VITE_GOOGLE_MAPS_API_KEY ?? process.env.GOOGLE_MAPS_API_KEY ?? "";
+  if (!key) return fallback;
+  try {
+    const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
+    url.searchParams.set("latlng", `${coords.lat},${coords.lng}`);
+    url.searchParams.set("language", "af");
+    url.searchParams.set("key", key);
+    const upstream = await fetch(url, { headers: { Referer: "https://omtpulse.com/" } });
+    const body = await upstream.json() as { results?: Array<{ formatted_address?: string }> };
+    const address = body.results?.[0]?.formatted_address?.trim();
+    return address || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 function pair(lat: unknown, lng: unknown): { lat: number; lng: number } | null {
   const la = typeof lat === "number" ? lat : Number(lat);
   const ln = typeof lng === "number" ? lng : Number(lng);
@@ -494,7 +513,7 @@ export function registerFarmerRoutes(app: Express, ctx: FarmerRouteCtx) {
     const category = await ensureNamedCategory(orgId, commandId, kindName, "#b45309", "orange");
     const coords = pair(parsed.data.lat, parsed.data.lng);
     const note = parsed.data.note?.trim() || "";
-    const place = parsed.data.locationName?.trim() || "";
+    const place = parsed.data.locationName?.trim() || await placeFromPin(coords);
     const now = new Date();
     const description = [note, place ? `Plek: ${place}` : null].filter(Boolean).join("\n") || kindName;
 
