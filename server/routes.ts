@@ -1172,6 +1172,13 @@ async function canOpenAlertedIncident(req: Request, commandId: number | null | u
   return own.some((c) => c.id === commandId || c.isCentral);
 }
 
+/** The phone session stays on Central. A member of the fire's group, or of Central, may add the arrival photo. A visibility grant stays read-only. */
+async function canAddAlertEvidence(req: Request, commandId: number | null | undefined): Promise<boolean> {
+  if (commandId == null) return false;
+  const own = await storage.getUserCommands(req.currentUser!.id);
+  return own.some((c) => c.id === commandId || c.isCentral);
+}
+
 async function alertReadCommandIds(req: Request): Promise<number[] | undefined> {
   const user = req.currentUser!;
   if (canSwitchAllCommands(user)) {
@@ -4627,7 +4634,8 @@ export async function registerRoutes(
     // The person who filed the report may add the photo even though the phone
     // session is still on Central.
     const owner = inc.userId === userId;
-    if (!(await assertWriteCommandAccess(req, (inc as any).commandId)) && !owner) {
+    const onScene = await canAddAlertEvidence(req, (inc as any).commandId);
+    if (!(await assertWriteCommandAccess(req, (inc as any).commandId)) && !owner && !onScene) {
       return res.status(403).json({ message: "Cross-Command visibility is read-only" });
     }
     const parsed = attachmentBodySchema.safeParse(req.body);
@@ -4684,7 +4692,8 @@ export async function registerRoutes(
     const incidentId = parseInt(req.params.id as string);
     const inc = await verifyIncidentAccess(req, res, incidentId);
     if (!inc) return;
-    if (!(await assertWriteCommandAccess(req, (inc as any).commandId))) {
+    const onScene = await canAddAlertEvidence(req, (inc as any).commandId);
+    if (!(await assertWriteCommandAccess(req, (inc as any).commandId)) && !onScene) {
       return res.status(403).json({ message: "Cross-Command visibility is read-only" });
     }
     const parsed = evidenceNoteBodySchema.safeParse(req.body);
