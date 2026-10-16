@@ -138,8 +138,10 @@ async function sendFcmBatch(
     /** Custom sound name (Android raw resource / APNs sound file). */
     sound?: string;
     /**
-     * Vuur only. No system notification payload, so the phone app can draw the
-     * lock-screen card and play the siren itself. A normal notification only buzzes.
+     * Vuur and misdaad. The phone draws the lock-screen card from this data
+     * message. A second, normal notification is sent on the panic channel,
+     * which the app creates on startup, so a phone that will not start the
+     * app still shows the alert.
      */
     dataOnly?: boolean;
   },
@@ -166,13 +168,21 @@ async function sendFcmBatch(
   }
   const apnsSound = payload.sound ? `${payload.sound}.caf` : "default";
   const data = payload.dataOnly
-    ? { ...(payload.data ?? {}), title: payload.title, body: payload.body }
+    ? {
+        ...(payload.data ?? {}),
+        title: payload.title,
+        body: payload.body,
+        ...(payload.notificationTag ? { tag: payload.notificationTag } : {}),
+      }
     : (payload.data ?? {});
-  const results = await Promise.allSettled(
-    tokens.map((token) =>
+  const visibleData: Record<string, string> = {};
+  if (payload.data?.url) visibleData.url = payload.data.url;
+  if (payload.data?.incidentId) visibleData.incidentId = payload.data.incidentId;
+  const jobs = tokens.flatMap((token) => {
+    const sends: Array<Promise<string>> = [
       messaging.send(
         payload.dataOnly
-          ? { token, data, android: { priority: "high" } }
+          ? { token, data, android: { priority: "high" as const, ttl: 3_600_000 } }
           : {
               token,
               notification: { title: payload.title, body: payload.body },
@@ -181,8 +191,32 @@ async function sendFcmBatch(
               apns: { payload: { aps: { sound: apnsSound, contentAvailable: true } } },
             },
       ),
-    )
-  );
+    ];
+    if (payload.dataOnly) {
+      sends.push(
+        messaging.send({
+          token,
+          notification: { title: payload.title, body: payload.body },
+          data: visibleData,
+          android: {
+            priority: "high",
+            ttl: 3_600_000,
+            directBootOk: true,
+            notification: {
+              channelId: "omt_panic",
+              sound: "panic_alert",
+              ...(payload.notificationTag ? { tag: payload.notificationTag } : {}),
+              visibility: "PUBLIC",
+              notificationPriority: "PRIORITY_MAX",
+              defaultVibrateTimings: true,
+            },
+          },
+        }),
+      );
+    }
+    return sends.map((send) => ({ token, send }));
+  });
+  const results = await Promise.allSettled(jobs.map((job) => job.send));
   for (let i = 0; i < results.length; i++) {
     const r = results[i];
     if (r.status === "rejected") {
@@ -202,7 +236,7 @@ async function sendFcmBatch(
         errMsg.includes("invalid-registration-token") ||
         errMsg.includes("Requested entity was not found");
       if (isDeadToken) {
-        storage.deleteFcmToken(tokens[i]).catch(() => {});
+        storage.deleteFcmToken(jobs[i].token).catch(() => {});
       } else {
         console.error("[FCM] send failed for token:", errMsg);
       }
