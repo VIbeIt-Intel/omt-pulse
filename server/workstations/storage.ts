@@ -501,24 +501,25 @@ export async function setWorkstationOperator(
     .where(eq(workstations.id, workstationId));
 }
 
-export async function findUserByShiftPin(orgId: string, pin: string): Promise<typeof users.$inferSelect | null> {
-  const candidates = await db
-    .select()
-    .from(users)
-    .where(
-      and(
-        eq(users.organizationId, orgId),
-        eq(users.isActive, true),
-        isNotNull(users.shiftPinHash),
-      ),
-    );
+/** One operator in this organisation, by user id or email. Does not search other accounts. */
+export async function getShiftOperator(
+  orgId: string,
+  identifier: { userId?: string; email?: string },
+): Promise<typeof users.$inferSelect | null> {
+  const userId = identifier.userId?.trim() ?? "";
+  const email = identifier.email?.trim().toLowerCase() ?? "";
+  const user = userId
+    ? await getUserById(userId)
+    : email
+      ? (await db.select().from(users).where(eq(users.email, email)).limit(1))[0] ?? null
+      : null;
+  if (!user || user.organizationId !== orgId || !user.isActive) return null;
+  return user;
+}
 
-  for (const user of candidates) {
-    if (!user.shiftPinHash) continue;
-    const match = await bcrypt.compare(pin, user.shiftPinHash);
-    if (match) return user;
-  }
-  return null;
+export async function shiftPinMatches(user: typeof users.$inferSelect, pin: string): Promise<boolean> {
+  if (!user.shiftPinHash) return false;
+  return bcrypt.compare(pin, user.shiftPinHash);
 }
 
 export async function hashShiftPin(pin: string): Promise<string> {

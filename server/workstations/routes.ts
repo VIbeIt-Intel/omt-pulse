@@ -3,6 +3,7 @@ import { z } from "zod";
 import { insertWorkstationSchema, workstations } from "@shared/schema";
 import { getPermissionsForRole } from "@shared/permissions";
 import { isValidShiftPin, WORKSTATION_TOKEN_HEADER } from "@shared/workstations";
+import { attemptKey, clearFailedAttempts, isAttemptLimited, recordFailedAttempt } from "../auth-attempt-limit";
 import { db } from "../storage";
 import { eq } from "drizzle-orm";
 import {
@@ -11,7 +12,8 @@ import {
   deleteWorkstation,
   enrolWorkstationByCode,
   ensurePositionUser,
-  findUserByShiftPin,
+  getShiftOperator,
+  shiftPinMatches,
   getUserById,
   getWorkstationByDeviceToken,
   getWorkstationsByOrg,
@@ -200,20 +202,34 @@ export function registerWorkstationRoutes(app: Express) {
 
   app.post("/api/workstations/shift-login", requireWorkstationToken, async (req, res) => {
     const pin = typeof req.body?.pin === "string" ? req.body.pin.trim() : "";
+    const userId = typeof req.body?.userId === "string" ? req.body.userId.trim() : "";
+    const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
     if (!isValidShiftPin(pin)) {
       return res.status(400).json({ message: "PIN must be 4–6 digits" });
     }
+    if (!userId && !email) {
+      return res.status(400).json({ message: "Email or user id is required" });
+    }
+
+    const key = attemptKey("shift-pin", req, userId || email);
+    if (isAttemptLimited(key)) {
+      return res.status(429).json({ message: "Too many attempts. Try again later." });
+    }
 
     const ws = req.currentWorkstation!;
-    const operator = await findUserByShiftPin(ws.organizationId, pin);
-    if (!operator) {
+    const operator = await getShiftOperator(ws.organizationId, { userId, email });
+    if (!operator || !(await shiftPinMatches(operator, pin))) {
+      recordFailedAttempt(key);
       return res.status(401).json({ message: "Incorrect PIN" });
     }
 
     const allowed = await userCanOperateWorkstation(operator.id, ws);
     if (!allowed) {
+      recordFailedAttempt(key);
       return res.status(403).json({ message: "You are not assigned to operate this device" });
     }
+
+    clearFailedAttempts(key);
 
     req.session.userId = operator.id;
     req.session.workstationId = ws.id;

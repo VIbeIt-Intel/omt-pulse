@@ -93,7 +93,10 @@ export async function openPositionSession() {
   return res.json() as Promise<{ user: Record<string, unknown>; workstation: WorkstationWithDetails }>;
 }
 
-export async function shiftLogin(pin: string) {
+export async function shiftLogin(
+  pin: string,
+  identifier: { userId?: string; email?: string },
+) {
   const res = await fetch("/api/workstations/shift-login", {
     method: "POST",
     headers: {
@@ -101,7 +104,11 @@ export async function shiftLogin(pin: string) {
       ...workstationAuthHeaders(),
     },
     credentials: "include",
-    body: JSON.stringify({ pin }),
+    body: JSON.stringify({
+      pin,
+      userId: identifier.userId,
+      email: identifier.email,
+    }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));

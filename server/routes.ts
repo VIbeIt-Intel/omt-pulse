@@ -28,6 +28,7 @@ import { resolveAttachmentByteSize } from "@shared/attachment-byte-size";
 import { isPositionUserEmail } from "@shared/workstations";
 import { toObjectPath } from "@shared/object-url";
 import { registerFarmerRoutes } from "./farmer-routes";
+import { attemptKey, clearFailedAttempts, isAttemptLimited, recordFailedAttempt } from "./auth-attempt-limit";
 
 const objectStorageService = new ObjectStorageService();
 
@@ -1904,42 +1905,38 @@ export async function registerRoutes(
   });
 
   app.post("/api/auth/login", async (req, res) => {
-    const { email, password } = req.body;
-    if (!password || typeof password !== "string") {
+    const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
+    const userId = typeof req.body?.userId === "string" ? req.body.userId.trim() : "";
+    const password = typeof req.body?.password === "string" ? req.body.password : "";
+    if (!password) {
       return res.status(400).json({ message: "Password is required" });
     }
-
-    const allUsers = await storage.getAllUsers();
-    if (allUsers.length === 0) {
-      return res.status(401).json({ message: "No accounts exist. Please register first." });
+    if (!email && !userId) {
+      return res.status(400).json({ message: "Email or user id is required" });
     }
 
-    let matchedUser = null;
-
-    if (email && typeof email === "string" && email.trim()) {
-      // Email provided — look up by email first, then verify password
-      const candidate = await storage.getUserByEmail(email.trim().toLowerCase());
-      if (candidate) {
-        const match = await bcrypt.compare(password, candidate.password);
-        if (match) matchedUser = candidate;
-      }
-    } else {
-      // Legacy fallback: password-only scan (single-org or dev use)
-      for (const user of allUsers) {
-        const match = await bcrypt.compare(password, user.password);
-        if (match) { matchedUser = user; break; }
-      }
+    const key = attemptKey("login", req, userId || email);
+    if (isAttemptLimited(key)) {
+      return res.status(429).json({ message: "Too many attempts. Try again later." });
     }
 
-    if (!matchedUser) return res.status(401).json({ message: "Invalid email or password" });
+    const candidate = userId
+      ? await storage.getUserById(userId)
+      : await storage.getUserByEmail(email);
+    const passwordOk = !!candidate && await bcrypt.compare(password, candidate.password);
+    if (!candidate || !passwordOk) {
+      recordFailedAttempt(key);
+      return res.status(401).json({ message: "Invalid email or password" });
+    }
 
-    if (!matchedUser.isActive) {
+    if (!candidate.isActive) {
       return res.status(401).json({ message: "Your account has been deactivated. Contact your administrator." });
     }
 
-    req.session.userId = matchedUser.id;
-    audit(matchedUser.id, matchedUser.organizationId, "auth.login", "Logged in", { entityType: "session" });
-    const { password: _pw, ...safeUser } = matchedUser;
+    clearFailedAttempts(key);
+    req.session.userId = candidate.id;
+    audit(candidate.id, candidate.organizationId, "auth.login", "Logged in", { entityType: "session" });
+    const { password: _pw, ...safeUser } = candidate;
     res.json(safeUser);
   });
 
