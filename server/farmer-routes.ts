@@ -8,11 +8,11 @@ const URGENT_PUSH = { urgency: "high" as const, TTL: 3600 };
 const QUIET_PUSH = { urgency: "normal" as const, TTL: 3600 };
 const LIVE_ALERT_CHANNEL = "omt_live";
 const LIVE_ALERT_SOUND = "live_alert";
-const PANIC_ALERT_CHANNEL = "omt_panic";
-const PANIC_ALERT_SOUND = "panic_alert";
+const PANIC_ALERT_CHANNEL = "omt_panic_loud";
+const PANIC_ALERT_SOUND = "alarm_siren";
 const CRIME_ALERT_CHANNEL = "omt_chat";
-const CRIME_CARD_CHANNEL = "omt_misdaad";
-const CRIME_CARD_SOUND = "crime_gate";
+const CRIME_CARD_CHANNEL = "omt_misdaad_loud";
+const CRIME_CARD_SOUND = "alarm_gate";
 /** A group member must be this close to her before their phone can close the panic. */
 const PANIC_CLOSE_VICINITY_M = 500;
 
@@ -20,6 +20,7 @@ export const FIRE_CATEGORY_NAME = "Vuur";
 
 export const CRIME_KINDS = {
   stock_theft: "Veediefstal",
+  roaming_livestock: "Vee en Wildediere",
   burglary: "Inbraak",
   suspicious_vehicle: "Verdagte voertuig",
   suspicious_person: "Verdagte persoon",
@@ -62,11 +63,17 @@ const fireBodySchema = z.object({
 });
 
 const crimeBodySchema = z.object({
-  kind: z.enum(["stock_theft", "burglary", "suspicious_vehicle", "suspicious_person", "other"]),
+  kind: z.enum(["stock_theft", "roaming_livestock", "burglary", "suspicious_vehicle", "suspicious_person", "other"]),
   note: z.string().trim().max(500).optional(),
   lat: z.number().finite().optional(),
   lng: z.number().finite().optional(),
   locationName: z.string().trim().max(200).optional(),
+  photo: z.object({
+    url: z.string().min(1),
+    filename: z.string().min(1),
+    mimeType: z.string().min(1),
+    byteSize: z.number().int().nonnegative().optional(),
+  }).optional(),
 });
 
 function windSentence(wind: string | undefined): string | null {
@@ -515,7 +522,7 @@ export function registerFarmerRoutes(app: Express, ctx: FarmerRouteCtx) {
     const note = parsed.data.note?.trim() || "";
     const place = parsed.data.locationName?.trim() || await placeFromPin(coords);
     const now = new Date();
-    const description = [note, place ? `Plek: ${place}` : null].filter(Boolean).join("\n") || kindName;
+    const description = note || kindName;
 
     const incident = await storage.createIncident(
       {
@@ -534,8 +541,24 @@ export function registerFarmerRoutes(app: Express, ctx: FarmerRouteCtx) {
       userId,
     );
 
-    const title = `MISDAAD — ${kindName}`;
-    const body = `${fullName}${place ? ` · ${place}` : ""}. Maak die app oop vir die verslag.`;
+    if (parsed.data.photo) {
+      await storage.createAttachment({
+        incidentId: incident.id,
+        organizationId: orgId,
+        uploadedByUserId: userId,
+        url: parsed.data.photo.url,
+        filename: parsed.data.photo.filename,
+        mimeType: parsed.data.photo.mimeType,
+        evidencePhase: "scene",
+        byteSize: parsed.data.photo.byteSize ?? null,
+      });
+    }
+
+    const livestock = parsed.data.kind === "roaming_livestock";
+    const title = livestock ? `VEE EN WILDEDIERE — ${fullName}` : `MISDAAD — ${kindName}`;
+    const body = livestock
+      ? `${place ? `${place}. ` : ""}Vee of wildediere het dalk op 'n werf of plaas oorgeloop.`
+      : `${fullName}${place ? ` · ${place}` : ""}. Maak die app oop vir die verslag.`;
     const { sent } = await fanOut({
       ctx,
       orgId,
@@ -560,7 +583,59 @@ export function registerFarmerRoutes(app: Express, ctx: FarmerRouteCtx) {
       changes: null,
     }).catch(() => {});
 
-    res.status(201).json({ incidentId: incident.id, sent, categoryName: kindName });
+    res.status(201).json({
+      incidentId: incident.id,
+      sent,
+      categoryName: kindName,
+      photoStored: Boolean(parsed.data.photo),
+    });
+  });
+
+  // "Gaan soontoe" uses the same live map as a vuur response. The report stays a
+  // normal misdaad until someone responds, then it becomes a live incident with
+  // the pin as the destination so /live-incident?join= can draw the route.
+  app.post("/api/crime/:id/respond", async (req, res) => {
+    if (!req.currentUser) return res.status(401).json({ message: "Unauthorized" });
+    const id = parseInt(req.params.id as string, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid report" });
+    const orgId = req.currentUser.organizationId;
+    const incident = await storage.getIncident(id, orgId);
+    if (!incident) return res.status(404).json({ message: "Report not found" });
+    const category = incident.categoryId != null
+      ? await storage.getCategory(incident.categoryId, orgId)
+      : undefined;
+    const crimeNames = new Set(Object.values(CRIME_KINDS).map((n) => n.toLowerCase()));
+    if (!category || !crimeNames.has(category.name.toLowerCase())) {
+      return res.status(400).json({ message: "Not a crime report" });
+    }
+    if (incident.userId === req.currentUser.id) {
+      return res.status(400).json({ message: "You reported this" });
+    }
+    const lat = incident.latitude != null ? Number(incident.latitude) : NaN;
+    const lng = incident.longitude != null ? Number(incident.longitude) : NaN;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return res.status(400).json({ message: "This report has no location" });
+    }
+    if (!incident.isLive) {
+      await storage.updateIncident(id, {
+        isLive: true,
+        liveStartedAt: new Date(),
+        liveStartLat: lat,
+        liveStartLng: lng,
+        destinationLat: lat,
+        destinationLng: lng,
+        destinationName: category.name,
+        latitude: lat,
+        longitude: lng,
+      }, orgId);
+    } else if (incident.destinationLat == null || incident.destinationLng == null) {
+      await storage.updateIncident(id, {
+        destinationLat: lat,
+        destinationLng: lng,
+        destinationName: incident.destinationName || category.name,
+      }, orgId);
+    }
+    res.json({ incidentId: id });
   });
 
   // The phone can say she is safe. It cannot stand the group down.
