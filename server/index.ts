@@ -102,23 +102,11 @@ export function log(message: string, source = "express") {
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
-
-  const originalResJson = res.json;
-  res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
-  };
 
   res.on("finish", () => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
-
-      log(logLine);
+      log(`${req.method} ${path} ${res.statusCode} in ${duration}ms`);
     }
   });
 
@@ -128,6 +116,12 @@ app.use((req, res, next) => {
 (async () => {
   if (!process.env.DATABASE_URL) {
     console.error("FATAL: DATABASE_URL is not set — session persistence will not work. Exiting.");
+    process.exit(1);
+  }
+
+  const sessionSecret = process.env.SESSION_SECRET;
+  if (!sessionSecret) {
+    console.error("FATAL: SESSION_SECRET is not set. Exiting.");
     process.exit(1);
   }
 
@@ -158,7 +152,7 @@ app.use((req, res, next) => {
         pool: sessionPool,
         createTableIfMissing: false,
       }),
-      secret: process.env.SESSION_SECRET || "fallback-secret-change-in-production",
+      secret: sessionSecret,
       resave: false,
       saveUninitialized: false,
       cookie: {

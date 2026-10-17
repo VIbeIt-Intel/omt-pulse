@@ -1430,7 +1430,6 @@ export default function LiveIncidentPage() {
       if (!isFirstSend && !isHeartbeat && (now - lastSentRef.current < 5000)) return;
       lastSentRef.current = now;
 
-      console.log(`[GPS] → PATCH incident=${incidentId} lat=${p.lat.toFixed(5)} lng=${p.lng.toFixed(5)} acc=${Math.round(accuracy)}m first=${isFirstSend}`);
       setPatchState("sending");
 
       try {

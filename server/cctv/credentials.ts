@@ -3,7 +3,11 @@ import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "node:
 const SALT = "omt-pulse-cctv-v1";
 
 function deriveKey(): Buffer {
-  const secret = process.env.SESSION_SECRET || "fallback-secret-change-in-production";
+  const secret = process.env.SESSION_SECRET;
+  if (!secret) {
+    console.error("FATAL: SESSION_SECRET is not set. Exiting.");
+    process.exit(1);
+  }
   return scryptSync(secret, SALT, 32);
 }
 
