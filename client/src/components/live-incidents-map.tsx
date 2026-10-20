@@ -865,11 +865,9 @@ export function LiveIncidentsMap({
     const map = mapInstanceRef.current;
     if (!map) return;
     map.setMapTypeId(mapType);
-    if (darkTheme) {
-      map.setOptions({
-        styles: mapType === "roadmap" ? CONTROL_ROOM_MAP_STYLES : [],
-      });
-    }
+    map.setOptions({
+      styles: darkTheme && mapType === "roadmap" ? CONTROL_ROOM_MAP_STYLES : [],
+    });
   }, [mapType, mapsReady, darkTheme]);
 
   useEffect(() => {
