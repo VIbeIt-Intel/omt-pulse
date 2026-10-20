@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { RadioPanel } from "@/components/radio/radio-panel";
+import { RadioPanel, controlRoomRadioCopy } from "@/components/radio/radio-panel";
+import { useControlRoomLang } from "@/hooks/use-control-room-lang";
 import { cn } from "@/lib/utils";
 import { isPrivateRadioBusy, subscribePrivateRadioBusy } from "@/hooks/use-private-radio";
 
@@ -13,6 +14,8 @@ const AUTO_COLLAPSE_MS = 8000;
  * Expanded view auto-collapses on outside tap or after idle — slim bar is the normal state.
  */
 export function PersistentRadioDock() {
+  const { lang } = useControlRoomLang();
+  const radioCopy = controlRoomRadioCopy(lang);
   const [collapsed, setCollapsed] = useState(true);
   const [privateBusy, setPrivateBusy] = useState(false);
   const dockRef = useRef<HTMLDivElement>(null);
@@ -91,7 +94,7 @@ export function PersistentRadioDock() {
         className="shrink-0 border-t border-violet-500/20 bg-[#12101a]/95 px-3 py-1.5 text-center text-[11px] text-violet-300 z-40"
         data-testid="persistent-radio-dock-paused"
       >
-        Group radio paused — private radio is active
+        {radioCopy.paused}
       </div>
     );
   }

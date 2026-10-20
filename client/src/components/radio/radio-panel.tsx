@@ -17,6 +17,73 @@ import { Button } from "@/components/ui/button";
 import { openOmtAppDetailsSettings } from "@/lib/omt-app-settings";
 import { Capacitor } from "@capacitor/core";
 import { cn } from "@/lib/utils";
+import { useControlRoomLang } from "@/hooks/use-control-room-lang";
+
+const radioEn = {
+  radio: "Radio",
+  groupRadio: "Group radio",
+  hold: "Hold",
+  holdToTalk: "Hold to talk",
+  hear: "Hear",
+  online: "Online",
+  onAir: "On air",
+  incoming: "Incoming",
+  connecting: "Connecting",
+  offline: "Offline",
+  central: "Central",
+  selectChannel: "Select channel",
+  checking: "Checking radio…",
+  notConfigured: "Live radio is not configured on this server yet.",
+  loadingChannels: "Loading channels…",
+  noGroups: "No groups assigned — join a Pulse Group to use radio.",
+  allowMic: "Allow microphone",
+  openSettings: "Open app permission settings",
+  enableSpeaker: "Tap to enable speaker",
+  retry: "Retry radio connection",
+  collapse: "Collapse radio",
+  youOnAir: "You are on air — release to stop",
+  connectingDots: "Connecting…",
+  onlineHold: "Online — hold to talk",
+  onlineEnable: "Online — tap Enable speaker to hear",
+  offlineRetry: "Offline — tap Retry to reconnect",
+  help: "Hold the button to transmit, release to stop. Mic stays allowed after the first Android Allow (same as voice notes). Audio is never saved.",
+  paused: "Group radio paused — private radio is active",
+};
+
+const radioAf = {
+  radio: "Radio",
+  groupRadio: "Groepradio",
+  hold: "Hou",
+  holdToTalk: "Hou in om te praat",
+  hear: "Hoor",
+  online: "Aanlyn",
+  onAir: "Op die lug",
+  incoming: "Inkomend",
+  connecting: "Koppel",
+  offline: "Vanlyn",
+  central: "Sentraal",
+  selectChannel: "Kies kanaal",
+  checking: "Kontroleer radio…",
+  notConfigured: "Lewende radio is nog nie op hierdie bediener opgestel nie.",
+  loadingChannels: "Laai kanale…",
+  noGroups: "Geen groepe toegeken nie — sluit by 'n groep aan om radio te gebruik.",
+  allowMic: "Laat mikrofoon toe",
+  openSettings: "Maak toestemminginstellings oop",
+  enableSpeaker: "Tik om die luidspreker aan te sit",
+  retry: "Probeer radio weer",
+  collapse: "Vou radio toe",
+  youOnAir: "Jy is op die lug — los om te stop",
+  connectingDots: "Koppel…",
+  onlineHold: "Aanlyn — hou in om te praat",
+  onlineEnable: "Aanlyn — tik om te hoor",
+  offlineRetry: "Vanlyn — tik Probeer weer",
+  help: "Hou die knoppie in om te praat en los om te stop. Klank word nie gestoor nie.",
+  paused: "Groepradio wag — privaat radio is aktief",
+};
+
+export function controlRoomRadioCopy(lang: "en" | "af") {
+  return lang === "af" ? radioAf : radioEn;
+}
 
 export function RadioPanel({
   className,
@@ -36,6 +103,8 @@ export function RadioPanel({
   /** Prefer this group when present in the channel list. */
   defaultCommandId?: number | null;
 }) {
+  const { lang } = useControlRoomLang();
+  const r = controlRoomRadioCopy(lang);
   const available = useRadioStatus();
   const enabled = available === true;
   const { channels, loading: channelsLoading } = useRadioChannels(enabled);
@@ -93,37 +162,43 @@ export function RadioPanel({
 
   const selectedChannel = channels.find((c) => c.id === commandId);
   const channelLabel = selectedChannel
-    ? `${selectedChannel.name}${selectedChannel.isCentral ? " (Central)" : ""}`
-    : "Select channel";
+    ? `${selectedChannel.name}${selectedChannel.isCentral ? ` (${r.central})` : ""}`
+    : r.selectChannel;
 
   const isConnecting = radio.connecting || channelsLoading || (enabled && commandId == null);
   const connectionStatus = radio.transmitting
-    ? { label: "On air", tone: "live" as const }
+    ? { label: r.onAir, tone: "live" as const }
     : radio.remoteTalking
-      ? { label: "Incoming", tone: "talk" as const }
+      ? { label: r.incoming, tone: "talk" as const }
       : isConnecting
-        ? { label: "Connecting", tone: "wait" as const }
+        ? { label: r.connecting, tone: "wait" as const }
         : radio.connected
-          ? { label: "Online", tone: "live" as const }
-          : { label: "Offline", tone: "bad" as const };
+          ? { label: r.online, tone: "live" as const }
+          : { label: r.offline, tone: "bad" as const };
 
   const statusLine = radio.transmitting
-    ? "You are on air — release to stop"
+    ? r.youOnAir
     : radio.remoteTalking && !radio.speakerReady
-      ? `${radio.remoteTalking} talking — tap Enable speaker`
+      ? lang === "af"
+        ? `${radio.remoteTalking} praat — tik om te hoor`
+        : `${radio.remoteTalking} talking — tap Enable speaker`
       : radio.remoteTalking
-      ? `${radio.remoteTalking} talking`
+      ? lang === "af"
+        ? `${radio.remoteTalking} praat`
+        : `${radio.remoteTalking} talking`
       : busy && radio.floor
-        ? `${radio.floor.displayName} has the floor`
+        ? lang === "af"
+          ? `${radio.floor.displayName} het die beurt`
+          : `${radio.floor.displayName} has the floor`
         : isConnecting
-          ? "Connecting…"
+          ? r.connectingDots
           : radio.connected
             ? radio.speakerReady
-              ? "Online — hold to talk"
-              : "Online — tap Enable speaker to hear"
+              ? r.onlineHold
+              : r.onlineEnable
             : radio.error
               ? radio.error
-              : "Offline — tap Retry to reconnect";
+              : r.offlineRetry;
 
   const statusPillClass =
     connectionStatus.tone === "live"
@@ -148,7 +223,7 @@ export function RadioPanel({
     return (
       <div className={cn("rounded-xl border border-border/60 bg-card/40 px-4 py-3 text-sm text-muted-foreground", className)}>
         <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
-        Checking radio…
+        {r.checking}
       </div>
     );
   }
@@ -165,10 +240,10 @@ export function RadioPanel({
       >
         <div className="flex items-center gap-2 font-medium text-foreground/80">
           <Radio className="h-4 w-4" />
-          Radio
+          {r.radio}
         </div>
         <p className="mt-1 text-xs leading-relaxed">
-          Live radio is not configured on this server yet.
+          {r.notConfigured}
         </p>
       </div>
     );
@@ -204,7 +279,7 @@ export function RadioPanel({
           <button
             type="button"
             className="min-w-0 flex-1 flex items-start gap-1.5 text-left rounded-md px-1 py-1 hover:bg-white/[0.04]"
-            aria-label={`Expand radio — ${detail}`}
+            aria-label={lang === "af" ? `Maak radio oop — ${detail}` : `Expand radio — ${detail}`}
             data-testid="button-radio-expand"
             onClick={() => onCollapsedChange?.(false)}
           >
@@ -212,7 +287,7 @@ export function RadioPanel({
             <div className="min-w-0 flex-1 space-y-0.5">
               <div className="flex items-center gap-1.5 flex-wrap">
                 <Radio className="h-4 w-4 shrink-0 text-emerald-400" />
-                <span className="text-xs font-semibold text-emerald-400 shrink-0">Radio</span>
+                <span className="text-xs font-semibold text-emerald-400 shrink-0">{r.radio}</span>
                 <span
                   className={cn(
                     "inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide shrink-0",
@@ -260,7 +335,7 @@ export function RadioPanel({
               onClick={() => void radio.unlockSpeaker()}
             >
               <Volume2 className="h-5 w-5" />
-              Hear
+              {r.hear}
             </Button>
           ) : (
             <RadioPttButton
@@ -268,7 +343,7 @@ export function RadioPanel({
               transmitting={radio.transmitting}
               busy={busy}
               compact
-              label="Hold"
+              label={r.hold}
               onPressStart={() => {
                 void radio.unlockSpeaker();
                 void radio.startTransmit();
@@ -295,7 +370,7 @@ export function RadioPanel({
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-semibold text-emerald-400 flex-wrap">
             <Radio className="h-4 w-4 shrink-0" />
-            {dock ? "Radio" : "Group radio"}
+            {dock ? r.radio : r.groupRadio}
             <span
               className={cn(
                 "inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
@@ -332,7 +407,7 @@ export function RadioPanel({
             <button
               type="button"
               className="rounded-md p-1.5 text-muted-foreground hover:bg-emerald-500/10 hover:text-emerald-400"
-              aria-label="Collapse radio"
+              aria-label={r.collapse}
               data-testid="button-radio-collapse"
               onClick={() => onCollapsedChange(true)}
             >
@@ -343,9 +418,9 @@ export function RadioPanel({
       </div>
 
       {channelsLoading ? (
-        <p className="text-xs text-muted-foreground">Loading channels…</p>
+        <p className="text-xs text-muted-foreground">{r.loadingChannels}</p>
       ) : channels.length === 0 ? (
-        <p className="text-xs text-muted-foreground">No groups assigned — join a Pulse Group to use radio.</p>
+        <p className="text-xs text-muted-foreground">{r.noGroups}</p>
       ) : (
         <>
           <Select
@@ -356,13 +431,13 @@ export function RadioPanel({
               className={cn("bg-background/50", dock ? "h-8 text-xs" : "h-9")}
               data-testid="select-radio-channel"
             >
-              <SelectValue placeholder="Select channel" />
+              <SelectValue placeholder={r.selectChannel} />
             </SelectTrigger>
             <SelectContent>
               {channels.map((c) => (
                 <SelectItem key={c.id} value={String(c.id)}>
                   {c.name}
-                  {c.isCentral ? " (Central)" : ""}
+                  {c.isCentral ? ` (${r.central})` : ""}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -385,7 +460,7 @@ export function RadioPanel({
                 ) : (
                   <Mic className="h-4 w-4" />
                 )}
-                Allow microphone
+                {r.allowMic}
               </Button>
               <Button
                 type="button"
@@ -395,7 +470,7 @@ export function RadioPanel({
                 onClick={() => void openOmtAppDetailsSettings()}
               >
                 <Settings className="h-4 w-4" />
-                Open app permission settings
+                {r.openSettings}
               </Button>
             </div>
           ) : null}
@@ -413,8 +488,10 @@ export function RadioPanel({
             >
               <Volume2 className="h-4 w-4" />
               {radio.remoteTalking
-                ? `Tap to hear ${radio.remoteTalking}`
-                : "Tap to enable speaker"}
+                ? lang === "af"
+                  ? `Tik om ${radio.remoteTalking} te hoor`
+                  : `Tap to hear ${radio.remoteTalking}`
+                : r.enableSpeaker}
             </Button>
           ) : null}
 
@@ -424,7 +501,7 @@ export function RadioPanel({
             busy={busy}
             compact={dock}
             className={dock ? "w-full min-h-11" : undefined}
-            label="Hold to talk"
+            label={r.holdToTalk}
             onPressStart={() => {
               void radio.unlockSpeaker();
               void radio.startTransmit();
@@ -449,13 +526,12 @@ export function RadioPanel({
                 {radio.connecting ? (
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
                 ) : null}
-                Retry radio connection
+                {r.retry}
               </Button>
             </div>
           ) : dock ? null : (
             <p className="text-[10px] text-muted-foreground/80">
-              Hold the button to transmit, release to stop. Mic stays allowed after the first Android
-              Allow (same as voice notes). Audio is never saved.
+              {r.help}
             </p>
           )}
         </>

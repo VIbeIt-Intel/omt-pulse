@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { useLocation, Link } from "wouter";
 import { HeartbeatLine } from "@/components/heartbeat-line";
 import { OmtShield } from "@/components/omt-shield";
+import wagtoringBadge from "@/assets/wagtoring-badge.jpg";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { canViewAccessControlModule, isDispatchStaff, canUseLiveIncidentWorkflow, canAccessPatrolModule } from "@shared/user-roles";
@@ -274,7 +275,7 @@ function VersionLabel() {
 }
 
 export function AppSidebar({ user, onLogout, avatarPreview }: AppSidebarProps) {
-  const { t } = useControlRoomLang();
+  const { t, lang } = useControlRoomLang();
   const [location] = useLocation();
   const { isMobile, setOpenMobile } = useSidebar();
   const { primary: navItems, admin: adminItems, secondary: secondaryItems } = getNavItems(user.role, !!user.isSuperadmin, t);
@@ -301,14 +302,28 @@ export function AppSidebar({ user, onLogout, avatarPreview }: AppSidebarProps) {
   });
   const chatUnread = chatConvos.reduce((sum, c) => sum + c.unreadCount, 0);
 
+  const { data: myCommands } = useQuery<MyCommandsResponse>({ queryKey: ["/api/me/commands"] });
+  const activeCommand = myCommands?.commands.find((c) => c.id === myCommands.activeCommandId);
+  const wagtoringGroup = (activeCommand?.name ?? "").trim().toLowerCase() === "boere burgersdorp";
+  const brandName = wagtoringGroup ? (lang === "af" ? "Wagtoring" : "Watchtower") : "OMT Pulse";
+
   return (
     <Sidebar className="border-r border-slate-800/80">
       <SidebarHeader className="p-3">
         <div className="flex flex-col items-center gap-1.5 pb-0.5">
-          <OmtShield variant="mark" className="h-11 w-11 rounded-xl" />
+          {wagtoringGroup ? (
+            <img
+              src={wagtoringBadge}
+              alt={brandName}
+              className="h-11 w-11 rounded-xl object-cover"
+              data-testid="img-wagtoring-mark"
+            />
+          ) : (
+            <OmtShield variant="mark" className="h-11 w-11 rounded-xl" />
+          )}
           <div className="text-center">
             <div className="flex items-center justify-center gap-1.5">
-              <h2 className="text-sm font-bold tracking-tight" data-testid="text-app-title">OMT Pulse</h2>
+              <h2 className="text-sm font-bold tracking-tight" data-testid="text-app-title">{brandName}</h2>
               <HeartbeatLine className="w-12 h-3.5" />
             </div>
             <div className="flex items-center justify-center gap-1.5 mt-0.5">
