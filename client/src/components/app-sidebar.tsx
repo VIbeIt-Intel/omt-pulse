@@ -31,8 +31,10 @@ import {
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { useControlRoomLang } from "@/hooks/use-control-room-lang";
+import type { ControlRoomCopy } from "@/lib/control-room-i18n";
 
-type NavItem = { title: string; url: string; icon: typeof BookOpen };
+type NavItem = { id: string; title: string; url: string; icon: typeof BookOpen };
 
 type AuthUser = {
   id: string;
@@ -52,6 +54,7 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
 }
 
 function NotificationsButton() {
+  const { t } = useControlRoomLang();
   const [permission, setPermission] = useState<NotificationPermission | "unsupported">(
     () => ("Notification" in window ? Notification.permission : "unsupported")
   );
@@ -117,11 +120,11 @@ function NotificationsButton() {
         data-testid="button-enable-notifications"
       >
         <Bell className="h-4 w-4" />
-        Enable Notifications
+        {t.nav.enableNotifications}
       </Button>
       {blockedHint && (
         <p className="text-xs text-muted-foreground px-1" data-testid="text-notifications-blocked">
-          Blocked by browser — open site settings and allow notifications, then try again.
+          {t.nav.notificationsBlocked}
         </p>
       )}
     </div>
@@ -136,6 +139,7 @@ type MyCommandsResponse = {
 };
 
 function CommandSwitcher() {
+  const { t } = useControlRoomLang();
   const qc = useQueryClient();
   const { data, isLoading } = useQuery<MyCommandsResponse>({ queryKey: ["/api/me/commands"] });
 
@@ -169,22 +173,22 @@ function CommandSwitcher() {
   return (
     <div className="px-2 pb-2" data-testid="container-command-switcher">
       <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted-foreground mb-1 px-1">
-        <Network className="h-3 w-3" /> Active Group
+        <Network className="h-3 w-3" /> {t.nav.activeGroup}
       </div>
       <Select
         value={currentValue}
         onValueChange={(v) => mutation.mutate(v === "all" ? "all" : Number(v))}
       >
         <SelectTrigger className="h-9 text-sm" data-testid="select-command">
-          <SelectValue placeholder="Select a Group" />
+          <SelectValue placeholder={t.nav.selectGroup} />
         </SelectTrigger>
         <SelectContent>
           {showAll && (
-            <SelectItem value="all" data-testid="option-command-all">All Groups</SelectItem>
+            <SelectItem value="all" data-testid="option-command-all">{t.allGroups}</SelectItem>
           )}
           {options.map((c) => (
             <SelectItem key={c.id} value={String(c.id)} data-testid={`option-command-${c.id}`}>
-              {c.name}{c.isCentral ? " (Central)" : ""}
+              {c.name}{c.isCentral ? t.central : ""}
             </SelectItem>
           ))}
         </SelectContent>
@@ -195,7 +199,7 @@ function CommandSwitcher() {
           className="block mt-1.5 text-[11px] text-muted-foreground hover:text-primary px-1"
           data-testid="link-request-visibility"
         >
-          Request access to another Group →
+          {t.nav.requestAccess}
         </Link>
       )}
     </div>
@@ -208,49 +212,49 @@ interface AppSidebarProps {
   avatarPreview?: string | null;
 }
 
-function getNavItems(role: string, isSuperadmin: boolean): {
+function getNavItems(role: string, isSuperadmin: boolean, t: ControlRoomCopy): {
   primary: NavItem[];
   admin: NavItem[];
   secondary: NavItem[];
 } {
   const primary: NavItem[] = [
-    { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
-    { title: "Occurrence Book", url: "/occurrence-book", icon: BookOpen },
+    { id: "dashboard", title: t.nav.dashboard, url: "/dashboard", icon: LayoutDashboard },
+    { id: "occurrence-book", title: t.nav.occurrenceBook, url: "/occurrence-book", icon: BookOpen },
   ];
   if (canViewAccessControlModule(role)) {
-    primary.push({ title: "Access Control", url: "/access-control", icon: ShieldCheck });
+    primary.push({ id: "access-control", title: t.nav.accessControl, url: "/access-control", icon: ShieldCheck });
   }
   if (canAccessPatrolModule(role)) {
-    primary.push({ title: "Patrol", url: "/patrol", icon: Footprints });
+    primary.push({ id: "patrol", title: t.nav.patrol, url: "/patrol", icon: Footprints });
   }
   if (canAccessSecuritySurveyModule(role)) {
-    primary.push({ title: "Site Survey", url: "/security-survey", icon: ClipboardList });
+    primary.push({ id: "site-survey", title: t.nav.siteSurvey, url: "/security-survey", icon: ClipboardList });
   }
   if (isDispatchStaff(role)) {
-    primary.push({ title: "Analytics", url: "/analytics", icon: BarChart3 });
-    primary.push({ title: "Live Monitor", url: "/live-monitor", icon: Radio });
-    primary.push({ title: "Fleet", url: "/fleet", icon: Car });
-    primary.push({ title: "Assets", url: "/assets", icon: Package });
-    primary.push({ title: "Cameras", url: "/cctv", icon: Video });
+    primary.push({ id: "analytics", title: t.nav.analytics, url: "/analytics", icon: BarChart3 });
+    primary.push({ id: "live-monitor", title: t.liveMonitor, url: "/live-monitor", icon: Radio });
+    primary.push({ id: "fleet", title: t.fleet, url: "/fleet", icon: Car });
+    primary.push({ id: "assets", title: t.nav.assets, url: "/assets", icon: Package });
+    primary.push({ id: "cameras", title: t.nav.cameras, url: "/cctv", icon: Video });
   }
   if (canUseLiveIncidentWorkflow(role) && !isDispatchStaff(role)) {
-    primary.push({ title: "Live Incident", url: "/live-incident", icon: Radio });
+    primary.push({ id: "live-incident", title: t.nav.liveIncident, url: "/live-incident", icon: Radio });
   }
 
   const admin: NavItem[] = [];
   if (role === "administrator") {
-    admin.push({ title: "Users", url: "/user-admin", icon: Users });
-    admin.push({ title: "Sites", url: "/positions", icon: Building2 });
-    admin.push({ title: "Field setup", url: "/admin", icon: Settings });
-    admin.push({ title: "Import Data", url: "/import", icon: Upload });
+    admin.push({ id: "users", title: t.nav.users, url: "/user-admin", icon: Users });
+    admin.push({ id: "sites", title: t.nav.sites, url: "/positions", icon: Building2 });
+    admin.push({ id: "field-setup", title: t.nav.fieldSetup, url: "/admin", icon: Settings });
+    admin.push({ id: "import-data", title: t.nav.importData, url: "/import", icon: Upload });
   }
   if (role === "administrator" || isSuperadmin) {
-    admin.push({ title: "Groups", url: "/commands", icon: Shield });
+    admin.push({ id: "groups", title: t.nav.groups, url: "/commands", icon: Shield });
   }
 
   const secondary: NavItem[] = [
-    { title: "Chat", url: "/chat", icon: MessageSquare },
-    { title: "Notifications", url: "/notifications", icon: Bell },
+    { id: "chat", title: t.nav.chat, url: "/chat", icon: MessageSquare },
+    { id: "notifications", title: t.nav.notifications, url: "/notifications", icon: Bell },
   ];
   return { primary, admin, secondary };
 }
@@ -270,9 +274,10 @@ function VersionLabel() {
 }
 
 export function AppSidebar({ user, onLogout, avatarPreview }: AppSidebarProps) {
+  const { t } = useControlRoomLang();
   const [location] = useLocation();
   const { isMobile, setOpenMobile } = useSidebar();
-  const { primary: navItems, admin: adminItems, secondary: secondaryItems } = getNavItems(user.role, !!user.isSuperadmin);
+  const { primary: navItems, admin: adminItems, secondary: secondaryItems } = getNavItems(user.role, !!user.isSuperadmin, t);
   const adminActive = adminItems.some((item) => location === item.url);
   const [adminOpen, setAdminOpen] = useState(adminActive);
 
@@ -308,7 +313,7 @@ export function AppSidebar({ user, onLogout, avatarPreview }: AppSidebarProps) {
             </div>
             <div className="flex items-center justify-center gap-1.5 mt-0.5">
               <div className="h-px w-4 bg-gradient-to-r from-transparent to-primary/40" />
-              <span className="text-[8px] text-muted-foreground/40 font-light">powered by</span>
+              <span className="text-[8px] text-muted-foreground/40 font-light">{t.nav.poweredBy}</span>
               <span className="text-[9px] font-semibold tracking-[0.1em] uppercase text-primary/50">IntelAfri</span>
               <div className="h-px w-4 bg-gradient-to-l from-transparent to-primary/40" />
             </div>
@@ -318,15 +323,15 @@ export function AppSidebar({ user, onLogout, avatarPreview }: AppSidebarProps) {
       <SidebarContent>
         <CommandSwitcher />
         <SidebarGroup>
-          <SidebarGroupLabel className="text-[10px] uppercase tracking-wider">Navigation</SidebarGroupLabel>
+          <SidebarGroupLabel className="text-[10px] uppercase tracking-wider">{t.nav.navigation}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {navItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
+                <SidebarMenuItem key={item.id}>
                   <SidebarMenuButton
                     asChild
                     isActive={location === item.url}
-                    data-testid={`link-nav-${item.title.toLowerCase().replace(/\s/g, '-')}`}
+                    data-testid={`link-nav-${item.id}`}
                   >
                     <Link href={item.url} onClick={closeOnMobile}>
                       <item.icon />
@@ -351,7 +356,7 @@ export function AppSidebar({ user, onLogout, avatarPreview }: AppSidebarProps) {
                         data-testid="link-nav-admin"
                       >
                         <Settings />
-                        <span className="flex-1">Admin</span>
+                        <span className="flex-1">{t.nav.admin}</span>
                         <ChevronRight className={`h-4 w-4 transition-transform ${adminOpen ? "rotate-90" : ""}`} />
                       </SidebarMenuButton>
                     </CollapsibleTrigger>
@@ -362,7 +367,7 @@ export function AppSidebar({ user, onLogout, avatarPreview }: AppSidebarProps) {
                             <SidebarMenuSubButton
                               asChild
                               isActive={location === item.url}
-                              data-testid={`link-nav-${item.title.toLowerCase().replace(/\s/g, '-')}`}
+                              data-testid={`link-nav-${item.id}`}
                             >
                               <Link href={item.url} onClick={closeOnMobile}>
                                 <item.icon />
@@ -378,11 +383,11 @@ export function AppSidebar({ user, onLogout, avatarPreview }: AppSidebarProps) {
               )}
 
               {secondaryItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
+                <SidebarMenuItem key={item.id}>
                   <SidebarMenuButton
                     asChild
                     isActive={location === item.url}
-                    data-testid={`link-nav-${item.title.toLowerCase().replace(/\s/g, '-')}`}
+                    data-testid={`link-nav-${item.id}`}
                   >
                     <Link href={item.url} onClick={closeOnMobile}>
                       <item.icon />
@@ -416,8 +421,8 @@ export function AppSidebar({ user, onLogout, avatarPreview }: AppSidebarProps) {
               <p className="text-sm font-medium truncate" data-testid="text-user-name">
                 {user.firstName} {user.lastName}
               </p>
-              <Badge variant="secondary" className="text-xs shrink-0 capitalize" data-testid="text-user-role">
-                {user.role}
+              <Badge variant="secondary" className="text-xs shrink-0" data-testid="text-user-role">
+                {t.role(user.role)}
               </Badge>
             </div>
             <p className="text-xs text-muted-foreground truncate" data-testid="text-user-email">{user.email}</p>
@@ -432,7 +437,7 @@ export function AppSidebar({ user, onLogout, avatarPreview }: AppSidebarProps) {
           data-testid="button-sign-out"
         >
           <LogOut className="h-4 w-4" />
-          Sign Out
+          {t.nav.signOut}
         </Button>
         <VersionLabel />
         <Link
@@ -440,7 +445,7 @@ export function AppSidebar({ user, onLogout, avatarPreview }: AppSidebarProps) {
           className="block text-center text-[10px] text-muted-foreground hover:text-foreground hover:underline"
           data-testid="link-sidebar-privacy"
         >
-          Privacy Policy
+          {t.nav.privacy}
         </Link>
       </SidebarFooter>
     </Sidebar>

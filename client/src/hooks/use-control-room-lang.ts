@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useSyncExternalStore } from "react";
 import {
   controlRoomCopy,
   readControlRoomLang,
@@ -6,14 +6,31 @@ import {
   type ControlRoomLang,
 } from "@/lib/control-room-i18n";
 
+let currentLang: ControlRoomLang = readControlRoomLang();
+const listeners = new Set<() => void>();
+
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+function getSnapshot(): ControlRoomLang {
+  return currentLang;
+}
+
+function setSharedLang(next: ControlRoomLang) {
+  writeControlRoomLang(next);
+  currentLang = next;
+  listeners.forEach((listener) => listener());
+}
+
 export function useControlRoomLang() {
-  const [lang, setLangState] = useState<ControlRoomLang>(() => readControlRoomLang());
+  const lang = useSyncExternalStore(subscribe, getSnapshot, () => "en" as ControlRoomLang);
   function setLang(next: ControlRoomLang) {
-    writeControlRoomLang(next);
-    setLangState(next);
+    setSharedLang(next);
   }
   function toggle() {
-    setLang(lang === "af" ? "en" : "af");
+    setSharedLang(lang === "af" ? "en" : "af");
   }
   return { lang, setLang, toggle, t: controlRoomCopy(lang) };
 }

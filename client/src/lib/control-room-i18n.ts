@@ -105,6 +105,34 @@ export type ControlRoomCopy = {
   noGpsYet: string;
   noGpsDescription: (name: string) => string;
   attachments: string;
+  nav: {
+    activeGroup: string;
+    selectGroup: string;
+    requestAccess: string;
+    navigation: string;
+    dashboard: string;
+    occurrenceBook: string;
+    accessControl: string;
+    patrol: string;
+    siteSurvey: string;
+    analytics: string;
+    liveIncident: string;
+    assets: string;
+    cameras: string;
+    admin: string;
+    users: string;
+    sites: string;
+    fieldSetup: string;
+    importData: string;
+    groups: string;
+    chat: string;
+    notifications: string;
+    enableNotifications: string;
+    notificationsBlocked: string;
+    signOut: string;
+    privacy: string;
+    poweredBy: string;
+  };
 };
 
 const en: ControlRoomCopy = {
@@ -203,6 +231,34 @@ const en: ControlRoomCopy = {
   noGpsYet: "No GPS yet",
   noGpsDescription: (name) => `${name} has no recorded position to show on the map.`,
   attachments: "Attachments",
+  nav: {
+    activeGroup: "Active Group",
+    selectGroup: "Select a Group",
+    requestAccess: "Request access to another Group →",
+    navigation: "Navigation",
+    dashboard: "Dashboard",
+    occurrenceBook: "Occurrence Book",
+    accessControl: "Access Control",
+    patrol: "Patrol",
+    siteSurvey: "Site Survey",
+    analytics: "Analytics",
+    liveIncident: "Live Incident",
+    assets: "Assets",
+    cameras: "Cameras",
+    admin: "Admin",
+    users: "Users",
+    sites: "Sites",
+    fieldSetup: "Field setup",
+    importData: "Import Data",
+    groups: "Groups",
+    chat: "Chat",
+    notifications: "Notifications",
+    enableNotifications: "Enable Notifications",
+    notificationsBlocked: "Blocked by browser — open site settings and allow notifications, then try again.",
+    signOut: "Sign Out",
+    privacy: "Privacy Policy",
+    poweredBy: "powered by",
+  },
 };
 
 const af: ControlRoomCopy = {
@@ -301,6 +357,34 @@ const af: ControlRoomCopy = {
   noGpsYet: "Nog geen GPS",
   noGpsDescription: (name) => `${name} het nog geen ligging om op die kaart te wys nie.`,
   attachments: "Aanhegsels",
+  nav: {
+    activeGroup: "Aktiewe groep",
+    selectGroup: "Kies 'n groep",
+    requestAccess: "Vra toegang tot 'n ander groep →",
+    navigation: "Navigasie",
+    dashboard: "Beheerkamer",
+    occurrenceBook: "Voorvalleboek",
+    accessControl: "Toegangsbeheer",
+    patrol: "Patrollie",
+    siteSurvey: "Terreinopname",
+    analytics: "Ontleding",
+    liveIncident: "Lewendige voorval",
+    assets: "Bates",
+    cameras: "Kameras",
+    admin: "Administrasie",
+    users: "Gebruikers",
+    sites: "Terreine",
+    fieldSetup: "Veldopstelling",
+    importData: "Voer data in",
+    groups: "Groepe",
+    chat: "Boodskappe",
+    notifications: "Kennisgewings",
+    enableNotifications: "Skakel kennisgewings aan",
+    notificationsBlocked: "Geblokkeer deur die blaaier. Maak werfinstellings oop, laat kennisgewings toe, en probeer weer.",
+    signOut: "Teken uit",
+    privacy: "Privaatheidsbeleid",
+    poweredBy: "aangedryf deur",
+  },
 };
 
 function titleCaseRole(role: string): string {
