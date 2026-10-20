@@ -16,6 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { PageHero } from "@/components/page-hero";
+import { useControlRoomLang } from "@/hooks/use-control-room-lang";
 import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import { cn } from "@/lib/utils";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -88,6 +89,7 @@ function siteFromPrimary(
 }
 
 export default function CommandsPage() {
+  const { t } = useControlRoomLang();
   const { toast } = useToast();
   const qc = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
@@ -161,10 +163,10 @@ export default function CommandsPage() {
     <div className="h-full overflow-y-auto">
     <div className={cn(OPS_PAGE_SHELL, "py-4 sm:py-8 space-y-6")} data-testid="page-commands">
       <PageHero
-        eyebrow="Groups"
-        badge="Admin"
+        eyebrow={t.nav.groups}
+        badge={t.screen.admin}
         total={commands.length}
-        totalLabel={commands.length === 1 ? "Group" : "Groups"}
+        totalLabel={commands.length === 1 ? t.screen.group : t.screen.groupsWord}
         titleTestId="heading-commands"
         actions={
           <Button
@@ -173,12 +175,12 @@ export default function CommandsPage() {
             className="w-full sm:w-auto sm:shrink-0 h-8"
             data-testid="button-create-command"
           >
-            <Plus className="h-4 w-4 mr-2" /> New Group
+            <Plus className="h-4 w-4 mr-2" /> {t.screen.newGroup}
           </Button>
         }
         insights={[
-          { label: "Custom", value: String(customCount) },
-          { label: "Members", value: String(totalMembers) },
+          { label: t.screen.custom, value: String(customCount) },
+          { label: t.screen.members, value: String(totalMembers) },
         ]}
       />
 

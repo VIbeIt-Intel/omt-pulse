@@ -6,12 +6,14 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { PageHero } from "@/components/page-hero";
+import { useControlRoomLang } from "@/hooks/use-control-room-lang";
 import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import { cn } from "@/lib/utils";
 import { CctvCameraList } from "@/components/cctv/cctv-camera-list";
 import { CctvCameraFormSheet } from "@/components/cctv/cctv-camera-form-sheet";
 
 export default function CctvPage() {
+  const { t } = useControlRoomLang();
   const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [formOpen, setFormOpen] = useState(false);
@@ -46,17 +48,17 @@ export default function CctvPage() {
     <div className="h-full overflow-y-auto bg-background" data-testid="cctv-page">
       <div className={cn(OPS_PAGE_SHELL, "py-3 md:py-6 space-y-4 md:space-y-5")}>
         <PageHero
-          eyebrow="Cameras"
+          eyebrow={t.nav.cameras}
           badge="CCTV"
           total={cameras.length}
-          totalLabel={cameras.length === 1 ? "camera configured" : "cameras configured"}
-          description="Live RTSP feeds converted for browser viewing. Administrators can add and manage cameras."
-          emptyMessage="No cameras yet — add your first RTSP source to start monitoring."
+          totalLabel={cameras.length === 1 ? t.screen.camera : t.screen.camerasConfigured}
+          description={cameras.length === 0 ? t.screen.noCameras : undefined}
+          emptyMessage={t.screen.noCameras}
           actions={
             isAdmin ? (
               <Button onClick={openAdd} data-testid="cctv-add-camera">
                 <Plus className="h-4 w-4 mr-1" />
-                Add camera
+                {t.screen.addCamera}
               </Button>
             ) : undefined
           }

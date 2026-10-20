@@ -7,6 +7,7 @@ import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useControlRoomLang } from "@/hooks/use-control-room-lang";
 import type { Incident, Category, Location, FormField, CustomMap } from "@shared/schema";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -736,6 +737,7 @@ const EMPTY_FILTERS: ActiveFilters = {
 };
 
 export default function AnalyticsPage() {
+  const { t, lang } = useControlRoomLang();
   const { toast } = useToast();
   const [view, setView] = useState<"charts" | "map">("charts");
   const [startDate, setStartDate] = useState("");
@@ -1434,10 +1436,10 @@ export default function AnalyticsPage() {
     startDate && endDate
       ? `${startDate} → ${endDate}`
       : startDate
-        ? `From ${startDate}`
+        ? `${lang === "af" ? "Van" : "From"} ${startDate}`
         : endDate
-          ? `Until ${endDate}`
-          : "All dates";
+          ? `${lang === "af" ? "Tot" : "Until"} ${endDate}`
+          : t.screen.allDates;
 
   const locMax = Math.max(0, ...locationData.map((d) => d.incidents));
   const timeMax = Math.max(0, ...timeData.map((d) => d.incidents));
@@ -1459,7 +1461,7 @@ export default function AnalyticsPage() {
         ) : view === "map" ? (
           <div data-testid="analytics-map-hero">
             <AnalyticsHero
-              eyebrow="Analytics · Map"
+              eyebrow={t.screen.analyticsMap}
               periodLabel={periodLabel}
               total={kpiData.total}
               topLoc={kpiData.topLoc}
@@ -1473,10 +1475,10 @@ export default function AnalyticsPage() {
             <div>
               <h1 className="text-2xl font-bold tracking-tight" data-testid="text-analytics-title">
                 <BarChart3 className="inline h-6 w-6 mr-2 -mt-0.5" />
-                Analytics & Reports
+                {lang === "af" ? "Ontleding en verslae" : "Analytics & Reports"}
               </h1>
               <p className="text-sm text-muted-foreground mt-1">
-                Incident statistics and trend analysis
+                {lang === "af" ? "Voorvalstatistiek en tendense" : "Incident statistics and trend analysis"}
               </p>
             </div>
           </div>
@@ -1489,9 +1491,9 @@ export default function AnalyticsPage() {
             onChange={(e) => setStartDate(e.target.value)}
             className="h-8 rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
             data-testid="input-start-date"
-            aria-label="From date"
+            aria-label={lang === "af" ? "Van datum" : "From date"}
           />
-          <span className="text-xs text-muted-foreground">to</span>
+          <span className="text-xs text-muted-foreground">{t.screen.to}</span>
           <input
             type="date"
             value={endDate}
@@ -1499,7 +1501,7 @@ export default function AnalyticsPage() {
             onChange={(e) => setEndDate(e.target.value)}
             className="h-8 rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
             data-testid="input-end-date"
-            aria-label="To date"
+            aria-label={lang === "af" ? "Tot datum" : "To date"}
           />
           {(startDate || endDate) && (
             <Button
@@ -1509,7 +1511,7 @@ export default function AnalyticsPage() {
               onClick={() => { setStartDate(""); setEndDate(""); }}
               data-testid="button-clear-dates"
             >
-              Clear
+              {t.screen.clear}
             </Button>
           )}
           <div className="flex-1 min-w-[8px]" />
@@ -1580,7 +1582,7 @@ export default function AnalyticsPage() {
                 label: (
                   <>
                     <BarChart3 className="h-3.5 w-3.5" />
-                    Charts
+                    {t.screen.charts}
                   </>
                 ),
                 testId: "button-view-charts",
@@ -1590,7 +1592,7 @@ export default function AnalyticsPage() {
                 label: (
                   <>
                     <MapPin className="h-3.5 w-3.5" />
-                    Map
+                    {t.screen.map}
                   </>
                 ),
                 testId: "button-view-map",
@@ -1601,7 +1603,7 @@ export default function AnalyticsPage() {
 
         {activeFilterChips.length > 0 && (
           <div className="flex items-center gap-2 flex-wrap" data-testid="active-filter-chips">
-            <span className="text-xs text-muted-foreground font-medium">Filtering by:</span>
+            <span className="text-xs text-muted-foreground font-medium">{t.screen.filteringBy}</span>
             {activeFilterChips.map((chip) => (
               <Badge
                 key={chip.label}
@@ -1626,7 +1628,7 @@ export default function AnalyticsPage() {
               onClick={clearAllFilters}
               data-testid="button-clear-all-filters"
             >
-              Clear all
+              {t.screen.clearAll}
             </Button>
           </div>
         )}
@@ -1636,35 +1638,35 @@ export default function AnalyticsPage() {
             items={[
               {
                 id: "total",
-                label: "Total",
+                label: t.screen.total,
                 value: kpiData.total,
                 icon: <BarChart3 className="h-3 w-3" />,
                 testId: "kpi-total",
               },
               {
                 id: "loc",
-                label: "Top location",
+                label: t.screen.topLocation,
                 value: kpiData.topLoc || "TBD",
                 icon: <MapPin className="h-3 w-3" />,
                 testId: "kpi-location",
               },
               {
                 id: "type",
-                label: "Top type",
+                label: t.screen.topType,
                 value: kpiData.topCat || "TBD",
                 icon: <Tag className="h-3 w-3" />,
                 testId: "kpi-type",
               },
               {
                 id: "peak",
-                label: "Peak hour",
+                label: t.screen.peakHour,
                 value: kpiData.peakHour || "TBD",
                 icon: <Clock className="h-3 w-3" />,
                 testId: "kpi-peak-hour",
               },
               {
                 id: "live",
-                label: "Live",
+                label: t.live,
                 value: statsData?.liveCount ?? 0,
                 live: true,
                 testId: "kpi-live-count",
@@ -1695,7 +1697,7 @@ export default function AnalyticsPage() {
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <AnalyticsChartPanel
-              title="Location"
+              title={t.screen.location}
               icon={<MapPin className="h-4 w-4" />}
               filtered={activeFilters.location !== null}
               highlighted={activeFilters.location !== null}
@@ -1781,7 +1783,7 @@ export default function AnalyticsPage() {
             </Dialog>
 
             <AnalyticsChartPanel
-              title="Type"
+              title={t.screen.type}
               icon={<Tag className="h-4 w-4" />}
               filtered={activeFilters.categoryId !== null}
               highlighted={activeFilters.categoryId !== null}
@@ -1867,7 +1869,7 @@ export default function AnalyticsPage() {
             </Dialog>
 
             <AnalyticsChartPanel
-              title="Incident Time"
+              title={t.screen.incidentTime}
               icon={<Clock className="h-4 w-4" />}
               filtered={activeFilters.hour !== null}
               highlighted={activeFilters.hour !== null}
@@ -1949,7 +1951,7 @@ export default function AnalyticsPage() {
             </AnalyticsChartPanel>
 
             <AnalyticsChartPanel
-              title="Incident Date"
+              title={t.screen.incidentDate}
               icon={<Calendar className="h-4 w-4" />}
               filtered={!!activeFilters.dateKey}
               highlighted={!!activeFilters.dateKey}
@@ -2047,7 +2049,7 @@ export default function AnalyticsPage() {
 
             <AnalyticsChartPanel
               className="lg:col-span-2"
-              title="Day of Week"
+              title={t.screen.dayOfWeek}
               icon={<CalendarDays className="h-4 w-4" />}
               filtered={activeFilters.dow !== null}
               highlighted={activeFilters.dow !== null}

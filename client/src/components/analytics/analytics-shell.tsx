@@ -1,6 +1,7 @@
 import type { ReactNode, Ref } from "react";
 import { cn } from "@/lib/utils";
 import { PageHero } from "@/components/page-hero";
+import { useControlRoomLang } from "@/hooks/use-control-room-lang";
 
 export function AnalyticsHero({
   periodLabel,
@@ -9,7 +10,7 @@ export function AnalyticsHero({
   topCat,
   peakHour,
   insightKey,
-  eyebrow = "Analytics",
+  eyebrow,
 }: {
   periodLabel: string;
   total: number;
@@ -20,19 +21,20 @@ export function AnalyticsHero({
   insightKey: string;
   eyebrow?: string;
 }) {
+  const { t } = useControlRoomLang();
   const insights = [
-    topLoc ? { label: "Hotspot", value: topLoc } : null,
-    topCat ? { label: "Lead type", value: topCat } : null,
-    peakHour ? { label: "Peak hour", value: peakHour } : null,
+    topLoc ? { label: t.screen.hotspot, value: topLoc } : null,
+    topCat ? { label: t.screen.leadType, value: topCat } : null,
+    peakHour ? { label: t.screen.peakHour, value: peakHour } : null,
   ].filter(Boolean) as Array<{ label: string; value: string }>;
 
   return (
     <PageHero
-      eyebrow={eyebrow}
+      eyebrow={eyebrow ?? t.nav.analytics}
       badge={periodLabel}
       total={total}
-      totalLabel={total === 1 ? "Incident" : "Incidents"}
-      emptyMessage="No incidents in this period — adjust the date range or clear filters."
+      totalLabel={total === 1 ? t.screen.incident : t.screen.incidents}
+      emptyMessage={t.screen.noIncidentsPeriod}
       insights={insights}
       insightKey={insightKey}
       testId="analytics-hero"

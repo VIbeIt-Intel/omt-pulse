@@ -42,6 +42,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { PageHero } from "@/components/page-hero";
+import { useControlRoomLang } from "@/hooks/use-control-room-lang";
 import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import { cn } from "@/lib/utils";
 import { ExpandablePhoto } from "@/components/photo-lightbox";
@@ -94,6 +95,7 @@ function formatCoords(lat: number, lng: number): string {
 }
 
 export default function WorkstationsAdminPage() {
+  const { t } = useControlRoomLang();
   const { toast } = useToast();
   const qc = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -238,20 +240,20 @@ export default function WorkstationsAdminPage() {
   return (
     <div className={cn(OPS_PAGE_SHELL, "py-4 md:py-6 space-y-6")}>
       <PageHero
-        eyebrow="Sites"
-        badge="Admin"
+        eyebrow={t.nav.sites}
+        badge={t.screen.admin}
         total={premisesGroups.length}
-        totalLabel={premisesGroups.length === 1 ? "Site" : "Sites"}
+        totalLabel={premisesGroups.length === 1 ? t.screen.site : t.screen.sitesWord}
         actions={
           <Button type="button" size="sm" className="h-8" onClick={() => setDialogOpen(true)}>
             <Plus className="h-4 w-4 mr-1" />
-            Add position
+            {t.screen.addPosition}
           </Button>
         }
         insights={[
-          { label: "Positions", value: String(workstations.length) },
-          { label: "Enrolled", value: String(enrolledCount) },
-          { label: "Pending", value: String(workstations.length - enrolledCount) },
+          { label: t.screen.positions, value: String(workstations.length) },
+          { label: t.screen.enrolled, value: String(enrolledCount) },
+          { label: t.screen.pending, value: String(workstations.length - enrolledCount) },
         ]}
       />
 

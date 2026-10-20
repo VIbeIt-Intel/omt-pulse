@@ -6,6 +6,7 @@ import { ASSET_TYPE_LABELS, type AssetType } from "@shared/assets";
 import { AssetAddSheet } from "@/components/assets/asset-add-sheet";
 import { GeoMapPreview } from "@/components/incident-location-sheet";
 import { PageHero } from "@/components/page-hero";
+import { useControlRoomLang } from "@/hooks/use-control-room-lang";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -92,6 +93,7 @@ function lastTrackedLabel(value: string | null): string {
 }
 
 export default function AssetsPage() {
+  const { t } = useControlRoomLang();
   const { toast } = useToast();
   const search = useSearch();
   const [, setLocation] = useLocation();
@@ -188,16 +190,16 @@ export default function AssetsPage() {
     <div className="h-full overflow-y-auto bg-background" data-testid="assets-page">
       <div className={cn(OPS_PAGE_SHELL, "py-4 sm:py-6 space-y-5")}>
         <PageHero
-          eyebrow="Assets"
-          badge="Asset register"
+          eyebrow={t.nav.assets}
+          badge={t.screen.assetRegister}
           total={assets.length}
-          totalLabel={assets.length === 1 ? "Asset" : "Assets"}
+          totalLabel={assets.length === 1 ? t.screen.asset : t.screen.assetsWord}
           actions={
             canManage ? (
               <Button size="sm" className="h-8" onClick={() => setAddOpen(true)}>
                 <Plus className="h-4 w-4 mr-1" />
                 <span className="md:hidden">Add</span>
-                <span className="hidden md:inline">Add asset</span>
+                <span className="hidden md:inline">{t.screen.addAsset}</span>
               </Button>
             ) : null
           }

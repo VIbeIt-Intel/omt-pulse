@@ -16,6 +16,7 @@ import { requestLocationAccess } from "@/lib/request-location-access";
 import { flushPendingPatrolTracks } from "@/lib/patrol-tracking";
 import { cn } from "@/lib/utils";
 import { PageHero } from "@/components/page-hero";
+import { useControlRoomLang } from "@/hooks/use-control-room-lang";
 import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import {
   AlertTriangle,
@@ -80,6 +81,7 @@ function patrolTime(value: string | Date): string {
 }
 
 export default function PatrolPage({ userRole }: PatrolPageProps) {
+  const { t } = useControlRoomLang();
   const isManager = canManagePatrolRoutes(userRole);
   const [tab, setTab] = useState<ManagerTab>(isManager ? "routes" : "run");
   const [routeSheetOpen, setRouteSheetOpen] = useState(false);
@@ -288,14 +290,14 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
     <div className="flex flex-col h-full overflow-hidden bg-background text-foreground">
       <div className={cn(OPS_PAGE_SHELL, "shrink-0 pt-3 pb-2 md:pb-3")}>
         <PageHero
-          eyebrow="Patrol"
-          badge={isManager ? "Manager" : "Field"}
+          eyebrow={t.nav.patrol}
+          badge={isManager ? t.screen.manager : t.screen.field}
           total={routes.length}
-          totalLabel={routes.length === 1 ? "Route" : "Routes"}
+          totalLabel={routes.length === 1 ? t.screen.route : t.screen.routes}
           emptyMessage={
             isManager
-              ? "No routes yet — add a route to get started."
-              : "No patrol routes assigned yet."
+              ? t.screen.noRoutesYet
+              : t.screen.noPatrolAssigned
           }
           insights={[
             {

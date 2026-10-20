@@ -24,6 +24,7 @@ import {
 import { downloadIncidentDocket } from "@/lib/incident-docket";
 import { PanicConfirmOverlay } from "@/components/panic-confirm-overlay";
 import { PageHero } from "@/components/page-hero";
+import { useControlRoomLang } from "@/hooks/use-control-room-lang";
 import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import { cn } from "@/lib/utils";
 
@@ -58,6 +59,7 @@ function isFieldVisible(fields: FormField[], key: string, fieldsLoaded: boolean)
 }
 
 export default function OccurrenceBook() {
+  const { t } = useControlRoomLang();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingIncident, setEditingIncident] = useState<Incident | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
@@ -474,17 +476,17 @@ export default function OccurrenceBook() {
     <div className="flex flex-col h-full bg-muted/20 md:bg-background">
       <div className={cn(OPS_PAGE_SHELL, "shrink-0 pt-3 pb-3")}>
         <PageHero
-          eyebrow={isOwnIncidentUser ? "My Incidents" : "Occurrence Book"}
+          eyebrow={isOwnIncidentUser ? t.screen.myIncidents : t.nav.occurrenceBook}
           badge={
             periodParam === "week"
-              ? "This week"
+              ? t.screen.thisWeek
               : periodParam === "day"
-                ? "Today"
-                : "All records"
+                ? t.screen.today
+                : t.screen.allRecords
           }
           total={filteredIncidents.length}
-          totalLabel={filteredIncidents.length === 1 ? "In view" : "In view"}
-          emptyMessage="No incidents in this view — adjust filters or report a new incident."
+          totalLabel={t.screen.inView}
+          emptyMessage={t.screen.noIncidentsView}
           titleTestId="text-page-title"
           totalTestId="text-ob-count"
           leading={

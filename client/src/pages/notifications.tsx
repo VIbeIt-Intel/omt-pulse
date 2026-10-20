@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHero } from "@/components/page-hero";
+import { useControlRoomLang } from "@/hooks/use-control-room-lang";
 import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
@@ -280,6 +281,7 @@ export function NotificationList({
 }
 
 export default function NotificationsPage() {
+  const { t } = useControlRoomLang();
   const queryClient = useQueryClient();
   const { data: notifications = [], isLoading } = useQuery<NotificationLog[]>({
     queryKey: ["/api/notifications"],
@@ -305,13 +307,13 @@ export default function NotificationsPage() {
     <div className="flex flex-col h-full">
       <div className={cn(OPS_PAGE_SHELL, "shrink-0 pt-3 pb-3")}>
         <PageHero
-          eyebrow="Notifications"
-          badge="Last 7 days"
+          eyebrow={t.nav.notifications}
+          badge={t.screen.last7Days}
           total={unreadCount}
-          totalLabel="Unread"
+          totalLabel={t.screen.unread}
           emptyMessage={
             notifications.length === 0
-              ? "No notifications in the last 7 days."
+              ? t.screen.noNotifications
               : undefined
           }
           leading={

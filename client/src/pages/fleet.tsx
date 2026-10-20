@@ -1,18 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
-import { Car, ChevronRight, Settings2 } from "lucide-react";
+import { Car, ChevronRight, Plus, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FleetOverview } from "@/components/fleet/fleet-overview";
 import { FleetAlertsPanel } from "@/components/fleet/fleet-alerts-panel";
 import { FleetAlertDefaultsSheet } from "@/components/fleet/fleet-alert-defaults-sheet";
+import { FleetAddVehicleSheet } from "@/components/fleet/fleet-add-vehicle-sheet";
 import { FleetVehicleCard } from "@/components/fleet/fleet-vehicle-card";
 import { FleetVehicleDetail } from "@/components/fleet/fleet-vehicle-detail";
 import type { TrackerDeviceSummary } from "@/components/operations-dashboard";
 import { getVehicleMotionStatus } from "@/lib/fleet-intelligence";
 import { PageHero } from "@/components/page-hero";
+import { useControlRoomLang } from "@/hooks/use-control-room-lang";
 import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import { cn } from "@/lib/utils";
 
@@ -20,6 +22,7 @@ type OrgUser = { id: string; firstName: string; lastName: string; role: string }
 type Command = { id: number; name: string; isCentral: boolean };
 
 export default function FleetPage() {
+  const { t } = useControlRoomLang();
   const search = useSearch();
   const [, setLocation] = useLocation();
   const params = useMemo(() => new URLSearchParams(search), [search]);
@@ -27,9 +30,11 @@ export default function FleetPage() {
 
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [defaultsOpen, setDefaultsOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
 
   const { data: me } = useQuery<{ role: string }>({ queryKey: ["/api/auth/me"] });
   const isAdmin = me?.role === "administrator";
+  const canManageFleet = isAdmin || me?.role === "control_room" || me?.role === "supervisor";
 
   const { data: devices = [], isLoading } = useQuery<TrackerDeviceSummary[]>({
     queryKey: ["/api/trackers"],
@@ -96,12 +101,19 @@ export default function FleetPage() {
     <div className="h-full overflow-y-auto bg-background" data-testid="fleet-page">
       <div className={cn(OPS_PAGE_SHELL, "py-4 sm:py-6 space-y-5")}>
         <PageHero
-          eyebrow="Fleet"
-          badge={selected ? "Vehicle detail" : "Fleet board"}
+          eyebrow={t.fleet}
+          badge={selected ? t.screen.vehicleDetail : t.screen.fleetBoard}
           total={devices.length}
-          totalLabel={devices.length === 1 ? "Vehicle" : "Vehicles"}
+          totalLabel={devices.length === 1 ? t.screen.vehicle : t.screen.vehicles}
           actions={
             <>
+              {!selected && canManageFleet && (
+                <Button size="sm" className="h-8" onClick={() => setAddOpen(true)}>
+                  <Plus className="h-4 w-4 mr-1" />
+                  <span className="md:hidden">Add</span>
+                  <span className="hidden md:inline">{t.screen.addVehicle}</span>
+                </Button>
+              )}
               {!selected && isAdmin && (
                 <Button variant="outline" size="sm" className="h-8" onClick={() => setDefaultsOpen(true)}>
                   <Settings2 className="h-4 w-4 mr-1" />
@@ -146,8 +158,20 @@ export default function FleetPage() {
             </div>
           </div>
         ) : devices.length === 0 ? (
-          <Card className="p-8 text-center text-sm text-muted-foreground">
-            No trackers registered yet. Devices auto-register when they connect on port 7711.
+          <Card className="p-8 text-center space-y-4">
+            <Car className="h-8 w-8 mx-auto text-muted-foreground" />
+            <div className="space-y-1">
+              <p className="text-sm font-medium">No vehicles yet</p>
+              <p className="text-sm text-muted-foreground">
+                Add a vehicle with its tracker IMEI, or wait for a unit to connect on port 7711.
+              </p>
+            </div>
+            {canManageFleet && (
+              <Button onClick={() => setAddOpen(true)}>
+                <Plus className="h-4 w-4 mr-1" />
+                Add vehicle
+              </Button>
+            )}
           </Card>
         ) : selected ? (
           <FleetVehicleDetail
@@ -178,7 +202,15 @@ export default function FleetPage() {
           </div>
         )}
       </div>
+
       <FleetAlertDefaultsSheet open={defaultsOpen} onOpenChange={setDefaultsOpen} />
+      <FleetAddVehicleSheet
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        users={users}
+        commands={commands}
+        onCreated={openVehicle}
+      />
     </div>
   );
 }

@@ -14,6 +14,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Upload, Download, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2, Undo2, FileUp, ArrowRight, ArrowLeft, FileWarning } from "lucide-react";
 import { PageHero } from "@/components/page-hero";
+import { useControlRoomLang } from "@/hooks/use-control-room-lang";
 import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import { cn } from "@/lib/utils";
 
@@ -53,6 +54,7 @@ const SYSTEM_FIELDS = [
 ];
 
 export default function ImportPage() {
+  const { t, lang } = useControlRoomLang();
   const { toast } = useToast();
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [upload, setUpload] = useState<UploadResponse | null>(null);
@@ -238,11 +240,11 @@ export default function ImportPage() {
     <div className="h-full overflow-auto">
       <div className={cn(OPS_PAGE_SHELL, "py-6 space-y-6")}>
         <PageHero
-          eyebrow="Import Data"
-          badge={`Step ${step} of 4 · ${stepLabel}`}
+          eyebrow={t.nav.importData}
+          badge={lang === "af" ? `Stap ${step} van 4 · ${stepLabel}` : `Step ${step} of 4 · ${stepLabel}`}
           total={validation?.totalRows ?? upload?.totalRows ?? null}
-          totalLabel={validation || upload ? "Rows" : undefined}
-          title={!validation && !upload ? "Occurrence import" : undefined}
+          totalLabel={validation || upload ? t.screen.rows : undefined}
+          title={!validation && !upload ? t.screen.occurrenceImport : undefined}
           description={!validation && !upload ? "Bulk-import historical or ongoing occurrence data from Excel or CSV." : undefined}
           titleTestId="text-page-title"
           insights={

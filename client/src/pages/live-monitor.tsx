@@ -36,11 +36,11 @@ import {
   UserPlus,
   Users,
   MessageSquare,
-  Radio,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { PageHero } from "@/components/page-hero";
+import { useControlRoomLang } from "@/hooks/use-control-room-lang";
 import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import { cn } from "@/lib/utils";
 import { GeoLocationSheet, type GeoMapView } from "@/components/incident-location-sheet";
@@ -198,6 +198,7 @@ function getMarkerColor(inc: LiveIncident): string {
 }
 
 export default function LiveMonitorPage() {
+  const { t } = useControlRoomLang();
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -316,10 +317,10 @@ export default function LiveMonitorPage() {
     <div className="flex flex-col h-full bg-background">
       <div className={cn(OPS_PAGE_SHELL, "shrink-0 pt-3 pb-3")}>
         <PageHero
-          eyebrow="Live Monitor"
-          badge={liveIncidents.length > 0 ? "Auto-refresh 5s" : "Standby"}
+          eyebrow={t.liveMonitor}
+          badge={liveIncidents.length > 0 ? t.screen.autoRefresh : t.screen.standby}
           total={liveIncidents.length}
-          totalLabel="Active"
+          totalLabel={t.screen.active}
           totalTestId="badge-live-count"
           leading={
             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigate("/")} data-testid="button-back-live-monitor">
@@ -328,8 +329,8 @@ export default function LiveMonitorPage() {
           }
           insights={[
             {
-              label: "Status",
-              value: liveIncidents.length > 0 ? "Live response in progress" : "All clear",
+              label: t.screen.status,
+              value: liveIncidents.length > 0 ? t.screen.liveResponse : t.allClear,
             },
           ]}
         />

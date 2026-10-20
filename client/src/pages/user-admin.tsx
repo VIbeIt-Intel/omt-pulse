@@ -19,6 +19,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { buildOrgAdminAccessMessage } from "@/lib/onboarding-messages";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHero } from "@/components/page-hero";
+import { useControlRoomLang } from "@/hooks/use-control-room-lang";
 import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import { cn } from "@/lib/utils";
 import type { Category, Location, FormField as OrgFormField } from "@shared/schema";
@@ -1927,6 +1928,7 @@ function RegenerateInviteButton({ userId, firstName }: { userId: string; firstNa
 }
 
 export default function UserAdminPage() {
+  const { t } = useControlRoomLang();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -2024,15 +2026,15 @@ export default function UserAdminPage() {
   return (
     <div className={cn(OPS_PAGE_SHELL, "py-4 sm:py-6 space-y-4 sm:space-y-6 overflow-y-auto h-full min-h-0 pb-8")}>
       <PageHero
-        eyebrow="Users"
-        badge="Admin"
+        eyebrow={t.nav.users}
+        badge={t.screen.admin}
         total={users.length}
-        totalLabel={users.length === 1 ? "User" : "Users"}
+        totalLabel={users.length === 1 ? t.screen.user : t.screen.usersWord}
         titleTestId="text-user-admin-title"
         actions={
           <Button onClick={openAdd} className="w-full sm:w-auto shrink-0 min-h-[36px] h-8 touch-manipulation" data-testid="button-add-user">
             <Plus className="h-4 w-4 mr-2" />
-            Add User
+            {t.screen.addUser}
           </Button>
         }
         insights={[

@@ -54,6 +54,7 @@ import { Plus, Pencil, Trash2, Settings, ListChecks, Eye, EyeOff, MapPin, Chevro
 import { prepareAndUploadFile } from "@/lib/upload-media";
 import { ExpandablePhoto } from "@/components/photo-lightbox";
 import { PageHero } from "@/components/page-hero";
+import { useControlRoomLang } from "@/hooks/use-control-room-lang";
 import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -1371,6 +1372,7 @@ function LocationManager() {
 }
 
 export default function AdminPage() {
+  const { t } = useControlRoomLang();
   const { data: formFields = [] } = useQuery<FormField[]>({ queryKey: ["/api/form-fields"] });
   const { data: categories = [] } = useQuery<Category[]>({ queryKey: ["/api/categories"] });
   const { data: locations = [] } = useQuery<Location[]>({ queryKey: ["/api/locations"] });
@@ -1379,15 +1381,15 @@ export default function AdminPage() {
     <div className="flex flex-col h-full">
       <div className={cn(OPS_PAGE_SHELL, "py-6 space-y-6 overflow-y-auto flex-1")}>
         <PageHero
-          eyebrow="Field setup"
-          badge="Admin"
+          eyebrow={t.nav.fieldSetup}
+          badge={t.screen.admin}
           total={formFields.length + categories.length + locations.length}
-          totalLabel="Configured"
+          totalLabel={t.screen.configured}
           titleTestId="text-admin-title"
           insights={[
-            { label: "Form fields", value: String(formFields.length) },
-            { label: "Types", value: String(categories.length) },
-            { label: "Locations", value: String(locations.length) },
+            { label: t.screen.formFields, value: String(formFields.length) },
+            { label: t.screen.types, value: String(categories.length) },
+            { label: t.screen.locations, value: String(locations.length) },
           ]}
         />
 

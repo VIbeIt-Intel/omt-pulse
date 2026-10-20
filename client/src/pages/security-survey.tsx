@@ -7,6 +7,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { PageHero } from "@/components/page-hero";
+import { useControlRoomLang } from "@/hooks/use-control-room-lang";
 import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import { cn } from "@/lib/utils";
 import { SurveyConduct } from "@/components/security-survey/survey-conduct";
@@ -22,6 +23,7 @@ type Props = {
 type TabId = "conduct" | "findings" | "library" | "completed";
 
 export default function SecuritySurveyPage({ userRole, userId }: Props) {
+  const { t } = useControlRoomLang();
   const canManage = canManageSurveyTemplates(userRole);
   const canEditReports = canConductSecuritySurvey(userRole);
   const [tab, setTab] = useState<TabId>("conduct");
@@ -48,10 +50,10 @@ export default function SecuritySurveyPage({ userRole, userId }: Props) {
     <div className="h-full flex flex-col bg-background" data-testid="security-survey-page">
       <div className={cn(OPS_PAGE_SHELL, "pt-3 md:pt-6 shrink-0")}>
         <PageHero
-          eyebrow="Site Survey"
-          badge="Security"
-          title="Security site surveys"
-          description="Conduct structured site checklists, capture evidence with GPS, and share PDF reports with clients."
+          eyebrow={t.nav.siteSurvey}
+          badge={t.screen.security}
+          title={t.screen.siteSurveyTitle}
+          description={t.screen.siteSurveyBody}
           emptyMessage="Start a survey from Conduct, or open Completed to review past reports."
           icon={ClipboardList}
           compact

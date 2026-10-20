@@ -133,6 +133,92 @@ export type ControlRoomCopy = {
     privacy: string;
     poweredBy: string;
   };
+  screen: {
+    incident: string;
+    incidents: string;
+    hotspot: string;
+    leadType: string;
+    peakHour: string;
+    noIncidentsPeriod: string;
+    to: string;
+    clear: string;
+    charts: string;
+    map: string;
+    total: string;
+    topLocation: string;
+    topType: string;
+    allDates: string;
+    filteringBy: string;
+    clearAll: string;
+    location: string;
+    type: string;
+    incidentTime: string;
+    incidentDate: string;
+    dayOfWeek: string;
+    analyticsMap: string;
+    myIncidents: string;
+    thisWeek: string;
+    today: string;
+    allRecords: string;
+    inView: string;
+    noIncidentsView: string;
+    overview: string;
+    gateDesk: string;
+    onSite: string;
+    destinations: string;
+    noDestinations: string;
+    manager: string;
+    field: string;
+    route: string;
+    routes: string;
+    noRoutesYet: string;
+    noPatrolAssigned: string;
+    security: string;
+    siteSurveyTitle: string;
+    siteSurveyBody: string;
+    standby: string;
+    autoRefresh: string;
+    active: string;
+    status: string;
+    liveResponse: string;
+    vehicle: string;
+    vehicles: string;
+    vehicleDetail: string;
+    fleetBoard: string;
+    addVehicle: string;
+    asset: string;
+    assetsWord: string;
+    assetRegister: string;
+    addAsset: string;
+    camera: string;
+    camerasConfigured: string;
+    addCamera: string;
+    noCameras: string;
+    last7Days: string;
+    unread: string;
+    noNotifications: string;
+    user: string;
+    usersWord: string;
+    addUser: string;
+    site: string;
+    sitesWord: string;
+    addPosition: string;
+    positions: string;
+    enrolled: string;
+    pending: string;
+    admin: string;
+    configured: string;
+    formFields: string;
+    types: string;
+    locations: string;
+    occurrenceImport: string;
+    rows: string;
+    newGroup: string;
+    group: string;
+    groupsWord: string;
+    custom: string;
+    members: string;
+  };
 };
 
 const en: ControlRoomCopy = {
@@ -259,6 +345,92 @@ const en: ControlRoomCopy = {
     privacy: "Privacy Policy",
     poweredBy: "powered by",
   },
+  screen: {
+    incident: "Incident",
+    incidents: "Incidents",
+    hotspot: "Hotspot",
+    leadType: "Lead type",
+    peakHour: "Peak hour",
+    noIncidentsPeriod: "No incidents in this period — adjust the date range or clear filters.",
+    to: "to",
+    clear: "Clear",
+    charts: "Charts",
+    map: "Map",
+    total: "Total",
+    topLocation: "Top location",
+    topType: "Top type",
+    allDates: "All dates",
+    filteringBy: "Filtering by:",
+    clearAll: "Clear all",
+    location: "Location",
+    type: "Type",
+    incidentTime: "Incident Time",
+    incidentDate: "Incident Date",
+    dayOfWeek: "Day of Week",
+    analyticsMap: "Analytics · Map",
+    myIncidents: "My Incidents",
+    thisWeek: "This week",
+    today: "Today",
+    allRecords: "All records",
+    inView: "In view",
+    noIncidentsView: "No incidents in this view — adjust filters or report a new incident.",
+    overview: "Overview",
+    gateDesk: "Gate desk",
+    onSite: "On site",
+    destinations: "Destinations",
+    noDestinations: "No active destinations configured yet.",
+    manager: "Manager",
+    field: "Field",
+    route: "Route",
+    routes: "Routes",
+    noRoutesYet: "No routes yet — add a route to get started.",
+    noPatrolAssigned: "No patrol routes assigned yet.",
+    security: "Security",
+    siteSurveyTitle: "Security site surveys",
+    siteSurveyBody: "Conduct structured site checklists, capture evidence with GPS, and share PDF reports with clients.",
+    standby: "Standby",
+    autoRefresh: "Auto-refresh 5s",
+    active: "Active",
+    status: "Status",
+    liveResponse: "Live response in progress",
+    vehicle: "Vehicle",
+    vehicles: "Vehicles",
+    vehicleDetail: "Vehicle detail",
+    fleetBoard: "Fleet board",
+    addVehicle: "Add vehicle",
+    asset: "Asset",
+    assetsWord: "Assets",
+    assetRegister: "Asset register",
+    addAsset: "Add asset",
+    camera: "camera configured",
+    camerasConfigured: "cameras configured",
+    addCamera: "Add camera",
+    noCameras: "No cameras yet — add your first RTSP source to start monitoring.",
+    last7Days: "Last 7 days",
+    unread: "Unread",
+    noNotifications: "No notifications in the last 7 days.",
+    user: "User",
+    usersWord: "Users",
+    addUser: "Add User",
+    site: "Site",
+    sitesWord: "Sites",
+    addPosition: "Add position",
+    positions: "Positions",
+    enrolled: "Enrolled",
+    pending: "Pending",
+    admin: "Admin",
+    configured: "Configured",
+    formFields: "Form fields",
+    types: "Types",
+    locations: "Locations",
+    occurrenceImport: "Occurrence import",
+    rows: "Rows",
+    newGroup: "New Group",
+    group: "Group",
+    groupsWord: "Groups",
+    custom: "Custom",
+    members: "Members",
+  },
 };
 
 const af: ControlRoomCopy = {
@@ -384,6 +556,92 @@ const af: ControlRoomCopy = {
     signOut: "Teken uit",
     privacy: "Privaatheidsbeleid",
     poweredBy: "aangedryf deur",
+  },
+  screen: {
+    incident: "Voorval",
+    incidents: "Voorvalle",
+    hotspot: "Brandpunt",
+    leadType: "Hoofsoort",
+    peakHour: "Spitsuur",
+    noIncidentsPeriod: "Geen voorvalle in hierdie tydperk nie. Verander die datums of maak die filters skoon.",
+    to: "tot",
+    clear: "Maak skoon",
+    charts: "Grafieke",
+    map: "Kaart",
+    total: "Totaal",
+    topLocation: "Top ligging",
+    topType: "Top soort",
+    allDates: "Alle datums",
+    filteringBy: "Filtreer volgens:",
+    clearAll: "Maak alles skoon",
+    location: "Ligging",
+    type: "Soort",
+    incidentTime: "Voorvaltyd",
+    incidentDate: "Voorvaldatum",
+    dayOfWeek: "Dag van die week",
+    analyticsMap: "Ontleding · Kaart",
+    myIncidents: "My voorvalle",
+    thisWeek: "Hierdie week",
+    today: "Vandag",
+    allRecords: "Alle rekords",
+    inView: "In sig",
+    noIncidentsView: "Geen voorvalle in hierdie aansig nie. Verander die filters of teken 'n nuwe voorval aan.",
+    overview: "Oorsig",
+    gateDesk: "Hek",
+    onSite: "Op terrein",
+    destinations: "Bestemmings",
+    noDestinations: "Nog geen aktiewe bestemmings nie.",
+    manager: "Bestuurder",
+    field: "Veld",
+    route: "Roete",
+    routes: "Roetes",
+    noRoutesYet: "Nog geen roetes nie. Voeg 'n roete by om te begin.",
+    noPatrolAssigned: "Nog geen patrollieroetes toegeken nie.",
+    security: "Sekuriteit",
+    siteSurveyTitle: "Terreinopnames",
+    siteSurveyBody: "Doen gestruktureerde terreinlyste, neem bewyse met GPS, en deel PDF-verslae.",
+    standby: "Gereed",
+    autoRefresh: "Verfris elke 5s",
+    active: "Aktief",
+    status: "Status",
+    liveResponse: "Lewendige reaksie aan die gang",
+    vehicle: "Voertuig",
+    vehicles: "Voertuie",
+    vehicleDetail: "Voertuigbesonderhede",
+    fleetBoard: "Vlootbord",
+    addVehicle: "Voeg voertuig by",
+    asset: "Bate",
+    assetsWord: "Bates",
+    assetRegister: "Bateregister",
+    addAsset: "Voeg bate by",
+    camera: "kamera opgestel",
+    camerasConfigured: "kameras opgestel",
+    addCamera: "Voeg kamera by",
+    noCameras: "Nog geen kameras nie. Voeg die eerste bron by om te monitor.",
+    last7Days: "Laaste 7 dae",
+    unread: "Ongelees",
+    noNotifications: "Geen kennisgewings in die laaste 7 dae nie.",
+    user: "Gebruiker",
+    usersWord: "Gebruikers",
+    addUser: "Voeg gebruiker by",
+    site: "Terrein",
+    sitesWord: "Terreine",
+    addPosition: "Voeg posisie by",
+    positions: "Posisies",
+    enrolled: "Ingeskryf",
+    pending: "Hangende",
+    admin: "Admin",
+    configured: "Opgestel",
+    formFields: "Vormvelde",
+    types: "Soorte",
+    locations: "Liggings",
+    occurrenceImport: "Voorval-invoer",
+    rows: "Rye",
+    newGroup: "Nuwe groep",
+    group: "Groep",
+    groupsWord: "Groepe",
+    custom: "Eie",
+    members: "Lede",
   },
 };
 
