@@ -48,7 +48,8 @@ import {
   MOTION_STATUS,
   vehicleDisplayName,
 } from "@/lib/fleet-intelligence";
-import { USER_ROLE_LABELS } from "@/lib/user-roles";
+import { useControlRoomLang } from "@/hooks/use-control-room-lang";
+import type { ControlRoomCopy } from "@/lib/control-room-i18n";
 import { GeoMapPreview } from "@/components/incident-location-sheet";
 import { FleetBatteryMeter } from "@/components/fleet/fleet-battery-meter";
 import { FleetVehiclePhoto } from "@/components/fleet/fleet-vehicle-photo";
@@ -156,12 +157,22 @@ function severityRowAccent(severity: string | null, isPanic: boolean): string {
   return "border-l-[3px] border-l-slate-600 bg-slate-800/30";
 }
 
-function formatGpsAge(ts: string | null | undefined): string | null {
+function formatSignalAge(ts: string | null | undefined, copy: ControlRoomCopy): string {
+  if (!ts) return copy.noSignal;
+  const secs = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
+  if (secs < 8) return copy.justNow;
+  if (secs < 60) return copy.secondsAgo(secs);
+  if (secs < 3600) return copy.minutesAgo(Math.floor(secs / 60));
+  if (secs < 86400) return copy.hoursAgo(Math.floor(secs / 3600));
+  return copy.daysAgo(Math.floor(secs / 86400));
+}
+
+function formatGpsAge(ts: string | null | undefined, copy: ControlRoomCopy): string | null {
   if (!ts) return null;
   const secs = Math.max(0, Math.round((Date.now() - new Date(ts).getTime()) / 1000));
-  if (secs < 60) return `${secs}s ago`;
-  if (secs < 3600) return `${Math.round(secs / 60)}m ago`;
-  return `${Math.round(secs / 3600)}h ago`;
+  if (secs < 60) return copy.secondsAgo(secs);
+  if (secs < 3600) return copy.minutesAgo(Math.round(secs / 60));
+  return copy.hoursAgo(Math.round(secs / 3600));
 }
 
 function formatStarterName(inc: LiveQueueItem): string | null {
@@ -169,9 +180,9 @@ function formatStarterName(inc: LiveQueueItem): string | null {
   return name || null;
 }
 
-function formatReporterName(inc: OccurrenceRow): string {
+function formatReporterName(inc: OccurrenceRow, copy: ControlRoomCopy): string {
   const name = [inc.reporterFirstName, inc.reporterLastName].filter(Boolean).join(" ").trim();
-  return name || "Unknown reporter";
+  return name || copy.unknownReporter;
 }
 
 function formatClockTime(value: string | Date | null | undefined): string {
@@ -211,13 +222,13 @@ function teamLastActivityAt(user: DashboardUserSummary): Date | null {
   return new Date(Math.max(...stamps));
 }
 
-function formatTeamLastActivity(lastAt: Date | null): string {
-  if (!lastAt) return "No activity";
+function formatTeamLastActivity(lastAt: Date | null, copy: ControlRoomCopy): string {
+  if (!lastAt) return copy.noActivity;
   const secs = Math.max(0, Math.round((Date.now() - lastAt.getTime()) / 1000));
-  if (secs < 60) return "Just now";
-  if (secs < 3600) return `${Math.round(secs / 60)}m ago`;
-  if (secs < 86400) return `${Math.round(secs / 3600)}h ago`;
-  return `${Math.round(secs / 86400)}d ago`;
+  if (secs < 60) return copy.justNow;
+  if (secs < 3600) return copy.minutesAgo(Math.round(secs / 60));
+  if (secs < 86400) return copy.hoursAgo(Math.round(secs / 3600));
+  return copy.daysAgo(Math.round(secs / 86400));
 }
 
 function isTeamActivityStale(user: DashboardUserSummary): boolean {
@@ -238,21 +249,10 @@ function teamMemberStatus(user: DashboardUserSummary): "responding" | "available
   return "off-duty";
 }
 
-function teamStatusLabel(status: ReturnType<typeof teamMemberStatus>): string {
-  if (status === "responding") return "Responding";
-  if (status === "available") return "Available";
-  return "Off duty";
-}
-
-/** Compact, title-case role for Site Monitor (no raw snake_case). */
-function teamRoleLabel(role: string): string {
-  const mapped = USER_ROLE_LABELS[role];
-  if (mapped) return mapped.replace(/\s*\(.*?\)\s*/g, "").trim();
-  return role
-    .split(/[_\s]+/)
-    .filter(Boolean)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-    .join(" ");
+function teamStatusLabel(status: ReturnType<typeof teamMemberStatus>, copy: ControlRoomCopy): string {
+  if (status === "responding") return copy.responding;
+  if (status === "available") return copy.available;
+  return copy.offDuty;
 }
 
 function teamStatusPillClass(status: ReturnType<typeof teamMemberStatus>): string {
@@ -273,10 +273,10 @@ function formatCoords(lat: number, lng: number): string {
   return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
 }
 
-function formatTeamPositionAt(value: string | Date | null | undefined): string {
-  if (!value) return "Unknown time";
+function formatTeamPositionAt(value: string | Date | null | undefined, copy: ControlRoomCopy): string {
+  if (!value) return copy.unknownTime;
   const d = new Date(value);
-  if (!Number.isFinite(d.getTime())) return "Unknown time";
+  if (!Number.isFinite(d.getTime())) return copy.unknownTime;
   return d.toLocaleString([], {
     month: "short",
     day: "numeric",
@@ -349,12 +349,14 @@ function OccurrenceList({
   emptyMessage,
   onOpenOccurrence,
   onOpenAttachments,
+  copy,
 }: {
   incidents: OccurrenceRow[];
   loading: boolean;
   emptyMessage: string;
   onOpenOccurrence: (incidentId: number) => void;
   onOpenAttachments: (incident: OccurrenceRow) => void;
+  copy: ControlRoomCopy;
 }) {
   if (loading) {
     return (
@@ -391,20 +393,20 @@ function OccurrenceList({
                 >
                   <div className="flex items-center gap-1.5 flex-wrap">
                     {panicOriginated && (
-                      <span title="Originated from panic alert">
+                      <span title={copy.fromPanic}>
                         <Siren
                           className="h-3.5 w-3.5 text-red-400 shrink-0"
-                          aria-label="Originated from panic"
+                          aria-label={copy.fromPanic}
                         />
                       </span>
                     )}
                     <p className="font-medium text-sm text-slate-200 truncate">
-                      {inc.categoryName ?? "Uncategorised"}
+                      {inc.categoryName ?? copy.uncategorised}
                     </p>
                     {hasAttachments && (
                       <span
                         className="inline-flex items-center gap-0.5 rounded border border-slate-600/70 bg-slate-800/80 px-1 py-0 text-[8px] font-bold uppercase text-slate-300"
-                        title="Has attachments"
+                        title={copy.hasAttachments}
                       >
                         <Paperclip className="h-2.5 w-2.5" />
                         {inc.attachmentCount}
@@ -412,7 +414,7 @@ function OccurrenceList({
                     )}
                     {inc.isLive && (
                       <span className="inline-flex rounded border border-orange-500/40 bg-orange-950/40 px-1 py-0 text-[8px] font-bold uppercase text-orange-300">
-                        Live
+                        {copy.live}
                       </span>
                     )}
                     {inc.severity && inc.severity !== "none" && (
@@ -427,7 +429,7 @@ function OccurrenceList({
                     )}
                   </div>
                   <p className="text-[10px] text-slate-500 mt-0.5">
-                    #{inc.id} · {formatReporterName(inc)}
+                    #{inc.id} · {formatReporterName(inc, copy)}
                   </p>
                   {inc.locationName && (
                     <p className="text-[11px] text-slate-500 truncate mt-0.5 flex items-center gap-1">
@@ -438,11 +440,11 @@ function OccurrenceList({
                 </button>
                 <div className="text-[10px] text-slate-500 tabular-nums shrink-0 text-right leading-tight">
                   <p>
-                    <span className="text-slate-600">Logged</span>{" "}
+                    <span className="text-slate-600">{copy.logged}</span>{" "}
                     <span className="text-slate-300">{formatLoggedTime(inc)}</span>
                   </p>
                   <p className="mt-0.5">
-                    <span className="text-slate-600">Occurred</span>{" "}
+                    <span className="text-slate-600">{copy.occurred}</span>{" "}
                     <span>{formatOccurrenceTime(inc)}</span>
                   </p>
                   <button
@@ -450,7 +452,7 @@ function OccurrenceList({
                     onClick={() => onOpenOccurrence(inc.id)}
                     className="mt-1 text-[10px] font-semibold text-blue-300 hover:text-blue-200 hover:underline"
                   >
-                    Book →
+                    {copy.book}
                   </button>
                 </div>
               </div>
@@ -480,6 +482,11 @@ type Props = {
   onOpenOccurrence: (incidentId?: number, bookPeriod?: Period) => void;
   onOpenFleet?: (deviceId?: number) => void;
   onPanic: () => void;
+  /** Local sample data so the Team and Fleet cards can be viewed without signing in. */
+  preview?: {
+    users: DashboardUserSummary[];
+    trackers: TrackerDeviceSummary[];
+  };
 };
 
 type OpsSectionTone = "blue" | "orange" | "slate" | "emerald" | "indigo" | "cyan" | "violet";
@@ -583,13 +590,13 @@ function OpsSubSectionHeader({
   return (
     <div
       className={cn(
-        "shrink-0 px-3 py-2 border-b border-l-[3px] flex items-center justify-between gap-2",
+        "shrink-0 px-3 py-2.5 border-b border-l-[3px] flex items-center justify-between gap-2",
         s.bar,
         s.border,
       )}
     >
-      <p className={cn("text-[11px] font-bold uppercase tracking-[0.12em] flex items-center gap-1.5", s.title)}>
-        <Icon className="h-3.5 w-3.5 shrink-0 opacity-90" />
+      <p className={cn("text-xs font-bold uppercase tracking-[0.12em] flex items-center gap-2", s.title)}>
+        <Icon className="h-4 w-4 shrink-0 opacity-90" />
         {title}
       </p>
       <div className="flex items-center gap-2 shrink-0">
@@ -678,9 +685,11 @@ export function OperationsDashboard({
   onOpenOccurrence,
   onOpenFleet,
   onPanic,
+  preview,
 }: Props) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { lang, toggle, t } = useControlRoomLang();
   const [highlightId, setHighlightId] = useState<number | null>(null);
   const [liveMapType, setLiveMapType] = useState<"roadmap" | "hybrid">("roadmap");
   const [clock, setClock] = useState(() => new Date());
@@ -712,6 +721,7 @@ export function OperationsDashboard({
       if (!res.ok) throw new Error("Failed to load dashboard");
       return res.json();
     },
+    enabled: !preview,
     refetchInterval: 30_000,
   });
 
@@ -722,6 +732,7 @@ export function OperationsDashboard({
       if (!res.ok) throw new Error("Failed to load incidents");
       return res.json();
     },
+    enabled: !preview,
     refetchInterval: 30_000,
   });
 
@@ -732,6 +743,7 @@ export function OperationsDashboard({
       if (!res.ok) throw new Error("Failed to load trackers");
       return res.json();
     },
+    enabled: !preview,
     refetchInterval: 20_000,
   });
 
@@ -744,6 +756,7 @@ export function OperationsDashboard({
       if (!res.ok) throw new Error("Failed to load location assignments");
       return res.json();
     },
+    enabled: !preview,
     refetchInterval: 60_000,
   });
 
@@ -756,6 +769,7 @@ export function OperationsDashboard({
       if (!res.ok) throw new Error("Failed to load command assignments");
       return res.json();
     },
+    enabled: !preview,
     refetchInterval: 60_000,
   });
 
@@ -766,7 +780,7 @@ export function OperationsDashboard({
     commands: Array<{ id: number; name: string; isCentral: boolean; readOnly?: boolean }>;
     activeCommandId: number | "all" | null;
     canSeeAll: boolean;
-  }>({ queryKey: ["/api/me/commands"] });
+  }>({ queryKey: ["/api/me/commands"], enabled: !preview });
 
   const switchGroupMutation = useMutation({
     mutationFn: (commandId: number | "all") =>
@@ -824,11 +838,12 @@ export function OperationsDashboard({
   }, [liveIncidents, panicAlerts, dayDashboard, allIncidents]);
 
   const groupLabel = useMemo(() => {
+    if (preview) return t.allGroups;
     if (!commandsData) return "—";
-    if (commandsData.activeCommandId === "all") return "All Groups";
+    if (commandsData.activeCommandId === "all") return t.allGroups;
     const cmd = commandsData.commands.find((c) => c.id === commandsData.activeCommandId);
-    return cmd ? `${cmd.name}${cmd.isCentral ? " (Central)" : ""}` : "—";
-  }, [commandsData]);
+    return cmd ? `${cmd.name}${cmd.isCentral ? t.central : ""}` : "—";
+  }, [commandsData, preview, t]);
 
   const visiblePanics = panicAlerts.filter(
     (a) => !dismissedPanicIds.has(a.id) && !a.panicClosedAt,
@@ -892,12 +907,18 @@ export function OperationsDashboard({
     [teamUsers, commandAssignments, activeCommandId, accessibleCommandIds],
   );
   const siteTeam = useMemo(
-    () => filterTeamForFacility(commandScopedTeam, locationAssignments, selectedLocationId),
-    [commandScopedTeam, locationAssignments, selectedLocationId],
+    () =>
+      preview
+        ? preview.users
+        : filterTeamForFacility(commandScopedTeam, locationAssignments, selectedLocationId),
+    [preview, commandScopedTeam, locationAssignments, selectedLocationId],
   );
   const siteFleet = useMemo(
-    () => filterTrackersForFacility(trackers, locationAssignments, selectedLocation, selectedLocationId),
-    [trackers, locationAssignments, selectedLocation, selectedLocationId],
+    () =>
+      preview
+        ? preview.trackers
+        : filterTrackersForFacility(trackers, locationAssignments, selectedLocation, selectedLocationId),
+    [preview, trackers, locationAssignments, selectedLocation, selectedLocationId],
   );
   const fleetStatusCounts = useMemo(() => {
     const counts = { moving: 0, idle: 0, offline: 0 };
@@ -906,8 +927,9 @@ export function OperationsDashboard({
     }
     return counts;
   }, [siteFleet]);
-  const siteMonitorLoading =
-    kpiLoading || trackersLoading || assignmentsLoading || commandAssignmentsLoading;
+  const siteMonitorLoading = preview
+    ? false
+    : kpiLoading || trackersLoading || assignmentsLoading || commandAssignmentsLoading;
   const mapFocusUser = useMemo(
     () => siteTeam.find((u) => u.id === mapFocusUserId) ?? null,
     [siteTeam, mapFocusUserId],
@@ -927,8 +949,8 @@ export function OperationsDashboard({
       return;
     }
     toast({
-      title: "No GPS yet",
-      description: `${user.firstName} has no recorded position to show on the map.`,
+      title: t.noGpsYet,
+      description: t.noGpsDescription(user.firstName),
     });
     setSelectedTeamMember(user);
   }
@@ -955,16 +977,16 @@ export function OperationsDashboard({
           >
             <div className="flex items-center gap-1.5 truncate">
               <Network className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
-              <SelectValue placeholder="Select group" />
+              <SelectValue placeholder={t.selectGroup} />
             </div>
           </SelectTrigger>
           <SelectContent>
-            {commandsData?.canSeeAll && <SelectItem value="all">All Groups</SelectItem>}
+            {commandsData?.canSeeAll && <SelectItem value="all">{t.allGroups}</SelectItem>}
             {commandsData?.commands.map((cmd) => (
               <SelectItem key={cmd.id} value={String(cmd.id)}>
                 {cmd.name}
-                {cmd.isCentral ? " (Central)" : ""}
-                {cmd.readOnly ? " · read-only" : ""}
+                {cmd.isCentral ? t.central : ""}
+                {cmd.readOnly ? t.readOnly : ""}
               </SelectItem>
             ))}
           </SelectContent>
@@ -978,11 +1000,11 @@ export function OperationsDashboard({
           >
             <div className="flex items-center gap-1.5 truncate">
               <Building2 className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-              <SelectValue placeholder="All sites" />
+              <SelectValue placeholder={t.allSites} />
             </div>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All sites</SelectItem>
+            <SelectItem value="all">{t.allSites}</SelectItem>
             {groupLocations.map((loc) => (
               <SelectItem key={loc.id} value={String(loc.id)}>
                 {loc.name}
@@ -1028,22 +1050,22 @@ export function OperationsDashboard({
             )}
           >
             {statusTone === "calm"
-              ? "All Clear — No Active Incidents"
+              ? t.allClearTitle
               : visiblePanics.length > 0
-                ? `${visiblePanics.length} Active Panic${visiblePanics.length === 1 ? "" : "s"}`
-                : `${liveCount} Live Incident${liveCount === 1 ? "" : "s"}`}
+                ? t.activePanics(visiblePanics.length)
+                : t.liveIncidentsCount(liveCount)}
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400">
           <span className="tabular-nums font-medium" data-testid="ops-clock">
-            {clock.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+            {clock.toLocaleTimeString(lang === "af" ? "af-ZA" : undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
           </span>
           <span className="text-slate-500">|</span>
           <span className="font-medium">{groupLabel}</span>
           <span className="text-slate-500">|</span>
           <span className="text-slate-400">
-            Updated {formatGpsAge(lastRefresh.toISOString()) ?? "now"}
+            {t.updated} {formatGpsAge(lastRefresh.toISOString(), t) ?? t.now}
           </span>
         </div>
 
@@ -1068,7 +1090,7 @@ export function OperationsDashboard({
             data-testid="ops-open-live-monitor"
           >
             <ExternalLink className="h-3.5 w-3.5" />
-            Live Monitor
+            {t.liveMonitor}
           </Button>
         </div>
       </div>
@@ -1079,14 +1101,22 @@ export function OperationsDashboard({
           <Shield className="h-5 w-5 text-emerald-500" />
           <div>
             <h1 className="text-sm font-bold tracking-wide uppercase text-slate-200" data-testid="text-ops-title">
-              Control Room
+              {t.controlRoom}
             </h1>
             <p className="text-[11px] text-slate-500">
-              {currentUser?.firstName ? `${currentUser.firstName} · ${currentUser.role}` : "Operations"}
+              {currentUser?.firstName ? `${currentUser.firstName} · ${t.role(currentUser.role)}` : t.operations}
             </p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 ml-auto">
+          <button
+            type="button"
+            onClick={toggle}
+            data-testid="ops-lang-toggle"
+            className="inline-flex items-center rounded-lg border border-slate-600 bg-slate-800/80 px-3 py-2 text-sm font-semibold text-slate-100 hover:bg-slate-700"
+          >
+            {t.toggleLabel}
+          </button>
           <button
             type="button"
             onClick={onPanic}
@@ -1094,7 +1124,7 @@ export function OperationsDashboard({
             className="inline-flex items-center gap-2 rounded-lg bg-red-600 hover:bg-red-500 px-4 py-2 text-sm font-bold text-white shadow-lg shadow-red-900/40 transition-colors"
           >
             <Siren className="h-4 w-4" />
-            Panic / SOS
+            {t.panicSos}
           </button>
         </div>
       </div>
@@ -1115,35 +1145,35 @@ export function OperationsDashboard({
       <div className="shrink-0 px-3 py-2.5 border-b border-slate-800/80 bg-[#111820]">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <KpiCard
-            label="Active Incidents"
+            label={t.activeIncidents}
             value={liveCount}
-            hint={liveCount > 0 ? "open live monitor" : "none right now"}
+            hint={liveCount > 0 ? t.openLiveMonitor : t.noneRightNow}
             accent={liveCount > 0 ? "orange" : "green"}
             onClick={() => onOpenLiveMonitor()}
             testId="ops-kpi-active"
             loading={kpiLoading}
           />
           <KpiCard
-            label="Panics Today"
+            label={t.panicsToday}
             value={panicsToday}
-            hint="since midnight"
+            hint={t.sinceMidnight}
             accent={panicsToday > 0 ? "red" : "slate"}
             testId="ops-kpi-panics"
             loading={false}
           />
           <KpiCard
-            label="Logged Today"
+            label={t.loggedToday}
             value={kpiSource?.totalIncidents ?? todayIncidents.length}
-            hint="occurrences today"
+            hint={t.occurrencesToday}
             accent="slate"
             onClick={() => onOpenOccurrence()}
             testId="ops-kpi-occurrences"
             loading={kpiLoading || incidentsLoading}
           />
           <KpiCard
-            label="Closed Today"
+            label={t.closedToday}
             value={todayClosed.length}
-            hint="no longer live"
+            hint={t.noLongerLive}
             accent="blue"
             onClick={() => onOpenOccurrence()}
             testId="ops-kpi-closed"
@@ -1158,19 +1188,19 @@ export function OperationsDashboard({
         data-testid="ops-site-monitor"
       >
         <OpsSectionHeader
-          title="Site Monitor"
+          title={t.siteMonitor}
           icon={Building2}
           tone="indigo"
           testId="ops-site-monitor-header"
           right={groupSiteSelectors}
         />
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-px bg-slate-800/40 h-auto max-h-[min(280px,28dvh)] md:max-h-[min(180px,20dvh)] xl:h-[min(280px,30vh)] min-h-[120px] overflow-hidden">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-slate-800/40 h-auto max-h-[min(520px,46dvh)] min-h-[240px] overflow-hidden">
           <div className="flex flex-col min-h-0 overflow-hidden bg-[#131a22]">
-            <OpsSubSectionHeader title="Team" icon={Users} tone="emerald" count={siteTeam.length} />
+            <OpsSubSectionHeader title={t.team} icon={Users} tone="emerald" count={siteTeam.length} />
             {!siteMonitorLoading && siteTeam.length > 0 && (
-              <div className="shrink-0 px-3 py-1 border-b border-emerald-900/15 flex items-center text-[9px] font-semibold uppercase tracking-wide text-slate-500">
-                <span className="flex-1">Member</span>
-                <span className="shrink-0 w-[76px] text-right">Last activity</span>
+              <div className="shrink-0 px-3 py-2 border-b border-emerald-900/15 flex items-center text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                <span className="flex-1">{t.member}</span>
+                <span className="shrink-0 w-[104px] text-right">{t.lastActivity}</span>
               </div>
             )}
             <div className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain ops-scroll">
@@ -1182,17 +1212,17 @@ export function OperationsDashboard({
               ) : siteTeam.length === 0 ? (
                 <p className="text-[11px] text-slate-600 text-center py-6 px-3">
                   {selectedLocationId == null
-                    ? "No team members in this group."
-                    : "No team assigned to this site."}
+                    ? t.noTeamInGroup
+                    : t.noTeamOnSite}
                 </p>
               ) : (
-                <ul className="divide-y divide-slate-800/80">
+                <ul className="flex flex-col gap-1.5 p-2">
                   {siteTeam.map((user) => {
                     const status = teamMemberStatus(user);
-                    const statusLabel = teamStatusLabel(status);
-                    const roleLabel = teamRoleLabel(user.role);
+                    const statusLabel = teamStatusLabel(status, t);
+                    const roleLabel = t.role(user.role);
                     const lastActivityAt = teamLastActivityAt(user);
-                    const activityLabel = user.isLive ? "Live now" : formatTeamLastActivity(lastActivityAt);
+                    const activityLabel = user.isLive ? t.liveNow : formatTeamLastActivity(lastActivityAt, t);
                     const activityStale = isTeamActivityStale(user);
                     const isLongIdle = activityStale && !user.isLive;
                     const hasPosition = user.lastLat != null && user.lastLng != null;
@@ -1203,19 +1233,19 @@ export function OperationsDashboard({
                       <li key={user.id}>
                         <div
                           className={cn(
-                            "flex items-center gap-2.5 min-w-0 px-3 py-2.5 border-l-2 transition-colors",
+                            "flex items-center gap-3 min-w-0 rounded-lg px-3 py-3 border-l-2 transition-colors",
                             mapFocusUserId === user.id
                               ? "bg-emerald-950/40 border-l-emerald-400 ring-1 ring-inset ring-emerald-500/30"
                               : isLongIdle
                               ? "bg-amber-950/20 border-l-amber-600/60 hover:bg-amber-950/30"
-                              : "border-l-transparent hover:bg-slate-800/35",
+                              : "border-l-transparent bg-slate-800/25 hover:bg-slate-800/45",
                           )}
                           data-testid={`ops-team-row-${user.id}`}
                         >
                           <ExpandablePhoto
                             photoUrl={user.avatarUrl}
                             className={cn(
-                              "h-8 w-8 rounded-full",
+                              "h-10 w-10 rounded-full",
                               isLongIdle
                                 ? "ring-1 ring-amber-800/35"
                                 : status === "available"
@@ -1228,7 +1258,7 @@ export function OperationsDashboard({
                             fallback={
                               <div
                                 className={cn(
-                                  "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold tracking-wide",
+                                  "flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-semibold tracking-wide",
                                   isLongIdle
                                     ? "bg-slate-800 text-amber-200/90 ring-1 ring-amber-800/35"
                                     : status === "available"
@@ -1250,19 +1280,19 @@ export function OperationsDashboard({
                           >
                             <p
                               className={cn(
-                                "text-[13px] font-semibold tracking-tight truncate leading-snug",
+                                "text-sm font-semibold tracking-tight truncate leading-snug",
                                 isLongIdle ? "text-slate-300" : "text-slate-100",
                               )}
                             >
                               {user.firstName} {user.lastName}
                             </p>
-                            <div className="flex items-center gap-1.5 mt-1 min-w-0">
-                              <span className="text-[10px] text-slate-500 truncate leading-none">
+                            <div className="flex items-center gap-2 mt-1.5 min-w-0">
+                              <span className="text-[12px] text-slate-400 truncate leading-none">
                                 {roleLabel}
                               </span>
                               <span
                                 className={cn(
-                                  "shrink-0 inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-medium leading-none",
+                                  "shrink-0 inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium leading-none",
                                   teamStatusPillClass(status),
                                 )}
                               >
@@ -1273,10 +1303,10 @@ export function OperationsDashboard({
                               ) : null}
                             </div>
                           </button>
-                          <div className="shrink-0 w-[76px] text-right">
+                          <div className="shrink-0 w-[104px] text-right">
                             <p
                               className={cn(
-                                "text-[10px] tabular-nums leading-tight",
+                                "text-xs tabular-nums leading-tight",
                                 user.isLive
                                   ? "text-orange-300 font-semibold"
                                   : isLongIdle
@@ -1287,8 +1317,8 @@ export function OperationsDashboard({
                               {activityLabel}
                             </p>
                             {isLongIdle && (
-                              <p className="text-[8px] font-medium uppercase tracking-wider text-amber-500/75 mt-0.5 leading-none">
-                                4h+ idle
+                              <p className="text-[10px] font-medium uppercase tracking-wider text-amber-500/75 mt-1 leading-none">
+                                {t.idleLong}
                               </p>
                             )}
                           </div>
@@ -1309,7 +1339,7 @@ export function OperationsDashboard({
                                 }
                               }}
                             >
-                              Live
+                              {t.live}
                             </span>
                           )}
                         </div>
@@ -1323,7 +1353,7 @@ export function OperationsDashboard({
 
           <div className="flex flex-col min-h-0 overflow-hidden bg-[#131a22]">
             <OpsSubSectionHeader
-              title="Fleet"
+              title={t.fleet}
               icon={Car}
               tone="cyan"
               count={siteFleet.length}
@@ -1335,21 +1365,21 @@ export function OperationsDashboard({
                     className="text-[10px] font-semibold uppercase tracking-wide text-cyan-400/90 hover:text-cyan-300 hover:underline"
                     data-testid="ops-fleet-view-all"
                   >
-                    View fleet
+                    {t.viewFleet}
                   </button>
                 ) : null
               }
             />
             {!siteMonitorLoading && siteFleet.length > 0 && (
-              <div className="shrink-0 border-b border-cyan-900/15 px-3 py-1.5 flex items-center gap-3 text-[9px] font-semibold uppercase tracking-wide">
+              <div className="shrink-0 border-b border-cyan-900/15 px-3 py-2 flex items-center gap-4 text-[11px] font-semibold uppercase tracking-wide">
                 <span className="inline-flex items-center gap-1 text-emerald-400/90">
-                  <span className="tabular-nums text-emerald-300">{fleetStatusCounts.moving}</span> Moving
+                  <span className="tabular-nums text-emerald-300">{fleetStatusCounts.moving}</span> {t.moving}
                 </span>
                 <span className="inline-flex items-center gap-1 text-amber-400/90">
-                  <span className="tabular-nums text-amber-300">{fleetStatusCounts.idle}</span> Idle
+                  <span className="tabular-nums text-amber-300">{fleetStatusCounts.idle}</span> {t.idle}
                 </span>
                 <span className="inline-flex items-center gap-1 text-slate-500">
-                  <span className="tabular-nums text-slate-400">{fleetStatusCounts.offline}</span> Offline
+                  <span className="tabular-nums text-slate-400">{fleetStatusCounts.offline}</span> {t.offline}
                 </span>
               </div>
             )}
@@ -1362,11 +1392,11 @@ export function OperationsDashboard({
               ) : siteFleet.length === 0 ? (
                 <p className="text-[11px] text-slate-600 text-center py-6 px-3">
                   {selectedLocationId == null
-                    ? "No GPS trackers in this group."
-                    : "No vehicles linked to this site."}
+                    ? t.noTrackersInGroup
+                    : t.noVehiclesOnSite}
                 </p>
               ) : (
-                <ul className="divide-y divide-cyan-900/15">
+                <ul className="flex flex-col gap-1.5 p-2">
                   {siteFleet.map((device) => {
                     const motion = getVehicleMotionStatus(device.lastSeenAt, device.lastSpeedKph);
                     const motionCfg = MOTION_STATUS[motion];
@@ -1383,17 +1413,17 @@ export function OperationsDashboard({
                       <li key={device.id}>
                         <div
                           className={cn(
-                            "flex items-center gap-2 min-w-0 px-3 py-2 border-l-2 border-l-transparent transition-colors",
+                            "flex items-center gap-3 min-w-0 rounded-lg px-3 py-3 border-l-2 border-l-transparent transition-colors",
                             openVehicle
-                              ? "hover:bg-cyan-950/25"
-                              : "",
+                              ? "bg-slate-800/25 hover:bg-cyan-950/30"
+                              : "bg-slate-800/25",
                           )}
                           data-testid={`ops-fleet-row-${device.id}`}
                         >
                           <FleetVehiclePhoto
                             photoUrl={device.vehiclePhotoUrl}
                             size="xs"
-                            className="border-slate-700/70 bg-slate-800/40"
+                            className="h-10 w-10 border-slate-700/70 bg-slate-800/40"
                           />
                           <button
                             type="button"
@@ -1412,12 +1442,12 @@ export function OperationsDashboard({
                             />
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-2 min-w-0">
-                                <p className="text-xs font-medium text-slate-200 truncate">
+                                <p className="text-sm font-semibold text-slate-100 truncate">
                                   {vehicleDisplayName(device)}
                                 </p>
                                 <span
                                   className={cn(
-                                    "shrink-0 text-[9px] font-bold uppercase tracking-wide",
+                                    "shrink-0 text-[11px] font-bold uppercase tracking-wide",
                                     motion === "moving"
                                       ? "text-emerald-400"
                                       : motion === "idle"
@@ -1425,10 +1455,10 @@ export function OperationsDashboard({
                                         : "text-slate-500",
                                   )}
                                 >
-                                  {motionCfg.label}
+                                  {motion === "moving" ? t.moving : motion === "idle" ? t.idle : t.offline}
                                 </span>
                               </div>
-                              <div className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[9px] text-slate-500">
+                              <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-slate-400">
                                 <span className="truncate max-w-[9rem] uppercase tracking-wide">
                                   {registration}
                                 </span>
@@ -1438,11 +1468,11 @@ export function OperationsDashboard({
                                     motion === "moving" ? "text-emerald-400/90" : undefined,
                                   )}
                                 >
-                                  <Gauge className="h-2.5 w-2.5" />
+                                  <Gauge className="h-3.5 w-3.5" />
                                   {speed == null ? "—" : `${speed} km/h`}
                                 </span>
                                 <span className="inline-flex items-center gap-0.5 tabular-nums">
-                                  <RouteIcon className="h-2.5 w-2.5" />
+                                  <RouteIcon className="h-3.5 w-3.5" />
                                   {formatMileageKm(todayKm)}
                                 </span>
                                 {device.lastIgnitionOn != null && (
@@ -1452,8 +1482,8 @@ export function OperationsDashboard({
                                       device.lastIgnitionOn ? "text-amber-400/80" : undefined,
                                     )}
                                   >
-                                    <KeyRound className="h-2.5 w-2.5" />
-                                    {device.lastIgnitionOn ? "ACC" : "Off"}
+                                    <KeyRound className="h-3.5 w-3.5" />
+                                    {device.lastIgnitionOn ? "ACC" : t.off}
                                   </span>
                                 )}
                                 {device.lastBatteryPercent != null && (
@@ -1461,43 +1491,43 @@ export function OperationsDashboard({
                                 )}
                               </div>
                             </div>
-                            <div className="shrink-0 w-[78px] text-right">
+                            <div className="shrink-0 w-[108px] text-right">
                               {signal.heartbeatOnly ? (
                                 <>
                                   <p
                                     className={cn(
-                                      "text-[10px] tabular-nums leading-tight",
+                                      "text-xs tabular-nums leading-tight",
                                       signal.gpsTier
                                         ? freshnessClassDark(signal.gpsTier)
                                         : "text-slate-500",
                                     )}
                                   >
-                                    GPS {signal.gpsAgo ?? "—"}
+                                    {t.gps} {formatSignalAge(device.lastPositionAt, t)}
                                   </p>
-                                  <p className="text-[8px] text-slate-500 mt-0.5 leading-none">
-                                    Signal {signal.signalAgo}
+                                  <p className="text-[11px] text-slate-500 mt-1 leading-none">
+                                    {t.signal} {formatSignalAge(device.lastSeenAt, t)}
                                   </p>
                                 </>
                               ) : (
                                 <p
                                   className={cn(
-                                    "text-[10px] tabular-nums leading-tight inline-flex items-center justify-end gap-1",
+                                    "text-xs tabular-nums leading-tight inline-flex items-center justify-end gap-1",
                                     freshnessClassDark(signal.signalTier),
                                   )}
                                 >
-                                  <Signal className="h-2.5 w-2.5 opacity-70" />
-                                  {signal.signalAgo}
+                                  <Signal className="h-3.5 w-3.5 opacity-70" />
+                                  {formatSignalAge(device.lastSeenAt, t)}
                                 </p>
                               )}
                               {device.assignedUserName && (
-                                <p className="mt-0.5 truncate text-[8px] text-slate-500 inline-flex items-center justify-end gap-0.5 max-w-full">
-                                  <UserRound className="h-2.5 w-2.5 shrink-0" />
+                                <p className="mt-1 truncate text-[11px] text-slate-400 inline-flex items-center justify-end gap-1 max-w-full">
+                                  <UserRound className="h-3.5 w-3.5 shrink-0" />
                                   <span className="truncate">{device.assignedUserName}</span>
                                 </p>
                               )}
                             </div>
                             {openVehicle && (
-                              <ChevronRight className="h-3.5 w-3.5 shrink-0 text-slate-600" />
+                              <ChevronRight className="h-4 w-4 shrink-0 text-slate-500" />
                             )}
                           </button>
                         </div>
@@ -1518,13 +1548,13 @@ export function OperationsDashboard({
           data-testid="ops-live-panel"
         >
           <OpsSectionHeader
-            title="Live Incidents"
+            title={t.liveIncidents}
             icon={Radio}
             tone="orange"
             testId="ops-live-panel-header"
             right={
               <span className="text-[11px] font-bold text-orange-200 tabular-nums shrink-0">
-                {queueItems.length} active
+                {t.activeCount(queueItems.length)}
               </span>
             }
           />
@@ -1565,9 +1595,9 @@ export function OperationsDashboard({
                 <div className="min-w-0 flex items-center gap-2">
                   <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500/90" />
                   <div className="min-w-0">
-                    <p className="text-xs font-semibold text-slate-200">All clear</p>
+                    <p className="text-xs font-semibold text-slate-200">{t.allClear}</p>
                     <p className="text-[10px] text-slate-500 truncate">
-                      Sites, team GPS & fleet on map
+                      {t.mapHint}
                     </p>
                   </div>
                 </div>
@@ -1579,7 +1609,7 @@ export function OperationsDashboard({
                   onClick={() => onOpenLiveMonitor()}
                 >
                   <ExternalLink className="h-3.5 w-3.5" />
-                  Live Monitor
+                  {t.liveMonitor}
                 </Button>
               </div>
             ) : (
@@ -1590,10 +1620,10 @@ export function OperationsDashboard({
                       inc.destinationName ||
                       inc.locationName ||
                       (inc.locationId ? locations.find((l) => l.id === inc.locationId)?.name : null) ||
-                      "Location pending";
+                      t.locationPending;
                     const starterName = formatStarterName(inc);
                     const joinerCount = (inc.responders ?? []).filter((r) => r.userId !== inc.userId && !r.arrivedAt).length;
-                    const gpsAge = formatGpsAge(inc.responderPositionUpdatedAt);
+                    const gpsAge = formatGpsAge(inc.responderPositionUpdatedAt, t);
                     const isHighlighted = highlightId === inc.id;
                     const isPanic = (inc.categoryName ?? "").toLowerCase().includes("panic");
 
@@ -1620,7 +1650,7 @@ export function OperationsDashboard({
                                 <div className="flex items-center gap-1.5 flex-wrap">
                                   {isPanic && <Siren className="h-3.5 w-3.5 text-red-400 shrink-0" />}
                                   <p className="font-semibold text-sm text-slate-100 truncate">
-                                    {inc.categoryName ?? "Incident"}
+                                    {inc.categoryName ?? t.incident}
                                   </p>
                                   {inc.severity && inc.severity !== "none" && (
                                     <span
@@ -1645,10 +1675,10 @@ export function OperationsDashboard({
                                   {inc.liveStartedAt && (
                                     <span className="inline-flex items-center gap-0.5">
                                       <Clock className="h-3 w-3" />
-                                      {formatGpsAge(inc.liveStartedAt)}
+                                      {formatGpsAge(inc.liveStartedAt, t)}
                                     </span>
                                   )}
-                                  {gpsAge && <span>GPS {gpsAge}</span>}
+                                  {gpsAge && <span>{t.gps} {gpsAge}</span>}
                                   {joinerCount > 0 && (
                                     <span className="text-emerald-500/90 inline-flex items-center gap-0.5">
                                       <Users className="h-3 w-3" />
@@ -1662,13 +1692,13 @@ export function OperationsDashboard({
                           </button>
                           <button
                             type="button"
-                            title="View attachments"
-                            aria-label={`View attachments for ${inc.categoryName ?? "incident"}`}
+                            title={t.attachments}
+                            aria-label={t.viewAttachments(inc.categoryName ?? t.incident)}
                             className="shrink-0 px-2.5 text-slate-500 hover:text-slate-200 hover:bg-slate-800/70"
                             onClick={() =>
                               setAttachmentsPreview({
                                 id: inc.id,
-                                subject: inc.categoryName ?? "Incident",
+                                subject: inc.categoryName ?? t.incident,
                               })
                             }
                             data-testid={`ops-queue-attachments-${inc.id}`}
@@ -1689,7 +1719,7 @@ export function OperationsDashboard({
                     onClick={() => onOpenLiveMonitor()}
                   >
                     <ExternalLink className="h-3.5 w-3.5" />
-                    Live Monitor
+                    {t.liveMonitor}
                   </Button>
                 </div>
               </>
@@ -1702,7 +1732,7 @@ export function OperationsDashboard({
           data-testid="ops-occurrences-today-panel"
         >
           <OpsSectionHeader
-            title="Today's Occurrences"
+            title={t.todaysOccurrences}
             icon={History}
             tone="slate"
             testId="ops-occurrences-today-header"
@@ -1712,7 +1742,7 @@ export function OperationsDashboard({
                 onClick={() => onOpenOccurrence(undefined, "day")}
                 className="text-[11px] font-semibold text-blue-300 hover:text-blue-200 hover:underline"
               >
-                Full book →
+                {t.fullBook}
               </button>
             }
           />
@@ -1720,12 +1750,13 @@ export function OperationsDashboard({
             <OccurrenceList
               incidents={todayIncidents}
               loading={incidentsLoading}
-              emptyMessage="No occurrences logged today yet."
+              emptyMessage={t.emptyToday}
+              copy={t}
               onOpenOccurrence={(id) => onOpenOccurrence(id, "day")}
               onOpenAttachments={(inc) =>
                 setAttachmentsPreview({
                   id: inc.id,
-                  subject: inc.categoryName ?? "Uncategorised",
+                  subject: inc.categoryName ?? t.uncategorised,
                   bookPeriod: "day",
                 })
               }
@@ -1738,7 +1769,7 @@ export function OperationsDashboard({
           data-testid="ops-occurrences-week-panel"
         >
           <OpsSectionHeader
-            title="This Week"
+            title={t.thisWeek}
             icon={CalendarRange}
             tone="violet"
             testId="ops-occurrences-week-header"
@@ -1748,7 +1779,7 @@ export function OperationsDashboard({
                 onClick={() => onOpenOccurrence(undefined, "week")}
                 className="text-[11px] font-semibold text-blue-300 hover:text-blue-200 hover:underline"
               >
-                View week →
+                {t.viewWeek}
               </button>
             }
           />
@@ -1756,12 +1787,13 @@ export function OperationsDashboard({
             <OccurrenceList
               incidents={weekIncidents}
               loading={incidentsLoading}
-              emptyMessage="No other occurrences this week."
+              emptyMessage={t.emptyWeek}
+              copy={t}
               onOpenOccurrence={(id) => onOpenOccurrence(id, "week")}
               onOpenAttachments={(inc) =>
                 setAttachmentsPreview({
                   id: inc.id,
-                  subject: inc.categoryName ?? "Uncategorised",
+                  subject: inc.categoryName ?? t.uncategorised,
                   bookPeriod: "week",
                 })
               }
@@ -1801,8 +1833,8 @@ export function OperationsDashboard({
                       {selectedTeamMember.firstName} {selectedTeamMember.lastName}
                     </SheetTitle>
                     <SheetDescription className="text-slate-400">
-                      {teamRoleLabel(selectedTeamMember.role)} ·{" "}
-                      {teamStatusLabel(teamMemberStatus(selectedTeamMember))}
+                      {t.role(selectedTeamMember.role)} ·{" "}
+                      {teamStatusLabel(teamMemberStatus(selectedTeamMember), t)}
                     </SheetDescription>
                   </div>
                 </div>
@@ -1811,12 +1843,12 @@ export function OperationsDashboard({
               <div className="mt-5 space-y-4">
                 <div className="rounded-lg border border-slate-700/70 bg-slate-900/50 px-3 py-2.5 space-y-1.5">
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                    Last activity
+                    {t.lastActivity}
                   </p>
                   <p className="text-sm text-slate-200">
                     {selectedTeamMember.isLive
-                      ? "Live now"
-                      : formatTeamLastActivity(teamLastActivityAt(selectedTeamMember))}
+                      ? t.liveNow
+                      : formatTeamLastActivity(teamLastActivityAt(selectedTeamMember), t)}
                   </p>
                 </div>
 
@@ -1824,7 +1856,7 @@ export function OperationsDashboard({
                   <>
                     <div className="rounded-lg border border-slate-700/70 bg-slate-900/50 px-3 py-2.5 space-y-1.5">
                       <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                        Last / current location
+                        {t.lastLocation}
                       </p>
                       <p className="text-sm font-mono text-slate-100 tabular-nums">
                         {formatCoords(selectedTeamMember.lastLat, selectedTeamMember.lastLng)}
@@ -1832,6 +1864,7 @@ export function OperationsDashboard({
                       <p className="text-xs text-slate-500">
                         {formatTeamPositionAt(
                           selectedTeamMember.lastPositionAt ?? selectedTeamMember.lastSeenAt,
+                          t,
                         )}
                       </p>
                     </div>
@@ -1861,7 +1894,7 @@ export function OperationsDashboard({
                         data-testid="ops-team-open-maps"
                       >
                         <ExternalLink className="h-4 w-4" />
-                        Open in Maps
+                        {t.openInMaps}
                       </Button>
                       <Button
                         type="button"
@@ -1874,10 +1907,10 @@ export function OperationsDashboard({
                           );
                           try {
                             await navigator.clipboard.writeText(text);
-                            toast({ title: "Coordinates copied", description: text });
+                            toast({ title: t.coordinatesCopied, description: text });
                           } catch {
                             toast({
-                              title: "Could not copy",
+                              title: t.couldNotCopy,
                               description: text,
                               variant: "destructive",
                             });
@@ -1885,13 +1918,13 @@ export function OperationsDashboard({
                         }}
                         data-testid="ops-team-copy-coords"
                       >
-                        Copy coordinates
+                        {t.copyCoordinates}
                       </Button>
                     </div>
                   </>
                 ) : (
                   <div className="rounded-lg border border-dashed border-slate-700/80 bg-slate-900/40 px-3 py-4 text-sm text-slate-400">
-                    No GPS position recorded for this member yet.
+                    {t.noGpsForMember}
                   </div>
                 )}
 
@@ -1908,7 +1941,7 @@ export function OperationsDashboard({
                     data-testid="ops-team-open-live"
                   >
                     <Radio className="h-4 w-4" />
-                    Open live incident
+                    {t.openLiveIncident}
                   </Button>
                 ) : null}
               </div>
@@ -1924,7 +1957,7 @@ export function OperationsDashboard({
             if (!open) setAttachmentsPreview(null);
           }}
           incidentId={attachmentsPreview.id}
-          title={`${attachmentsPreview.subject} · Attachments`}
+          title={`${attachmentsPreview.subject} · ${t.attachments}`}
           canAdd={false}
           canDelete={false}
           onOpenRecord={
