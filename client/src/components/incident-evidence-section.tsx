@@ -7,7 +7,9 @@ import { effectiveEvidencePhase } from "@/lib/evidence-phase";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { AttachmentPreview, attachmentUploaderLabel, evidenceFootprintLabel } from "@/components/attachment-preview";
+import { AttachmentPreview } from "@/components/attachment-preview";
+import { useControlRoomLang } from "@/hooks/use-control-room-lang";
+import { incidentSheetCopy, type IncidentSheetCopy } from "@/lib/incident-sheet-copy";
 import { Camera, FileText, Loader2, MessageSquarePlus, Paperclip, Upload, X } from "lucide-react";
 
 type IncidentEvidenceSectionProps = {
@@ -21,15 +23,21 @@ type IncidentEvidenceSectionProps = {
   incidentCreatedAt?: Date | string | null;
 };
 
-function noteAuthorLabel(note: EvidenceNoteWithAuthor, phase: EvidencePhase) {
-  return evidenceFootprintLabel(
-    {
-      uploadedByFirstName: note.authorFirstName,
-      uploadedByLastName: note.authorLastName,
-      createdAt: note.createdAt,
-    },
-    phase,
-  );
+function footprintLabel(
+  att: { uploadedByFirstName?: string | null; uploadedByLastName?: string | null; createdAt?: Date | string },
+  phase: EvidencePhase,
+  sheet: IncidentSheetCopy,
+) {
+  const name = `${att.uploadedByFirstName ?? ""} ${att.uploadedByLastName ?? ""}`.trim();
+  const when = att.createdAt
+    ? new Date(att.createdAt).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })
+    : "";
+  const who = name && when
+    ? `${sheet.addedBy} ${name} · ${when}`
+    : name
+      ? `${sheet.addedBy} ${name}`
+      : when || sheet.addedBefore;
+  return phase === "scene" ? `${sheet.atScene} · ${who}` : `${sheet.afterIncident} · ${who}`;
 }
 
 export function IncidentEvidenceSection({
@@ -41,6 +49,8 @@ export function IncidentEvidenceSection({
   liveEndedAt = null,
   incidentCreatedAt = null,
 }: IncidentEvidenceSectionProps) {
+  const { lang } = useControlRoomLang();
+  const sheet = incidentSheetCopy(lang);
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -215,7 +225,7 @@ export function IncidentEvidenceSection({
             data-testid={`button-evidence-camera-${incidentId}${testIdSuffix}`}
           >
             {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}
-            Take photo
+            {sheet.takePhoto}
           </Button>
           <Button
             type="button"
@@ -227,7 +237,7 @@ export function IncidentEvidenceSection({
             data-testid={`button-evidence-upload-${incidentId}${testIdSuffix}`}
           >
             {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
-            Add file
+            {sheet.addFile}
           </Button>
           <Button
             type="button"
@@ -239,7 +249,7 @@ export function IncidentEvidenceSection({
             data-testid={`button-evidence-note-${incidentId}${testIdSuffix}`}
           >
             <MessageSquarePlus className="h-3.5 w-3.5" />
-            Add note
+            {sheet.addNote}
           </Button>
         </div>
         {(showNoteComposer || noteDraft.length > 0) && (
@@ -251,11 +261,7 @@ export function IncidentEvidenceSection({
             <Textarea
               value={noteDraft}
               onChange={(e) => setNoteDraft(e.target.value)}
-              placeholder={
-                splitPhases
-                  ? "Supervisor follow-up, witness statements, additional context…"
-                  : "Add follow-up details, witness statements, supervisor notes…"
-              }
+              placeholder={sheet.notePlaceholder}
               className="min-h-[88px] resize-none text-sm bg-background"
               maxLength={2000}
               data-testid={`input-evidence-note-${incidentId}`}
@@ -273,7 +279,7 @@ export function IncidentEvidenceSection({
                     setShowNoteComposer(false);
                   }}
                 >
-                  Cancel
+                  {sheet.cancel}
                 </Button>
                 <Button
                   type="button"
@@ -282,7 +288,7 @@ export function IncidentEvidenceSection({
                   onClick={() => void saveNote()}
                   data-testid={`button-save-evidence-note-${incidentId}`}
                 >
-                  {savingNote ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save note"}
+                  {savingNote ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : sheet.saveNote}
                 </Button>
               </div>
             </div>
@@ -303,7 +309,11 @@ export function IncidentEvidenceSection({
             data-testid={`card-evidence-note-${note.id}`}
           >
             <p className="text-sm whitespace-pre-wrap">{note.body}</p>
-            <p className="text-[10px] text-muted-foreground leading-tight">{noteAuthorLabel(note, phase)}</p>
+            <p className="text-[10px] text-muted-foreground leading-tight">{footprintLabel({
+              uploadedByFirstName: note.authorFirstName,
+              uploadedByLastName: note.authorLastName,
+              createdAt: note.createdAt,
+            }, phase, sheet)}</p>
             {canDelete && (
               <button
                 type="button"
@@ -335,7 +345,7 @@ export function IncidentEvidenceSection({
             <div className="p-1.5 bg-background border-t border-border space-y-0.5">
               <p className="text-xs truncate">{att.filename}</p>
               <p className="text-[10px] text-muted-foreground leading-tight">
-                {splitPhases ? evidenceFootprintLabel(att, phase) : attachmentUploaderLabel(att)}
+                {footprintLabel(att, splitPhases ? phase : "scene", sheet)}
               </p>
             </div>
             {canDelete && (
@@ -373,9 +383,9 @@ export function IncidentEvidenceSection({
         </div>
         {showAddControls && renderAddControls(testIdSuffix)}
         {empty && !showAddControls ? (
-          <p className="text-sm text-muted-foreground">None recorded.</p>
+          <p className="text-sm text-muted-foreground">{sheet.noneRecorded}</p>
         ) : empty && showAddControls ? (
-          <p className="text-sm text-muted-foreground">Nothing added yet — use the buttons above.</p>
+          <p className="text-sm text-muted-foreground">{sheet.nothingYet}</p>
         ) : (
           <div className="space-y-4">
             {renderNotesList(phaseNotes, phase)}
@@ -390,12 +400,12 @@ export function IncidentEvidenceSection({
     return (
       <div className="space-y-6" data-testid={`evidence-section-${incidentId}`}>
         {isLoading ? (
-          <p className="text-sm text-muted-foreground">Loading evidence…</p>
+          <p className="text-sm text-muted-foreground">{sheet.loading}</p>
         ) : (
           <>
             {renderPhaseBlock(
-              "Scene evidence",
-              "Photos, files, and notes captured when the incident was first reported or closed on scene.",
+              sheet.sceneTitle,
+              sheet.sceneHint,
               sceneAttachments,
               sceneNotes,
               "scene",
@@ -404,8 +414,8 @@ export function IncidentEvidenceSection({
             )}
             <div className="border-t border-border/60 pt-4">
               {renderPhaseBlock(
-                "Supplementary evidence",
-                "Added after the fact — each item records who added it and when (digital footprint).",
+                sheet.extraTitle,
+                sheet.extraHint,
                 supplementaryAttachments,
                 supplementaryNotes,
                 "supplementary",
@@ -432,9 +442,9 @@ export function IncidentEvidenceSection({
     <div className="space-y-4" data-testid={`evidence-section-${incidentId}`}>
       {canAdd && renderAddControls("")}
       {isLoading ? (
-        <p className="text-sm text-muted-foreground">Loading evidence…</p>
+        <p className="text-sm text-muted-foreground">{sheet.loading}</p>
       ) : !hasEvidence ? (
-        <p className={`text-muted-foreground ${compact ? "text-sm" : "text-sm"}`}>No evidence added yet.</p>
+        <p className="text-sm text-muted-foreground">{sheet.noEvidence}</p>
       ) : (
         <div className="space-y-4">
           {renderNotesList(notes, "supplementary")}

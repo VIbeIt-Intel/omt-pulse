@@ -156,7 +156,8 @@ function LocationMapDialogShell({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="flex h-[min(92vh,900px)] w-[min(96vw,1100px)] max-w-[min(96vw,1100px)] flex-col gap-0 overflow-hidden p-0"
+        className="z-[80] flex h-[min(92vh,900px)] w-[min(96vw,1100px)] max-w-[min(96vw,1100px)] flex-col gap-0 overflow-hidden p-0"
+        overlayClassName="z-[80]"
         data-testid="incident-location-map-dialog"
       >
         <DialogHeader className="shrink-0 border-b px-4 py-3 pr-12 text-left">

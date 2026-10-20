@@ -6,7 +6,6 @@ import type {
   FormField,
   Location,
 } from "@shared/schema";
-import intelafriLogo from "@assets/IntelAfri_Logo_13_January_2025_2_1778851888379.png";
 import {
   INVOLVEMENT_FIELD_KEYS,
   parsePersons,
@@ -47,7 +46,7 @@ type ResponderRow = {
 
 type CommandRow = { id: number; name: string };
 
-type Field = { label: string; value: string; wide?: boolean };
+type Field = { label: string; value: string; wide?: boolean; url?: string };
 
 const GREEN: [number, number, number] = [0, 96, 57];
 const INK: [number, number, number] = [15, 23, 42];
@@ -410,16 +409,35 @@ function fieldBlockHeight(doc: jsPDF, value: string, maxW: number): number {
   return 3.6 + lines.length * 4.2 + 3.2;
 }
 
-function paintField(doc: jsPDF, label: string, value: string, x: number, y: number, maxW: number): void {
+function paintField(doc: jsPDF, field: Field, x: number, y: number, maxW: number): void {
   doc.setFont("helvetica", "bold");
   doc.setFontSize(7.5);
   doc.setTextColor(...MUTED);
-  doc.text(label.toUpperCase(), x, y);
+  doc.text(field.label.toUpperCase(), x, y);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
-  doc.setTextColor(...INK);
-  const lines = doc.splitTextToSize(value || "—", maxW);
+  doc.setTextColor(field.url ? GREEN[0] : INK[0], field.url ? GREEN[1] : INK[1], field.url ? GREEN[2] : INK[2]);
+  const lines = doc.splitTextToSize(field.value || "—", maxW);
+  if (field.url) {
+    let lineY = y + 4.2;
+    for (const line of lines) {
+      doc.textWithLink(line, x, lineY, { url: field.url });
+      lineY += 4.2;
+    }
+    return;
+  }
   doc.text(lines, x, y + 4.2);
+}
+
+function mapsLink(lat: number | null | undefined, lng: number | null | undefined, fallback?: string | null): string | undefined {
+  const latitude = Number(lat);
+  const longitude = Number(lng);
+  if (Number.isFinite(latitude) && Number.isFinite(longitude) && !(Math.abs(latitude) < 1e-5 && Math.abs(longitude) < 1e-5)) {
+    return `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`;
+  }
+  const query = fallback?.trim();
+  if (!query || query === "—" || query === "-") return undefined;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 }
 
 function paintFields(doc: jsPDF, y: number, fields: Field[], incidentNumber: string, t: DocketCopy): number {
@@ -434,8 +452,8 @@ function paintFields(doc: jsPDF, y: number, fields: Field[], incidentNumber: str
     const rightH = right ? fieldBlockHeight(doc, right.value, colW) : 0;
     const h = Math.max(leftH, rightH);
     y = ensureSpace(doc, y, h, incidentNumber, t);
-    paintField(doc, left.label, left.value, MARGIN, y, right ? colW : usable);
-    if (right) paintField(doc, right.label, right.value, MARGIN + colW + gap, y, colW);
+    paintField(doc, left, MARGIN, y, right ? colW : usable);
+    if (right) paintField(doc, right, MARGIN + colW + gap, y, colW);
     y += h;
   };
 
@@ -552,44 +570,20 @@ export async function downloadIncidentDocket(opts: DocketOpts): Promise<void> {
 
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const pageW = doc.internal.pageSize.getWidth();
-  let y = 12;
 
-  let logoData: string | null = null;
-  try {
-    const logoRes = await fetch(intelafriLogo);
-    if (logoRes.ok) {
-      const blob = await logoRes.blob();
-      logoData = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result));
-        reader.onerror = () => reject(new Error("logo"));
-        reader.readAsDataURL(blob);
-      });
-    }
-  } catch {
-    logoData = null;
-  }
-  if (logoData) {
-    try {
-      doc.addImage(logoData, "PNG", MARGIN, y, 38, 16);
-    } catch {
-      /* letterhead still stands without the image */
-    }
-  }
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.setTextColor(...GREEN);
-  doc.text("OMT PULSE", MARGIN + 44, y + 6);
-  doc.setFontSize(16);
-  doc.setTextColor(...INK);
-  doc.text(t.title, MARGIN + 44, y + 13);
-  y += 20;
-
+  doc.setFillColor(...GREEN);
+  doc.rect(0, 0, pageW, 24, "F");
+  doc.setTextColor(255, 255, 255);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(13);
-  doc.text(`${t.incidentWord} ${incidentNumber}`, MARGIN, y);
-  y += 6;
+  doc.text("OMT PULSE", MARGIN, 10);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(11);
+  doc.text(t.title, pageW - MARGIN, 10, { align: "right" });
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  doc.text(`${t.incidentWord} ${incidentNumber}`, MARGIN, 18);
+  let y = 32;
 
   const orgName = me?.orgName?.trim() || "—";
   const generatedBy = `${me?.firstName ?? ""} ${me?.lastName ?? ""}`.trim() || t.controlRoom;
@@ -636,10 +630,26 @@ export async function downloadIncidentDocket(opts: DocketOpts): Promise<void> {
   y = paintFields(doc, y, record, incidentNumber, t);
 
   const place: Field[] = [];
-  push(place, t.location, locationLabel && locationLabel !== "-" ? locationLabel : incident.locationName);
+  const placeName = (locationLabel && locationLabel !== "-" ? locationLabel : incident.locationName)?.trim();
+  if (placeName) {
+    place.push({
+      label: t.location,
+      value: placeName,
+      wide: true,
+      url: mapsLink(incident.latitude, incident.longitude, placeName),
+    });
+  }
   push(place, t.siteAddress, site?.address);
   push(place, t.sitePhone, site?.phone);
-  push(place, t.incidentCoords, coordText(incident.latitude, incident.longitude), true);
+  const incidentCoordText = coordText(incident.latitude, incident.longitude);
+  if (incidentCoordText) {
+    place.push({
+      label: t.incidentCoords,
+      value: incidentCoordText,
+      wide: true,
+      url: mapsLink(incident.latitude, incident.longitude),
+    });
+  }
   if (site && (site.latitude != null || site.longitude != null)) {
     push(place, t.siteCoords, coordText(site.latitude, site.longitude), true);
   }
