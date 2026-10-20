@@ -37,6 +37,9 @@ import {
   Signal,
   Paperclip,
   UserRound,
+  Maximize2,
+  Sun,
+  Moon,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -49,6 +52,7 @@ import {
   vehicleDisplayName,
 } from "@/lib/fleet-intelligence";
 import { useControlRoomLang } from "@/hooks/use-control-room-lang";
+import { useTheme } from "@/components/theme-provider";
 import type { ControlRoomCopy } from "@/lib/control-room-i18n";
 import { GeoMapPreview } from "@/components/incident-location-sheet";
 import { FleetBatteryMeter } from "@/components/fleet/fleet-battery-meter";
@@ -385,13 +389,13 @@ function OccurrenceList({
               )}
               data-testid={`ops-occurrence-row-${inc.id}`}
             >
-              <div className="flex items-start justify-between gap-2">
+              <div className="flex items-center gap-3">
                 <button
                   type="button"
                   onClick={() => onOpenAttachments(inc)}
                   className="min-w-0 flex-1 text-left"
                 >
-                  <div className="flex items-center gap-1.5 flex-wrap">
+                  <div className="flex items-center gap-1.5 min-w-0">
                     {panicOriginated && (
                       <span title={copy.fromPanic}>
                         <Siren
@@ -400,12 +404,12 @@ function OccurrenceList({
                         />
                       </span>
                     )}
-                    <p className="font-medium text-sm text-slate-200 truncate">
+                    <p className="font-semibold text-sm text-slate-100 truncate">
                       {inc.categoryName ?? copy.uncategorised}
                     </p>
                     {hasAttachments && (
                       <span
-                        className="inline-flex items-center gap-0.5 rounded border border-slate-600/70 bg-slate-800/80 px-1 py-0 text-[8px] font-bold uppercase text-slate-300"
+                        className="inline-flex shrink-0 items-center gap-0.5 rounded border border-slate-600/70 bg-slate-800/80 px-1 py-0 text-[8px] font-bold uppercase text-slate-300"
                         title={copy.hasAttachments}
                       >
                         <Paperclip className="h-2.5 w-2.5" />
@@ -413,48 +417,40 @@ function OccurrenceList({
                       </span>
                     )}
                     {inc.isLive && (
-                      <span className="inline-flex rounded border border-orange-500/40 bg-orange-950/40 px-1 py-0 text-[8px] font-bold uppercase text-orange-300">
+                      <span className="inline-flex shrink-0 rounded border border-orange-500/40 bg-orange-950/40 px-1 py-0 text-[8px] font-bold uppercase text-orange-300">
                         {copy.live}
                       </span>
                     )}
                     {inc.severity && inc.severity !== "none" && (
                       <span
                         className={cn(
-                          "inline-flex rounded border px-1 py-0 text-[8px] font-bold uppercase",
+                          "inline-flex shrink-0 rounded border px-1 py-0 text-[8px] font-bold uppercase",
                           severityBadgeClass(inc.severity),
                         )}
                       >
                         {inc.severity}
                       </span>
                     )}
+                    <span className="ml-auto shrink-0 text-[11px] tabular-nums text-slate-300">
+                      {formatLoggedTime(inc)}
+                    </span>
                   </div>
-                  <p className="text-[10px] text-slate-500 mt-0.5">
-                    #{inc.id} · {formatReporterName(inc, copy)}
+                  <p className="mt-1 flex items-center gap-1 text-xs text-slate-400">
+                    <MapPin className="h-3 w-3 shrink-0" />
+                    <span className="min-w-0 truncate">
+                      {inc.locationName || copy.locationPending}
+                      {" · "}
+                      {formatReporterName(inc, copy)}
+                    </span>
                   </p>
-                  {inc.locationName && (
-                    <p className="text-[11px] text-slate-500 truncate mt-0.5 flex items-center gap-1">
-                      <MapPin className="h-3 w-3 shrink-0 text-slate-600" />
-                      {inc.locationName}
-                    </p>
-                  )}
                 </button>
-                <div className="text-[10px] text-slate-500 tabular-nums shrink-0 text-right leading-tight">
-                  <p>
-                    <span className="text-slate-600">{copy.logged}</span>{" "}
-                    <span className="text-slate-300">{formatLoggedTime(inc)}</span>
-                  </p>
-                  <p className="mt-0.5">
-                    <span className="text-slate-600">{copy.occurred}</span>{" "}
-                    <span>{formatOccurrenceTime(inc)}</span>
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => onOpenOccurrence(inc.id)}
-                    className="mt-1 text-[10px] font-semibold text-blue-300 hover:text-blue-200 hover:underline"
-                  >
-                    {copy.book}
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => onOpenOccurrence(inc.id)}
+                  className="shrink-0 rounded-md border border-slate-600 bg-slate-800 px-2.5 py-1.5 text-xs font-semibold text-slate-100 hover:bg-slate-700"
+                >
+                  {copy.book}
+                </button>
               </div>
             </div>
           </li>
@@ -645,7 +641,7 @@ function KpiCard({
       ) : (
         <p
           className={cn(
-            "text-[2rem] leading-none font-extrabold tabular-nums mt-1.5 text-white tracking-tight",
+            "text-[2rem] leading-none font-extrabold tabular-nums mt-1.5 text-slate-50 tracking-tight",
           )}
           data-testid={testId}
         >
@@ -690,6 +686,18 @@ export function OperationsDashboard({
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { lang, toggle, t } = useControlRoomLang();
+  const { theme, setTheme } = useTheme();
+  const light = theme === "light";
+  const [bottomFocus, setBottomFocus] = useState<"all" | "live" | "today" | "week">(() => {
+    if (typeof window === "undefined") return "all";
+    const stored = localStorage.getItem("omt_ops_bottom_focus");
+    return stored === "live" || stored === "today" || stored === "week" ? stored : "all";
+  });
+  function focusPanel(id: "live" | "today" | "week") {
+    const next = bottomFocus === id ? "all" : id;
+    setBottomFocus(next);
+    try { localStorage.setItem("omt_ops_bottom_focus", next); } catch { /* ignore */ }
+  }
   const [highlightId, setHighlightId] = useState<number | null>(null);
   const [liveMapType, setLiveMapType] = useState<"roadmap" | "hybrid">("roadmap");
   const [clock, setClock] = useState(() => new Date());
@@ -1019,7 +1027,10 @@ export function OperationsDashboard({
   return (
     <>
     <div
-      className="flex flex-col h-full min-h-0 overflow-y-auto overscroll-y-contain ops-scroll xl:overflow-hidden bg-[#0f1419] text-slate-100"
+      className={cn(
+        "flex flex-col h-full min-h-0 overflow-y-auto overscroll-y-contain ops-scroll xl:overflow-hidden bg-[#0f1419] text-slate-100",
+        light && "ops-light",
+      )}
       data-testid="operations-dashboard"
     >
       {/* ── Top status bar ── */}
@@ -1119,6 +1130,15 @@ export function OperationsDashboard({
           </button>
           <button
             type="button"
+            onClick={() => setTheme(light ? "dark" : "light")}
+            data-testid="ops-theme-toggle"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-600 bg-slate-800/80 px-3 py-2 text-sm font-semibold text-slate-100 hover:bg-slate-700"
+          >
+            {light ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+            {light ? t.darkBackground : t.whiteBackground}
+          </button>
+          <button
+            type="button"
             onClick={onPanic}
             data-testid="ops-button-panic"
             className="inline-flex items-center gap-2 rounded-lg bg-red-600 hover:bg-red-500 px-4 py-2 text-sm font-bold text-white shadow-lg shadow-red-900/40 transition-colors"
@@ -1194,7 +1214,7 @@ export function OperationsDashboard({
           testId="ops-site-monitor-header"
           right={groupSiteSelectors}
         />
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-slate-800/40 h-auto max-h-[min(520px,46dvh)] min-h-[240px] overflow-hidden">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-slate-800/40 h-auto max-h-[min(360px,32dvh)] min-h-[200px] overflow-hidden">
           <div className="flex flex-col min-h-0 overflow-hidden bg-[#131a22]">
             <OpsSubSectionHeader title={t.team} icon={Users} tone="emerald" count={siteTeam.length} />
             {!siteMonitorLoading && siteTeam.length > 0 && (
@@ -1543,8 +1563,12 @@ export function OperationsDashboard({
 
       {/* ── Incidents + today's occurrences ── */}
       <div className="flex flex-none xl:flex-1 xl:min-h-0 flex-col xl:flex-row xl:overflow-hidden gap-px bg-slate-800/40">
+        {bottomFocus !== "today" && bottomFocus !== "week" && (
         <div
-          className="flex-none xl:flex-1 min-h-[min(360px,44dvh)] xl:min-h-0 min-w-0 flex flex-col border-r border-slate-800/80 bg-[#131a22]"
+          className={cn(
+            "flex-none min-h-[min(360px,44dvh)] xl:min-h-0 min-w-0 flex flex-col border-r border-slate-800/80 bg-[#131a22]",
+            bottomFocus === "all" ? "xl:w-[48%] xl:shrink-0" : "xl:flex-1",
+          )}
           data-testid="ops-live-panel"
         >
           <OpsSectionHeader
@@ -1553,8 +1577,17 @@ export function OperationsDashboard({
             tone="orange"
             testId="ops-live-panel-header"
             right={
-              <span className="text-[11px] font-bold text-orange-200 tabular-nums shrink-0">
-                {t.activeCount(queueItems.length)}
+              <span className="flex items-center gap-2">
+                <span className="text-[11px] font-bold text-orange-200 tabular-nums shrink-0">
+                  {t.activeCount(queueItems.length)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => focusPanel("live")}
+                  className="inline-flex items-center gap-1 rounded-md border border-slate-600 px-2 py-1 text-[11px] font-semibold text-slate-200 hover:bg-slate-800"
+                >
+                  {bottomFocus === "live" ? t.showAll : <Maximize2 className="h-3.5 w-3.5" />}
+                </button>
               </span>
             }
           />
@@ -1564,7 +1597,7 @@ export function OperationsDashboard({
           >
             <ControlRoomMap
               compact
-              darkTheme
+              darkTheme={!light}
               showSidePanels={false}
               showSatelliteControl
               mapType={liveMapType}
@@ -1726,9 +1759,13 @@ export function OperationsDashboard({
             )}
           </div>
         </div>
+        )}
 
+        {bottomFocus !== "live" && (
+        <div className={cn("flex min-h-0 min-w-0 flex-col", bottomFocus === "all" ? "xl:flex-1" : "flex-1")}>
+        {(bottomFocus === "all" || bottomFocus === "today") && (
         <div
-          className="flex-none xl:flex-1 min-h-[min(280px,36dvh)] xl:min-h-0 min-w-0 flex flex-col border-r border-slate-800/80 bg-[#131a22]"
+          className="flex-1 min-h-[min(220px,30dvh)] xl:min-h-0 min-w-0 flex flex-col border-b border-slate-800/80 bg-[#131a22]"
           data-testid="ops-occurrences-today-panel"
         >
           <OpsSectionHeader
@@ -1737,13 +1774,22 @@ export function OperationsDashboard({
             tone="slate"
             testId="ops-occurrences-today-header"
             right={
-              <button
-                type="button"
-                onClick={() => onOpenOccurrence(undefined, "day")}
-                className="text-[11px] font-semibold text-blue-300 hover:text-blue-200 hover:underline"
-              >
-                {t.fullBook}
-              </button>
+              <span className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => onOpenOccurrence(undefined, "day")}
+                  className="text-[11px] font-semibold text-blue-300 hover:text-blue-200 hover:underline"
+                >
+                  {t.fullBook}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => focusPanel("today")}
+                  className="inline-flex items-center gap-1 rounded-md border border-slate-600 px-2 py-1 text-[11px] font-semibold text-slate-200 hover:bg-slate-800"
+                >
+                  {bottomFocus === "today" ? t.showAll : <Maximize2 className="h-3.5 w-3.5" />}
+                </button>
+              </span>
             }
           />
           <div className="flex-1 min-h-0 overflow-y-auto ops-scroll">
@@ -1763,9 +1809,11 @@ export function OperationsDashboard({
             />
           </div>
         </div>
+        )}
 
+        {(bottomFocus === "all" || bottomFocus === "week") && (
         <div
-          className="flex-none xl:flex-1 min-h-[min(280px,36dvh)] xl:min-h-0 min-w-0 flex flex-col bg-[#131a22]"
+          className="flex-1 min-h-[min(220px,30dvh)] xl:min-h-0 min-w-0 flex flex-col bg-[#131a22]"
           data-testid="ops-occurrences-week-panel"
         >
           <OpsSectionHeader
@@ -1774,13 +1822,22 @@ export function OperationsDashboard({
             tone="violet"
             testId="ops-occurrences-week-header"
             right={
-              <button
-                type="button"
-                onClick={() => onOpenOccurrence(undefined, "week")}
-                className="text-[11px] font-semibold text-blue-300 hover:text-blue-200 hover:underline"
-              >
-                {t.viewWeek}
-              </button>
+              <span className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => onOpenOccurrence(undefined, "week")}
+                  className="text-[11px] font-semibold text-blue-300 hover:text-blue-200 hover:underline"
+                >
+                  {t.viewWeek}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => focusPanel("week")}
+                  className="inline-flex items-center gap-1 rounded-md border border-slate-600 px-2 py-1 text-[11px] font-semibold text-slate-200 hover:bg-slate-800"
+                >
+                  {bottomFocus === "week" ? t.showAll : <Maximize2 className="h-3.5 w-3.5" />}
+                </button>
+              </span>
             }
           />
           <div className="flex-1 min-h-0 overflow-y-auto ops-scroll">
@@ -1800,6 +1857,9 @@ export function OperationsDashboard({
             />
           </div>
         </div>
+        )}
+        </div>
+        )}
       </div>
     </div>
 

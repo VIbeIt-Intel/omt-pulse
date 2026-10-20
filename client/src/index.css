@@ -364,6 +364,69 @@ html.capacitor-native #cap-live-map {
   background: transparent;
 }
 
+/* Control room — clear white workspace. The dashboard paints its own dark
+   surfaces, so the light option overrides those without touching alert reds. */
+.ops-light {
+  background: #f6f7f9 !important;
+  color: #0f172a !important;
+}
+.ops-light [class*="bg-[#0f1419]"],
+.ops-light [class*="bg-[#111820]"],
+.ops-light [class*="bg-[#131a22]"],
+.ops-light [class*="bg-[#141b24]"],
+.ops-light [class*="bg-[#0a0e14]"],
+.ops-light [class*="bg-slate-800"],
+.ops-light [class*="bg-slate-900"] {
+  background-color: #ffffff !important;
+}
+.ops-light [class*="text-slate-50"],
+.ops-light [class*="text-slate-100"],
+.ops-light [class*="text-slate-200"] {
+  color: #0f172a !important;
+}
+.ops-light [class*="text-slate-300"] {
+  color: #334155 !important;
+}
+.ops-light [class*="text-slate-400"],
+.ops-light [class*="text-slate-500"],
+.ops-light [class*="text-slate-600"] {
+  color: #64748b !important;
+}
+.ops-light [class*="border-slate-800"],
+.ops-light [class*="border-slate-700"],
+.ops-light [class*="border-slate-600"],
+.ops-light [class*="divide-slate-800"] > :not([hidden]) ~ :not([hidden]) {
+  border-color: #e2e8f0 !important;
+}
+.ops-light [class*="bg-orange-950"] { background-color: #fff7ed !important; }
+.ops-light [class*="text-orange-50"],
+.ops-light [class*="text-orange-200"],
+.ops-light [class*="text-orange-300"] { color: #9a3412 !important; }
+.ops-light [class*="bg-violet-950"] { background-color: #f5f3ff !important; }
+.ops-light [class*="text-violet-50"] { color: #5b21b6 !important; }
+.ops-light [class*="bg-indigo-950"] { background-color: #eef2ff !important; }
+.ops-light [class*="text-indigo-50"] { color: #3730a3 !important; }
+.ops-light [class*="bg-emerald-950"],
+.ops-light [class*="bg-[#0d2818]"] { background-color: #ecfdf5 !important; }
+.ops-light [class*="text-emerald-50"],
+.ops-light [class*="text-emerald-100"] { color: #065f46 !important; }
+.ops-light [class*="bg-blue-950"] { background-color: #eff6ff !important; }
+.ops-light [class*="text-blue-50"],
+.ops-light [class*="text-blue-300"] { color: #1d4ed8 !important; }
+.ops-light [class*="bg-cyan-950"] { background-color: #ecfeff !important; }
+.ops-light [class*="text-cyan-50"] { color: #155e75 !important; }
+.ops-light [class*="bg-red-950"] [class*="text-slate"],
+.ops-light [class*="bg-amber-950"] [class*="text-slate"] {
+  color: #fff !important;
+}
+.ops-light [class*="hover:bg-slate-800"]:hover,
+.ops-light [class*="hover:bg-slate-700"]:hover {
+  background-color: #f1f5f9 !important;
+}
+.ops-light .ops-scroll {
+  scrollbar-color: rgb(148 163 184 / 0.9) transparent;
+}
+
 /* Native ML Kit licence scan — camera renders behind the WebView */
 body.barcode-scanner-active {
   visibility: hidden;

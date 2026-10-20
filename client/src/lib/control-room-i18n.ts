@@ -81,6 +81,9 @@ export type ControlRoomCopy = {
   fullBook: string;
   emptyToday: string;
   thisWeek: string;
+  showAll: string;
+  whiteBackground: string;
+  darkBackground: string;
   viewWeek: string;
   emptyWeek: string;
   uncategorised: string;
@@ -283,6 +286,9 @@ const en: ControlRoomCopy = {
   fullBook: "Full book →",
   emptyToday: "No occurrences logged today yet.",
   thisWeek: "This Week",
+  showAll: "All three",
+  whiteBackground: "White",
+  darkBackground: "Dark",
   viewWeek: "View week →",
   emptyWeek: "No other occurrences this week.",
   uncategorised: "Uncategorised",
@@ -495,6 +501,9 @@ const af: ControlRoomCopy = {
   fullBook: "Volle boek →",
   emptyToday: "Nog geen voorvalle vandag aangeteken nie.",
   thisWeek: "Hierdie week",
+  showAll: "Al drie",
+  whiteBackground: "Wit",
+  darkBackground: "Donker",
   viewWeek: "Sien week →",
   emptyWeek: "Geen ander voorvalle hierdie week nie.",
   uncategorised: "Ongesorteer",
