@@ -112,8 +112,25 @@ async function placeFromPin(coords: { lat: number; lng: number } | null): Promis
     url.searchParams.set("language", "af");
     url.searchParams.set("key", key);
     const upstream = await fetch(url, { headers: { Referer: "https://omtpulse.com/" } });
-    const body = await upstream.json() as { results?: Array<{ formatted_address?: string }> };
-    const address = body.results?.[0]?.formatted_address?.trim();
+    const body = await upstream.json() as {
+      plus_code?: { compound_code?: string };
+      results?: Array<{
+        formatted_address?: string;
+        geometry?: { location?: { lat?: number; lng?: number } };
+      }>;
+    };
+    const PLUS_CODE = /[A-Z0-9]{4}\+[A-Z0-9]{2,}/i;
+    const near = (body.results ?? []).filter((result) => {
+      const lat = result.geometry?.location?.lat;
+      const lng = result.geometry?.location?.lng;
+      if (lat == null || lng == null) return false;
+      return haversineM(coords, { lat, lng }) <= 1500;
+    });
+    const plusResult = near.find((result) => PLUS_CODE.test(result.formatted_address ?? ""));
+    const address = plusResult?.formatted_address?.trim()
+      || body.plus_code?.compound_code?.trim()
+      || near[0]?.formatted_address?.trim()
+      || body.results?.[0]?.formatted_address?.trim();
     return address || fallback;
   } catch {
     return fallback;
