@@ -21,7 +21,7 @@ import {
   resolveIncidentLocationLabel,
   type IncidentWithMeta,
 } from "@/lib/incident-display";
-import { downloadIncidentDocket } from "@/lib/incident-docket";
+import { docketCopy, downloadIncidentDocket, type DocketLang } from "@/lib/incident-docket";
 import { PanicConfirmOverlay } from "@/components/panic-confirm-overlay";
 import { PageHero } from "@/components/page-hero";
 import { useControlRoomLang } from "@/hooks/use-control-room-lang";
@@ -30,6 +30,13 @@ import { cn } from "@/lib/utils";
 
 type IncidentWithCount = IncidentWithMeta;
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   AlertDialog,
@@ -68,6 +75,7 @@ export default function OccurrenceBook() {
   const [locationViewIncident, setLocationViewIncident] = useState<IncidentWithCount | null>(null);
   const [geoMapView, setGeoMapView] = useState<GeoMapView | null>(null);
   const [docketBusy, setDocketBusy] = useState(false);
+  const [docketPick, setDocketPick] = useState<IncidentWithCount | null>(null);
   const [selectedMapId, setSelectedMapId] = useState<number | null>(null);
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
@@ -350,11 +358,13 @@ export default function OccurrenceBook() {
     setLocationViewIncident(incident);
   };
 
-  async function handleDownloadDocket(inc: IncidentWithCount) {
+  async function handleDownloadDocket(inc: IncidentWithCount, lang: DocketLang) {
     if (docketBusy) return;
+    const copy = docketCopy(lang);
     const cat = categories.find((c) => c.id === inc.categoryId);
     const locDisplay = getLocationDisplay(inc);
     const locationLabel = locDisplay.label !== "-" ? locDisplay.label : "—";
+    setDocketPick(null);
     try {
       setDocketBusy(true);
       await downloadIncidentDocket({
@@ -363,12 +373,13 @@ export default function OccurrenceBook() {
         category: cat ?? null,
         locationLabel,
         locations,
+        lang,
       });
-      toast({ title: "Docket downloaded", description: "PDF saved with incident details and evidence." });
+      toast({ title: copy.toastTitle, description: copy.toastBody });
     } catch (e: unknown) {
       toast({
-        title: "Docket failed",
-        description: e instanceof Error ? e.message : "Could not generate the docket PDF.",
+        title: copy.toastFail,
+        description: e instanceof Error ? e.message : copy.toastFailBody,
         variant: "destructive",
       });
     } finally {
@@ -827,6 +838,34 @@ export default function OccurrenceBook() {
         incident={editingIncident}
       />
 
+      <Dialog open={docketPick !== null} onOpenChange={(open) => { if (!open) setDocketPick(null); }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Docket / Dokket</DialogTitle>
+            <DialogDescription>Choose a language. Kies ’n taal.</DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={docketBusy || docketPick == null}
+              onClick={() => { if (docketPick) void handleDownloadDocket(docketPick, "en"); }}
+              data-testid="button-docket-english"
+            >
+              English
+            </Button>
+            <Button
+              type="button"
+              disabled={docketBusy || docketPick == null}
+              onClick={() => { if (docketPick) void handleDownloadDocket(docketPick, "af"); }}
+              data-testid="button-docket-afrikaans"
+            >
+              Afrikaans
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {attachmentsIncidentId !== null && (
         <AttachmentsDialog
           open={true}
@@ -862,7 +901,7 @@ export default function OccurrenceBook() {
                       variant="outline"
                       className="h-8 shrink-0 gap-1.5"
                       disabled={docketBusy}
-                      onClick={() => void handleDownloadDocket(inc)}
+                      onClick={() => setDocketPick(inc)}
                       data-testid="button-download-docket"
                     >
                       {docketBusy ? (
