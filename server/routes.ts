@@ -1419,6 +1419,7 @@ function canManageChatMessage(user: User, msg: { senderId: string }): boolean {
 // polls /api/version and prompts the user to refresh when this value changes.
 const BUILD_ID = String(Date.now());
 
+import { registerWeatherRoutes } from "./weather";
 import { registerAccessControlRoutes } from "./access-control/routes";
 import { registerPatrolRoutes } from "./patrol/routes";
 import { registerRadioRoutes } from "./radio/routes";
@@ -6429,6 +6430,8 @@ export async function registerRoutes(
   registerPatrolPushHandler(async (req) => {
     await dispatchPatrolPush(req);
   });
+
+  registerWeatherRoutes(app);
 
   registerFarmerRoutes(app, {
     getCommandScope,
