@@ -757,8 +757,12 @@ export function LiveIncidentsMap({
   const infoWindowRef = useRef<google.maps.InfoWindow | null>(null);
   const trafficLayerRef = useRef<google.maps.TrafficLayer | null>(null);
   const lastFitSignatureRef = useRef<string>("");
+  const fittedAtSizeRef = useRef("");
+  /** True while this component is moving the camera, so that does not count as a user pan. */
+  const programmaticMoveRef = useRef(false);
   /** After the user pans/zooms, do not auto-reset the viewport on poll ticks. */
   const userViewportLockedRef = useRef(false);
+  const [mapLayoutNonce, setMapLayoutNonce] = useState(0);
   const initialCenterRef = useRef(initialCenter);
   const initialZoomRef = useRef(initialZoom);
 
@@ -814,9 +818,11 @@ export function LiveIncidentsMap({
     mapInstanceRef.current = map;
     infoWindowRef.current = new google.maps.InfoWindow();
     map.addListener("dragstart", () => {
+      if (programmaticMoveRef.current) return;
       userViewportLockedRef.current = true;
     });
     map.addListener("zoom_changed", () => {
+      if (programmaticMoveRef.current) return;
       userViewportLockedRef.current = true;
     });
     return () => {
@@ -846,6 +852,22 @@ export function LiveIncidentsMap({
       if (darkTheme) removeDarkInfoWindowStyles();
       mapInstanceRef.current = null;
     };
+  }, [mapsReady]);
+
+  useEffect(() => {
+    const el = mapRef.current;
+    if (!el || !mapsReady || typeof ResizeObserver === "undefined") return;
+    let last = "";
+    const observer = new ResizeObserver(() => {
+      const key = `${el.clientWidth}x${el.clientHeight}`;
+      if (key === last) return;
+      last = key;
+      const map = mapInstanceRef.current;
+      if (map) google.maps.event.trigger(map, "resize");
+      if (el.clientWidth > 40 && el.clientHeight > 40) setMapLayoutNonce((n) => n + 1);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
   }, [mapsReady]);
 
   useEffect(() => {
@@ -1504,73 +1526,105 @@ export function LiveIncidentsMap({
     }
   }, [focusedPremiseId, premises, mapsReady]);
 
-  // Dashboard overview: zoom to active people / fleet / sites (not country-wide SA).
+  // Dashboard overview: keep the camera on the group's sites, not on one GPS ping or the whole country.
   useEffect(() => {
     if (!preferActivityFit || !mapsReady) return;
     const map = mapInstanceRef.current;
-    if (!map || userViewportLockedRef.current || focusedPremiseId) return;
+    if (!map || focusedPremiseId) return;
+
+    const host = mapRef.current;
+    const width = host?.clientWidth ?? 0;
+    const height = host?.clientHeight ?? 0;
+    if (width < 40 || height < 40) return;
+    const sizeKey = `${width}x${height}`;
+    if (fittedAtSizeRef.current && fittedAtSizeRef.current !== sizeKey && !userViewportLockedRef.current) {
+      lastFitSignatureRef.current = "";
+    }
 
     const bounds = new google.maps.LatLngBounds();
     let count = 0;
     const parts: string[] = [];
 
-    for (const inc of incidents) {
-      const lat = inc.responderLat ?? inc.latitude;
-      const lng = inc.responderLng ?? inc.longitude;
-      if (lat == null || lng == null) continue;
-      bounds.extend({ lat, lng });
+    const extendCoverage = (lat: number, lng: number, radiusM: number) => {
+      const dLat = radiusM / 111_320;
+      const dLng = radiusM / (111_320 * Math.max(0.2, Math.cos((lat * Math.PI) / 180)));
+      bounds.extend({ lat: lat + dLat, lng: lng + dLng });
+      bounds.extend({ lat: lat - dLat, lng: lng - dLng });
+    };
+
+    for (const premise of premises) {
+      extendCoverage(premise.lat, premise.lng, PREMISE_COVERAGE_RADIUS_M);
       count += 1;
-      parts.push(`i:${inc.id}:${lat.toFixed(3)},${lng.toFixed(3)}`);
+      parts.push(`p:${premise.id}:${premise.lat.toFixed(3)},${premise.lng.toFixed(3)}`);
     }
-    for (const user of onlineUsers) {
-      bounds.extend({ lat: user.lat, lng: user.lng });
-      count += 1;
-      parts.push(`u:${user.id}:${user.lat.toFixed(3)},${user.lng.toFixed(3)}`);
-    }
-    for (const tracker of trackers) {
-      bounds.extend({ lat: tracker.lat, lng: tracker.lng });
-      count += 1;
-      parts.push(`t:${tracker.id}:${tracker.lat.toFixed(3)},${tracker.lng.toFixed(3)}`);
-    }
-    // Premises only expand the fit when nothing live is on the map (avoids SA-wide zoom).
+
+    // No pinned sites yet: frame whoever is on the map so it does not sit on a country view.
     if (count === 0) {
-      for (const premise of premises) {
-        bounds.extend({ lat: premise.lat, lng: premise.lng });
+      for (const inc of incidents) {
+        const lat = inc.responderLat ?? inc.latitude;
+        const lng = inc.responderLng ?? inc.longitude;
+        if (lat == null || lng == null) continue;
+        bounds.extend({ lat, lng });
         count += 1;
-        parts.push(`p:${premise.id}`);
+        parts.push(`i:${inc.id}:${lat.toFixed(3)},${lng.toFixed(3)}`);
+      }
+      for (const user of onlineUsers) {
+        bounds.extend({ lat: user.lat, lng: user.lng });
+        count += 1;
+        parts.push(`u:${user.id}:${user.lat.toFixed(3)},${user.lng.toFixed(3)}`);
+      }
+      for (const tracker of trackers) {
+        bounds.extend({ lat: tracker.lat, lng: tracker.lng });
+        count += 1;
+        parts.push(`t:${tracker.id}:${tracker.lat.toFixed(3)},${tracker.lng.toFixed(3)}`);
       }
     }
 
     if (count === 0) {
       if (lastFitSignatureRef.current !== "__empty_activity__") {
         lastFitSignatureRef.current = "__empty_activity__";
+        programmaticMoveRef.current = true;
         map.setCenter(initialCenterRef.current);
         map.setZoom(initialZoomRef.current);
+        window.setTimeout(() => {
+          programmaticMoveRef.current = false;
+        }, 700);
       }
       return;
     }
 
-    const signature = parts.sort().join("|");
+    const signature = `group:${parts.sort().join("|")}`;
     if (signature === lastFitSignatureRef.current) return;
     lastFitSignatureRef.current = signature;
+    fittedAtSizeRef.current = sizeKey;
+    userViewportLockedRef.current = false;
 
-    try {
-      if (count === 1) {
-        const c = bounds.getCenter();
-        map.setCenter(c);
-        map.setZoom(14);
-      } else {
-        map.fitBounds(bounds, 48);
-        const listener = google.maps.event.addListenerOnce(map, "bounds_changed", () => {
-          const z = map.getZoom() ?? 0;
-          if (z > 15) map.setZoom(15);
-          if (z < 11) map.setZoom(11);
-        });
-        setTimeout(() => google.maps.event.removeListener(listener), 2000);
+    const apply = () => {
+      programmaticMoveRef.current = true;
+      try {
+        google.maps.event.trigger(map, "resize");
+        if (count === 1 && premises.length === 0) {
+          map.setCenter(bounds.getCenter());
+          map.setZoom(13);
+        } else {
+          map.fitBounds(bounds, 36);
+          const listener = google.maps.event.addListenerOnce(map, "idle", () => {
+            const z = map.getZoom() ?? 0;
+            if (z > 13) {
+              programmaticMoveRef.current = true;
+              map.setZoom(13);
+            }
+          });
+          window.setTimeout(() => google.maps.event.removeListener(listener), 2000);
+        }
+      } catch {
+        /* ignore */
       }
-    } catch {
-      /* ignore */
-    }
+      window.setTimeout(() => {
+        programmaticMoveRef.current = false;
+      }, 1600);
+    };
+    apply();
   }, [
     preferActivityFit,
     mapsReady,
@@ -1579,6 +1633,7 @@ export function LiveIncidentsMap({
     trackers,
     premises,
     focusedPremiseId,
+    mapLayoutNonce,
   ]);
 
   useEffect(() => {

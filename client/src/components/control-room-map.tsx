@@ -383,10 +383,14 @@ export function ControlRoomMap({
   const locationAssignments = locationAssignmentsData?.assignments ?? [];
   const commandAssignments = commandAssignmentsData?.assignments ?? [];
 
-  const premises = useMemo(
-    () => buildPremises(commands, locations),
-    [commands, locations],
-  );
+  const premises = useMemo(() => {
+    if (!compact) return buildPremises(commands, locations);
+    const commandIds = new Set(
+      locations.map((l) => l.commandId).filter((id): id is number => id != null),
+    );
+    const groupCommands = commands.filter((c) => commandIds.has(c.id));
+    return buildPremises(groupCommands, locations);
+  }, [compact, commands, locations]);
 
   const selectedPremise = useMemo(
     () => premises.find((p) => p.id === selectedPremiseId) ?? null,
