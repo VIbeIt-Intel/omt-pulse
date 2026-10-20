@@ -24,6 +24,7 @@ import {
 } from "@/lib/incident-display";
 import { docketCopy, downloadIncidentDocket, type DocketLang } from "@/lib/incident-docket";
 import { incidentSheetCopy } from "@/lib/incident-sheet-copy";
+import { controlRoomChrome } from "@/lib/control-room-chrome";
 import { PanicConfirmOverlay } from "@/components/panic-confirm-overlay";
 import { PageHero } from "@/components/page-hero";
 import { useControlRoomLang } from "@/hooks/use-control-room-lang";
@@ -70,6 +71,7 @@ function isFieldVisible(fields: FormField[], key: string, fieldsLoaded: boolean)
 export default function OccurrenceBook() {
   const { t, lang } = useControlRoomLang();
   const sheet = incidentSheetCopy(lang);
+  const chrome = controlRoomChrome(lang);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingIncident, setEditingIncident] = useState<Incident | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
@@ -425,12 +427,12 @@ export default function OccurrenceBook() {
   const clearDateFilter = () => { setDateFrom(""); setDateTo(""); };
 
   const exportToCSV = () => {
-    const headers: string[] = ["Incident #"];
+    const headers: string[] = [chrome.incidentNo];
     if (showDateTime) {
-      headers.push("Date", "Time");
+      headers.push(chrome.date, chrome.time);
     }
-    if (showCategory) headers.push("Type");
-    if (showLocation) headers.push("Location");
+    if (showCategory) headers.push(chrome.type);
+    if (showLocation) headers.push(chrome.location);
     for (const cf of visibleCustomFields) {
       headers.push(cf.label);
     }
@@ -517,7 +519,7 @@ export default function OccurrenceBook() {
                 <Button size="sm" className="shrink-0 h-8" onClick={() => { setEditingIncident(null); setDialogOpen(true); }} data-testid="button-new-incident">
                   <Plus className="h-4 w-4 mr-1.5" />
                   <span className="md:hidden">Report</span>
-                  <span className="hidden md:inline">Report incident</span>
+                  <span className="hidden md:inline">{chrome.reportIncident}</span>
                 </Button>
               )}
               {isFieldReporter(currentUser?.role ?? "") && <ConnectivityBadge className="shrink-0" />}
@@ -568,10 +570,10 @@ export default function OccurrenceBook() {
               <div className="hidden md:block">
                 <CardTitle className="flex items-center gap-2 text-lg">
                   <BookOpen className="h-5 w-5 text-primary" />
-                  Incident Log
+                  {chrome.incidentLog}
                 </CardTitle>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Click a row to open full details. Use filters to narrow the log.
+                  {chrome.incidentLogHint}
                 </p>
               </div>
               <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end lg:w-auto">
@@ -583,17 +585,17 @@ export default function OccurrenceBook() {
                     onChange={(e) => setDateFrom(e.target.value)}
                     max={dateTo || undefined}
                     className="h-8 w-28 text-sm px-2"
-                    aria-label="From date"
+                    aria-label={chrome.fromDate}
                     data-testid="input-date-from"
                   />
-                  <span className="text-xs text-muted-foreground">to</span>
+                  <span className="text-xs text-muted-foreground">{chrome.to}</span>
                   <Input
                     type="date"
                     value={dateTo}
                     onChange={(e) => setDateTo(e.target.value)}
                     min={dateFrom || undefined}
                     className="h-8 w-28 text-sm px-2"
-                    aria-label="To date"
+                    aria-label={chrome.toDate}
                     data-testid="input-date-to"
                   />
                   {hasDateFilter && (
@@ -636,26 +638,26 @@ export default function OccurrenceBook() {
                   onValueChange={setSeverityFilter}
                 >
                   <SelectTrigger className="w-36 h-8 text-sm" data-testid="select-severity-filter">
-                    <SelectValue placeholder="Any Severity" />
+                    <SelectValue placeholder={chrome.anySeverity} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="any">Any Severity</SelectItem>
+                    <SelectItem value="any">{chrome.anySeverity}</SelectItem>
                     <SelectItem value="red" data-testid="option-severity-red">
                       <span className="flex items-center gap-2">
                         <span className="inline-block w-2.5 h-2.5 rounded-full bg-red-500 flex-shrink-0" />
-                        Red
+                        {chrome.red}
                       </span>
                     </SelectItem>
                     <SelectItem value="orange" data-testid="option-severity-orange">
                       <span className="flex items-center gap-2">
                         <span className="inline-block w-2.5 h-2.5 rounded-full bg-orange-500 flex-shrink-0" />
-                        Orange
+                        {chrome.orange}
                       </span>
                     </SelectItem>
                     <SelectItem value="yellow" data-testid="option-severity-yellow">
                       <span className="flex items-center gap-2">
                         <span className="inline-block w-2.5 h-2.5 rounded-full bg-yellow-400 flex-shrink-0" />
-                        Yellow
+                        {chrome.yellow}
                       </span>
                     </SelectItem>
                   </SelectContent>
@@ -761,9 +763,9 @@ export default function OccurrenceBook() {
                 <BookOpen className="mx-auto h-12 w-12 text-muted-foreground/30" />
                 {(selectedMapId !== null || hasDateFilter || importBatchIdFilter !== null) ? (
                   <>
-                    <h3 className="mt-4 text-lg font-medium" data-testid="text-empty-state">No incidents match the selected filters</h3>
+                    <h3 className="mt-4 text-lg font-medium" data-testid="text-empty-state">{chrome.noIncidentsFilter}</h3>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      Try adjusting the date range or site map filter.
+                      {chrome.noIncidentsFilterHint}
                     </p>
                     <Button
                       variant="outline"
@@ -771,14 +773,14 @@ export default function OccurrenceBook() {
                       onClick={() => { setSelectedMapId(null); clearDateFilter(); clearImportBatchFilter(); setSeverityFilter("any"); }}
                       data-testid="button-clear-filter-empty"
                     >
-                      Clear all filters
+                      {chrome.clearFilters}
                     </Button>
                   </>
                 ) : (
                   <>
-                    <h3 className="mt-4 text-lg font-medium" data-testid="text-empty-state">No incidents found</h3>
+                    <h3 className="mt-4 text-lg font-medium" data-testid="text-empty-state">{chrome.noIncidents}</h3>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      Start by reporting your first incident.
+                      {chrome.noIncidentsHint}
                     </p>
                     <Button
                       className="mt-4"
@@ -789,7 +791,7 @@ export default function OccurrenceBook() {
                       data-testid="button-first-incident"
                     >
                       <Plus className="h-4 w-4 mr-1.5" />
-                      Report First Incident
+                      {chrome.reportIncident}
                     </Button>
                   </>
                 )}

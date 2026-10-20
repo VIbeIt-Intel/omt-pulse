@@ -15,6 +15,8 @@ import {
 } from "@/components/ui/select";
 import { AccessVisitDetailSheet } from "@/components/access-control/access-visit-detail-sheet";
 import { ACCESS_CATEGORY_LABELS } from "@/lib/access-control-labels";
+import { useControlRoomLang } from "@/hooks/use-control-room-lang";
+import { controlRoomChrome } from "@/lib/control-room-chrome";
 import { DESTINATION_TYPE_OPTIONS } from "@/lib/access-control-labels";
 import {
   accessOverviewQueryKey,
@@ -195,6 +197,8 @@ function ActivityRow({
 }
 
 export function AccessOverview() {
+  const { lang } = useControlRoomLang();
+  const chrome = controlRoomChrome(lang);
   const [destinationFilter, setDestinationFilter] = useState<number | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -202,7 +206,17 @@ export function AccessOverview() {
   const [selectedEntryId, setSelectedEntryId] = useState<number | null>(null);
   const [exporting, setExporting] = useState(false);
 
-  const { from: periodFrom, label: periodLabel } = periodRange(period);
+  const { from: periodFrom } = periodRange(period);
+  const periodLabel = period === "today" ? chrome.today : period === "7d" ? chrome.last7 : chrome.last30;
+  const categoryName = (category: string) => {
+    if (lang !== "af") return categoryLabel(category);
+    if (category === "visitor") return chrome.visitor;
+    if (category === "contractor") return chrome.contractor;
+    if (category === "delivery") return chrome.delivery;
+    if (category === "official_vehicle") return chrome.officialVehicle;
+    if (category === "other") return chrome.other;
+    return categoryLabel(category);
+  };
 
   const { data: overview, isLoading: overviewLoading } = useQuery<AccessOverviewResponse>({
     queryKey: accessOverviewQueryKey,
@@ -309,7 +323,7 @@ export function AccessOverview() {
 
   if (!overview) {
     return (
-      <p className="text-sm text-muted-foreground text-center py-8">Could not load access overview.</p>
+      <p className="text-sm text-muted-foreground text-center py-8">{chrome.couldNotLoad}</p>
     );
   }
 
@@ -320,24 +334,24 @@ export function AccessOverview() {
       {/* Live stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
         <SummaryCard
-          label="On site now"
+          label={chrome.onSiteNow}
           value={totals.currentlyInside}
           icon={Users}
           accent="text-primary"
         />
         <SummaryCard
-          label="Check-ins today"
+          label={chrome.checkInsToday}
           value={totals.checkInsToday}
           icon={DoorOpen}
           accent="text-emerald-400"
         />
         <SummaryCard
-          label="Check-outs today"
+          label={chrome.checkOutsToday}
           value={totals.checkOutsToday}
           icon={LogOut}
         />
         <SummaryCard
-          label="Vehicles on site"
+          label={chrome.vehiclesOnSite}
           value={totals.vehiclesInside}
           icon={Car}
           accent="text-amber-400"
@@ -351,19 +365,19 @@ export function AccessOverview() {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <BarChart3 className="h-4 w-4 text-muted-foreground" />
-                <h2 className="text-sm font-semibold">Analytics</h2>
+                <h2 className="text-sm font-semibold">{chrome.analytics}</h2>
                 <span className="text-xs text-muted-foreground">({periodLabel})</span>
               </div>
               <div className="flex gap-3 text-xs text-muted-foreground">
                 <span>
-                  <strong className="text-foreground tabular-nums">{analytics.totalVisits}</strong> visits
+                  <strong className="text-foreground tabular-nums">{analytics.totalVisits}</strong> {chrome.visits}
                 </span>
                 <span>
-                  <strong className="text-foreground tabular-nums">{analytics.uniquePeople}</strong> people
+                  <strong className="text-foreground tabular-nums">{analytics.uniquePeople}</strong> {chrome.people}
                 </span>
                 {analytics.avgVisitMinutes != null && (
                   <span>
-                    Avg stay{" "}
+                    {chrome.avgStay}{" "}
                     <strong className="text-foreground tabular-nums">{analytics.avgVisitMinutes}m</strong>
                   </span>
                 )}
@@ -373,7 +387,7 @@ export function AccessOverview() {
             <div className="grid sm:grid-cols-2 xl:grid-cols-2 gap-4 lg:gap-6">
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">
-                  By category
+                  {chrome.byCategory}
                 </p>
                 <div className="space-y-1.5">
                   {ACCESS_ENTRY_CATEGORIES.map((cat) => {
@@ -382,7 +396,7 @@ export function AccessOverview() {
                     return (
                       <div key={cat} className="flex items-center gap-2 text-xs">
                         <span className="w-24 shrink-0 truncate text-muted-foreground">
-                          {categoryLabel(cat)}
+                          {categoryName(cat)}
                         </span>
                         <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
                           <div
@@ -399,7 +413,7 @@ export function AccessOverview() {
 
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">
-                  Check-ins by hour (today)
+                  {chrome.checkInsByHour}
                 </p>
                 <div className="flex items-end gap-0.5 h-16">
                   {analytics.hourlyCheckInsToday.map((count, hour) => (
@@ -433,7 +447,7 @@ export function AccessOverview() {
         <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
           <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
             <Building2 className="h-4 w-4" />
-            Locations
+            {chrome.locations}
           </h2>
           {destinations.length > 1 && (
             <div className="flex flex-wrap gap-1.5">
@@ -447,7 +461,7 @@ export function AccessOverview() {
                     : "bg-muted text-muted-foreground hover:text-foreground",
                 )}
               >
-                All locations
+                {chrome.allLocations}
               </button>
               {destinations.map((d) => (
                 <button
@@ -471,7 +485,7 @@ export function AccessOverview() {
         {destinations.length === 0 ? (
           <Card className="border-dashed">
             <CardContent className="p-8 text-center text-sm text-muted-foreground">
-              No locations configured. Add destinations to track access by site.
+              {chrome.noLocations}
             </CardContent>
           </Card>
         ) : (
@@ -494,25 +508,37 @@ export function AccessOverview() {
                   <div>
                     <p className="font-semibold">{d.destinationName}</p>
                     <p className="text-xs text-muted-foreground">
-                      {destinationTypeLabel(d.destinationType)}
+                      {lang === "af"
+                        ? d.destinationType === "building"
+                          ? chrome.building
+                          : d.destinationType === "office"
+                            ? chrome.office
+                            : d.destinationType === "warehouse"
+                              ? chrome.destWarehouse
+                              : d.destinationType === "plant"
+                                ? chrome.plantYard
+                                : d.destinationType === "other"
+                                  ? chrome.other
+                                  : destinationTypeLabel(d.destinationType)
+                        : destinationTypeLabel(d.destinationType)}
                     </p>
                   </div>
                   <div className="text-right">
                     <p className="text-2xl font-bold tabular-nums text-primary">{d.currentlyInside}</p>
-                    <p className="text-[10px] text-muted-foreground">on site</p>
+                    <p className="text-[10px] text-muted-foreground">{chrome.onSite}</p>
                   </div>
                 </div>
                 <div className="grid grid-cols-3 gap-2 mt-3 text-center text-xs">
                   <div className="rounded-md bg-muted/50 px-2 py-1.5">
-                    <p className="text-muted-foreground">In today</p>
+                    <p className="text-muted-foreground">{chrome.inToday}</p>
                     <p className="font-semibold tabular-nums mt-0.5">{d.checkInsToday}</p>
                   </div>
                   <div className="rounded-md bg-muted/50 px-2 py-1.5">
-                    <p className="text-muted-foreground">Out today</p>
+                    <p className="text-muted-foreground">{chrome.outToday}</p>
                     <p className="font-semibold tabular-nums mt-0.5">{d.checkOutsToday}</p>
                   </div>
                   <div className="rounded-md bg-muted/50 px-2 py-1.5">
-                    <p className="text-muted-foreground">Vehicles</p>
+                    <p className="text-muted-foreground">{chrome.vehicles}</p>
                     <p className="font-semibold tabular-nums mt-0.5">{d.vehiclesInside}</p>
                   </div>
                 </div>
@@ -528,9 +554,9 @@ export function AccessOverview() {
           <CardContent className="p-4">
             <h2 className="text-sm font-semibold mb-1 flex items-center gap-2">
               <Users className="h-4 w-4 text-primary" />
-              Currently on site ({inside.length})
+              {chrome.currentlyOnSite} ({inside.length})
             </h2>
-            <p className="text-xs text-muted-foreground mb-3">Tap a person to view their full visit record</p>
+            <p className="text-xs text-muted-foreground mb-3">{chrome.tapVisit}</p>
             <div className="grid sm:grid-cols-2 gap-2">
               {inside
                 .filter((e) => destinationFilter == null || e.destinationId === destinationFilter)
@@ -548,7 +574,7 @@ export function AccessOverview() {
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium truncate">{entry.personFullName}</p>
                       <p className="text-xs text-muted-foreground truncate">
-                        {entry.destinationName} · since {formatTime(entry.timeIn)}
+                        {entry.destinationName} · {chrome.since} {formatTime(entry.timeIn)}
                       </p>
                     </div>
                   </button>
@@ -563,9 +589,9 @@ export function AccessOverview() {
         <CardContent className="p-4">
           <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
             <div>
-              <h2 className="text-sm font-semibold">Visit log</h2>
+              <h2 className="text-sm font-semibold">{chrome.visitLog}</h2>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Search, filter, and open individual records
+                {chrome.visitLogHint}
               </p>
             </div>
             <Button
@@ -576,7 +602,7 @@ export function AccessOverview() {
               onClick={() => void downloadReport()}
             >
               <Download className="h-4 w-4 mr-1" />
-              {exporting ? "Exporting…" : "Export CSV"}
+              {exporting ? chrome.exporting : chrome.exportCsv}
             </Button>
           </div>
 
@@ -585,7 +611,7 @@ export function AccessOverview() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 className="pl-9 h-10"
-                placeholder="Search name or ID number…"
+                placeholder={chrome.searchVisit}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
@@ -595,9 +621,9 @@ export function AccessOverview() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All status</SelectItem>
-                <SelectItem value="inside">On site</SelectItem>
-                <SelectItem value="exited">Exited</SelectItem>
+                <SelectItem value="all">{chrome.allStatus}</SelectItem>
+                <SelectItem value="inside">{chrome.onSiteStatus}</SelectItem>
+                <SelectItem value="exited">{chrome.exited}</SelectItem>
               </SelectContent>
             </Select>
             <Select value={period} onValueChange={(v) => setPeriod(v as PeriodFilter)}>
@@ -605,9 +631,9 @@ export function AccessOverview() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="today">Today</SelectItem>
-                <SelectItem value="7d">Last 7 days</SelectItem>
-                <SelectItem value="30d">Last 30 days</SelectItem>
+                <SelectItem value="today">{chrome.today}</SelectItem>
+                <SelectItem value="7d">{chrome.last7}</SelectItem>
+                <SelectItem value="30d">{chrome.last30}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -620,12 +646,12 @@ export function AccessOverview() {
             </div>
           ) : activity.length === 0 ? (
             <p className="text-sm text-muted-foreground py-8 text-center">
-              No visits match your filters.
+              {chrome.noVisits}
             </p>
           ) : (
             <div>
               <p className="text-[11px] text-muted-foreground mb-2">
-                {activity.length} record{activity.length === 1 ? "" : "s"} · tap to view details
+                {activity.length} {activity.length === 1 ? chrome.record : chrome.records} · {chrome.tapDetails}
               </p>
               {activity.map((entry) => (
                 <ActivityRow key={entry.id} entry={entry} onSelect={setSelectedEntryId} />

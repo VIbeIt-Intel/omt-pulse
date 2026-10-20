@@ -8,6 +8,8 @@ import {
   type FleetAlertType,
 } from "@shared/fleet-alerts";
 import { cn } from "@/lib/utils";
+import { useControlRoomLang } from "@/hooks/use-control-room-lang";
+import { controlRoomChrome } from "@/lib/control-room-chrome";
 
 const SEVERITY_CHIP: Record<FleetAlertSeverity, string> = {
   high: "border-red-500/30 bg-red-500/10 text-red-400",
@@ -55,10 +57,34 @@ export function AlertMetaBadges({
   alertType?: string | null;
   className?: string;
 }) {
+  const { lang } = useControlRoomLang();
+  const chrome = controlRoomChrome(lang);
   const typeCode = getFleetAlertTypeCode(alertType);
   const severity = getFleetAlertSeverity(alertType);
   const typeChipClass =
     (alertType && TYPE_CHIP[alertType as FleetAlertType]) || TYPE_CHIP.default;
+  const typeLabel = !typeCode
+    ? null
+    : lang !== "af"
+      ? typeCode
+      : typeCode === "SPEEDING"
+        ? chrome.speeding
+        : typeCode === "IDLE"
+          ? chrome.idle
+          : typeCode === "OFFLINE"
+            ? chrome.offline
+            : typeCode === "GEOFENCE"
+              ? chrome.geofence
+              : typeCode;
+  const severityLabel = !severity
+    ? null
+    : lang !== "af"
+      ? FLEET_ALERT_SEVERITY_LABELS[severity]
+      : severity === "high"
+        ? chrome.high
+        : severity === "medium"
+          ? chrome.medium
+          : chrome.info;
 
   return (
     <div className={cn("flex flex-wrap items-center gap-1", className)}>
@@ -68,14 +94,14 @@ export function AlertMetaBadges({
       >
         {category}
       </MetaChip>
-      {typeCode && (
+      {typeLabel && (
         <MetaChip className={typeChipClass} testId="alert-meta-type">
-          {typeCode}
+          {typeLabel}
         </MetaChip>
       )}
-      {severity && (
+      {severityLabel && severity && (
         <MetaChip className={SEVERITY_CHIP[severity]} testId="alert-meta-severity">
-          {FLEET_ALERT_SEVERITY_LABELS[severity]}
+          {severityLabel}
         </MetaChip>
       )}
     </div>
@@ -91,6 +117,8 @@ export function AcknowledgedPill({
   formatWhen: (iso: string) => string;
   className?: string;
 }) {
+  const { lang } = useControlRoomLang();
+  const chrome = controlRoomChrome(lang);
   const when =
     acknowledgedAt != null
       ? formatWhen(
@@ -109,7 +137,7 @@ export function AcknowledgedPill({
       data-testid="alert-ack-pill"
     >
       <Check className="h-3 w-3 shrink-0 opacity-90" strokeWidth={2.5} />
-      <span>Ack&apos;d{when ? ` · ${when}` : ""}</span>
+      <span>{chrome.acked}{when ? ` · ${when}` : ""}</span>
     </span>
   );
 }

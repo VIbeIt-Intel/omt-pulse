@@ -13,6 +13,8 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useSearch } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useControlRoomLang } from "@/hooks/use-control-room-lang";
+import { controlRoomChrome, knownFieldLabel } from "@/lib/control-room-chrome";
 import type { FormField, Location, Category } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -54,25 +56,15 @@ import { Plus, Pencil, Trash2, Settings, ListChecks, Eye, EyeOff, MapPin, Chevro
 import { prepareAndUploadFile } from "@/lib/upload-media";
 import { ExpandablePhoto } from "@/components/photo-lightbox";
 import { PageHero } from "@/components/page-hero";
-import { useControlRoomLang } from "@/hooks/use-control-room-lang";
 import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { GoogleAddressPinPicker } from "@/components/google-address-pin-picker";
 import { loadGoogleMaps } from "@/lib/google-maps-loader";
 
-const fieldTypeLabels: Record<string, string> = {
-  text: "Text",
-  number: "Number",
-  textarea: "Text Area",
-  select: "Dropdown",
-  file: "File Upload",
-  date: "Date",
-  time: "Time",
-  location: "Location",
-};
-
 function FormFieldManager() {
+  const { lang } = useControlRoomLang();
+  const chrome = controlRoomChrome(lang);
   const { toast } = useToast();
   const [collapsed, setCollapsed] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -170,13 +162,13 @@ function FormFieldManager() {
           <div className="flex items-center justify-between gap-4">
             <CardTitle className="flex items-center gap-2 text-base">
               <ListChecks className="h-4 w-4" />
-              Form Fields Configuration
+              {chrome.formFields}
             </CardTitle>
             <div className="flex items-center gap-2">
               {!collapsed && (
                 <Button size="sm" onClick={(e) => { e.stopPropagation(); setDialogOpen(true); }} data-testid="button-add-field">
                   <Plus className="h-3.5 w-3.5 mr-1.5" />
-                  Add Custom Field
+                  {chrome.addCustomField}
                 </Button>
               )}
               {collapsed ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronUp className="h-4 w-4 text-muted-foreground" />}
@@ -197,22 +189,31 @@ function FormFieldManager() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Label</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Required</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead>{chrome.label}</TableHead>
+                  <TableHead>{chrome.type}</TableHead>
+                  <TableHead>{chrome.required}</TableHead>
+                  <TableHead className="text-right">{chrome.actions}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {fields.map((field) => (
                   <TableRow key={field.id} data-testid={`row-field-${field.id}`}>
-                    <TableCell className="font-medium">{field.label}</TableCell>
+                    <TableCell className="font-medium">{knownFieldLabel(lang, field.label)}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {fieldTypeLabels[field.fieldType] || field.fieldType}
+                      {{
+                        text: chrome.fieldText,
+                        number: chrome.fieldNumber,
+                        textarea: chrome.fieldTextArea,
+                        select: chrome.fieldDropdown,
+                        file: chrome.fieldFile,
+                        date: chrome.fieldDate,
+                        time: chrome.fieldTime,
+                        location: chrome.fieldLocation,
+                      }[field.fieldType] || field.fieldType}
                     </TableCell>
                     <TableCell>
                       <span className={`text-xs px-2 py-0.5 rounded-full ${field.isRequired ? "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400" : "text-muted-foreground"}`}>
-                        {field.isRequired ? "Required" : "Optional"}
+                        {field.isRequired ? chrome.required : chrome.optional}
                       </span>
                     </TableCell>
                     <TableCell className="text-right">
@@ -252,7 +253,7 @@ function FormFieldManager() {
       <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) closeDialog(); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editingId ? "Edit Custom Field" : "Add Custom Field"}</DialogTitle>
+            <DialogTitle>{editingId ? chrome.editCustomField : chrome.addCustomField}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div>
@@ -309,6 +310,8 @@ function FormFieldManager() {
 }
 
 function PredefinedTypesManager() {
+  const { lang } = useControlRoomLang();
+  const chrome = controlRoomChrome(lang);
   const { toast } = useToast();
   const [collapsed, setCollapsed] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -488,13 +491,13 @@ function PredefinedTypesManager() {
           <div className="flex items-center justify-between gap-4">
             <CardTitle className="flex items-center gap-2 text-base">
               <Tag className="h-4 w-4" />
-              Incident Types
+              {chrome.incidentTypes}
             </CardTitle>
             <div className="flex items-center gap-2">
               {!collapsed && (
                 <Button size="sm" onClick={(e) => { e.stopPropagation(); openAdd(); }} data-testid="button-add-type">
                   <Plus className="h-3.5 w-3.5 mr-1.5" />
-                  Add Type
+                  {chrome.addType}
                 </Button>
               )}
               {collapsed ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronUp className="h-4 w-4 text-muted-foreground" />}
@@ -502,7 +505,7 @@ function PredefinedTypesManager() {
           </div>
           {!collapsed && (
             <p className="text-sm text-muted-foreground font-normal mt-1">
-              Classifications for logging incidents — Criminal, Medical, Other, etc.
+              {chrome.incidentTypesHint}
             </p>
           )}
         </CardHeader>
@@ -514,7 +517,7 @@ function PredefinedTypesManager() {
           ) : incidentTypes.length === 0 ? (
             <div className="p-8 text-center">
               <Tag className="mx-auto h-10 w-10 text-muted-foreground/30" />
-              <p className="mt-3 text-sm text-muted-foreground">No incident types yet.</p>
+              <p className="mt-3 text-sm text-muted-foreground">{chrome.noIncidentTypes}</p>
             </div>
           ) : (
             <Table>
@@ -560,10 +563,10 @@ function PredefinedTypesManager() {
         <CardHeader data-testid="header-system-modes">
           <CardTitle className="flex items-center gap-2 text-base">
             <Radio className="h-4 w-4" />
-            Built-in Response Modes
+            {chrome.builtInModes}
           </CardTitle>
           <p className="text-sm text-muted-foreground font-normal mt-1">
-            Platform-managed — triggered by the panic button or live incident flow, not selected when logging manually.
+            {chrome.builtInHint}
           </p>
         </CardHeader>
         <CardContent className="p-0 pb-2">
@@ -573,7 +576,7 @@ function PredefinedTypesManager() {
             </div>
           ) : systemModes.length === 0 ? (
             <div className="px-6 pb-6 text-sm text-muted-foreground">
-              Created automatically when panic or live incident is first used.
+              {chrome.modesEmpty}
             </div>
           ) : (
             <>

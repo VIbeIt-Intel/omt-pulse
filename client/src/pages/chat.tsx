@@ -2,6 +2,8 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useControlRoomLang } from "@/hooks/use-control-room-lang";
+import { controlRoomChrome } from "@/lib/control-room-chrome";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -189,6 +191,8 @@ function NewDmDialog({
   onSelect: (user: OrgUser) => void;
   currentUserId: string;
 }) {
+  const { lang } = useControlRoomLang();
+  const chrome = controlRoomChrome(lang);
   const [search, setSearch] = useState("");
   const { data: users = [] } = useQuery<OrgUser[]>({ queryKey: ["/api/chat/users"] });
 
@@ -205,13 +209,13 @@ function NewDmDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Users className="h-4 w-4 text-primary" />
-            Start a Direct Message
+            {chrome.startDm}
           </DialogTitle>
         </DialogHeader>
         <div className="relative mb-2">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
           <Input
-            placeholder="Search by name or email…"
+            placeholder={chrome.searchPeople}
             className="pl-9"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -221,7 +225,7 @@ function NewDmDialog({
         </div>
         <ScrollArea className="max-h-72">
           {filtered.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-6">No users found</p>
+            <p className="text-sm text-muted-foreground text-center py-6">{chrome.noUsers}</p>
           ) : (
             <div className="space-y-0.5">
               {filtered.map((u) => (
@@ -249,6 +253,8 @@ function NewDmDialog({
 
 export default function ChatPage() {
   const { toast } = useToast();
+  const { t, lang } = useControlRoomLang();
+  const chrome = controlRoomChrome(lang);
   const qc = useQueryClient();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastSeenMsgIdRef = useRef<number | null>(null);
@@ -814,11 +820,11 @@ export default function ChatPage() {
               </Button>
               <div className="min-w-0">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary leading-none">
-                  Chat
+                  {t.nav.chat}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1 truncate">
-                  {conversations.length} thread{conversations.length === 1 ? "" : "s"}
-                  {totalUnread > 0 ? ` · ${totalUnread} unread` : ""}
+                  {conversations.length} {conversations.length === 1 ? chrome.thread : chrome.threads}
+                  {totalUnread > 0 ? ` · ${totalUnread} ${chrome.unread}` : ""}
                 </p>
               </div>
               {totalUnread > 0 && (
@@ -835,7 +841,7 @@ export default function ChatPage() {
               data-testid="button-new-dm"
             >
               <Plus className="h-3.5 w-3.5" />
-              New
+              {chrome.newChat}
             </Button>
           </div>
         </div>
@@ -843,7 +849,7 @@ export default function ChatPage() {
         <ScrollArea className="flex-1">
           <div className="px-2 py-1 space-y-0.5">
             <div className="px-2 pt-2 pb-1">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Channels</p>
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{chrome.channels}</p>
             </div>
             <button
               className={cn(
@@ -858,7 +864,7 @@ export default function ChatPage() {
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-1">
-                  <span className="text-sm font-medium truncate">General</span>
+                  <span className="text-sm font-medium truncate">{chrome.general}</span>
                   {groupConvo?.lastMessageAt && (
                     <span className="text-xs text-muted-foreground shrink-0">{formatTime(groupConvo.lastMessageAt)}</span>
                   )}
@@ -876,7 +882,7 @@ export default function ChatPage() {
 
             {dmConvos.length > 0 && (
               <div className="px-2 pt-3 pb-1">
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Direct Messages</p>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{chrome.directMessages}</p>
               </div>
             )}
 
@@ -924,7 +930,7 @@ export default function ChatPage() {
             {activeConvo.type === "group" ? (
               <>
                 <Users className="h-4 w-4 text-primary shrink-0" />
-                <span className="font-medium text-sm truncate">General</span>
+                <span className="font-medium text-sm truncate">{chrome.general}</span>
               </>
             ) : (
               <>
@@ -949,23 +955,23 @@ export default function ChatPage() {
                   data-testid="button-clear-general-chat"
                 >
                   <Trash2 className="h-3.5 w-3.5 mr-1" />
-                  Clear chat
+                  {chrome.clearChat}
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Clear General chat?</AlertDialogTitle>
+                  <AlertDialogTitle>{chrome.clearChatTitle}</AlertDialogTitle>
                   <AlertDialogDescription>
-                    This permanently deletes all messages in the General channel for your organization. Direct messages are not affected.
+                    {chrome.clearChatBody}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogCancel>{chrome.cancel}</AlertDialogCancel>
                   <AlertDialogAction
                     className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                     onClick={() => clearGroupMutation.mutate()}
                   >
-                    Clear all messages
+                    {chrome.clearAll}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
@@ -985,7 +991,7 @@ export default function ChatPage() {
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <span className="text-sm font-medium truncate flex-1 text-center px-2">
-            {activeConvo.type === "group" ? "General" : activeConvo.recipientName}
+            {activeConvo.type === "group" ? chrome.general : activeConvo.recipientName}
           </span>
           {activeConvo.type === "group" && isAdmin ? (
             <AlertDialog>
@@ -996,25 +1002,25 @@ export default function ChatPage() {
                   className="h-8 w-8 text-destructive"
                   disabled={clearGroupMutation.isPending || messages.length === 0}
                   data-testid="button-clear-general-chat-mobile"
-                  aria-label="Clear General chat"
+                  aria-label={chrome.clearChatTitle}
                 >
                   <Trash2 className="h-4 w-4" />
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Clear General chat?</AlertDialogTitle>
+                  <AlertDialogTitle>{chrome.clearChatTitle}</AlertDialogTitle>
                   <AlertDialogDescription>
-                    This permanently deletes all messages in the General channel. Direct messages are not affected.
+                    {chrome.clearChatBody}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogCancel>{chrome.cancel}</AlertDialogCancel>
                   <AlertDialogAction
                     className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                     onClick={() => clearGroupMutation.mutate()}
                   >
-                    Clear all
+                    {chrome.clearAll}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
@@ -1188,7 +1194,7 @@ export default function ChatPage() {
             <textarea
               ref={inputRef}
               className="flex-1 min-h-[40px] max-h-32 resize-none rounded-xl border bg-muted/40 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground"
-              placeholder={activeConvo.type === "group" ? "Message General…" : `Message ${activeConvo.type === "dm" ? activeConvo.recipientName : ""}…`}
+              placeholder={activeConvo.type === "group" ? chrome.messageGeneral : `${chrome.messagePerson} ${activeConvo.type === "dm" ? activeConvo.recipientName : ""}…`}
               value={text}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={handleKeyDown}

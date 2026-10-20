@@ -17,6 +17,7 @@ import { flushPendingPatrolTracks } from "@/lib/patrol-tracking";
 import { cn } from "@/lib/utils";
 import { PageHero } from "@/components/page-hero";
 import { useControlRoomLang } from "@/hooks/use-control-room-lang";
+import { controlRoomChrome } from "@/lib/control-room-chrome";
 import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import {
   AlertTriangle,
@@ -81,7 +82,8 @@ function patrolTime(value: string | Date): string {
 }
 
 export default function PatrolPage({ userRole }: PatrolPageProps) {
-  const { t } = useControlRoomLang();
+  const { t, lang } = useControlRoomLang();
+  const chrome = controlRoomChrome(lang);
   const isManager = canManagePatrolRoutes(userRole);
   const [tab, setTab] = useState<ManagerTab>(isManager ? "routes" : "run");
   const [routeSheetOpen, setRouteSheetOpen] = useState(false);
@@ -217,14 +219,12 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
       return (
         <div className="p-8 text-center space-y-4">
           <p className="text-sm text-muted-foreground">
-            {isManager
-              ? "No patrol routes yet. Create a route first, then start it from Run."
-              : "No patrol routes are available for your group."}
+            {isManager ? chrome.noRoutesManager : chrome.noRoutesGroup}
           </p>
           {isManager && (
             <Button type="button" onClick={() => { setTab("routes"); openCreateRoute(); }}>
               <Plus className="h-4 w-4 mr-1.5" />
-              Add route
+              {chrome.addRoute}
             </Button>
           )}
         </div>
@@ -233,9 +233,9 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
     return (
       <div className={cn(OPS_PAGE_SHELL, "py-4 space-y-3")}>
         <div>
-          <h2 className="text-sm font-semibold">Start a patrol</h2>
+          <h2 className="text-sm font-semibold">{chrome.startPatrol}</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Location must be on. The app will ask for GPS if needed.
+            {chrome.startPatrolHint}
           </p>
         </div>
         <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-[11px] text-amber-950 dark:text-amber-100 leading-relaxed">
@@ -259,13 +259,13 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
                   <p className="font-medium text-sm text-foreground">{route.name}</p>
                   {pending ? (
                     <p className="text-xs text-primary font-medium mt-0.5">
-                      {pending.status === "overdue" ? "Overdue — start now" : "Due now — start patrol"}
+                      {pending.status === "overdue" ? chrome.overdueStart : chrome.dueNow}
                     </p>
                   ) : (
                     <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
                       {premisesName ? `${premisesName}` : ""}
                       {premisesName && route.description ? " · " : ""}
-                      {route.description || (!premisesName ? "No description" : "")}
+                      {route.description || (!premisesName ? chrome.noDescription : "")}
                     </p>
                   )}
                 </div>
@@ -301,8 +301,8 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
           }
           insights={[
             {
-              label: "Focus",
-              value: isManager ? "Routes · Run · History" : "Follow & clock",
+              label: chrome.focus,
+              value: isManager ? chrome.routeFocus : chrome.followClock,
             },
           ]}
         />
@@ -317,15 +317,15 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
           <TabsList className="mx-4 sm:mx-6 lg:mx-8 xl:mx-10 mt-3 grid shrink-0 grid-cols-3 h-11">
             <TabsTrigger value="routes" className="gap-1.5 text-xs sm:text-sm">
               <Settings2 className="h-4 w-4" />
-              Routes
+              {chrome.routes}
             </TabsTrigger>
             <TabsTrigger value="run" className="gap-1.5 text-xs sm:text-sm">
               <Route className="h-4 w-4" />
-              Run
+              {chrome.run}
             </TabsTrigger>
             <TabsTrigger value="history" className="gap-1.5 text-xs sm:text-sm">
               <History className="h-4 w-4" />
-              History
+              {chrome.history}
             </TabsTrigger>
           </TabsList>
 
@@ -340,14 +340,14 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
               <div className={cn(OPS_PAGE_SHELL, "py-4 space-y-4")}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <h2 className="text-sm font-semibold">Your routes</h2>
+                    <h2 className="text-sm font-semibold">{chrome.yourRoutes}</h2>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      Create and edit checkpoint routes for the team.
+                      {chrome.yourRoutesHint}
                     </p>
                   </div>
                   <Button type="button" size="sm" className="shrink-0 gap-1.5" onClick={openCreateRoute}>
                     <Plus className="h-4 w-4" />
-                    Add route
+                    {chrome.addRoute}
                   </Button>
                 </div>
 
@@ -357,14 +357,14 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
                       <MapPin className="h-6 w-6" />
                     </div>
                     <div className="space-y-1">
-                      <p className="font-medium text-sm">No routes yet</p>
+                      <p className="font-medium text-sm">{chrome.noRoutesTitle}</p>
                       <p className="text-xs text-muted-foreground max-w-xs mx-auto">
-                        Add a route with named checkpoints on the map, then officers can start it from Run.
+                        {chrome.noRoutesBody}
                       </p>
                     </div>
                     <Button type="button" onClick={openCreateRoute} className="gap-1.5">
                       <Plus className="h-4 w-4" />
-                      Add your first route
+                      {chrome.firstRoute}
                     </Button>
                   </div>
                 ) : (
@@ -395,7 +395,7 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
                                     : "bg-muted text-muted-foreground",
                                 )}
                               >
-                                {route.isActive ? "Active" : "Off"}
+                                {route.isActive ? chrome.active : chrome.off}
                               </span>
                             </div>
                             <p className="text-xs text-muted-foreground mt-0.5 truncate">
@@ -404,7 +404,7 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
                                 ? " · "
                                 : ""}
                               {route.description?.trim() ||
-                                (![premisesName, commandName].some(Boolean) ? "No description" : "")}
+                                (![premisesName, commandName].some(Boolean) ? chrome.noDescription : "")}
                             </p>
                           </div>
                           <Button
@@ -415,7 +415,7 @@ export default function PatrolPage({ userRole }: PatrolPageProps) {
                             onClick={() => openEditRoute(route.id)}
                           >
                             <Pencil className="h-3.5 w-3.5" />
-                            Edit
+                            {chrome.edit}
                           </Button>
                         </li>
                       );

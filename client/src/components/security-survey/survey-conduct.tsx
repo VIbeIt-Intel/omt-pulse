@@ -16,6 +16,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { useControlRoomLang } from "@/hooks/use-control-room-lang";
+import { controlRoomChrome } from "@/lib/control-room-chrome";
 import { apiRequest } from "@/lib/queryClient";
 import { prepareAndUploadFile } from "@/lib/upload-media";
 import { requestLocationAccess } from "@/lib/request-location-access";
@@ -84,6 +86,8 @@ function draftFromSurveyDetail(survey: SecuritySurveyDetail, localId: string): L
 }
 
 export function SurveyConduct({ onOpenFindings, editSurveyId, onExitEdit }: Props) {
+  const { lang } = useControlRoomLang();
+  const chrome = controlRoomChrome(lang);
   const { toast } = useToast();
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -513,7 +517,7 @@ export function SurveyConduct({ onOpenFindings, editSurveyId, onExitEdit }: Prop
       <div className="space-y-4" data-testid="survey-conduct-start">
         {localDrafts.length > 0 && (
           <div className="rounded-lg border p-3 space-y-2">
-            <p className="text-sm font-medium">Resume draft</p>
+            <p className="text-sm font-medium">{chrome.resumeDraft}</p>
             {localDrafts.map((d) => (
               <div
                 key={d.id}
@@ -561,15 +565,15 @@ export function SurveyConduct({ onOpenFindings, editSurveyId, onExitEdit }: Prop
 
         <div className="space-y-3 rounded-lg border p-4">
           <div className="space-y-1.5">
-            <Label>Site</Label>
+            <Label>{chrome.site}</Label>
             <Select value={locationId || undefined} onValueChange={setLocationId}>
               <SelectTrigger data-testid="survey-location">
-                <SelectValue placeholder="Select premises" />
+                <SelectValue placeholder={chrome.selectPremises} />
               </SelectTrigger>
               <SelectContent>
                 {locations.length === 0 ? (
                   <div className="px-2 py-3 text-sm text-muted-foreground">
-                    No sites yet. Add a location in Field Admin first.
+                    {chrome.noSitesYet}
                   </div>
                 ) : (
                   locations.map((l) => (
@@ -582,21 +586,21 @@ export function SurveyConduct({ onOpenFindings, editSurveyId, onExitEdit }: Prop
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label>Template</Label>
+            <Label>{chrome.template}</Label>
             <Select value={templateId || undefined} onValueChange={setTemplateId}>
               <SelectTrigger data-testid="survey-template">
-                <SelectValue placeholder="Select template" />
+                <SelectValue placeholder={chrome.selectTemplate} />
               </SelectTrigger>
               <SelectContent>
                 {templates.length === 0 ? (
                   <div className="px-2 py-3 text-sm text-muted-foreground">
-                    No templates yet. Open Library and add Standard or Warehouse, then come back here.
+                    {chrome.noTemplatesYet}
                   </div>
                 ) : (
                   templates.map((t) => (
                     <SelectItem key={t.id} value={String(t.id)}>
                       {t.name}
-                      {t.isDefault ? " (default)" : ""}
+                      {t.isDefault ? ` ${chrome.defaultMark}` : ""}
                     </SelectItem>
                   ))
                 )}
@@ -604,12 +608,12 @@ export function SurveyConduct({ onOpenFindings, editSurveyId, onExitEdit }: Prop
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label>Client name override (optional)</Label>
+            <Label>{chrome.clientOverride}</Label>
             <input
               className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
               value={clientOverride}
               onChange={(e) => setClientOverride(e.target.value)}
-              placeholder="Defaults to organisation name"
+              placeholder={chrome.clientDefault}
             />
           </div>
           <Button
@@ -619,7 +623,7 @@ export function SurveyConduct({ onOpenFindings, editSurveyId, onExitEdit }: Prop
             data-testid="survey-start"
           >
             {startMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <MapPin className="h-4 w-4 mr-2" />}
-            Start survey
+            {chrome.startSurvey}
           </Button>
         </div>
       </div>

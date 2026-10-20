@@ -7,6 +7,7 @@ import { AssetAddSheet } from "@/components/assets/asset-add-sheet";
 import { GeoMapPreview } from "@/components/incident-location-sheet";
 import { PageHero } from "@/components/page-hero";
 import { useControlRoomLang } from "@/hooks/use-control-room-lang";
+import { controlRoomChrome } from "@/lib/control-room-chrome";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -93,7 +94,8 @@ function lastTrackedLabel(value: string | null): string {
 }
 
 export default function AssetsPage() {
-  const { t } = useControlRoomLang();
+  const { t, lang } = useControlRoomLang();
+  const chrome = controlRoomChrome(lang);
   const { toast } = useToast();
   const search = useSearch();
   const [, setLocation] = useLocation();
@@ -198,7 +200,7 @@ export default function AssetsPage() {
             canManage ? (
               <Button size="sm" className="h-8" onClick={() => setAddOpen(true)}>
                 <Plus className="h-4 w-4 mr-1" />
-                <span className="md:hidden">Add</span>
+                <span className="md:hidden">{chrome.addShort}</span>
                 <span className="hidden md:inline">{t.screen.addAsset}</span>
               </Button>
             ) : null
@@ -207,8 +209,8 @@ export default function AssetsPage() {
             assets.length === 0
               ? []
               : [
-                  { label: "Reporting", value: String(counts.reporting) },
-                  { label: "Not reporting", value: String(counts.silent) },
+                  { label: chrome.reporting, value: String(counts.reporting) },
+                  { label: chrome.notReporting, value: String(counts.silent) },
                 ]
           }
         />
@@ -223,15 +225,15 @@ export default function AssetsPage() {
           <Card className="p-8 text-center space-y-4">
             <Package className="h-8 w-8 mx-auto text-muted-foreground" />
             <div className="space-y-1">
-              <p className="text-sm font-medium">No assets yet</p>
+              <p className="text-sm font-medium">{chrome.noAssets}</p>
               <p className="text-sm text-muted-foreground">
-                Add a tablet or other company property. Location appears once that asset reports in.
+                {chrome.noAssetsHint}
               </p>
             </div>
             {canManage && (
               <Button onClick={() => setAddOpen(true)}>
                 <Plus className="h-4 w-4 mr-1" />
-                Add asset
+                {chrome.addAsset}
               </Button>
             )}
           </Card>

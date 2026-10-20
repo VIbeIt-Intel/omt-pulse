@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { PageHero } from "@/components/page-hero";
 import { useControlRoomLang } from "@/hooks/use-control-room-lang";
+import { controlRoomChrome } from "@/lib/control-room-chrome";
 import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import { cn } from "@/lib/utils";
 import { SurveyConduct } from "@/components/security-survey/survey-conduct";
@@ -23,7 +24,8 @@ type Props = {
 type TabId = "conduct" | "findings" | "library" | "completed";
 
 export default function SecuritySurveyPage({ userRole, userId }: Props) {
-  const { t } = useControlRoomLang();
+  const { t, lang } = useControlRoomLang();
+  const chrome = controlRoomChrome(lang);
   const canManage = canManageSurveyTemplates(userRole);
   const canEditReports = canConductSecuritySurvey(userRole);
   const [tab, setTab] = useState<TabId>("conduct");
@@ -54,7 +56,7 @@ export default function SecuritySurveyPage({ userRole, userId }: Props) {
           badge={t.screen.security}
           title={t.screen.siteSurveyTitle}
           description={t.screen.siteSurveyBody}
-          emptyMessage="Start a survey from Conduct, or open Completed to review past reports."
+          emptyMessage={chrome.surveyEmpty}
           icon={ClipboardList}
           compact
         />
@@ -74,21 +76,21 @@ export default function SecuritySurveyPage({ userRole, userId }: Props) {
         >
           <TabsTrigger value="conduct" className="gap-1.5 text-xs sm:text-sm">
             <CheckSquare className="h-3.5 w-3.5" />
-            Conduct
+            {chrome.conduct}
           </TabsTrigger>
           <TabsTrigger value="findings" className="gap-1.5 text-xs sm:text-sm">
             <BookOpen className="h-3.5 w-3.5" />
-            Findings
+            {chrome.findings}
           </TabsTrigger>
           {canManage && (
             <TabsTrigger value="library" className="gap-1.5 text-xs sm:text-sm">
               <Library className="h-3.5 w-3.5" />
-              Library
+              {chrome.library}
             </TabsTrigger>
           )}
           <TabsTrigger value="completed" className="gap-1.5 text-xs sm:text-sm">
             <ClipboardList className="h-3.5 w-3.5" />
-            Completed
+            {chrome.completed}
           </TabsTrigger>
         </TabsList>
 

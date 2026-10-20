@@ -24,6 +24,7 @@ import {
 import { BarChart3, DoorOpen, LogOut, Plus } from "lucide-react";
 import { PageHero } from "@/components/page-hero";
 import { useControlRoomLang } from "@/hooks/use-control-room-lang";
+import { controlRoomChrome } from "@/lib/control-room-chrome";
 import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import { cn } from "@/lib/utils";
 
@@ -34,7 +35,8 @@ type AccessControlPageProps = {
 type PageView = "overview" | "desk";
 
 export default function AccessControlPage({ userRole }: AccessControlPageProps) {
-  const { t } = useControlRoomLang();
+  const { t, lang } = useControlRoomLang();
+  const chrome = controlRoomChrome(lang);
   const isDeskOnly = usesAccessDeskUi(userRole);
   const showOverview = usesAccessOverviewUi(userRole);
   const canUseDesk = hasAccessControlRole(userRole);
@@ -80,11 +82,7 @@ export default function AccessControlPage({ userRole }: AccessControlPageProps) 
     }
   }, [tab, qc]);
 
-  const deskSubtitle = "Scan people & vehicles in, then check them out";
-  const subtitle =
-    pageView === "overview"
-      ? "Live occupancy, analytics, and visit audit log"
-      : deskSubtitle;
+  const subtitle = pageView === "overview" ? chrome.overviewHint : chrome.deskHint;
 
   const headerActions = (
     <>
@@ -97,7 +95,7 @@ export default function AccessControlPage({ userRole }: AccessControlPageProps) 
           onClick={() => setPageView("overview")}
         >
           <BarChart3 className="h-4 w-4 mr-1" />
-          Overview
+          {chrome.overview}
         </Button>
       )}
       {canUseDesk && !isDeskOnly && (
@@ -109,13 +107,13 @@ export default function AccessControlPage({ userRole }: AccessControlPageProps) 
           onClick={() => setPageView("desk")}
         >
           <DoorOpen className="h-4 w-4 mr-1" />
-          Gate desk
+          {chrome.gateDesk}
         </Button>
       )}
       {isAdmin && (
         <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => setDestSheetOpen(true)}>
           <Plus className="h-4 w-4 mr-1" />
-          Destinations
+          {chrome.destinations}
         </Button>
       )}
     </>

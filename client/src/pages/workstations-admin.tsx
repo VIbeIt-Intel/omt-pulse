@@ -43,6 +43,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { PageHero } from "@/components/page-hero";
 import { useControlRoomLang } from "@/hooks/use-control-room-lang";
+import { controlRoomChrome } from "@/lib/control-room-chrome";
 import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import { cn } from "@/lib/utils";
 import { ExpandablePhoto } from "@/components/photo-lightbox";
@@ -95,7 +96,17 @@ function formatCoords(lat: number, lng: number): string {
 }
 
 export default function WorkstationsAdminPage() {
-  const { t } = useControlRoomLang();
+  const { t, lang } = useControlRoomLang();
+  const chrome = controlRoomChrome(lang);
+  const positionType = (type: string) => {
+    if (lang !== "af") return WORKSTATION_TYPE_LABELS[type as keyof typeof WORKSTATION_TYPE_LABELS] ?? type;
+    if (type === "gate_desk") return chrome.gateDeskType;
+    if (type === "control_room") return chrome.controlRoomType;
+    if (type === "warehouse") return chrome.warehouseType;
+    if (type === "mobile_shared") return chrome.mobileType;
+    if (type === "patrol_post") return chrome.patrolPostType;
+    return WORKSTATION_TYPE_LABELS[type as keyof typeof WORKSTATION_TYPE_LABELS] ?? type;
+  };
   const { toast } = useToast();
   const qc = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -301,20 +312,20 @@ export default function WorkstationsAdminPage() {
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                          Site
+                          {chrome.site}
                         </p>
                         <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
                       </div>
                       <Button type="button" variant="outline" size="sm" className="h-8 shrink-0" asChild>
                         <Link href={loc ? `/admin?editLocation=${loc.id}#field-setup-locations` : "/admin#field-setup-locations"}>
                           <Settings className="h-3.5 w-3.5 mr-1.5" />
-                          Edit site
+                          {chrome.editSite}
                         </Link>
                       </Button>
                     </div>
                     <dl className="grid gap-2 sm:grid-cols-2 text-sm">
                       <div className="min-w-0">
-                        <dt className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Address</dt>
+                        <dt className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{chrome.address}</dt>
                         <dd className="mt-0.5 text-foreground">
                           {loc?.address ? (
                             hasCoords ? (
@@ -329,12 +340,12 @@ export default function WorkstationsAdminPage() {
                               loc.address
                             )
                           ) : (
-                            <span className="text-muted-foreground">Not recorded</span>
+                            <span className="text-muted-foreground">{chrome.notRecorded}</span>
                           )}
                         </dd>
                       </div>
                       <div className="min-w-0">
-                        <dt className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Telephone</dt>
+                        <dt className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{chrome.telephone}</dt>
                         <dd className="mt-0.5">
                           {loc?.phone ? (
                             <a
@@ -345,12 +356,12 @@ export default function WorkstationsAdminPage() {
                               {loc.phone}
                             </a>
                           ) : (
-                            <span className="text-muted-foreground">Not recorded</span>
+                            <span className="text-muted-foreground">{chrome.notRecorded}</span>
                           )}
                         </dd>
                       </div>
                       <div className="min-w-0 sm:col-span-2">
-                        <dt className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Coordinates</dt>
+                        <dt className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{chrome.coordinates}</dt>
                         <dd className="mt-0.5 font-mono text-xs">
                           {hasCoords ? (
                             <button
@@ -361,7 +372,7 @@ export default function WorkstationsAdminPage() {
                               {formatCoords(loc.latitude!, loc.longitude!)}
                             </button>
                           ) : (
-                            <span className="font-sans text-sm text-muted-foreground">Not recorded</span>
+                            <span className="font-sans text-sm text-muted-foreground">{chrome.notRecorded}</span>
                           )}
                         </dd>
                       </div>
@@ -372,11 +383,11 @@ export default function WorkstationsAdminPage() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Position</TableHead>
-                        <TableHead>Type</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Operator</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
+                        <TableHead>{chrome.position}</TableHead>
+                        <TableHead>{chrome.type}</TableHead>
+                        <TableHead>{chrome.status}</TableHead>
+                        <TableHead>{chrome.operator}</TableHead>
+                        <TableHead className="text-right">{chrome.actions}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -384,15 +395,15 @@ export default function WorkstationsAdminPage() {
                         <TableRow key={ws.id}>
                           <TableCell className="font-medium">{ws.name}</TableCell>
                           <TableCell>
-                            {WORKSTATION_TYPE_LABELS[ws.type as keyof typeof WORKSTATION_TYPE_LABELS] ?? ws.type}
+                            {positionType(ws.type)}
                           </TableCell>
                           <TableCell>
                             {ws.enrolledAt ? (
-                              <Badge variant="default">Enrolled</Badge>
+                              <Badge variant="default">{chrome.enrolled}</Badge>
                             ) : ws.enrolmentCode ? (
-                              <Badge variant="secondary">Awaiting enrolment</Badge>
+                              <Badge variant="secondary">{chrome.awaitingEnrolment}</Badge>
                             ) : (
-                              <Badge variant="outline">Not enrolled</Badge>
+                              <Badge variant="outline">{chrome.notEnrolled}</Badge>
                             )}
                           </TableCell>
                           <TableCell className="text-sm text-muted-foreground">
@@ -420,7 +431,7 @@ export default function WorkstationsAdminPage() {
                                   onClick={() => showCodeMutation.mutate(ws)}
                                 >
                                   <Eye className="h-3.5 w-3.5 mr-1" />
-                                  Show code
+                                  {chrome.showCode}
                                 </Button>
                               )}
                               <Button
@@ -450,7 +461,7 @@ export default function WorkstationsAdminPage() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add position</DialogTitle>
+            <DialogTitle>{t.screen.addPosition}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-1.5">
@@ -466,7 +477,7 @@ export default function WorkstationsAdminPage() {
                 <SelectContent>
                   {WORKSTATION_TYPES.map((t) => (
                     <SelectItem key={t} value={t}>
-                      {WORKSTATION_TYPE_LABELS[t]}
+                      {positionType(t)}
                     </SelectItem>
                   ))}
                 </SelectContent>

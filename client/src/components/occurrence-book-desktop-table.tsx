@@ -16,6 +16,8 @@ import {
   incidentHasEvidence,
   type IncidentWithMeta,
 } from "@/lib/incident-display";
+import { useControlRoomLang } from "@/hooks/use-control-room-lang";
+import { controlRoomChrome, knownFieldLabel } from "@/lib/control-room-chrome";
 
 type LocationDisplay = { type: "customMap" | "text"; label: string };
 
@@ -39,14 +41,14 @@ type Props = {
   onLocationClick: (incident: IncidentWithMeta) => void;
 };
 
-function EvidenceBadge({ hasEvidence, incidentId }: { hasEvidence: boolean; incidentId: number }) {
+function EvidenceBadge({ hasEvidence, incidentId, yes, no }: { hasEvidence: boolean; incidentId: number; yes: string; no: string }) {
   if (hasEvidence) {
     return (
       <span
         className="inline-flex items-center rounded-full border border-green-500/30 bg-green-500/15 px-2.5 py-0.5 text-xs font-semibold text-green-700 dark:text-green-400"
         data-testid={`badge-evidence-${incidentId}`}
       >
-        Yes
+        {yes}
       </span>
     );
   }
@@ -55,12 +57,12 @@ function EvidenceBadge({ hasEvidence, incidentId }: { hasEvidence: boolean; inci
       className="inline-flex items-center rounded-full border border-border bg-muted/50 px-2.5 py-0.5 text-xs font-semibold text-muted-foreground"
       data-testid={`badge-evidence-${incidentId}`}
     >
-      No
+      {no}
     </span>
   );
 }
 
-function SeverityBadge({ severity, incidentId }: { severity: string; incidentId: number }) {
+function SeverityBadge({ severity, incidentId, label }: { severity: string; incidentId: number; label: string }) {
   const tone =
     severity === "red"
       ? "bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/30"
@@ -75,7 +77,7 @@ function SeverityBadge({ severity, incidentId }: { severity: string; incidentId:
       data-testid={`badge-severity-${incidentId}`}
     >
       <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${dot}`} />
-      {severity.charAt(0).toUpperCase() + severity.slice(1)}
+      {label}
     </span>
   );
 }
@@ -103,6 +105,10 @@ export function OccurrenceBookDesktopTable({
   onDelete,
   onLocationClick,
 }: Props) {
+  const { lang } = useControlRoomLang();
+  const chrome = controlRoomChrome(lang);
+  const severityLabel = (severity: string) =>
+    severity === "red" ? chrome.red : severity === "orange" ? chrome.orange : chrome.yellow;
   return (
     <div
       className="hidden md:block max-h-[calc(100dvh-16rem)] overflow-auto rounded-b-lg border-t"
@@ -111,19 +117,19 @@ export function OccurrenceBookDesktopTable({
       <Table className="table-fixed min-w-[1180px]">
         <TableHeader className="sticky top-0 z-10 bg-card shadow-[0_1px_0_0_hsl(var(--border))]">
           <TableRow className="hover:bg-transparent">
-            <TableHead className="w-[128px] pl-6 text-xs uppercase tracking-wide">Incident #</TableHead>
-            {showDateTime && <TableHead className="w-[118px] text-xs uppercase tracking-wide">Date & Time</TableHead>}
-            {showCategory && <TableHead className="w-[160px] text-xs uppercase tracking-wide">Type</TableHead>}
-            {showLocation && <TableHead className="text-xs uppercase tracking-wide">Location</TableHead>}
-            <TableHead className="w-[168px] text-xs uppercase tracking-wide">Reporter</TableHead>
+            <TableHead className="w-[128px] pl-6 text-xs uppercase tracking-wide">{chrome.incidentNo}</TableHead>
+            {showDateTime && <TableHead className="w-[118px] text-xs uppercase tracking-wide">{chrome.dateTime}</TableHead>}
+            {showCategory && <TableHead className="w-[160px] text-xs uppercase tracking-wide">{chrome.type}</TableHead>}
+            {showLocation && <TableHead className="text-xs uppercase tracking-wide">{chrome.location}</TableHead>}
+            <TableHead className="w-[168px] text-xs uppercase tracking-wide">{chrome.reporter}</TableHead>
             {tableCustomFields.map((cf) => (
               <TableHead key={cf.fieldKey} className="w-[120px] text-xs uppercase tracking-wide truncate">
-                {cf.label}
+                {knownFieldLabel(lang, cf.label)}
               </TableHead>
             ))}
-            <TableHead className="w-[108px] text-xs uppercase tracking-wide">Severity</TableHead>
-            <TableHead className="w-[100px] text-xs uppercase tracking-wide">Evidence</TableHead>
-            <TableHead className="w-[152px] pr-6 text-xs uppercase tracking-wide text-right">Actions</TableHead>
+            <TableHead className="w-[108px] text-xs uppercase tracking-wide">{chrome.severity}</TableHead>
+            <TableHead className="w-[100px] text-xs uppercase tracking-wide">{chrome.evidence}</TableHead>
+            <TableHead className="w-[152px] pr-6 text-xs uppercase tracking-wide text-right">{chrome.actions}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -242,13 +248,13 @@ export function OccurrenceBookDesktopTable({
                 })}
                 <TableCell className="py-3" data-testid={`cell-severity-${incident.id}`}>
                   {severity ? (
-                    <SeverityBadge severity={severity} incidentId={incident.id} />
+                    <SeverityBadge severity={severity} incidentId={incident.id} label={severityLabel(severity)} />
                   ) : (
                     <span className="text-muted-foreground text-xs">—</span>
                   )}
                 </TableCell>
                 <TableCell className="py-3" data-testid={`cell-evidence-${incident.id}`}>
-                  <EvidenceBadge hasEvidence={hasEvidence} incidentId={incident.id} />
+                  <EvidenceBadge hasEvidence={hasEvidence} incidentId={incident.id} yes={chrome.yes} no={chrome.no} />
                 </TableCell>
                 <TableCell className="py-3 pr-6">
                   <div className="flex items-center justify-end gap-0.5" onClick={stopRowClick}>

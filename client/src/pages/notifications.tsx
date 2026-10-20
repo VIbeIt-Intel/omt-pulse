@@ -15,6 +15,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { PageHero } from "@/components/page-hero";
 import { useControlRoomLang } from "@/hooks/use-control-room-lang";
+import { controlRoomChrome, translateNotice } from "@/lib/control-room-chrome";
+import type { ControlRoomLang } from "@/lib/control-room-i18n";
 import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
@@ -55,15 +57,16 @@ const FLEET_ICON_COLORS: Record<FleetAlertType, string> = {
   geofence_leave: "text-orange-400 bg-orange-950/40 border-orange-800/50",
 };
 
-export function timeAgo(dateStr: string): string {
+export function timeAgo(dateStr: string, lang: ControlRoomLang = "en"): string {
   const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
+  const af = lang === "af";
+  if (mins < 1) return af ? "nou" : "just now";
+  if (mins < 60) return af ? `${mins} m gelede` : `${mins}m ago`;
   const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
+  if (hrs < 24) return af ? `${hrs} u gelede` : `${hrs}h ago`;
   const days = Math.floor(hrs / 24);
-  return `${days}d ago`;
+  return af ? `${days} d gelede` : `${days}d ago`;
 }
 
 export function formatDate(dateStr: string): string {
@@ -89,11 +92,11 @@ function invalidateFleetAndNotifications(qc: ReturnType<typeof useQueryClient>) 
   });
 }
 
-function notificationCategory(n: NotificationLog): string {
-  if (n.fleetAlertId != null) return "Fleet";
-  if (n.incidentId != null) return "Incident";
-  if (n.url?.includes("live") || n.url?.includes("panic")) return "Live";
-  return "Alert";
+function notificationCategory(n: NotificationLog, chrome: ReturnType<typeof controlRoomChrome>): string {
+  if (n.fleetAlertId != null) return chrome.fleetBadge;
+  if (n.incidentId != null) return chrome.incidentBadge;
+  if (n.url?.includes("live") || n.url?.includes("panic")) return chrome.liveBadge;
+  return chrome.alertBadge;
 }
 
 export function NotificationList({
@@ -105,6 +108,8 @@ export function NotificationList({
   isLoading: boolean;
   onNavigate?: () => void;
 }) {
+  const { lang } = useControlRoomLang();
+  const chrome = controlRoomChrome(lang);
   const { toast } = useToast();
   const qc = useQueryClient();
   const [ackingId, setAckingId] = useState<number | null>(null);
@@ -146,9 +151,9 @@ export function NotificationList({
     return (
       <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground p-8">
         <CheckCheck className="h-12 w-12 opacity-30" />
-        <p className="text-sm font-medium">No notifications in the last 7 days</p>
+        <p className="text-sm font-medium">{chrome.noNotices}</p>
         <p className="text-xs text-center">
-          Live incidents, fleet alerts, and other push alerts will appear here.
+          {chrome.noNoticesHint}
         </p>
       </div>
     );
@@ -166,7 +171,7 @@ export function NotificationList({
             const fleetAcked = !!n.fleetAcknowledgedAt;
             const canAck = fleetId != null && !fleetAcked;
             const isAcking = ackingId === fleetId && acknowledgeMutation.isPending;
-            const category = notificationCategory(n);
+            const category = notificationCategory(n, chrome);
             const alertType = isFleetAlertType(n.fleetAlertType) ? n.fleetAlertType : null;
             const Icon = alertType ? FLEET_ICONS[alertType] : Radio;
             const iconClass = fleetAcked
@@ -201,13 +206,13 @@ export function NotificationList({
                       )}
                       data-testid={`notification-title-${n.id}`}
                     >
-                      {n.title}
+                      {translateNotice(lang, n.title)}
                     </p>
                     <span
                       className="text-[11px] text-muted-foreground shrink-0 mt-0.5 tabular-nums"
                       data-testid={`notification-time-${n.id}`}
                     >
-                      {timeAgo(n.createdAt)}
+                      {timeAgo(n.createdAt, lang)}
                     </span>
                   </div>
                   <p
@@ -217,14 +222,14 @@ export function NotificationList({
                     )}
                     data-testid={`notification-body-${n.id}`}
                   >
-                    {n.body}
+                    {translateNotice(lang, n.body)}
                   </p>
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 pt-0.5">
                     <AlertMetaBadges category={category} alertType={alertType} />
                     {fleetAcked && (
                       <AcknowledgedPill
                         acknowledgedAt={n.fleetAcknowledgedAt}
-                        formatWhen={timeAgo}
+                        formatWhen={(iso) => timeAgo(iso, lang)}
                       />
                     )}
                     {canAck && (
@@ -242,7 +247,7 @@ export function NotificationList({
                         ) : (
                           <>
                             <Check className="h-3 w-3" strokeWidth={2.5} />
-                            Acknowledge
+                            {chrome.acknowledge}
                           </>
                         )}
                       </Button>
@@ -257,7 +262,7 @@ export function NotificationList({
                         className="inline-block text-xs text-primary hover:underline cursor-pointer"
                         data-testid={`notification-link-${n.id}`}
                       >
-                        View →
+                        {chrome.view} →
                       </a>
                     ) : (
                       <Link href={n.url} onClick={onNavigate}>
@@ -265,7 +270,7 @@ export function NotificationList({
                           className="inline-block text-xs text-primary hover:underline cursor-pointer"
                           data-testid={`notification-link-${n.id}`}
                         >
-                          View →
+                          {chrome.view} →
                         </span>
                       </Link>
                     )
@@ -281,7 +286,8 @@ export function NotificationList({
 }
 
 export default function NotificationsPage() {
-  const { t } = useControlRoomLang();
+  const { t, lang } = useControlRoomLang();
+  const chrome = controlRoomChrome(lang);
   const queryClient = useQueryClient();
   const { data: notifications = [], isLoading } = useQuery<NotificationLog[]>({
     queryKey: ["/api/notifications"],
@@ -321,7 +327,7 @@ export default function NotificationsPage() {
               <Button
                 variant="ghost"
                 size="icon"
-                aria-label="Back"
+                aria-label={chrome.view}
                 className="h-8 w-8"
                 data-testid="button-notifications-back"
               >
@@ -339,12 +345,12 @@ export default function NotificationsPage() {
               data-testid="button-mark-all-read"
             >
               <CheckCheck className="h-3.5 w-3.5" />
-              Mark all as read
+              {chrome.markAllRead}
             </Button>
           }
           insights={[
-            { label: "In feed", value: String(notifications.length) },
-            { label: "Window", value: "7 days" },
+            { label: chrome.inFeed, value: String(notifications.length) },
+            { label: chrome.window, value: `7 ${chrome.days}` },
           ]}
         />
       </div>

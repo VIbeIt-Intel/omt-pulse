@@ -15,6 +15,7 @@ import type { TrackerDeviceSummary } from "@/components/operations-dashboard";
 import { getVehicleMotionStatus } from "@/lib/fleet-intelligence";
 import { PageHero } from "@/components/page-hero";
 import { useControlRoomLang } from "@/hooks/use-control-room-lang";
+import { controlRoomChrome } from "@/lib/control-room-chrome";
 import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import { cn } from "@/lib/utils";
 
@@ -22,7 +23,8 @@ type OrgUser = { id: string; firstName: string; lastName: string; role: string }
 type Command = { id: number; name: string; isCentral: boolean };
 
 export default function FleetPage() {
-  const { t } = useControlRoomLang();
+  const { t, lang } = useControlRoomLang();
+  const chrome = controlRoomChrome(lang);
   const search = useSearch();
   const [, setLocation] = useLocation();
   const params = useMemo(() => new URLSearchParams(search), [search]);
@@ -110,21 +112,21 @@ export default function FleetPage() {
               {!selected && canManageFleet && (
                 <Button size="sm" className="h-8" onClick={() => setAddOpen(true)}>
                   <Plus className="h-4 w-4 mr-1" />
-                  <span className="md:hidden">Add</span>
+                  <span className="md:hidden">{chrome.addShort}</span>
                   <span className="hidden md:inline">{t.screen.addVehicle}</span>
                 </Button>
               )}
               {!selected && isAdmin && (
                 <Button variant="outline" size="sm" className="h-8" onClick={() => setDefaultsOpen(true)}>
                   <Settings2 className="h-4 w-4 mr-1" />
-                  <span className="md:hidden">Alerts</span>
-                  <span className="hidden md:inline">Alert defaults</span>
+                  <span className="md:hidden">{chrome.alertDefaults}</span>
+                  <span className="hidden md:inline">{chrome.alertDefaults}</span>
                 </Button>
               )}
               <Link href="/dashboard">
                 <Button variant="outline" size="sm" className="h-8">
-                  <span className="md:hidden">Control</span>
-                  <span className="hidden md:inline">Control Room</span>
+                  <span className="md:hidden">{chrome.controlRoom}</span>
+                  <span className="hidden md:inline">{chrome.controlRoom}</span>
                   <ChevronRight className="h-4 w-4 ml-1" />
                 </Button>
               </Link>
@@ -133,13 +135,13 @@ export default function FleetPage() {
           insights={
             selected
               ? [
-                  { label: "Selected", value: selected.vehicleRegistration?.trim() || `IMEI …${selected.imei.slice(-6)}` },
-                  { label: "Alerts 24h", value: String(alertCountForDevice(selected.id)) },
+                  { label: chrome.selected, value: selected.vehicleRegistration?.trim() || `IMEI …${selected.imei.slice(-6)}` },
+                  { label: chrome.alerts24h, value: String(alertCountForDevice(selected.id)) },
                 ]
               : [
-                  { label: "Moving", value: String(motionCounts.moving) },
-                  { label: "Idle", value: String(motionCounts.idle) },
-                  { label: "Offline", value: String(motionCounts.offline) },
+                  { label: chrome.moving, value: String(motionCounts.moving) },
+                  { label: chrome.idle, value: String(motionCounts.idle) },
+                  { label: chrome.offline, value: String(motionCounts.offline) },
                 ]
           }
         />
@@ -161,15 +163,15 @@ export default function FleetPage() {
           <Card className="p-8 text-center space-y-4">
             <Car className="h-8 w-8 mx-auto text-muted-foreground" />
             <div className="space-y-1">
-              <p className="text-sm font-medium">No vehicles yet</p>
+              <p className="text-sm font-medium">{chrome.noVehicles}</p>
               <p className="text-sm text-muted-foreground">
-                Add a vehicle with its tracker IMEI, or wait for a unit to connect on port 7711.
+                {chrome.noVehiclesHint}
               </p>
             </div>
             {canManageFleet && (
               <Button onClick={() => setAddOpen(true)}>
                 <Plus className="h-4 w-4 mr-1" />
-                Add vehicle
+                {chrome.addVehicle}
               </Button>
             )}
           </Card>
