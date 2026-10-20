@@ -1268,6 +1268,10 @@ async function resolveUser(req: Request, res: Response, next: NextFunction) {
     if (!req.session.userId) return res.status(401).json({ message: "Unauthorized" });
     const user = await storage.getUserById(req.session.userId);
     if (!user) { req.session.destroy(() => {}); return res.status(401).json({ message: "User not found" }); }
+    if (!user.isActive) {
+      req.session.destroy(() => {});
+      return res.status(401).json({ message: "Your account has been deactivated. Contact your administrator." });
+    }
     req.currentUser = user;
     return next();
   }
@@ -1276,6 +1280,10 @@ async function resolveUser(req: Request, res: Response, next: NextFunction) {
   if (!user) {
     req.session.destroy(() => {});
     return res.status(401).json({ message: "User not found" });
+  }
+  if (!user.isActive) {
+    req.session.destroy(() => {});
+    return res.status(401).json({ message: "Your account has been deactivated. Contact your administrator." });
   }
   req.currentUser = user;
 

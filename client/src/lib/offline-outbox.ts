@@ -101,12 +101,59 @@ export type OutboxSecuritySurveyFindingJob = {
   findingId?: number;
 };
 
+export type OutboxFireJob = {
+  id: string;
+  type: "fire";
+  createdAt: number;
+  reporterLat?: number;
+  reporterLng?: number;
+  fireLat?: number;
+  fireLng?: number;
+  note?: string;
+  wind?: "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | "nw";
+  photos?: { dataUrl: string; name: string }[];
+  photoDataUrl?: string;
+  photoName?: string;
+  /** Set once the report is in the book, so a photo retry does not file it again. */
+  incidentId?: number;
+};
+
+export type OutboxCrimeJob = {
+  id: string;
+  type: "crime";
+  createdAt: number;
+  kind: string;
+  note?: string;
+  lat?: number;
+  lng?: number;
+  /** Set when the report is already in the book and only the photo is waiting. */
+  incidentId?: number;
+  photos?: { dataUrl: string; name: string }[];
+  photoDataUrl?: string;
+  photoName?: string;
+};
+
+/** Outgoing chat kept on the phone until the network is back. */
+export type OutboxChatJob = {
+  id: string;
+  type: "chat";
+  createdAt: number;
+  recipientId: string | null;
+  content?: string;
+  imageDataUrl?: string;
+  audioDataUrl?: string;
+  audioMime?: string;
+};
+
 export type OutboxJob =
   | OutboxSosJob
   | OutboxIncidentJob
   | OutboxAccessControlJob
   | OutboxSecuritySurveyUpsertJob
-  | OutboxSecuritySurveyFindingJob;
+  | OutboxSecuritySurveyFindingJob
+  | OutboxFireJob
+  | OutboxCrimeJob
+  | OutboxChatJob;
 
 function newId(): string {
   return `ob_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
@@ -155,7 +202,10 @@ export async function enqueueOutboxJob(
     | Omit<OutboxIncidentJob, "id" | "createdAt">
     | Omit<OutboxAccessControlJob, "id" | "createdAt">
     | Omit<OutboxSecuritySurveyUpsertJob, "id" | "createdAt">
-    | Omit<OutboxSecuritySurveyFindingJob, "id" | "createdAt">,
+    | Omit<OutboxSecuritySurveyFindingJob, "id" | "createdAt">
+    | Omit<OutboxFireJob, "id" | "createdAt">
+    | Omit<OutboxCrimeJob, "id" | "createdAt">
+    | Omit<OutboxChatJob, "id" | "createdAt">,
 ): Promise<OutboxJob> {
   const full = { ...job, id: newId(), createdAt: Date.now() } as OutboxJob;
   const db = await openDb();
@@ -171,6 +221,20 @@ export async function enqueueOutboxJob(
   }
   window.dispatchEvent(new CustomEvent("omt:outbox-changed"));
   return full;
+}
+
+async function saveOutboxJob(job: OutboxJob): Promise<void> {
+  const db = await openDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE, "readwrite");
+      tx.objectStore(STORE).put(job);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } finally {
+    db.close();
+  }
 }
 
 export async function removeOutboxJob(id: string): Promise<void> {
@@ -486,6 +550,91 @@ async function drainSecuritySurveyFinding(job: OutboxSecuritySurveyFindingJob): 
   });
 }
 
+export function isNetworkFailure(err: unknown): boolean {
+  if (typeof navigator !== "undefined" && !navigator.onLine) return true;
+  if (err instanceof TypeError) return true;
+  const msg = err instanceof Error ? err.message : "";
+  return /failed to fetch|networkerror|network request failed|offline|load failed/i.test(msg);
+}
+
+function queuedScenePhotos(job: {
+  photos?: { dataUrl: string; name: string }[];
+  photoDataUrl?: string;
+  photoName?: string;
+}): { dataUrl: string; name: string }[] {
+  if (job.photos && job.photos.length > 0) return job.photos;
+  if (job.photoDataUrl) return [{ dataUrl: job.photoDataUrl, name: job.photoName || "foto.jpg" }];
+  return [];
+}
+
+async function attachQueuedPhotos(incidentId: number, photos: { dataUrl: string; name: string }[]): Promise<void> {
+  for (const photo of photos) {
+    if (!photo.dataUrl) continue;
+    const blob = dataUrlToBlob(photo.dataUrl, "image/jpeg");
+    const uploaded = await uploadBlob(blob, blob.type || "image/jpeg");
+    await apiRequest("POST", `/api/incidents/${incidentId}/attachments`, {
+      url: uploaded.objectUrl,
+      filename: photo.name || "foto.jpg",
+      mimeType: blob.type || "image/jpeg",
+      evidencePhase: "scene",
+      byteSize: uploaded.byteSize,
+    });
+  }
+}
+
+async function drainFire(job: OutboxFireJob): Promise<void> {
+  let incidentId = job.incidentId;
+  if (incidentId == null) {
+    const res = await apiRequest("POST", "/api/fire", {
+      reporterLat: job.reporterLat,
+      reporterLng: job.reporterLng,
+      fireLat: job.fireLat,
+      fireLng: job.fireLng,
+      note: job.note,
+      wind: job.wind,
+    });
+    const body = (await res.json()) as { incidentId?: number };
+    incidentId = body.incidentId;
+    if (incidentId == null) return;
+    job.incidentId = incidentId;
+    await saveOutboxJob(job);
+  }
+  await attachQueuedPhotos(incidentId, queuedScenePhotos(job));
+}
+
+async function drainCrime(job: OutboxCrimeJob): Promise<void> {
+  let incidentId = job.incidentId;
+  if (incidentId == null) {
+    const res = await apiRequest("POST", "/api/crime", {
+      kind: job.kind,
+      note: job.note,
+      lat: job.lat,
+      lng: job.lng,
+    });
+    const body = (await res.json()) as { incidentId?: number };
+    incidentId = body.incidentId;
+    if (incidentId == null) return;
+    job.incidentId = incidentId;
+    await saveOutboxJob(job);
+  }
+  await attachQueuedPhotos(incidentId, queuedScenePhotos(job));
+}
+
+async function drainChat(job: OutboxChatJob): Promise<void> {
+  let content = job.content?.trim() ?? "";
+  if (job.imageDataUrl) {
+    const blob = dataUrlToBlob(job.imageDataUrl, "image/jpeg");
+    const uploaded = await uploadBlob(blob, blob.type || "image/jpeg");
+    content = `[img]${uploaded.objectUrl}`;
+  } else if (job.audioDataUrl) {
+    const blob = dataUrlToBlob(job.audioDataUrl, job.audioMime || "audio/webm");
+    const uploaded = await uploadBlob(blob, blob.type || job.audioMime || "audio/webm");
+    content = `[audio]${uploaded.objectUrl}`;
+  }
+  if (!content) throw new Error("Empty chat message");
+  await apiRequest("POST", "/api/chat/messages", { recipientId: job.recipientId, content });
+}
+
 let draining = false;
 
 export async function drainOutbox(): Promise<{ drained: number; failed: number }> {
@@ -508,6 +657,12 @@ export async function drainOutbox(): Promise<{ drained: number; failed: number }
           await drainSecuritySurveyUpsert(job);
         } else if (job.type === "security_survey_finding") {
           await drainSecuritySurveyFinding(job);
+        } else if (job.type === "fire") {
+          await drainFire(job);
+        } else if (job.type === "crime") {
+          await drainCrime(job);
+        } else if (job.type === "chat") {
+          await drainChat(job);
         } else {
           await drainIncident(job);
         }

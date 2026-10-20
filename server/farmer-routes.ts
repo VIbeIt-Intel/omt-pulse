@@ -11,10 +11,14 @@ const LIVE_ALERT_SOUND = "live_alert";
 const PANIC_ALERT_CHANNEL = "omt_panic_loud";
 const PANIC_ALERT_SOUND = "alarm_siren";
 const CRIME_ALERT_CHANNEL = "omt_chat";
-const CRIME_CARD_CHANNEL = "omt_misdaad_loud";
-const CRIME_CARD_SOUND = "alarm_gate";
+const FIRE_CARD_CHANNEL = "omt_vuur_bell";
+const FIRE_CARD_SOUND = "alarm_vuur";
+const CRIME_CARD_CHANNEL = "omt_misdaad_tone";
+const CRIME_CARD_SOUND = "alarm_misdaad";
 /** A group member must be this close to her before their phone can close the panic. */
 const PANIC_CLOSE_VICINITY_M = 500;
+/** A later vuur report joins an open fire only inside this distance. Farther away is a new fire. */
+const FIRE_JOIN_RADIUS_M = 2000;
 
 export const FIRE_CATEGORY_NAME = "Vuur";
 
@@ -60,6 +64,12 @@ const fireBodySchema = z.object({
   fireLng: z.number().finite().optional(),
   note: z.string().trim().max(500).optional(),
   wind: z.enum(["n", "ne", "e", "se", "s", "sw", "w", "nw"]).optional(),
+  photo: z.object({
+    url: z.string().min(1),
+    filename: z.string().min(1),
+    mimeType: z.string().min(1),
+    byteSize: z.number().int().nonnegative().optional(),
+  }).optional(),
 });
 
 const crimeBodySchema = z.object({
@@ -252,10 +262,14 @@ async function fanOut(opts: {
         notificationTag: `${opts.pushType}-${opts.incidentId}`,
         channelId: opts.lockScreen === "crime"
           ? CRIME_CARD_CHANNEL
-          : opts.alarm ? PANIC_ALERT_CHANNEL : opts.urgent ? LIVE_ALERT_CHANNEL : CRIME_ALERT_CHANNEL,
+          : opts.pushType === "fire"
+            ? FIRE_CARD_CHANNEL
+            : opts.alarm ? PANIC_ALERT_CHANNEL : opts.urgent ? LIVE_ALERT_CHANNEL : CRIME_ALERT_CHANNEL,
         sound: opts.lockScreen === "crime"
           ? CRIME_CARD_SOUND
-          : opts.alarm ? PANIC_ALERT_SOUND : opts.urgent ? LIVE_ALERT_SOUND : undefined,
+          : opts.pushType === "fire"
+            ? FIRE_CARD_SOUND
+            : opts.alarm ? PANIC_ALERT_SOUND : opts.urgent ? LIVE_ALERT_SOUND : undefined,
         dataOnly: opts.alarm === true || opts.lockScreen === "crime",
       });
       for (const s of fcmSubs) {
@@ -316,6 +330,7 @@ export function registerFarmerRoutes(app: Express, ctx: FarmerRouteCtx) {
         reporterFirstName: inc.responderFirstName,
         reporterLastName: inc.responderLastName,
         description: inc.description,
+        locationName: inc.locationName,
         createdAt: inc.createdAt,
         fireLat: inc.destinationLat ?? inc.latitude,
         fireLng: inc.destinationLng ?? inc.longitude,
@@ -346,9 +361,20 @@ export function registerFarmerRoutes(app: Express, ctx: FarmerRouteCtx) {
 
     const commandFilter = await phoneCommandIds(req, ctx);
     const live = await storage.getLiveIncidents(orgId, commandFilter ?? [commandId]);
-    const active = live.find(
-      (inc) => (inc.categoryName ?? "").toLowerCase() === FIRE_CATEGORY_NAME.toLowerCase() && !inc.panicClosedAt,
-    );
+    let active: (typeof live)[number] | undefined;
+    if (fire) {
+      let nearestM = FIRE_JOIN_RADIUS_M;
+      for (const inc of live) {
+        if ((inc.categoryName ?? "").toLowerCase() !== FIRE_CATEGORY_NAME.toLowerCase() || inc.panicClosedAt) continue;
+        const existing = panicPoint(inc);
+        if (!existing) continue;
+        const metres = haversineM(fire, existing);
+        if (metres <= nearestM) {
+          nearestM = metres;
+          active = inc;
+        }
+      }
+    }
 
     if (active) {
       const witness = [note ? `${fullName} sien ook hierdie vuur. ${note}` : `${fullName} sien ook hierdie vuur.`, windLine]
@@ -361,13 +387,17 @@ export function registerFarmerRoutes(app: Express, ctx: FarmerRouteCtx) {
         evidencePhase: "supplementary",
         body: witness,
       });
-      if (dropped) {
-        await storage.updateIncident(active.id, {
-          destinationLat: dropped.lat,
-          destinationLng: dropped.lng,
-          latitude: dropped.lat,
-          longitude: dropped.lng,
-        }, orgId);
+      if (parsed.data.photo) {
+        await storage.createAttachment({
+          incidentId: active.id,
+          organizationId: orgId,
+          uploadedByUserId: userId,
+          url: parsed.data.photo.url,
+          filename: parsed.data.photo.filename,
+          mimeType: parsed.data.photo.mimeType,
+          evidencePhase: "scene",
+          byteSize: parsed.data.photo.byteSize ?? null,
+        });
       }
       storage.createAuditLog({
         userId,
@@ -378,7 +408,7 @@ export function registerFarmerRoutes(app: Express, ctx: FarmerRouteCtx) {
         entityId: String(active.id),
         changes: null,
       }).catch(() => {});
-      return res.json({ joined: true, incidentId: active.id, sent: 0 });
+      return res.json({ joined: true, incidentId: active.id, sent: 0, photoStored: Boolean(parsed.data.photo) });
     }
 
     const category = await ensureNamedCategory(orgId, commandId, FIRE_CATEGORY_NAME, "#ea580c", "red");
@@ -413,6 +443,19 @@ export function registerFarmerRoutes(app: Express, ctx: FarmerRouteCtx) {
       userId,
     );
 
+    if (parsed.data.photo) {
+      await storage.createAttachment({
+        incidentId: incident.id,
+        organizationId: orgId,
+        uploadedByUserId: userId,
+        url: parsed.data.photo.url,
+        filename: parsed.data.photo.filename,
+        mimeType: parsed.data.photo.mimeType,
+        evidencePhase: "scene",
+        byteSize: parsed.data.photo.byteSize ?? null,
+      });
+    }
+
     const title = `VUUR — ${fullName}`;
     const body = windLine
       ? `Daar is 'n vuur in die gebied. ${windLine}`
@@ -441,7 +484,7 @@ export function registerFarmerRoutes(app: Express, ctx: FarmerRouteCtx) {
       changes: null,
     }).catch(() => {});
 
-    res.json({ joined: false, incidentId: incident.id, sent });
+    res.json({ joined: false, incidentId: incident.id, sent, photoStored: Boolean(parsed.data.photo) });
   });
 
   app.post("/api/fire/:id/close", async (req, res) => {
@@ -556,9 +599,12 @@ export function registerFarmerRoutes(app: Express, ctx: FarmerRouteCtx) {
 
     const livestock = parsed.data.kind === "roaming_livestock";
     const title = livestock ? `VEE EN WILDEDIERE — ${fullName}` : `MISDAAD — ${kindName}`;
+    const headline = note.split("\n").map((line) => line.trim()).find(Boolean)?.slice(0, 140) ?? "";
     const body = livestock
       ? `${place ? `${place}. ` : ""}Vee of wildediere het dalk op 'n werf of plaas oorgeloop.`
-      : `${fullName}${place ? ` · ${place}` : ""}. Maak die app oop vir die verslag.`;
+      : headline
+        ? `${fullName}${place ? ` · ${place}` : ""}. ${headline}`
+        : `${fullName}${place ? ` · ${place}` : ""}. Maak die app oop vir die verslag.`;
     const { sent } = await fanOut({
       ctx,
       orgId,
