@@ -201,8 +201,8 @@ async function sendFcmBatch(
             },
       ),
     ];
-    // Radio plays the voice on its own card. A second alert would use the panic siren.
-    if (payload.dataOnly && payload.data?.type !== "radio") {
+    if (payload.dataOnly) {
+      const radioCard = payload.data?.type === "radio";
       sends.push(
         messaging.send({
           token,
@@ -213,8 +213,8 @@ async function sendFcmBatch(
             ttl: 3_600_000,
             directBootOk: true,
             notification: {
-              channelId: payload.channelId || "omt_panic_loud",
-              sound: payload.sound || "alarm_siren",
+              channelId: radioCard ? "omt_radio_voice" : (payload.channelId || "omt_panic_loud"),
+              ...(radioCard ? {} : { sound: payload.sound || "alarm_siren" }),
               ...(payload.notificationTag ? { tag: payload.notificationTag } : {}),
               visibility: "PUBLIC",
               notificationPriority: "PRIORITY_MAX",

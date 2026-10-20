@@ -25,6 +25,10 @@ export function markRadioListening(orgId: string, commandId: number, userId: str
   listening.set(listenKey(orgId, commandId, userId), Date.now());
 }
 
+export function clearRadioListening(orgId: string, commandId: number, userId: string): void {
+  listening.delete(listenKey(orgId, commandId, userId));
+}
+
 export function isRadioListening(orgId: string, commandId: number, userId: string): boolean {
   const at = listening.get(listenKey(orgId, commandId, userId));
   return at != null && Date.now() - at < LISTEN_TTL_MS;
@@ -87,7 +91,11 @@ export function registerRadioClipRoutes(app: Express, sendFcmBatch: FcmSend): vo
     if (!Number.isFinite(commandId) || commandId <= 0) {
       return res.status(400).json({ message: "commandId required" });
     }
-    markRadioListening(req.currentUser.organizationId, commandId, req.currentUser.id);
+    if (req.body?.active === false) {
+      clearRadioListening(req.currentUser.organizationId, commandId, req.currentUser.id);
+    } else {
+      markRadioListening(req.currentUser.organizationId, commandId, req.currentUser.id);
+    }
     res.json({ ok: true });
   });
 
@@ -129,6 +137,7 @@ export function registerRadioClipRoutes(app: Express, sendFcmBatch: FcmSend): vo
     try {
       const tokens = await storage.getFcmTokensByOrg(user.organizationId, user.id, undefined, [commandId]);
       const offline = tokens.filter((row) => !isRadioListening(user.organizationId, commandId, row.userId));
+      console.log(`[radio-clip] ${id} tokens=${tokens.length} away=${offline.length}`);
       if (offline.length === 0) return;
       await sendFcmBatch(offline.map((row) => row.token), {
         title,
