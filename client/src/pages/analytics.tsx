@@ -805,17 +805,20 @@ export default function AnalyticsPage() {
     return f ? f.isVisible : true;
   }
 
+  const isPlaceName = (value: string | null | undefined): value is string => {
+    const name = (value ?? "").trim().toLowerCase();
+    return name.length > 0 && name !== "live incident" && name !== "vuur";
+  };
+
   const getEffectiveLocationName = (inc: Incident): string | null => {
-    const name = inc.locationName && inc.locationName !== "Live Incident"
-      ? inc.locationName
-      : null;
+    const name = isPlaceName(inc.locationName) ? inc.locationName.trim() : null;
     return name ||
       locations.find((l) => l.id === inc.locationId)?.name ||
       customMaps.find((m) => m.id === inc.customMapId)?.name ||
       // For live incidents with no meaningful location name, use the destination
       // (where the responder was dispatched to) — this tells the story of where
       // incidents are occurring, not just where the GPS happened to be.
-      (inc.destinationName && inc.destinationName !== "Live Incident" ? inc.destinationName : null) ||
+      (isPlaceName(inc.destinationName) ? inc.destinationName.trim() : null) ||
       null;
   };
 

@@ -3780,12 +3780,15 @@ export async function registerRoutes(
     const panicClosure = isPanic ? { panicClosedAt: new Date() } : {};
     // Persist a useful Occurrence Book location when the live flow never copied
     // destination → locationName (manual end-live / monitor close / stale client).
-    const placeholderLoc = !incident.locationName?.trim()
-      || incident.locationName.trim().toLowerCase() === "live incident";
+    const genericPlace = (value: string | null | undefined) => {
+      const name = (value ?? "").trim().toLowerCase();
+      return !name || name === "live incident" || name === "vuur";
+    };
+    const placeholderLoc = genericPlace(incident.locationName);
     const locationClosure: Record<string, unknown> = {};
     if (placeholderLoc) {
       const destName = incident.destinationName?.trim();
-      if (destName && destName.toLowerCase() !== "live incident") {
+      if (destName && !genericPlace(destName)) {
         locationClosure.locationName = destName;
       } else if (incident.destinationLat != null && incident.destinationLng != null) {
         locationClosure.locationName = `${Number(incident.destinationLat).toFixed(5)}, ${Number(incident.destinationLng).toFixed(5)}`;

@@ -24,7 +24,7 @@ export const FIRE_CATEGORY_NAME = "Vuur";
 
 export const CRIME_KINDS = {
   stock_theft: "Veediefstal",
-  roaming_livestock: "Vee en Wildediere",
+  roaming_livestock: "Vee en Wilde Diere",
   burglary: "Inbraak",
   suspicious_vehicle: "Verdagte voertuig",
   suspicious_person: "Verdagte persoon",
@@ -412,6 +412,7 @@ export function registerFarmerRoutes(app: Express, ctx: FarmerRouteCtx) {
     }
 
     const category = await ensureNamedCategory(orgId, commandId, FIRE_CATEGORY_NAME, "#ea580c", "red");
+    const place = await placeFromPin(fire);
     const now = new Date();
     const description = [
       `Vuur — ${fullName}`,
@@ -428,6 +429,7 @@ export function registerFarmerRoutes(app: Express, ctx: FarmerRouteCtx) {
         categoryId: category.id,
         description,
         severity: "red",
+        locationName: place || null,
         latitude: fire?.lat ?? null,
         longitude: fire?.lng ?? null,
         isLive: true,
@@ -436,7 +438,7 @@ export function registerFarmerRoutes(app: Express, ctx: FarmerRouteCtx) {
         liveStartLng: reporter?.lng ?? fire?.lng ?? null,
         destinationLat: fire?.lat ?? null,
         destinationLng: fire?.lng ?? null,
-        destinationName: "Vuur",
+        destinationName: place || "Vuur",
         commandId,
       },
       orgId,
@@ -598,7 +600,7 @@ export function registerFarmerRoutes(app: Express, ctx: FarmerRouteCtx) {
     }
 
     const livestock = parsed.data.kind === "roaming_livestock";
-    const title = livestock ? `VEE EN WILDEDIERE — ${fullName}` : `MISDAAD — ${kindName}`;
+    const title = livestock ? `VEE EN WILDE DIERE — ${fullName}` : `MISDAAD — ${kindName}`;
     const headline = note.split("\n").map((line) => line.trim()).find(Boolean)?.slice(0, 140) ?? "";
     const body = livestock
       ? `${place ? `${place}. ` : ""}Vee of wildediere het dalk op 'n werf of plaas oorgeloop.`
