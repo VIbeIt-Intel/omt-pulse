@@ -1558,6 +1558,38 @@ export function LiveIncidentsMap({
       parts.push(`p:${premise.id}:${premise.lat.toFixed(3)},${premise.lng.toFixed(3)}`);
     }
 
+    const nearGroup = (lat: number, lng: number) => {
+      if (premises.length === 0) return true;
+      const limit = 40_000;
+      return premises.some((p) => {
+        const dLat = (lat - p.lat) * 111_320;
+        const dLng = (lng - p.lng) * 111_320 * Math.cos((p.lat * Math.PI) / 180);
+        return dLat * dLat + dLng * dLng <= limit * limit;
+      });
+    };
+
+    // Members and vehicles around the group stay in the frame with the sites.
+    for (const user of onlineUsers) {
+      if (!nearGroup(user.lat, user.lng)) continue;
+      bounds.extend({ lat: user.lat, lng: user.lng });
+      count += 1;
+      parts.push(`u:${user.id}:${user.lat.toFixed(1)},${user.lng.toFixed(1)}`);
+    }
+    for (const tracker of trackers) {
+      if (!nearGroup(tracker.lat, tracker.lng)) continue;
+      bounds.extend({ lat: tracker.lat, lng: tracker.lng });
+      count += 1;
+      parts.push(`t:${tracker.id}:${tracker.lat.toFixed(1)},${tracker.lng.toFixed(1)}`);
+    }
+    for (const inc of incidents) {
+      const lat = inc.responderLat ?? inc.latitude;
+      const lng = inc.responderLng ?? inc.longitude;
+      if (lat == null || lng == null || !nearGroup(lat, lng)) continue;
+      bounds.extend({ lat, lng });
+      count += 1;
+      parts.push(`i:${inc.id}:${lat.toFixed(1)},${lng.toFixed(1)}`);
+    }
+
     // No pinned sites yet: frame whoever is on the map so it does not sit on a country view.
     if (count === 0) {
       for (const inc of incidents) {
@@ -1706,9 +1738,18 @@ export function LiveIncidentsMap({
     const map = mapInstanceRef.current;
     if (!map) return;
     userViewportLockedRef.current = false;
-    lastFitSignatureRef.current = "__empty__";
+    lastFitSignatureRef.current = "";
+    fittedAtSizeRef.current = "";
+    if (preferActivityFit) {
+      setMapLayoutNonce((n) => n + 1);
+      return;
+    }
+    programmaticMoveRef.current = true;
     map.setCenter(initialCenterRef.current);
     map.setZoom(initialZoomRef.current);
+    window.setTimeout(() => {
+      programmaticMoveRef.current = false;
+    }, 700);
   };
 
   const controlBtnClass = (active: boolean) =>
@@ -1755,7 +1796,7 @@ export function LiveIncidentsMap({
         </div>
       )}
       <div ref={mapRef} className="w-full h-full" />
-      {mapsReady && !mapsError && incidents.length === 0 && onlineUsers.length === 0 && trackers.length === 0 && (
+      {mapsReady && !mapsError && !preferActivityFit && incidents.length === 0 && onlineUsers.length === 0 && trackers.length === 0 && (
         <div
           className={cn(
             "absolute z-[5] pointer-events-none",

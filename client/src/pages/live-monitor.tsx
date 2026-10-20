@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation, Link } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -46,6 +46,7 @@ import { cn } from "@/lib/utils";
 import { GeoLocationSheet, type GeoMapView } from "@/components/incident-location-sheet";
 import { CoordinateLink } from "@/components/coordinate-link";
 import { ControlRoomMap } from "@/components/control-room-map";
+import { useTheme } from "@/components/theme-provider";
 import { usePrivateRadioActions } from "@/components/radio/private-radio-host";
 import type { Location } from "@shared/schema";
 
@@ -199,6 +200,8 @@ function getMarkerColor(inc: LiveIncident): string {
 
 export default function LiveMonitorPage() {
   const { t } = useControlRoomLang();
+  const { theme } = useTheme();
+  const light = theme === "light";
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -263,6 +266,16 @@ export default function LiveMonitorPage() {
     queryKey: ["/api/locations"],
   });
 
+  const { data: commandsData } = useQuery<{
+    activeCommandId: number | "all" | null;
+  }>({ queryKey: ["/api/me/commands"] });
+
+  const groupLocations = useMemo(() => {
+    const activeCommandId = commandsData?.activeCommandId ?? null;
+    if (activeCommandId === "all" || activeCommandId == null) return locations;
+    return locations.filter((l) => l.commandId === activeCommandId || l.commandId == null);
+  }, [locations, commandsData?.activeCommandId]);
+
   const joinMutation = useMutation({
     mutationFn: (id: number) => apiRequest("POST", `/api/incidents/${id}/join-live`, {}),
     onSuccess: async (_, id) => {
@@ -314,7 +327,7 @@ export default function LiveMonitorPage() {
   const noteIncident = liveIncidents.find((i) => i.id === noteIncidentId) ?? null;
 
   return (
-    <div className="flex flex-col h-full bg-background">
+    <div className={cn("flex flex-col h-full bg-background", light && "ops-light")}>
       <div className={cn(OPS_PAGE_SHELL, "shrink-0 pt-3 pb-3")}>
         <PageHero
           eyebrow={t.liveMonitor}
@@ -346,8 +359,8 @@ export default function LiveMonitorPage() {
           ) : liveIncidents.length === 0 ? (
             <div className="flex flex-col items-center justify-center flex-1 gap-3 px-6 py-10 text-center" data-testid="empty-live-monitor">
               <CheckCircle2 className="h-10 w-10 text-green-500" />
-              <p className="font-semibold text-sm">All clear</p>
-              <p className="text-xs text-muted-foreground">No active live incidents at this time.</p>
+              <p className="font-semibold text-sm">{t.allClear}</p>
+              <p className="text-xs text-muted-foreground">{t.mapHint}</p>
             </div>
           ) : (
             <div className="divide-y">
@@ -386,11 +399,11 @@ export default function LiveMonitorPage() {
         <div className="order-1 md:order-2 h-[42vh] md:h-auto md:flex-1 min-w-0 relative shrink-0 md:shrink flex flex-col" data-testid="map-live-monitor">
           <ControlRoomMap
             incidents={liveIncidents}
-            locations={locations}
+            locations={groupLocations}
             highlightId={highlightId}
             onHighlightId={setHighlightId}
             showSidePanels={false}
-            darkTheme
+            darkTheme={!light}
             className="flex-1 min-h-0"
             testId="map-live-monitor"
             onIncidentMarkerClick={(id) => {
