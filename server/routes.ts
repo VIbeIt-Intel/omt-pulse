@@ -158,7 +158,15 @@ async function sendFcmBatch(
   if (payload.sound) androidNotification.sound = payload.sound;
   // Panic-channel alerts (panic and vuur) must show the full card on the
   // lock screen while the app is closed. The channel is already max importance.
-  if (payload.channelId === "omt_panic") {
+  if (
+    payload.channelId === "omt_panic"
+    || payload.channelId === "omt_panic_loud"
+    || payload.channelId === "omt_vuur_loud"
+    || payload.channelId === "omt_vuur_bell"
+    || payload.channelId === "omt_misdaad_loud"
+    || payload.channelId === "omt_misdaad_alarm"
+    || payload.channelId === "omt_misdaad_tone"
+  ) {
     androidNotification.visibility = "PUBLIC";
     androidNotification.notificationPriority = "PRIORITY_MAX";
     androidNotification.defaultVibrateTimings = true;
@@ -193,7 +201,8 @@ async function sendFcmBatch(
             },
       ),
     ];
-    if (payload.dataOnly) {
+    // Radio plays the voice on its own card. A second alert would use the panic siren.
+    if (payload.dataOnly && payload.data?.type !== "radio") {
       sends.push(
         messaging.send({
           token,
@@ -204,8 +213,8 @@ async function sendFcmBatch(
             ttl: 3_600_000,
             directBootOk: true,
             notification: {
-              channelId: "omt_panic",
-              sound: "panic_alert",
+              channelId: payload.channelId || "omt_panic_loud",
+              sound: payload.sound || "alarm_siren",
               ...(payload.notificationTag ? { tag: payload.notificationTag } : {}),
               visibility: "PUBLIC",
               notificationPriority: "PRIORITY_MAX",
@@ -525,8 +534,8 @@ const PATROL_ALERT_SOUND = "patrol_alert";
 /** Must match CHAT_NOTIFICATION_CHANNEL_ID on the device. */
 const CHAT_ALERT_CHANNEL = "omt_chat";
 /** Must match PANIC_NOTIFICATION_CHANNEL_ID / raw sound on the device. */
-const PANIC_ALERT_CHANNEL = "omt_panic";
-const PANIC_ALERT_SOUND = "panic_alert";
+const PANIC_ALERT_CHANNEL = "omt_panic_loud";
+const PANIC_ALERT_SOUND = "alarm_siren";
 /** Must match LIVE_NOTIFICATION_CHANNEL_ID / raw sound on the device. */
 const LIVE_ALERT_CHANNEL = "omt_live";
 const LIVE_ALERT_SOUND = "live_alert";
@@ -3277,12 +3286,10 @@ export async function registerRoutes(
     // signal to every device in the org so all banners update instantly.
     (async () => {
       try {
-        const acknowledger = await storage.getUserById(acknowledgerId);
-        const ackName = acknowledger ? `${acknowledger.firstName} ${acknowledger.lastName}`.trim() : "A responder";
-        // Notify the panicker
+        // Notify the panicker without naming who is coming. That name must not land on the phone at the scene.
         if (incident.userId) {
-          const title = "🤝 Help is on the way";
-          const body = `${ackName} acknowledged your panic alert. Assistance is coming.`;
+          const title = "Hulp is op pad";
+          const body = "Iemand van die groep is op pad.";
           const url = "/";
           storage.createNotificationLog({
             organizationId: orgId,
@@ -3442,13 +3449,13 @@ export async function registerRoutes(
     const user = await storage.getUserById(userId);
     const fullName = user ? `${user.firstName} ${user.lastName}`.trim() : "A user";
     const hasCoords = typeof lat === "number" && typeof lng === "number";
-    const title = `🆘 PANIC — ${fullName} needs immediate assistance`;
+    const title = `PANIEK — ${fullName}`;
     // NEVER include raw lat/lng here — Android auto-linkifies coordinate text
     // in the notification body and hijacks the tap into Google Maps before the
     // service worker can route into the app. Keep coordinates in the in-app banner only.
     const body = hasCoords
-      ? "Tap to open OMT Pulse and respond — location is shown in the app."
-      : "Location unavailable — tap to open OMT Pulse and respond.";
+      ? "Het paniek gestuur. Maak die app oop."
+      : "Het paniek gestuur. Geen ligging nie. Maak die app oop.";
     // Active-Command scope for the panicker — used to stamp both the auto-created
     // "Panic" category and the panic incident itself so they're isolated correctly.
     // If the panicker is viewing a granted (read-only) Command, fall back to
@@ -3584,6 +3591,7 @@ export async function registerRoutes(
           notificationTag: panicIncidentId != null ? `panic-${panicIncidentId}` : `panic-${Date.now()}`,
           channelId: PANIC_ALERT_CHANNEL,
           sound: PANIC_ALERT_SOUND,
+          dataOnly: true,
         }).catch(() => {});
         for (const s of fcmSubs) {
           sent++;
@@ -4011,8 +4019,8 @@ export async function registerRoutes(
       // 1. Push directly to the creator so they know they have backup
       if (incident.userId && incident.userId !== userId) {
         const creatorSubs = await storage.getPushSubscriptionsByUser(incident.userId);
-        const creatorTitle = `👥 Backup on the way — ${name} joined`;
-        const creatorBody = `${name} has joined your live incident and is en route`;
+        const creatorTitle = isPanic ? "Hulp is op pad" : `👥 Backup on the way — ${name} joined`;
+        const creatorBody = isPanic ? "Iemand van die groep is op pad." : `${name} has joined your live incident and is en route`;
         const creatorPayload = JSON.stringify({ type: "incident_joined", title: creatorTitle, body: creatorBody, url: "/live-incident" });
         // creatorSubs is already filtered to a single user — do not dedupe (would collapse multi-device).
         await Promise.allSettled(creatorSubs.map(async (sub) => {
@@ -6405,7 +6413,7 @@ export async function registerRoutes(
 
   registerAccessControlRoutes(app);
   registerPatrolRoutes(app);
-  registerRadioRoutes(app);
+  registerRadioRoutes(app, sendFcmBatch);
   registerFleetAlertRoutes(app);
   registerCctvRoutes(app);
   registerSecuritySurveyRoutes(app);

@@ -22,6 +22,18 @@ import {
   serializePrivateCall,
   startPrivateCall,
 } from "./private-calls";
+import { registerRadioClipRoutes } from "./clips";
+
+type RadioFcmSend = (
+  tokens: string[],
+  payload: {
+    title: string;
+    body: string;
+    data?: Record<string, string>;
+    notificationTag?: string;
+    dataOnly?: boolean;
+  },
+) => Promise<void>;
 
 function requireUser(req: Request, res: Response): boolean {
   if (!req.currentUser) {
@@ -52,7 +64,8 @@ async function userCanJoinCommand(
   return mine.some((c) => c.id === commandId);
 }
 
-export function registerRadioRoutes(app: Express): void {
+export function registerRadioRoutes(app: Express, sendFcmBatch: RadioFcmSend): void {
+  registerRadioClipRoutes(app, sendFcmBatch);
   app.get("/api/radio/status", async (req, res) => {
     if (!requireUser(req, res)) return;
     res.json({

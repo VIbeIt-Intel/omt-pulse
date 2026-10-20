@@ -1,4 +1,4 @@
-/** LiveKit media plane — audio is never stored by OMT Pulse. */
+/** LiveKit media plane. A short voice note is kept for one day so a closed phone can play it. */
 
 export type LiveKitConfig = {
   url: string;
