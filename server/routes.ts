@@ -1236,6 +1236,8 @@ const AUTH_WHITELIST = [
   "/assets/heartbeat",
   "/assets/tracker",
   "/assets/tracker-app",
+  // Lock-screen radio download. The signed token is checked on the route; the phone has no website session.
+  "/radio/clips/",
 ];
 
 const SUBSCRIPTION_WHITELIST = [
