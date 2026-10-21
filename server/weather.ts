@@ -9,6 +9,7 @@ type WeatherBody = {
   tempC: number;
   condition: WeatherCondition;
   warning: WeatherWarning;
+  place: string | null;
 };
 
 const cache = new Map<string, { at: number; body: WeatherBody }>();
@@ -45,6 +46,23 @@ function warningFor(input: {
   const dry = rains.every((mm) => mm < 0.2) && codes.every((code) => conditionOf(code) !== "rain" && conditionOf(code) !== "thunder");
   if (dry && input.temp >= 30 && input.humidity <= 30 && input.currentWind >= 20) return "fire";
   return null;
+}
+
+/** Nearest town or suburb for these coordinates. Weather still shows if this fails. */
+async function placeName(lat: number, lng: number): Promise<string | null> {
+  try {
+    const url = new URL("https://geocoding-api.open-meteo.com/v1/reverse");
+    url.searchParams.set("latitude", lat.toFixed(4));
+    url.searchParams.set("longitude", lng.toFixed(4));
+    url.searchParams.set("language", "af");
+    const upstream = await fetch(url, { headers: { "User-Agent": "OMT-Pulse/weather" } });
+    if (!upstream.ok) return null;
+    const data = await upstream.json() as { results?: Array<{ name?: string }> };
+    const name = data.results?.[0]?.name?.trim();
+    return name || null;
+  } catch {
+    return null;
+  }
 }
 
 export function registerWeatherRoutes(app: Express): void {
@@ -112,6 +130,7 @@ export function registerWeatherRoutes(app: Express): void {
           currentRain: current.precipitation ?? 0,
           upcoming,
         }),
+        place: await placeName(lat, lng),
       };
       cache.set(key, { at: Date.now(), body });
       res.json(body);
