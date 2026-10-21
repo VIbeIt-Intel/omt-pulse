@@ -25,7 +25,6 @@ import {
   Users,
   ExternalLink,
   CheckCircle2,
-  Shield,
   History,
   CalendarRange,
   Building2,
@@ -605,67 +604,6 @@ function OpsSubSectionHeader({
   );
 }
 
-function KpiCard({
-  label,
-  value,
-  hint,
-  accent,
-  onClick,
-  testId,
-  loading,
-}: {
-  label: string;
-  value: number | string;
-  hint?: string;
-  accent?: "green" | "orange" | "red" | "blue" | "slate";
-  onClick?: () => void;
-  testId: string;
-  loading?: boolean;
-}) {
-  const accentBorder =
-    accent === "red"
-      ? "border-red-500/40 shadow-sm shadow-red-950/20"
-      : accent === "orange"
-        ? "border-orange-500/40 shadow-sm shadow-orange-950/20"
-        : accent === "green"
-          ? "border-emerald-500/40 shadow-sm shadow-emerald-950/20"
-          : accent === "blue"
-            ? "border-blue-500/40 shadow-sm shadow-blue-950/20"
-            : "border-slate-600/50";
-
-  const inner = (
-    <>
-      <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-300">{label}</p>
-      {loading ? (
-        <Skeleton className="h-9 w-16 mt-1.5 bg-slate-700" />
-      ) : (
-        <p
-          className={cn(
-            "text-[2rem] leading-none font-extrabold tabular-nums mt-1.5 text-slate-50 tracking-tight",
-          )}
-          data-testid={testId}
-        >
-          {value}
-        </p>
-      )}
-      {hint ? <p className="text-[11px] text-slate-500 mt-1.5">{hint}</p> : null}
-    </>
-  );
-
-  const shell = cn(
-    "rounded-xl border bg-slate-800/60 px-3.5 py-2.5 min-w-0 backdrop-blur-sm",
-    accentBorder,
-    onClick && "hover:bg-slate-800/90 hover:border-slate-500/60 transition-all cursor-pointer",
-  );
-
-  if (!onClick) return <div className={shell}>{inner}</div>;
-  return (
-    <button type="button" onClick={onClick} className={cn(shell, "text-left w-full")} data-testid={`${testId}-button`}>
-      {inner}
-    </button>
-  );
-}
-
 export function OperationsDashboard({
   currentUser,
   liveIncidents,
@@ -698,6 +636,8 @@ export function OperationsDashboard({
     setBottomFocus(next);
     try { localStorage.setItem("omt_ops_bottom_focus", next); } catch { /* ignore */ }
   }
+  const [monitorTab, setMonitorTab] = useState<"team" | "fleet">("team");
+  const [historyOpen, setHistoryOpen] = useState<"none" | "today" | "week">("none");
   const [highlightId, setHighlightId] = useState<number | null>(null);
   const [liveMapType, setLiveMapType] = useState<"roadmap" | "hybrid">("roadmap");
   const [clock, setClock] = useState(() => new Date());
@@ -1092,39 +1032,11 @@ export function OperationsDashboard({
               {totalUnread}
             </button>
           )}
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            className="h-8 text-xs gap-1 bg-slate-800/90 border-slate-600 text-slate-100 hover:bg-slate-700"
-            onClick={() => onOpenLiveMonitor()}
-            data-testid="ops-open-live-monitor"
-          >
-            <ExternalLink className="h-3.5 w-3.5" />
-            {t.liveMonitor}
-          </Button>
-        </div>
-      </div>
-
-      {/* ── Toolbar: quick actions ── */}
-      <div className="shrink-0 px-4 py-2.5 border-b border-slate-700/80 bg-[#141b24] flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <Shield className="h-5 w-5 text-emerald-500" />
-          <div>
-            <h1 className="text-sm font-bold tracking-wide uppercase text-slate-200" data-testid="text-ops-title">
-              {t.controlRoom}
-            </h1>
-            <p className="text-[11px] text-slate-500">
-              {currentUser?.firstName ? `${currentUser.firstName} · ${t.role(currentUser.role)}` : t.operations}
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 ml-auto">
           <button
             type="button"
             onClick={toggle}
             data-testid="ops-lang-toggle"
-            className="inline-flex items-center rounded-lg border border-slate-600 bg-slate-800/80 px-3 py-2 text-sm font-semibold text-slate-100 hover:bg-slate-700"
+            className="inline-flex h-8 items-center rounded-lg border border-slate-600 bg-slate-800/80 px-3 text-xs font-semibold text-slate-100 hover:bg-slate-700"
           >
             {t.toggleLabel}
           </button>
@@ -1132,21 +1044,49 @@ export function OperationsDashboard({
             type="button"
             onClick={() => setTheme(light ? "dark" : "light")}
             data-testid="ops-theme-toggle"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-600 bg-slate-800/80 px-3 py-2 text-sm font-semibold text-slate-100 hover:bg-slate-700"
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-600 bg-slate-800/80 px-3 text-xs font-semibold text-slate-100 hover:bg-slate-700"
           >
-            {light ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+            {light ? <Moon className="h-3.5 w-3.5" /> : <Sun className="h-3.5 w-3.5" />}
             {light ? t.darkBackground : t.whiteBackground}
           </button>
           <button
             type="button"
             onClick={onPanic}
             data-testid="ops-button-panic"
-            className="inline-flex items-center gap-2 rounded-lg bg-red-600 hover:bg-red-500 px-4 py-2 text-sm font-bold text-white shadow-lg shadow-red-900/40 transition-colors"
+            className="inline-flex h-8 items-center gap-2 rounded-lg bg-red-600 px-3 text-xs font-bold text-white hover:bg-red-500"
           >
-            <Siren className="h-4 w-4" />
+            <Siren className="h-3.5 w-3.5" />
             {t.panicSos}
           </button>
         </div>
+      </div>
+
+      {/* ── One line of the day's numbers ── */}
+      <div className="shrink-0 flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-slate-800/80 bg-[#111820] px-4 py-2" data-testid="ops-kpi-line">
+        <button type="button" onClick={() => onOpenLiveMonitor()} className="inline-flex items-baseline gap-2" data-testid="ops-kpi-active">
+          <span className={cn("text-lg font-semibold tabular-nums", liveCount > 0 ? "text-orange-300" : "text-emerald-300")}>{kpiLoading ? "…" : liveCount}</span>
+          <span className="text-xs font-medium text-slate-400">{t.activeIncidents}</span>
+        </button>
+        <span className="text-slate-600" aria-hidden>·</span>
+        <span className="inline-flex items-baseline gap-2" data-testid="ops-kpi-panics">
+          <span className={cn("text-lg font-semibold tabular-nums", panicsToday > 0 ? "text-red-300" : "text-slate-100")}>{panicsToday}</span>
+          <span className="text-xs font-medium text-slate-400">{t.panicsToday}</span>
+        </span>
+        <span className="text-slate-600" aria-hidden>·</span>
+        <button type="button" onClick={() => onOpenOccurrence()} className="inline-flex items-baseline gap-2" data-testid="ops-kpi-occurrences">
+          <span className="text-lg font-semibold tabular-nums text-slate-100">{kpiLoading || incidentsLoading ? "…" : (kpiSource?.totalIncidents ?? todayIncidents.length)}</span>
+          <span className="text-xs font-medium text-slate-400">{t.loggedToday}</span>
+        </button>
+        <span className="text-slate-600" aria-hidden>·</span>
+        <button
+          type="button"
+          onClick={() => setHistoryOpen((current) => current === "today" ? "none" : "today")}
+          className="inline-flex items-baseline gap-2"
+          data-testid="ops-kpi-closed"
+        >
+          <span className="text-lg font-semibold tabular-nums text-slate-100">{incidentsLoading ? "…" : todayClosed.length}</span>
+          <span className="text-xs font-medium text-slate-400">{t.closedToday}</span>
+        </button>
       </div>
 
       {visiblePanics.length > 0 && (
@@ -1161,48 +1101,7 @@ export function OperationsDashboard({
         </div>
       )}
 
-      {/* ── KPI row ── */}
-      <div className="shrink-0 px-3 py-2.5 border-b border-slate-800/80 bg-[#111820]">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          <KpiCard
-            label={t.activeIncidents}
-            value={liveCount}
-            hint={liveCount > 0 ? t.openLiveMonitor : t.noneRightNow}
-            accent={liveCount > 0 ? "orange" : "green"}
-            onClick={() => onOpenLiveMonitor()}
-            testId="ops-kpi-active"
-            loading={kpiLoading}
-          />
-          <KpiCard
-            label={t.panicsToday}
-            value={panicsToday}
-            hint={t.sinceMidnight}
-            accent={panicsToday > 0 ? "red" : "slate"}
-            testId="ops-kpi-panics"
-            loading={false}
-          />
-          <KpiCard
-            label={t.loggedToday}
-            value={kpiSource?.totalIncidents ?? todayIncidents.length}
-            hint={t.occurrencesToday}
-            accent="slate"
-            onClick={() => onOpenOccurrence()}
-            testId="ops-kpi-occurrences"
-            loading={kpiLoading || incidentsLoading}
-          />
-          <KpiCard
-            label={t.closedToday}
-            value={todayClosed.length}
-            hint={t.noLongerLive}
-            accent="blue"
-            onClick={() => onOpenOccurrence()}
-            testId="ops-kpi-closed"
-            loading={incidentsLoading}
-          />
-        </div>
-      </div>
-
-      {/* ── Site monitor: team + fleet for selected facility ── */}
+      {/* ── Site monitor: people on the map, fleet on its own tab ── */}
       <div
         className="shrink-0 border-b border-slate-800/80 bg-[#111820] flex flex-col min-h-0"
         data-testid="ops-site-monitor"
@@ -1214,164 +1113,87 @@ export function OperationsDashboard({
           testId="ops-site-monitor-header"
           right={groupSiteSelectors}
         />
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-px bg-slate-800/40 h-auto max-h-[min(360px,32dvh)] min-h-[200px] overflow-hidden">
-          <div className="flex flex-col min-h-0 overflow-hidden bg-[#131a22]">
-            <OpsSubSectionHeader title={t.team} icon={Users} tone="emerald" count={siteTeam.length} />
-            {!siteMonitorLoading && siteTeam.length > 0 && (
-              <div className="shrink-0 px-3 py-2 border-b border-emerald-900/15 flex items-center text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                <span className="flex-1">{t.member}</span>
-                <span className="shrink-0 w-[104px] text-right">{t.lastActivity}</span>
-              </div>
+        <div className="flex items-center gap-2 border-b border-slate-800/60 px-3 py-2">
+          <button
+            type="button"
+            onClick={() => setMonitorTab("team")}
+            className={cn(
+              "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold",
+              monitorTab === "team" ? "bg-emerald-600 text-white" : "bg-slate-800 text-slate-300",
             )}
-            <div className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain ops-scroll">
-              {siteMonitorLoading ? (
-                <div className="p-2 space-y-2">
-                  <Skeleton className="h-8 bg-slate-800" />
-                  <Skeleton className="h-8 bg-slate-800" />
-                </div>
-              ) : siteTeam.length === 0 ? (
-                <p className="text-[11px] text-slate-600 text-center py-6 px-3">
-                  {selectedLocationId == null
-                    ? t.noTeamInGroup
-                    : t.noTeamOnSite}
-                </p>
-              ) : (
-                <ul className="flex flex-col gap-1.5 p-2">
-                  {siteTeam.map((user) => {
-                    const status = teamMemberStatus(user);
-                    const statusLabel = teamStatusLabel(status, t);
-                    const roleLabel = t.role(user.role);
-                    const lastActivityAt = teamLastActivityAt(user);
-                    const activityLabel = user.isLive ? t.liveNow : formatTeamLastActivity(lastActivityAt, t);
-                    const activityStale = isTeamActivityStale(user);
-                    const isLongIdle = activityStale && !user.isLive;
-                    const hasPosition = user.lastLat != null && user.lastLng != null;
-                    const initials =
-                      `${user.firstName?.charAt(0) ?? ""}${user.lastName?.charAt(0) ?? ""}`.toUpperCase() ||
-                      "?";
-                    return (
-                      <li key={user.id}>
-                        <div
-                          className={cn(
-                            "flex items-center gap-3 min-w-0 rounded-lg px-3 py-3 border-l-2 transition-colors",
-                            mapFocusUserId === user.id
-                              ? "bg-emerald-950/40 border-l-emerald-400 ring-1 ring-inset ring-emerald-500/30"
-                              : isLongIdle
-                              ? "bg-amber-950/20 border-l-amber-600/60 hover:bg-amber-950/30"
-                              : "border-l-transparent bg-slate-800/25 hover:bg-slate-800/45",
-                          )}
-                          data-testid={`ops-team-row-${user.id}`}
-                        >
-                          <ExpandablePhoto
-                            photoUrl={user.avatarUrl}
-                            className={cn(
-                              "h-10 w-10 rounded-full",
-                              isLongIdle
-                                ? "ring-1 ring-amber-800/35"
-                                : status === "available"
-                                  ? "ring-1 ring-emerald-800/40"
-                                  : status === "responding"
-                                    ? "ring-1 ring-orange-800/40"
-                                    : "ring-1 ring-slate-700/60",
-                            )}
-                            title={`${user.firstName} ${user.lastName}`}
-                            fallback={
-                              <div
-                                className={cn(
-                                  "flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-semibold tracking-wide",
-                                  isLongIdle
-                                    ? "bg-slate-800 text-amber-200/90 ring-1 ring-amber-800/35"
-                                    : status === "available"
-                                      ? "bg-slate-800 text-emerald-200/90 ring-1 ring-emerald-800/40"
-                                      : status === "responding"
-                                        ? "bg-slate-800 text-orange-200/90 ring-1 ring-orange-800/40"
-                                        : "bg-slate-800/90 text-slate-300 ring-1 ring-slate-700/60",
-                                )}
-                                aria-hidden
-                              >
-                                {initials}
-                              </div>
-                            }
-                          />
-                          <button
-                            type="button"
-                            onClick={() => focusTeamMemberOnMap(user)}
-                            className="min-w-0 flex-1 text-left cursor-pointer focus-visible:outline-none"
-                          >
-                            <p
-                              className={cn(
-                                "text-sm font-semibold tracking-tight truncate leading-snug",
-                                isLongIdle ? "text-slate-300" : "text-slate-100",
-                              )}
-                            >
-                              {user.firstName} {user.lastName}
-                            </p>
-                            <div className="flex items-center gap-2 mt-1.5 min-w-0">
-                              <span className="text-[12px] text-slate-400 truncate leading-none">
-                                {roleLabel}
-                              </span>
-                              <span
-                                className={cn(
-                                  "shrink-0 inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium leading-none",
-                                  teamStatusPillClass(status),
-                                )}
-                              >
-                                {statusLabel}
-                              </span>
-                              {hasPosition ? (
-                                <MapPin className="h-3 w-3 shrink-0 text-emerald-500/80" aria-hidden />
-                              ) : null}
-                            </div>
-                          </button>
-                          <div className="shrink-0 w-[104px] text-right">
-                            <p
-                              className={cn(
-                                "text-xs tabular-nums leading-tight",
-                                user.isLive
-                                  ? "text-orange-300 font-semibold"
-                                  : isLongIdle
-                                    ? "text-amber-400/90 font-medium"
-                                    : "text-slate-500",
-                              )}
-                            >
-                              {activityLabel}
-                            </p>
-                            {isLongIdle && (
-                              <p className="text-[10px] font-medium uppercase tracking-wider text-amber-500/75 mt-1 leading-none">
-                                {t.idleLong}
-                              </p>
-                            )}
-                          </div>
-                          {user.isLive && user.liveIncidentId && (
-                            <span
-                              role="link"
-                              tabIndex={0}
-                              className="text-[10px] font-medium text-emerald-400 hover:text-emerald-300 hover:underline shrink-0"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onOpenLiveMonitor(user.liveIncidentId!);
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter" || e.key === " ") {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  onOpenLiveMonitor(user.liveIncidentId!);
-                                }
-                              }}
-                            >
-                              {t.live}
-                            </span>
-                          )}
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </div>
+            data-testid="ops-tab-team"
+          >
+            <Users className="h-3.5 w-3.5" />
+            {t.team}
+            <span className="tabular-nums opacity-80">{siteTeam.length}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setMonitorTab("fleet")}
+            className={cn(
+              "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold",
+              monitorTab === "fleet" ? "bg-cyan-600 text-white" : "bg-slate-800 text-slate-300",
+            )}
+            data-testid="ops-tab-fleet"
+          >
+            <Car className="h-3.5 w-3.5" />
+            {t.fleet}
+            <span className="tabular-nums opacity-80">{siteFleet.length}</span>
+          </button>
+        </div>
+        {monitorTab === "team" ? (
+          <div className="ops-scroll flex gap-2 overflow-x-auto px-3 py-2.5" data-testid="ops-team-chips">
+            {siteMonitorLoading ? (
+              <Skeleton className="h-10 w-40 shrink-0 bg-slate-800" />
+            ) : siteTeam.length === 0 ? (
+              <p className="py-2 text-xs text-slate-500">
+                {selectedLocationId == null ? t.noTeamInGroup : t.noTeamOnSite}
+              </p>
+            ) : (
+              siteTeam.map((user) => {
+                const status = teamMemberStatus(user);
+                const activityLabel = user.isLive ? t.liveNow : formatTeamLastActivity(teamLastActivityAt(user), t);
+                const initials = `${user.firstName?.charAt(0) ?? ""}${user.lastName?.charAt(0) ?? ""}`.toUpperCase() || "?";
+                return (
+                  <button
+                    key={user.id}
+                    type="button"
+                    onClick={() => focusTeamMemberOnMap(user)}
+                    data-testid={`ops-team-row-${user.id}`}
+                    className={cn(
+                      "flex shrink-0 items-center gap-2 rounded-full border px-2 py-1.5 text-left",
+                      mapFocusUserId === user.id
+                        ? "border-emerald-400 bg-emerald-950/40"
+                        : "border-slate-600 bg-slate-800/50 hover:bg-slate-800",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "flex h-8 w-8 items-center justify-center rounded-full text-[11px] font-semibold",
+                        user.isLive
+                          ? "bg-orange-600/20 text-orange-100"
+                          : status === "available"
+                            ? "bg-emerald-600/15 text-emerald-100"
+                            : "bg-slate-700 text-slate-100",
+                      )}
+                    >
+                      {initials}
+                    </span>
+                    <span className="min-w-0 pr-1">
+                      <span className="block max-w-[150px] truncate text-xs font-semibold text-slate-100">
+                        {user.firstName} {user.lastName}
+                      </span>
+                      <span className={cn("block text-[10px]", user.isLive ? "font-semibold text-orange-300" : "text-slate-400")}>
+                        {activityLabel}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })
+            )}
           </div>
-
-          <div className="flex flex-col min-h-0 overflow-hidden bg-[#131a22]">
+        ) : (
+          <div className="flex max-h-[220px] min-h-0 flex-col overflow-hidden bg-[#131a22]">
             <OpsSubSectionHeader
               title={t.fleet}
               icon={Car}
@@ -1558,16 +1380,15 @@ export function OperationsDashboard({
               )}
             </div>
           </div>
-        </div>
+        )}
       </div>
 
-      {/* ── Incidents + today's occurrences ── */}
+      {/* ── Map, with open items and folded history beside it ── */}
       <div className="flex flex-none xl:flex-1 xl:min-h-0 flex-col xl:flex-row xl:overflow-hidden gap-px bg-slate-800/40">
         {bottomFocus !== "today" && bottomFocus !== "week" && (
         <div
           className={cn(
-            "flex-none min-h-[min(360px,44dvh)] xl:min-h-0 min-w-0 flex flex-col border-r border-slate-800/80 bg-[#131a22]",
-            bottomFocus === "all" ? "xl:w-[48%] xl:shrink-0" : "xl:flex-1",
+            "flex-none min-h-[min(420px,52dvh)] xl:min-h-0 min-w-0 flex flex-col border-r border-slate-800/80 bg-[#131a22] xl:flex-1",
           )}
           data-testid="ops-live-panel"
         >
@@ -1622,6 +1443,7 @@ export function OperationsDashboard({
               testId="ops-live-overview-map-canvas"
             />
           </div>
+          {(showQueue || bottomFocus !== "all") && (
           <div className="shrink-0 border-t border-slate-800/80 bg-[#131a22]">
             {!showQueue ? (
               <div className="flex items-center justify-between gap-3 px-3 py-2.5">
@@ -1758,12 +1580,55 @@ export function OperationsDashboard({
               </>
             )}
           </div>
+          )}
         </div>
         )}
 
         {bottomFocus !== "live" && (
-        <div className={cn("flex min-h-0 min-w-0 flex-col", bottomFocus === "all" ? "xl:flex-1" : "flex-1")}>
-        {(bottomFocus === "all" || bottomFocus === "today") && (
+        <div className={cn("flex min-h-0 min-w-0 flex-col bg-[#131a22]", historyOpen === "none" && bottomFocus === "all" ? "xl:w-[320px] xl:shrink-0" : "xl:flex-1")}>
+          <div className="shrink-0 border-b border-slate-800/80 px-3 py-3" data-testid="ops-open-summary">
+            <p className={cn("text-sm font-semibold", queueItems.length > 0 ? "text-orange-300" : "text-emerald-300")}>
+              {queueItems.length > 0 ? t.activeCount(queueItems.length) : t.allClear}
+            </p>
+            <p className="mt-1 text-xs text-slate-400">
+              {panicsToday} {t.panicsToday.toLowerCase()}
+            </p>
+            {queueItems.length > 0 && (
+              <ul className="mt-2 space-y-1">
+                {queueItems.map((inc) => (
+                  <li key={inc.id}>
+                    <button
+                      type="button"
+                      onClick={() => onOpenLiveMonitor(inc.id)}
+                      className="w-full truncate text-left text-sm font-semibold text-slate-100 hover:text-orange-200"
+                    >
+                      {inc.categoryName ?? t.incident}
+                      {formatStarterName(inc) ? ` · ${formatStarterName(inc)}` : ""}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setHistoryOpen((current) => current === "today" ? "none" : "today")}
+            className="flex items-center justify-between gap-3 border-b border-slate-800/80 px-3 py-2.5 text-left hover:bg-slate-800/40"
+            data-testid="ops-history-today"
+          >
+            <span className="text-xs font-semibold text-slate-200">{t.closedToday}</span>
+            <span className="text-sm font-semibold tabular-nums text-slate-100">{todayClosed.length}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setHistoryOpen((current) => current === "week" ? "none" : "week")}
+            className="flex items-center justify-between gap-3 border-b border-slate-800/80 px-3 py-2.5 text-left hover:bg-slate-800/40"
+            data-testid="ops-history-week"
+          >
+            <span className="text-xs font-semibold text-slate-200">{t.thisWeek}</span>
+            <span className="text-sm font-semibold tabular-nums text-slate-100">{weekIncidents.length}</span>
+          </button>
+        {(historyOpen === "today" || bottomFocus === "today") && (
         <div
           className="flex-1 min-h-[min(220px,30dvh)] xl:min-h-0 min-w-0 flex flex-col border-b border-slate-800/80 bg-[#131a22]"
           data-testid="ops-occurrences-today-panel"
@@ -1811,7 +1676,7 @@ export function OperationsDashboard({
         </div>
         )}
 
-        {(bottomFocus === "all" || bottomFocus === "week") && (
+        {(historyOpen === "week" || bottomFocus === "week") && (
         <div
           className="flex-1 min-h-[min(220px,30dvh)] xl:min-h-0 min-w-0 flex flex-col bg-[#131a22]"
           data-testid="ops-occurrences-week-panel"
