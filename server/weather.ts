@@ -48,17 +48,42 @@ function warningFor(input: {
   return null;
 }
 
-/** Nearest town or suburb for these coordinates. Weather still shows if this fails. */
+/** Nearest suburb or town for these coordinates. Weather still shows if this fails. */
 async function placeName(lat: number, lng: number): Promise<string | null> {
   try {
-    const url = new URL("https://geocoding-api.open-meteo.com/v1/reverse");
-    url.searchParams.set("latitude", lat.toFixed(4));
-    url.searchParams.set("longitude", lng.toFixed(4));
-    url.searchParams.set("language", "af");
-    const upstream = await fetch(url, { headers: { "User-Agent": "OMT-Pulse/weather" } });
+    const url = new URL("https://nominatim.openstreetmap.org/reverse");
+    url.searchParams.set("lat", lat.toFixed(4));
+    url.searchParams.set("lon", lng.toFixed(4));
+    url.searchParams.set("format", "json");
+    url.searchParams.set("addressdetails", "1");
+    url.searchParams.set("zoom", "14");
+    url.searchParams.set("accept-language", "af");
+    const upstream = await fetch(url, {
+      headers: {
+        "User-Agent": "OMT-Pulse/weather (https://omtpulse.com)",
+        Accept: "application/json",
+      },
+    });
     if (!upstream.ok) return null;
-    const data = await upstream.json() as { results?: Array<{ name?: string }> };
-    const name = data.results?.[0]?.name?.trim();
+    const data = await upstream.json() as {
+      address?: {
+        suburb?: string;
+        neighbourhood?: string;
+        village?: string;
+        town?: string;
+        city?: string;
+        municipality?: string;
+      };
+    };
+    const address = data.address;
+    const name = [
+      address?.suburb,
+      address?.neighbourhood,
+      address?.village,
+      address?.town,
+      address?.city,
+      address?.municipality,
+    ].map((part) => part?.trim()).find((part) => !!part);
     return name || null;
   } catch {
     return null;
