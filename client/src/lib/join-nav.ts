@@ -7,8 +7,6 @@ export const JOIN_NAV_STYLE_KEY = "omt_join_nav_style";
 
 /** Distance from polyline before marking off-route (metres). */
 export const OFF_ROUTE_POLYLINE_M = 80;
-/** Consecutive off-route checks before falling back to Direct mode. */
-export const OFF_ROUTE_FALLBACK_STREAK = 3;
 /** Minimum gap between auto-reroutes in Guided mode (ms). */
 export const GUIDED_REROUTE_COOLDOWN_MS = 12_000;
 /** Step / off-route polling interval in nav mode (ms). */

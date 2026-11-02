@@ -2,7 +2,7 @@ import { CapacitorConfig } from "@capacitor/cli";
 
 const config: CapacitorConfig = {
   appId: "com.intelafri.omtpulse",
-  appName: "OMT Pulse",
+  appName: "Wagtoring",
   webDir: "dist/public",
   // Bundled shell so the APK opens offline. API calls go to production via
   // client/src/lib/api-base.ts (installNativeApiBaseFetch).

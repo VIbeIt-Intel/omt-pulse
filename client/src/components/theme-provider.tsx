@@ -17,7 +17,7 @@ const ThemeContext = createContext<ThemeContextType>({
 const farmerPhone = import.meta.env.VITE_FARMER_PHONE === "1";
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = useState<Theme>(() => {
+  const [theme, setThemeState] = useState<Theme>(() => {
     if (farmerPhone) return "light";
     if (typeof window !== "undefined") {
       const stored = localStorage.getItem("ob-theme") as Theme;
@@ -46,8 +46,15 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem("ob-theme", theme);
   }, [theme]);
 
+  const setTheme = (next: Theme) => {
+    // An explicit choice in the signed-in app beats a leftover marketing lock.
+    if (!farmerPhone) delete document.documentElement.dataset.forceTheme;
+    setThemeState(next);
+  };
+
   const toggleTheme = () => {
-    setTheme((prev) => (prev === "light" ? "dark" : "light"));
+    if (!farmerPhone) delete document.documentElement.dataset.forceTheme;
+    setThemeState((prev) => (prev === "light" ? "dark" : "light"));
   };
 
   return (

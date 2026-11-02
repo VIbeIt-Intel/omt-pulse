@@ -1,5 +1,7 @@
 import { cn } from "@/lib/utils";
+import { useFarmerLang } from "@/hooks/use-farmer-lang";
 import shieldBadge from "@/assets/omt-shield-badge.png";
+import farmerBadge from "@/assets/wagtoring-badge.jpg";
 
 interface OmtShieldProps {
   className?: string;
@@ -15,6 +17,20 @@ const SHIELD_PLATE = "bg-[#050505]";
  * behind it replaces blend-mode tricks that wash out on light backgrounds.
  */
 export function OmtShield({ className, variant = "mark" }: OmtShieldProps) {
+  const { t } = useFarmerLang();
+  const farmerPreview = import.meta.env.DEV && typeof window !== "undefined" && window.location.pathname.startsWith("/preview/farmer");
+  if (import.meta.env.VITE_FARMER_PHONE === "1" || farmerPreview) {
+    return (
+      <img
+        src={farmerBadge}
+        alt={t.appName}
+        draggable={false}
+        className={cn("object-cover", className ?? "h-10 w-10")}
+        data-testid={variant === "hero" ? "omt-shield-hero" : "omt-shield-mark"}
+      />
+    );
+  }
+
   const croppedImg = (
     <img
       src={shieldBadge}

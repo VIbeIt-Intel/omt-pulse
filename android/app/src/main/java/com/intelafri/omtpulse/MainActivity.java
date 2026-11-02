@@ -1,14 +1,11 @@
 package com.intelafri.omtpulse;
 
 import android.Manifest;
-import android.app.NotificationManager;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
-import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.provider.Settings;
 import android.webkit.PermissionRequest;
 import android.webkit.WebSettings;
 import androidx.activity.result.ActivityResultLauncher;
@@ -38,6 +35,8 @@ public class MainActivity extends BridgeActivity {
                         new ActivityResultContracts.RequestMultiplePermissions(),
                         this::onWebMediaPermissionsResult);
 
+        OmtMessagingService.ensureAlarmChannels(this);
+
         super.onCreate(savedInstanceState);
 
         // Dark window behind the transparent WebView so Live Incident map
@@ -59,6 +58,9 @@ public class MainActivity extends BridgeActivity {
         //   - API 29-32: WebSettingsCompat.setForceDark (deprecated in 33+)
         //   - API 33+  : setAlgorithmicDarkeningAllowed(false) (replaces the above)
         WebSettings settings = this.bridge.getWebView().getSettings();
+        // Keep the farmer home the same size on every phone. Samsung's Font size
+        // setting otherwise enlarges the tiles and clips Vuur, Misdaad, and Vee.
+        settings.setTextZoom(100);
         // Allow LiveKit / WebRTC remote audio without an extra gesture every time.
         settings.setMediaPlaybackRequiresUserGesture(false);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -72,7 +74,6 @@ public class MainActivity extends BridgeActivity {
         installMediaPermissionWebChromeClient();
         handleBinaryEyeReturnIntent(getIntent());
         deliverPushUrl(getIntent());
-        askFullScreenIntentOnce();
     }
 
     private void onWebMediaPermissionsResult(Map<String, Boolean> result) {
@@ -107,32 +108,24 @@ public class MainActivity extends BridgeActivity {
         if (url == null || !url.startsWith("/")) return;
         intent.removeExtra(OmtMessagingService.EXTRA_URL);
         String quoted = org.json.JSONObject.quote(url);
-        String js = "try{localStorage.setItem('omt_pending_push_url'," + quoted
-                + ");sessionStorage.setItem('omt_pending_push_url'," + quoted + ");}catch(e){}";
-        this.bridge.getWebView().evaluateJavascript(js, null);
-        this.bridge.getWebView().postDelayed(
-                () -> {
-                    if (this.bridge != null && this.bridge.getWebView() != null) {
-                        this.bridge.getWebView().evaluateJavascript(js, null);
-                    }
-                },
-                700
-        );
-    }
-
-    /** Android 14+ will not cover the lock screen until this is allowed. Ask once. */
-    private void askFullScreenIntentOnce() {
-        if (Build.VERSION.SDK_INT < 34) return;
-        if (getSharedPreferences("omt", MODE_PRIVATE).getBoolean("asked_full_screen", false)) return;
-        NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-        if (manager == null || manager.canUseFullScreenIntent()) return;
-        getSharedPreferences("omt", MODE_PRIVATE).edit().putBoolean("asked_full_screen", true).apply();
-        Intent settings = new Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT);
-        settings.setData(Uri.parse("package:" + getPackageName()));
-        try {
-            startActivity(settings);
-        } catch (Exception ignored) {
-            /* The card still opens when they tap the notification. */
+        String js = "try{var u=" + quoted + ";"
+                + "if(sessionStorage.getItem('omt_push_applied')!==u){"
+                + "sessionStorage.setItem('omt_push_applied',u);"
+                + "localStorage.setItem('omt_pending_push_url',u);"
+                + "sessionStorage.setItem('omt_pending_push_url',u);"
+                + "window.dispatchEvent(new CustomEvent('omt:push-deeplink',{detail:{url:u}}));"
+                + "}}catch(e){}";
+        android.webkit.WebView webView = this.bridge.getWebView();
+        webView.evaluateJavascript(js, null);
+        for (long delay : new long[] { 700L, 2000L, 4500L }) {
+            webView.postDelayed(
+                    () -> {
+                        if (this.bridge != null && this.bridge.getWebView() != null) {
+                            this.bridge.getWebView().evaluateJavascript(js, null);
+                        }
+                    },
+                    delay
+            );
         }
     }
 
@@ -205,5 +198,30 @@ public class MainActivity extends BridgeActivity {
             }
         }
         return perms.toArray(new String[0]);
+    }
+
+    @Override
+    public void onPause() {
+        super.onPause();
+        dispatchAppEvent("omt:app-background");
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        dispatchAppEvent("omt:app-foreground");
+    }
+
+    /** The radio page keeps running in the background. Tell it the phone has left the app. */
+    private void dispatchAppEvent(String name) {
+        try {
+            if (getBridge() == null || getBridge().getWebView() == null) return;
+            getBridge().getWebView().post(() -> getBridge().getWebView().evaluateJavascript(
+                    "window.dispatchEvent(new CustomEvent('" + name + "'))",
+                    null
+            ));
+        } catch (Exception ignored) {
+            /* The page is not ready yet. */
+        }
     }
 }

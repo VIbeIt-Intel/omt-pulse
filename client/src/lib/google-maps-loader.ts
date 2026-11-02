@@ -71,7 +71,8 @@ export function loadGoogleMaps(opts?: LoadGoogleMapsOptions): Promise<void> {
     // places + geometry only (directions, geocoding, search). No visualization —
     // analytics heatmaps use Leaflet; loading visualization was blocking/hanging
     // the bootstrap on some clients.
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&v=weekly&libraries=places,geometry&callback=${callbackName}`;
+    const farmerLang = import.meta.env.VITE_FARMER_PHONE === "1" ? "&language=af&region=ZA" : "";
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&v=weekly&libraries=places,geometry${farmerLang}&callback=${callbackName}`;
     script.async = true;
     script.defer = true;
     script.onerror = () => fail("Failed to load Google Maps script (network or CSP block)");

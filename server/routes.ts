@@ -145,6 +145,8 @@ async function sendFcmBatch(
      * app still shows the alert.
      */
     dataOnly?: boolean;
+    /** Data message only. No system sound, even when the app is closed. */
+    silent?: boolean;
   },
 ): Promise<void> {
   if (!fcmReady || tokens.length === 0) return;
@@ -187,11 +189,28 @@ async function sendFcmBatch(
   const visibleData: Record<string, string> = {};
   if (payload.data?.url) visibleData.url = payload.data.url;
   if (payload.data?.incidentId) visibleData.incidentId = payload.data.incidentId;
+  const chatCard = payload.data?.type === "chat_message";
   const jobs = tokens.flatMap((token) => {
     const sends: Array<Promise<string>> = [
       messaging.send(
         payload.dataOnly
-          ? { token, data, android: { priority: "high" as const, ttl: 3_600_000 } }
+          ? {
+              token,
+              data,
+              android: { priority: "high" as const, ttl: 3_600_000 },
+              ...(chatCard
+                ? {
+                    apns: {
+                      payload: {
+                        aps: {
+                          alert: { title: payload.title, body: payload.body },
+                          sound: "default",
+                        },
+                      },
+                    },
+                  }
+                : {}),
+            }
           : {
               token,
               notification: { title: payload.title, body: payload.body },
@@ -201,7 +220,7 @@ async function sendFcmBatch(
             },
       ),
     ];
-    if (payload.dataOnly) {
+    if (payload.dataOnly && !chatCard && !payload.silent) {
       const radioCard = payload.data?.type === "radio";
       sends.push(
         messaging.send({
@@ -1840,6 +1859,15 @@ export async function registerRoutes(
     });
   });
 
+  app.post("/api/me/quiet", async (req, res) => {
+    if (!req.session.userId) return res.status(401).json({ message: "Not authenticated" });
+    const until = Number(req.body?.until);
+    if (!Number.isFinite(until)) return res.status(400).json({ message: "until required" });
+    const stored = until === 0 ? null : until;
+    await storage.updateUser(req.session.userId, { quietUntilMs: stored });
+    res.json({ until: stored ?? 0 });
+  });
+
   app.post("/api/auth/change-password", async (req, res) => {
     if (!req.session.userId) return res.status(401).json({ message: "Unauthorized" });
     const user = await storage.getUserById(req.session.userId);
@@ -1857,6 +1885,52 @@ export async function registerRoutes(
     // Also consume the invite token if one is still set (onboarding completion)
     await storage.updateUser(user.id, { password: hashedPassword, mustChangePassword: false, inviteToken: null, inviteTokenExpiresAt: null });
     res.json({ success: true });
+  });
+
+  app.patch("/api/users/me", async (req, res) => {
+    if (!req.session.userId) return res.status(401).json({ message: "Unauthorized" });
+    const parsed = z.object({
+      firstName: z.string().trim().min(1).max(80),
+      lastName: z.string().trim().min(1).max(80),
+      contactNumber: z.string().trim().max(40).nullable().optional(),
+      email: z.string().trim().email().max(200),
+    }).safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: parsed.error.errors[0]?.message || "Validation failed" });
+    }
+    const existing = await storage.getUserById(req.session.userId);
+    if (!existing) return res.status(404).json({ message: "User not found" });
+    const email = parsed.data.email.toLowerCase();
+    if (email !== existing.email.toLowerCase()) {
+      const taken = await storage.getUserByEmail(email);
+      if (taken && taken.id !== existing.id) {
+        return res.status(409).json({ message: "A user with this email already exists" });
+      }
+    }
+    const contactNumber = parsed.data.contactNumber?.trim() || null;
+    let updated;
+    try {
+      updated = await storage.updateUser(req.session.userId, {
+        firstName: parsed.data.firstName,
+        lastName: parsed.data.lastName,
+        contactNumber,
+        email,
+      });
+    } catch (err) {
+      const code = (err as { code?: string; cause?: { code?: string } })?.code
+        ?? (err as { cause?: { code?: string } })?.cause?.code;
+      if (code === "23505") {
+        return res.status(409).json({ message: "A user with this email already exists" });
+      }
+      throw err;
+    }
+    if (!updated) return res.status(404).json({ message: "User not found" });
+    audit(req.session.userId, existing.organizationId, "profile.update", "Updated own profile", {
+      entityType: "user",
+      entityId: existing.id,
+    });
+    const { password: _pw, shiftPinHash: _sp, ...safeUser } = updated;
+    res.json(safeUser);
   });
 
   app.post("/api/users/me/avatar", async (req, res) => {
@@ -2918,15 +2992,10 @@ export async function registerRoutes(
 
   // All responders (including departed) who participated in a live incident
   app.get("/api/incidents/:id/responders", async (req, res) => {
-    const { role: callerRole, id: callerId, organizationId: orgId } = req.currentUser!;
+    const { organizationId: orgId } = req.currentUser!;
     const id = parseInt(req.params.id as string);
-    if (callerRole !== "administrator" && !isDispatchStaff(callerRole)) {
-      // Reporters may only view responders for incidents they created (e.g. their own panic)
-      const incident = await storage.getIncident(id, orgId);
-      if (!incident || incident.userId !== callerId) {
-        return res.status(403).json({ message: "Access denied" });
-      }
-    }
+    const incident = await verifyIncidentAccess(req, res, id);
+    if (!incident) return;
     const responders = await storage.getIncidentResponders(id, orgId);
     res.json(responders);
   });
@@ -6226,6 +6295,7 @@ export async function registerRoutes(
               data: fcmData,
               notificationTag: `chat-dm-${senderId}-${messageId}`,
               channelId: CHAT_ALERT_CHANNEL,
+              dataOnly: true,
             });
           }
 
@@ -6269,6 +6339,7 @@ export async function registerRoutes(
               data: fcmData,
               notificationTag: `chat-group-${messageId}`,
               channelId: CHAT_ALERT_CHANNEL,
+              dataOnly: true,
             });
           }
 

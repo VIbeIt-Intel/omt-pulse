@@ -187,6 +187,14 @@ export async function acquirePanicLocation(): Promise<PanicLocationResult> {
   ]);
 }
 
+/** Misdaad and livestock: a fix from the last two minutes is enough, then a short fresh wait. */
+export async function acquireReportLocation(): Promise<PanicLocationResult> {
+  return acquireWithAttempts([
+    { enableHighAccuracy: false, timeout: 2_000, maximumAge: 120_000 },
+    { enableHighAccuracy: true, timeout: 6_000, maximumAge: 15_000 },
+  ]);
+}
+
 /** Shorter settle wait when Location is on but fix is cold (~8s). */
 export async function acquireSettlingLocation(): Promise<PanicLocationResult> {
   return acquireWithAttempts([

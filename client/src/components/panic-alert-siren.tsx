@@ -39,7 +39,7 @@ export function PanicAlertSiren({ currentUserId }: Props) {
   const seenIdsRef = useRef<Set<number>>(new Set());
   const seededRef = useRef(false);
 
-  const { data: alerts = [] } = useQuery<PanicAlert[]>({
+  const { data: alerts = [], isSuccess } = useQuery<PanicAlert[]>({
     queryKey: ["/api/panic/recent"],
     enabled: !!currentUserId,
     refetchInterval: currentUserId ? 5000 : false,
@@ -52,9 +52,11 @@ export function PanicAlertSiren({ currentUserId }: Props) {
     (a) => !a.panicClosedAt && a.userId !== currentUserId && !dismissedIds.has(a.id),
   );
 
-  // Play sound on truly new panics (skip the initial load to avoid blasting
-  // sound for any in-flight panic that existed before the user opened the app)
+  // Play sound on truly new panics. Wait until the first fetch has arrived,
+  // otherwise an empty list is treated as "seen" and the panic that loads a
+  // moment later sounds the alarm just because the app was opened.
   useEffect(() => {
+    if (!isSuccess) return;
     if (!seededRef.current) {
       for (const a of liveAlerts) seenIdsRef.current.add(a.id);
       seededRef.current = true;
@@ -81,13 +83,16 @@ export function PanicAlertSiren({ currentUserId }: Props) {
     } catch {
       /* autoplay blocked — banner + native push will still alert */
     }
-  }, [liveAlerts]);
+  }, [liveAlerts, isSuccess]);
 
   if (liveAlerts.length === 0) return null;
+  // The farmer phone has a standing PANIEK bar that stays until the panic is closed.
+  if (import.meta.env.VITE_FARMER_PHONE === "1") return null;
   if (PAGES_WITH_FULL_BANNER.includes(location)) return null;
 
   const top = liveAlerts[0];
   const extra = liveAlerts.length - 1;
+  const farmerPhone = import.meta.env.VITE_FARMER_PHONE === "1";
 
   return (
     <button
@@ -98,10 +103,12 @@ export function PanicAlertSiren({ currentUserId }: Props) {
     >
       <Siren className="h-5 w-5 shrink-0" />
       <span className="flex-1 text-left truncate">
-        PANIC: {top.firstName} {top.lastName} needs help
-        {extra > 0 ? ` (+${extra} more)` : ""}
+        {farmerPhone
+          ? `PANIEK: ${top.firstName} ${top.lastName} het hulp nodig`
+          : `PANIC: ${top.firstName} ${top.lastName} needs help`}
+        {extra > 0 ? ` (+${extra})` : ""}
       </span>
-      <span className="text-xs uppercase tracking-wider opacity-90 shrink-0">Open</span>
+      <span className="text-xs uppercase tracking-wider opacity-90 shrink-0">{farmerPhone ? "Maak oop" : "Open"}</span>
       <ChevronRight className="h-4 w-4 shrink-0" />
     </button>
   );

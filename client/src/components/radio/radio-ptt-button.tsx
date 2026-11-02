@@ -13,6 +13,9 @@ export function RadioPttButton({
   onPressEnd,
   className,
   label = "Hold to talk",
+  openingLabel,
+  onAirLabel,
+  busyLabel,
   compact = false,
 }: {
   disabled?: boolean;
@@ -22,6 +25,9 @@ export function RadioPttButton({
   onPressEnd: () => void;
   className?: string;
   label?: string;
+  openingLabel?: string;
+  onAirLabel?: string;
+  busyLabel?: string;
   /** Slim dock control — icon + short label, not a full-width hero button. */
   compact?: boolean;
 }) {
@@ -111,17 +117,11 @@ export function RadioPttButton({
 
   const active = transmitting || pressed;
   const displayLabel = transmitting
-    ? compact
-      ? "On air"
-      : "On air — release to stop"
+    ? onAirLabel ?? (compact ? "On air" : "On air — release to stop")
     : pressed
-      ? compact
-        ? "…"
-        : "Opening mic…"
+      ? openingLabel ?? (compact ? "…" : "Opening mic…")
       : busy
-        ? compact
-          ? "Busy"
-          : "Channel busy"
+        ? busyLabel ?? (compact ? "Busy" : "Channel busy")
         : label;
 
   return (

@@ -101,6 +101,7 @@ export function AttachmentPreview({
   mimeType,
   filename,
   compact = false,
+  large = false,
 }: {
   url: string;
   alt: string;
@@ -108,6 +109,8 @@ export function AttachmentPreview({
   filename?: string;
   /** Smaller layout for thumbnail grids. */
   compact?: boolean;
+  /** Full photo on a report, so the picture can actually be seen. */
+  large?: boolean;
 }) {
   const kind = resolveAttachmentKind(mimeType, filename ?? alt);
   const isServable =
@@ -169,14 +172,16 @@ export function AttachmentPreview({
     <>
       <button
         type="button"
-        className="w-full block cursor-zoom-in focus:outline-none"
+        className="w-full block cursor-zoom-in touch-pan-y focus:outline-none"
         onClick={() => setLightboxOpen(true)}
         aria-label={`View ${filename ?? alt}`}
       >
         <img
           src={imageSrc}
           alt={alt}
-          className="w-full h-20 object-cover rounded"
+          className={large
+            ? "w-full max-h-[70vh] rounded-2xl bg-zinc-950 object-contain"
+            : "w-full h-20 object-cover rounded"}
           onError={() => setBroken(true)}
         />
       </button>

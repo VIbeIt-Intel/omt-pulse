@@ -2,8 +2,6 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { useControlRoomLang } from "@/hooks/use-control-room-lang";
-import { controlRoomChrome } from "@/lib/control-room-chrome";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -22,8 +20,14 @@ import {
 } from "@/components/ui/alert-dialog";
 import { MessageSquare, Send, Plus, Search, Users, ArrowLeft, ImageIcon, Camera, Mic, Trash2, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { MAX_VOICE_SECONDS, prepareAndUploadFile, uploadFile, UploadValidationError } from "@/lib/upload-media";
+import { MAX_VOICE_SECONDS, prepareAndUploadFile, prepareUploadFile, uploadFile, UploadValidationError } from "@/lib/upload-media";
+import { enqueueOutboxJob, fileToDataUrl, isNetworkFailure, listOutboxJobs, type OutboxChatJob } from "@/lib/offline-outbox";
+import { usesFarmerPhone } from "@/lib/farmer-phone";
+import { useFarmerLang } from "@/hooks/use-farmer-lang";
+import { useControlRoomLang } from "@/hooks/use-control-room-lang";
+import { controlRoomChrome } from "@/lib/control-room-chrome";
 import { useAuthedMediaUrl } from "@/lib/authed-media";
+import { PhotoLightbox } from "@/components/photo-lightbox";
 import { nativeMicDeniedHint, nativeVoiceApkUpdateHint } from "@/lib/native-mic-hint";
 import {
   createAudioMediaRecorder,
@@ -38,6 +42,7 @@ import {
   stopNativeRecording,
 } from "@/lib/native-audio-recorder";
 import { Capacitor } from "@capacitor/core";
+import { useLocation } from "wouter";
 
 type ChatMessage = {
   id: number;
@@ -83,6 +88,7 @@ type AuthUser = {
 
 function ChatImageMessage({ url }: { url: string }) {
   const { src, loading, error } = useAuthedMediaUrl(url);
+  const [open, setOpen] = useState(false);
 
   if (loading) {
     return (
@@ -100,13 +106,27 @@ function ChatImageMessage({ url }: { url: string }) {
   }
 
   return (
-    <a href={src} target="_blank" rel="noopener noreferrer" data-testid="msg-image-link">
-      <img
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="block"
+        data-testid="msg-image-link"
+      >
+        <img
+          src={src}
+          alt="Shared image"
+          className="max-w-[220px] rounded-xl border border-white/10 object-cover cursor-pointer"
+        />
+      </button>
+      <PhotoLightbox
+        open={open}
+        onOpenChange={setOpen}
         src={src}
         alt="Shared image"
-        className="max-w-[220px] rounded-xl border border-white/10 object-cover cursor-pointer"
+        title="Photo"
       />
-    </a>
+    </>
   );
 }
 
@@ -161,20 +181,24 @@ function formatMessageTime(iso: string) {
   return new Date(iso).toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
-function Initials({ firstName, lastName, avatarUrl, size = "md" }: { firstName: string; lastName: string; avatarUrl?: string | null; size?: "sm" | "md" }) {
-  const sizeClass = size === "sm" ? "h-7 w-7 text-xs" : "h-9 w-9 text-sm";
+function Initials({ firstName, lastName, avatarUrl, size = "md", tile = false }: { firstName: string; lastName: string; avatarUrl?: string | null; size?: "sm" | "md"; tile?: boolean }) {
+  const sizeClass = tile ? "h-12 w-12 rounded-2xl text-sm" : size === "sm" ? "h-7 w-7 rounded-full text-xs" : "h-9 w-9 rounded-full text-sm";
   if (avatarUrl) {
     return (
       <img
         src={avatarUrl.startsWith("data:") ? avatarUrl : (() => { try { return new URL(avatarUrl).pathname; } catch { return avatarUrl; } })()}
         alt={firstName}
-        className={cn("rounded-full object-cover shrink-0", sizeClass)}
+        className={cn("object-cover shrink-0", sizeClass)}
         onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
       />
     );
   }
   return (
-    <div className={cn("rounded-full bg-primary/10 flex items-center justify-center shrink-0 font-semibold text-primary border border-border", sizeClass)}>
+    <div className={cn(
+      "flex items-center justify-center shrink-0 font-semibold",
+      tile ? "bg-[#006039]/10 text-[#006039]" : "bg-primary/10 text-primary border border-border",
+      sizeClass,
+    )}>
       {`${firstName?.[0] ?? ""}${lastName?.[0] ?? ""}`.toUpperCase()}
     </div>
   );
@@ -191,8 +215,10 @@ function NewDmDialog({
   onSelect: (user: OrgUser) => void;
   currentUserId: string;
 }) {
+  const { t } = useFarmerLang();
   const { lang } = useControlRoomLang();
   const chrome = controlRoomChrome(lang);
+  const farmer = import.meta.env.VITE_FARMER_PHONE === "1";
   const [search, setSearch] = useState("");
   const { data: users = [] } = useQuery<OrgUser[]>({ queryKey: ["/api/chat/users"] });
 
@@ -209,13 +235,13 @@ function NewDmDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Users className="h-4 w-4 text-primary" />
-            {chrome.startDm}
+            {farmer ? t.chatNewTitle : chrome.startDm}
           </DialogTitle>
         </DialogHeader>
         <div className="relative mb-2">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
           <Input
-            placeholder={chrome.searchPeople}
+            placeholder={farmer ? t.chatSearch : chrome.searchPeople}
             className="pl-9"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -225,7 +251,7 @@ function NewDmDialog({
         </div>
         <ScrollArea className="max-h-72">
           {filtered.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-6">{chrome.noUsers}</p>
+            <p className="text-sm text-muted-foreground text-center py-6">{farmer ? t.chatNoUsers : chrome.noUsers}</p>
           ) : (
             <div className="space-y-0.5">
               {filtered.map((u) => (
@@ -253,6 +279,7 @@ function NewDmDialog({
 
 export default function ChatPage() {
   const { toast } = useToast();
+  const { t: farmerT } = useFarmerLang();
   const { t, lang } = useControlRoomLang();
   const chrome = controlRoomChrome(lang);
   const qc = useQueryClient();
@@ -353,6 +380,35 @@ export default function ChatPage() {
   // of a new thread snaps instantly to the latest message (no smooth animation)
   // and the new-message detector doesn't treat the entire thread as "new".
   const activeConvoKey = activeConvo.type === "group" ? "group" : `dm:${activeConvo.recipientId}`;
+  const farmer = usesFarmerPhone(me?.role ?? "");
+  const [pendingChat, setPendingChat] = useState<OutboxChatJob[]>([]);
+  const savedTitle = farmer ? farmerT.savedOnPhone : "Saved on this phone";
+  const savedHint = farmer ? farmerT.sendsWhenSignal : "It will send as soon as there is signal.";
+  const waitingLabel = farmer ? farmerT.waitingSignal : "Waiting for signal";
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const jobs = await listOutboxJobs();
+      if (cancelled) return;
+      const recipientId = activeConvo.type === "dm" ? activeConvo.recipientId : null;
+      setPendingChat(
+        jobs.filter((job): job is OutboxChatJob => job.type === "chat" && (job.recipientId ?? null) === recipientId),
+      );
+    };
+    void load();
+    window.addEventListener("omt:outbox-changed", load);
+    window.addEventListener("omt:outbox-drained", load);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("omt:outbox-changed", load);
+      window.removeEventListener("omt:outbox-drained", load);
+    };
+  }, [activeConvo]);
+
+  function toastSaved() {
+    toast({ title: savedTitle, description: savedHint });
+  }
   useEffect(() => {
     lastSeenMsgIdRef.current = null;
     hasInitialScrolledRef.current = false;
@@ -417,10 +473,26 @@ export default function ChatPage() {
   const sendMutation = useMutation({
     mutationFn: async (content: string) => {
       const recipientId = activeConvo.type === "dm" ? activeConvo.recipientId : null;
-      return apiRequest("POST", "/api/chat/messages", { recipientId, content });
+      const keep = () => enqueueOutboxJob({ type: "chat", recipientId, content });
+      if (!navigator.onLine) {
+        await keep();
+        return { queued: true as const };
+      }
+      try {
+        await apiRequest("POST", "/api/chat/messages", { recipientId, content });
+        return { queued: false as const };
+      } catch (err) {
+        if (!isNetworkFailure(err)) throw err;
+        await keep();
+        return { queued: true as const };
+      }
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       setText("");
+      if (data.queued) {
+        toastSaved();
+        return;
+      }
       qc.invalidateQueries({ queryKey: messagesQueryKey });
       qc.invalidateQueries({ queryKey: ["/api/chat/conversations"] });
     },
@@ -498,10 +570,25 @@ export default function ChatPage() {
     }
     setUploadingImage(true);
     setShowAttachMenu(false);
+    const recipientId = activeConvo.type === "dm" ? activeConvo.recipientId : null;
     try {
+      if (!navigator.onLine) {
+        const shrunk = await prepareUploadFile(file, { preset: "chat" });
+        await enqueueOutboxJob({ type: "chat", recipientId, imageDataUrl: await fileToDataUrl(shrunk) });
+        toastSaved();
+        return;
+      }
       const { objectUrl } = await prepareAndUploadFile(file, { preset: "chat" });
       await sendMediaMessage(`[img]${objectUrl}`);
     } catch (err) {
+      if (isNetworkFailure(err)) {
+        try {
+          const shrunk = await prepareUploadFile(file, { preset: "chat" });
+          await enqueueOutboxJob({ type: "chat", recipientId, imageDataUrl: await fileToDataUrl(shrunk) });
+          toastSaved();
+          return;
+        } catch { /* fall through */ }
+      }
       toast({
         title: err instanceof UploadValidationError ? err.message : "Image upload failed",
         variant: "destructive",
@@ -515,10 +602,33 @@ export default function ChatPage() {
 
   async function uploadAndSendVoice(blob: Blob, mimeType: string) {
     setUploadingVoice(true);
+    const recipientId = activeConvo.type === "dm" ? activeConvo.recipientId : null;
     try {
+      if (!navigator.onLine) {
+        await enqueueOutboxJob({
+          type: "chat",
+          recipientId,
+          audioDataUrl: await fileToDataUrl(blob),
+          audioMime: mimeType,
+        });
+        toastSaved();
+        return;
+      }
       const { objectUrl } = await uploadFile(blob, mimeType);
       await sendMediaMessage(`[audio]${objectUrl}`);
     } catch (err) {
+      if (isNetworkFailure(err)) {
+        try {
+          await enqueueOutboxJob({
+            type: "chat",
+            recipientId,
+            audioDataUrl: await fileToDataUrl(blob),
+            audioMime: mimeType,
+          });
+          toastSaved();
+          return;
+        } catch { /* fall through */ }
+      }
       const message = err instanceof UploadValidationError
         ? err.message
         : "Voice note upload failed";
@@ -538,11 +648,34 @@ export default function ChatPage() {
     }
     setUploadingVoice(true);
     setShowAttachMenu(false);
+    const recipientId = activeConvo.type === "dm" ? activeConvo.recipientId : null;
+    const contentType = file.type || "audio/mp4";
     try {
-      const contentType = file.type || "audio/mp4";
+      if (!navigator.onLine) {
+        await enqueueOutboxJob({
+          type: "chat",
+          recipientId,
+          audioDataUrl: await fileToDataUrl(file),
+          audioMime: contentType,
+        });
+        toastSaved();
+        return;
+      }
       const { objectUrl } = await uploadFile(file, contentType);
       await sendMediaMessage(`[audio]${objectUrl}`);
     } catch (err) {
+      if (isNetworkFailure(err)) {
+        try {
+          await enqueueOutboxJob({
+            type: "chat",
+            recipientId,
+            audioDataUrl: await fileToDataUrl(file),
+            audioMime: contentType,
+          });
+          toastSaved();
+          return;
+        } catch { /* fall through */ }
+      }
       const message = err instanceof UploadValidationError
         ? err.message
         : "Voice note upload failed";
@@ -802,10 +935,35 @@ export default function ChatPage() {
 
       {/* Left panel — conversation list */}
       <div className={cn(
-        "shrink-0 border-r flex flex-col bg-sidebar",
-        "w-full md:w-72",
+        "shrink-0 flex flex-col",
+        farmer ? "w-full bg-[#f4f1ea]" : "w-full md:w-72 border-r bg-sidebar",
         showThread ? "hidden md:flex" : "flex"
       )}>
+        {farmer ? (
+          <div className="flex items-center gap-3 px-4 pb-2 pt-5">
+            <button
+              type="button"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-zinc-800 shadow-sm ring-1 ring-zinc-200"
+              onClick={() => window.history.back()}
+              data-testid="button-chat-back"
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </button>
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] font-semibold uppercase leading-none tracking-[0.14em] text-[#006039]">{farmerT.appName}</p>
+              <h1 className="mt-1 truncate text-[1.35rem] font-semibold leading-tight text-zinc-900">{farmerT.chat}</h1>
+            </div>
+            <button
+              type="button"
+              className="inline-flex h-10 shrink-0 items-center gap-1 rounded-full bg-[#006039] px-3.5 text-sm font-semibold text-white"
+              onClick={() => setNewDmOpen(true)}
+              data-testid="button-new-dm"
+            >
+              <Plus className="h-4 w-4" />
+              {farmerT.chatNew}
+            </button>
+          </div>
+        ) : (
         <div className="px-3 py-3 border-b border-primary/20 bg-gradient-to-r from-primary/10 via-transparent to-transparent">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-1.5 min-w-0">
@@ -823,7 +981,7 @@ export default function ChatPage() {
                   {t.nav.chat}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1 truncate">
-                  {conversations.length} {conversations.length === 1 ? chrome.thread : chrome.threads}
+                  {`${conversations.length} ${conversations.length === 1 ? chrome.thread : chrome.threads}`}
                   {totalUnread > 0 ? ` · ${totalUnread} ${chrome.unread}` : ""}
                 </p>
               </div>
@@ -845,44 +1003,50 @@ export default function ChatPage() {
             </Button>
           </div>
         </div>
+        )}
 
         <ScrollArea className="flex-1">
-          <div className="px-2 py-1 space-y-0.5">
-            <div className="px-2 pt-2 pb-1">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{chrome.channels}</p>
+          <div className={farmer ? "space-y-2 px-4 py-3" : "px-2 py-1 space-y-0.5"}>
+            <div className={farmer ? "px-1 pb-1" : "px-2 pt-2 pb-1"}>
+              <p className={farmer ? "text-[11px] font-semibold uppercase tracking-[0.14em] text-[#006039]" : "text-xs font-medium text-muted-foreground uppercase tracking-wider"}>{farmer ? farmerT.chatChannels : chrome.channels}</p>
             </div>
             <button
               className={cn(
-                "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-left",
-                isActiveGroup ? "bg-primary/10 text-primary" : "hover:bg-muted/60"
+                "w-full flex items-center gap-3 text-left",
+                farmer
+                  ? "rounded-[1.4rem] bg-white px-3 py-3 shadow-[0_12px_30px_-20px_rgba(0,0,0,0.45)] ring-1 ring-zinc-200"
+                  : cn("px-3 py-2.5 rounded-lg transition-colors", isActiveGroup ? "bg-primary/10 text-primary" : "hover:bg-muted/60"),
               )}
               onClick={selectGroup}
               data-testid="button-convo-general"
             >
-              <div className="h-9 w-9 rounded-full bg-primary/15 flex items-center justify-center shrink-0 border border-primary/20">
-                <Users className="h-4 w-4 text-primary" />
+              <div className={cn(
+                "flex shrink-0 items-center justify-center",
+                farmer ? "h-12 w-12 rounded-2xl bg-[#006039] text-white" : "h-9 w-9 rounded-full bg-primary/15 border border-primary/20",
+              )}>
+                <Users className={farmer ? "h-5 w-5" : "h-4 w-4 text-primary"} />
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-1">
-                  <span className="text-sm font-medium truncate">{chrome.general}</span>
+                  <span className={cn("truncate font-semibold", farmer ? "text-base text-zinc-900" : "text-sm font-medium")}>{farmer ? farmerT.chatGeneral : chrome.general}</span>
                   {groupConvo?.lastMessageAt && (
-                    <span className="text-xs text-muted-foreground shrink-0">{formatTime(groupConvo.lastMessageAt)}</span>
+                    <span className="text-xs text-zinc-400 shrink-0">{formatTime(groupConvo.lastMessageAt)}</span>
                   )}
                 </div>
                 {groupConvo?.lastMessage && (
-                  <p className="text-xs text-muted-foreground truncate mt-0.5">{previewMessage(groupConvo.lastMessage)}</p>
+                  <p className={cn("truncate mt-0.5", farmer ? "text-sm text-zinc-500" : "text-xs text-muted-foreground")}>{previewMessage(groupConvo.lastMessage)}</p>
                 )}
               </div>
               {(groupConvo?.unreadCount ?? 0) > 0 && (
-                <Badge className="h-5 min-w-5 px-1.5 text-xs shrink-0" data-testid="badge-unread-general">
+                <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-[#006039] px-1.5 text-xs font-bold text-white" data-testid="badge-unread-general">
                   {groupConvo.unreadCount}
-                </Badge>
+                </span>
               )}
             </button>
 
             {dmConvos.length > 0 && (
-              <div className="px-2 pt-3 pb-1">
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{chrome.directMessages}</p>
+              <div className={farmer ? "px-1 pb-1 pt-3" : "px-2 pt-3 pb-1"}>
+                <p className={farmer ? "text-[11px] font-semibold uppercase tracking-[0.14em] text-[#006039]" : "text-xs font-medium text-muted-foreground uppercase tracking-wider"}>{farmer ? farmerT.chatDirect : chrome.directMessages}</p>
               </div>
             )}
 
@@ -890,28 +1054,30 @@ export default function ChatPage() {
               <button
                 key={convo.recipientId}
                 className={cn(
-                  "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-left",
-                  isActiveDm(convo.recipientId!) ? "bg-primary/10 text-primary" : "hover:bg-muted/60"
+                  "w-full flex items-center gap-3 text-left",
+                  farmer
+                    ? "rounded-[1.4rem] bg-white px-3 py-3 shadow-[0_12px_30px_-20px_rgba(0,0,0,0.45)] ring-1 ring-zinc-200"
+                    : cn("px-3 py-2.5 rounded-lg transition-colors", isActiveDm(convo.recipientId!) ? "bg-primary/10 text-primary" : "hover:bg-muted/60"),
                 )}
                 onClick={() => selectDm(convo)}
                 data-testid={`button-convo-dm-${convo.recipientId}`}
               >
-                <Initials firstName={convo.recipientFirstName ?? ""} lastName={convo.recipientLastName ?? ""} avatarUrl={convo.recipientAvatarUrl} />
+                <Initials firstName={convo.recipientFirstName ?? ""} lastName={convo.recipientLastName ?? ""} avatarUrl={convo.recipientAvatarUrl} tile={farmer} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-1">
-                    <span className="text-sm font-medium truncate">{convo.recipientFirstName} {convo.recipientLastName}</span>
+                    <span className={cn("truncate font-semibold", farmer ? "text-base text-zinc-900" : "text-sm font-medium")}>{convo.recipientFirstName} {convo.recipientLastName}</span>
                     {convo.lastMessageAt && (
-                      <span className="text-xs text-muted-foreground shrink-0">{formatTime(convo.lastMessageAt)}</span>
+                      <span className="text-xs text-zinc-400 shrink-0">{formatTime(convo.lastMessageAt)}</span>
                     )}
                   </div>
                   {convo.lastMessage && (
-                    <p className="text-xs text-muted-foreground truncate mt-0.5">{previewMessage(convo.lastMessage)}</p>
+                    <p className={cn("truncate mt-0.5", farmer ? "text-sm text-zinc-500" : "text-xs text-muted-foreground")}>{previewMessage(convo.lastMessage)}</p>
                   )}
                 </div>
                 {convo.unreadCount > 0 && (
-                  <Badge className="h-5 min-w-5 px-1.5 text-xs shrink-0" data-testid={`badge-unread-dm-${convo.recipientId}`}>
+                  <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-[#006039] px-1.5 text-xs font-bold text-white" data-testid={`badge-unread-dm-${convo.recipientId}`}>
                     {convo.unreadCount}
-                  </Badge>
+                  </span>
                 )}
               </button>
             ))}
@@ -930,7 +1096,7 @@ export default function ChatPage() {
             {activeConvo.type === "group" ? (
               <>
                 <Users className="h-4 w-4 text-primary shrink-0" />
-                <span className="font-medium text-sm truncate">{chrome.general}</span>
+                <span className="font-medium text-sm truncate">{farmer ? farmerT.chatGeneral : chrome.general}</span>
               </>
             ) : (
               <>
@@ -991,7 +1157,7 @@ export default function ChatPage() {
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <span className="text-sm font-medium truncate flex-1 text-center px-2">
-            {activeConvo.type === "group" ? chrome.general : activeConvo.recipientName}
+            {activeConvo.type === "group" ? (farmer ? farmerT.chatGeneral : chrome.general) : activeConvo.recipientName}
           </span>
           {activeConvo.type === "group" && isAdmin ? (
             <AlertDialog>
@@ -1105,6 +1271,14 @@ export default function ChatPage() {
               </div>
             </div>
           ))}
+          {pendingChat.map((job) => (
+            <div key={job.id} className="flex justify-end">
+              <div className="max-w-[70%] rounded-2xl rounded-br-sm bg-primary/80 px-3 py-2 text-sm text-primary-foreground">
+                <p>{job.imageDataUrl ? "Photo" : job.audioDataUrl ? "Voice note" : job.content}</p>
+                <p className="mt-1 text-[10px] opacity-80">{waitingLabel}</p>
+              </div>
+            </div>
+          ))}
           <div ref={messagesEndRef} />
         </ScrollArea>
 
@@ -1194,7 +1368,9 @@ export default function ChatPage() {
             <textarea
               ref={inputRef}
               className="flex-1 min-h-[40px] max-h-32 resize-none rounded-xl border bg-muted/40 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground"
-              placeholder={activeConvo.type === "group" ? chrome.messageGeneral : `${chrome.messagePerson} ${activeConvo.type === "dm" ? activeConvo.recipientName : ""}…`}
+              placeholder={activeConvo.type === "group"
+                ? (farmer ? farmerT.chatMessageGeneral : chrome.messageGeneral)
+                : (farmer ? `${farmerT.chatMessagePerson} ${activeConvo.type === "dm" ? activeConvo.recipientName : ""}…` : `${chrome.messagePerson} ${activeConvo.type === "dm" ? activeConvo.recipientName : ""}…`)}
               value={text}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={handleKeyDown}
@@ -1221,6 +1397,103 @@ export default function ChatPage() {
         onSelect={handleSelectDmUser}
         currentUserId={me?.id ?? ""}
       />
+    </div>
+  );
+}
+
+/** Local look at chat after Boodskap on the farmer home. */
+export function FarmerChatPreview() {
+  const { t } = useFarmerLang();
+  const [, navigate] = useLocation();
+  const thread = new URLSearchParams(window.location.search).get("thread") === "1";
+  if (thread) return <FarmerChatThread onBack={() => navigate("/preview/farmer/boodskap")} />;
+  return (
+    <div className="flex h-full flex-col bg-[#f4f1ea] text-zinc-900" data-testid="preview-farmer-chat">
+      <div className="flex items-center gap-3 px-4 pb-2 pt-5">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-zinc-800 shadow-sm ring-1 ring-zinc-200">
+          <ArrowLeft className="h-4 w-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] font-semibold uppercase leading-none tracking-[0.14em] text-[#006039]">{t.appName}</p>
+          <h1 className="mt-1 truncate text-[1.35rem] font-semibold leading-tight">{t.chat}</h1>
+        </div>
+        <span className="inline-flex h-10 shrink-0 items-center gap-1 rounded-full bg-[#006039] px-3.5 text-sm font-semibold text-white">
+          <Plus className="h-4 w-4" />
+          {t.chatNew}
+        </span>
+      </div>
+      <div className="space-y-2 px-4 py-3">
+        <p className="px-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#006039]">{t.chatChannels}</p>
+        <button
+          type="button"
+          className="flex w-full items-center gap-3 rounded-[1.4rem] bg-white px-3 py-3 text-left shadow-[0_12px_30px_-20px_rgba(0,0,0,0.45)] ring-1 ring-zinc-200"
+          onClick={() => navigate("/preview/farmer/boodskap?thread=1")}
+        >
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#006039] text-white">
+            <Users className="h-5 w-5" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="flex items-center justify-between gap-1">
+              <span className="truncate text-base font-semibold">{t.chatGeneral}</span>
+              <span className="shrink-0 text-xs text-zinc-400">14:02</span>
+            </span>
+            <span className="mt-0.5 block truncate text-sm text-zinc-500">Hek is oop by die grondpad.</span>
+          </span>
+          <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-[#006039] px-1.5 text-xs font-bold text-white">1</span>
+        </button>
+        <p className="px-1 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#006039]">{t.chatDirect}</p>
+        <div className="flex w-full items-center gap-3 rounded-[1.4rem] bg-white px-3 py-3 text-left shadow-[0_12px_30px_-20px_rgba(0,0,0,0.45)] ring-1 ring-zinc-200">
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#006039]/10 text-sm font-bold text-[#006039]">PV</span>
+          <span className="min-w-0 flex-1">
+            <span className="flex items-center justify-between gap-1">
+              <span className="truncate text-base font-semibold">Piet Venter</span>
+              <span className="shrink-0 text-xs text-zinc-400">Gister</span>
+            </span>
+            <span className="mt-0.5 block truncate text-sm text-zinc-500">Ek is by die hek.</span>
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FarmerChatThread({ onBack }: { onBack: () => void }) {
+  return (
+    <div className="flex h-full flex-col bg-background text-foreground" data-testid="preview-farmer-chat">
+      <header className="flex items-center gap-2 border-b px-2 py-2">
+        <button type="button" className="flex h-8 w-8 items-center justify-center" onClick={onBack}>
+          <ArrowLeft className="h-4 w-4" />
+        </button>
+        <span className="flex flex-1 items-center justify-center gap-1.5 text-sm font-medium">
+          <Users className="h-4 w-4 text-primary" />
+          General
+        </span>
+        <span className="w-8" />
+      </header>
+      <div className="flex flex-1 flex-col justify-end gap-3 px-4 py-4">
+        <div className="flex items-end gap-2">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-bold">PV</span>
+          <div>
+            <p className="mb-0.5 text-[11px] text-muted-foreground">Piet Venter</p>
+            <div className="max-w-[240px] rounded-2xl rounded-bl-sm bg-muted px-3 py-2 text-sm">Hek is oop by die grondpad.</div>
+          </div>
+        </div>
+        <div className="flex justify-end">
+          <div className="max-w-[240px] rounded-2xl rounded-br-sm bg-primary px-3 py-2 text-sm text-primary-foreground">Ek kyk.</div>
+        </div>
+      </div>
+      <div className="flex items-end gap-2 border-t px-3 py-3">
+        <span className="flex h-10 w-10 items-center justify-center rounded-xl text-muted-foreground">
+          <ImageIcon className="h-4 w-4" />
+        </span>
+        <span className="flex h-10 w-10 items-center justify-center rounded-xl text-muted-foreground">
+          <Mic className="h-4 w-4" />
+        </span>
+        <div className="flex min-h-10 flex-1 items-center rounded-xl border bg-muted/40 px-3 text-sm text-muted-foreground">Message General…</div>
+        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+          <Send className="h-4 w-4" />
+        </span>
+      </div>
     </div>
   );
 }

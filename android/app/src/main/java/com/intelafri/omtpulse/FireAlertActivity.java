@@ -1,10 +1,14 @@
 package com.intelafri.omtpulse;
 
 import android.content.Intent;
+import android.graphics.Outline;
 import android.media.AudioAttributes;
 import android.media.MediaPlayer;
 import android.os.Bundle;
+import android.view.View;
+import android.view.ViewOutlineProvider;
 import android.view.WindowManager;
+import android.widget.ImageView;
 import android.widget.TextView;
 import androidx.appcompat.app.AppCompatActivity;
 import java.text.SimpleDateFormat;
@@ -28,6 +32,14 @@ public class FireAlertActivity extends AppCompatActivity {
                         | WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
         );
         setContentView(R.layout.activity_fire_alert);
+        ImageView logo = findViewById(R.id.fire_logo);
+        logo.setOutlineProvider(new ViewOutlineProvider() {
+            @Override
+            public void getOutline(View view, Outline outline) {
+                outline.setOval(0, 0, view.getWidth(), view.getHeight());
+            }
+        });
+        logo.setClipToOutline(true);
 
         Intent intent = getIntent();
         String title = intent.getStringExtra(OmtMessagingService.EXTRA_TITLE);
@@ -48,7 +60,9 @@ public class FireAlertActivity extends AppCompatActivity {
 
         findViewById(R.id.fire_card).setOnClickListener(v -> openFire());
         findViewById(R.id.fire_open).setOnClickListener(v -> openFire());
-        playSiren();
+        findViewById(R.id.fire_details).setOnClickListener(v -> openReport());
+        findViewById(R.id.fire_ignore).setOnClickListener(v -> ignoreFire());
+        if (!intent.getBooleanExtra(OmtMessagingService.EXTRA_SILENT, false)) playSiren();
     }
 
     private void playSiren() {
@@ -56,13 +70,14 @@ public class FireAlertActivity extends AppCompatActivity {
         try {
             MediaPlayer next = new MediaPlayer();
             next.setAudioAttributes(new AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ALARM)
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                     .build());
-            android.content.res.AssetFileDescriptor afd = getResources().openRawResourceFd(R.raw.panic_alert);
+            android.content.res.AssetFileDescriptor afd = getResources().openRawResourceFd(R.raw.alarm_vuur);
             next.setDataSource(afd.getFileDescriptor(), afd.getStartOffset(), afd.getLength());
             afd.close();
             next.setLooping(false);
+            next.setVolume(0.7f, 0.7f);
             next.prepare();
             next.start();
             player = next;
@@ -71,8 +86,55 @@ public class FireAlertActivity extends AppCompatActivity {
         }
     }
 
+    private void ignoreFire() {
+        Intent intent = getIntent();
+        int id = intent.getIntExtra(OmtMessagingService.EXTRA_INCIDENT_ID, 0);
+        if (id <= 0) id = joinId(intent.getStringExtra(OmtMessagingService.EXTRA_URL));
+        OmtMessagingService.rememberIgnoredFire(this, id);
+        int notifyId = intent.getIntExtra(OmtMessagingService.EXTRA_NOTIFY_ID, 0);
+        if (notifyId != 0) {
+            android.app.NotificationManager manager =
+                    (android.app.NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            if (manager != null) manager.cancel(notifyId);
+        }
+        stopSiren();
+        finish();
+    }
+
+    private static int joinId(String url) {
+        if (url == null) return 0;
+        int q = url.indexOf("join=");
+        if (q < 0) return 0;
+        String id = url.substring(q + 5);
+        int amp = id.indexOf('&');
+        if (amp >= 0) id = id.substring(0, amp);
+        try {
+            return Integer.parseInt(id);
+        } catch (NumberFormatException ignored) {
+            return 0;
+        }
+    }
+
     private void openFire() {
+        openPath(getIntent().getStringExtra(OmtMessagingService.EXTRA_URL));
+    }
+
+    private void openReport() {
         String url = getIntent().getStringExtra(OmtMessagingService.EXTRA_URL);
+        String report = "/vuur";
+        if (url != null) {
+            int q = url.indexOf("join=");
+            if (q >= 0) {
+                String id = url.substring(q + 5);
+                int amp = id.indexOf('&');
+                if (amp >= 0) id = id.substring(0, amp);
+                report = "/vuur?report=" + id;
+            }
+        }
+        openPath(report);
+    }
+
+    private void openPath(String url) {
         Intent open = new Intent(this, MainActivity.class);
         if (url != null && url.startsWith("/")) {
             open.putExtra(OmtMessagingService.EXTRA_URL, url);

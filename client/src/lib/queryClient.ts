@@ -62,7 +62,8 @@ function isPublicRoute(pathname: string): boolean {
     pathname.startsWith("/privacy") ||
     pathname.startsWith("/enable-alerts") ||
     pathname.startsWith("/workstation/enrol") ||
-    pathname.startsWith("/positions/enrol")
+    pathname.startsWith("/positions/enrol") ||
+    pathname.startsWith("/preview/")
   );
 }
 

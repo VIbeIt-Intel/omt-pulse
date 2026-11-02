@@ -2,7 +2,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 
 import { GoogleMap, MapType } from '@capacitor/google-maps';
 import { CapacitorGoogleMaps } from '@capacitor/google-maps/dist/esm/implementation';
 import { registerPlugin } from '@capacitor/core';
-import { pathFromDirectionsRoute } from '@/lib/decode-polyline';
+import { decodeGooglePolyline, pathFromDirectionsRoute } from '@/lib/decode-polyline';
 
 // Direct handle to the native plugin so we can call OMT-patched methods
 // (e.g. setGestures) that the upstream JS wrapper doesn't expose. Safe to
@@ -72,6 +72,12 @@ export interface CapacitorMapHandle {
   ): Promise<NativeRouteResult | null>;
 
   clearRoute(): Promise<void>;
+
+  /** Straight line from the responder to the vuur, and frame both ends. */
+  drawDirectLine(
+    origin: { lat: number; lng: number },
+    destination: { lat: number; lng: number },
+  ): Promise<void>;
 
   addMarker(opts: {
     lat: number;
@@ -342,6 +348,89 @@ const CapacitorMap = forwardRef<CapacitorMapHandle, CapacitorMapProps>(
       };
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+    async function paintServerRoadRoute(
+      map: GoogleMap,
+      origin: { lat: number; lng: number },
+      destination: { lat: number; lng: number },
+      skipFitBounds: boolean,
+    ): Promise<NativeRouteResult> {
+      const res = await fetch(
+        `/api/maps/driving-route?origin=${origin.lat},${origin.lng}&destination=${destination.lat},${destination.lng}`,
+        { credentials: "include" },
+      );
+      if (!res.ok) throw new Error("DirectionsService:SERVER_ROUTE");
+      const body = await res.json() as {
+        distance: number;
+        duration: number;
+        steps: Array<{
+          instructions: string;
+          distance: { value: number; text: string };
+          duration: { value: number; text: string };
+          start: { lat: number; lng: number };
+          end: { lat: number; lng: number };
+          polyline: string;
+          maneuver?: string;
+        }>;
+      };
+      const path: Array<{ lat: number; lng: number }> = [];
+      for (const step of body.steps ?? []) {
+        const piece = step.polyline ? decodeGooglePolyline(step.polyline) : [step.start, step.end];
+        for (const point of piece) {
+          const prev = path[path.length - 1];
+          if (!prev || prev.lat !== point.lat || prev.lng !== point.lng) path.push(point);
+        }
+      }
+      if (path.length < 2) throw new Error("DirectionsService:NO_PATH");
+      if (polyIdsRef.current.length) {
+        await map.removePolylines(polyIdsRef.current).catch(() => {});
+        polyIdsRef.current = [];
+      }
+      const MAX = 100;
+      const STRIDE = MAX - 1;
+      const chunks: Array<Array<{ lat: number; lng: number }>> = [];
+      for (let i = 0; i < path.length - 1; i += STRIDE) {
+        chunks.push(path.slice(i, Math.min(i + MAX, path.length)));
+      }
+      polyIdsRef.current = await map.addPolylines(chunks.map((p) => ({
+        path: p,
+        strokeColor: "#4285F4",
+        strokeWeight: 7,
+        strokeOpacity: 0.95,
+        zIndex: 1,
+      })));
+      if (!skipFitBounds) {
+        const lats = path.map((p) => p.lat);
+        const lngs = path.map((p) => p.lng);
+        const minLat = Math.min(...lats);
+        const maxLat = Math.max(...lats);
+        const minLng = Math.min(...lngs);
+        const maxLng = Math.max(...lngs);
+        await map.setCamera({
+          coordinate: { lat: (minLat + maxLat) / 2, lng: (minLng + maxLng) / 2 },
+          zoom: zoomFromBounds(minLat, maxLat, minLng, maxLng),
+          animate: true,
+          animationDuration: 800,
+        }).catch(() => {});
+      }
+      const asLatLng = (p: { lat: number; lng: number }): LatLngLike => ({
+        lat: () => p.lat,
+        lng: () => p.lng,
+      });
+      return {
+        distance: body.distance,
+        duration: body.duration,
+        path,
+        steps: (body.steps ?? []).map((step) => ({
+          instructions: step.instructions,
+          distance: step.distance,
+          duration: step.duration,
+          start_location: asLatLng(step.start),
+          end_location: asLatLng(step.end),
+          maneuver: step.maneuver,
+        })),
+      };
+    }
+
     useImperativeHandle(ref, () => ({
 
       // Per-gesture lock — used by nav mode to disable tilt+rotate gestures
@@ -408,7 +497,8 @@ const CapacitorMap = forwardRef<CapacitorMapHandle, CapacitorMapProps>(
         if (typeof window === "undefined") {
           throw new Error("DirectionsService:NO_WINDOW");
         }
-        if (!window.google?.maps?.DirectionsService) {
+        const mapsKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? "";
+        if (!window.google?.maps?.DirectionsService && mapsKey) {
           const { loadGoogleMaps } = await import("@/lib/google-maps-loader");
           try {
             await loadGoogleMaps({ timeoutMs: 20_000 });
@@ -419,7 +509,7 @@ const CapacitorMap = forwardRef<CapacitorMapHandle, CapacitorMapProps>(
           }
         }
         if (!window.google?.maps?.DirectionsService) {
-          throw new Error("DirectionsService:JS_API_NOT_READY");
+          return await paintServerRoadRoute(map, origin, destination, skipFitBounds);
         }
 
         // Remove previous polylines
@@ -530,6 +620,36 @@ const CapacitorMap = forwardRef<CapacitorMapHandle, CapacitorMapProps>(
         if (!mapRef.current || !polyIdsRef.current.length) return;
         await mapRef.current.removePolylines(polyIdsRef.current).catch((e) => reportNativeError('clearRoute', e));
         polyIdsRef.current = [];
+      },
+
+      async drawDirectLine(origin, destination) {
+        if (!mapRef.current) return;
+        const map = mapRef.current;
+        if (polyIdsRef.current.length) {
+          await map.removePolylines(polyIdsRef.current).catch(() => {});
+          polyIdsRef.current = [];
+        }
+        try {
+          polyIdsRef.current = await map.addPolylines([{
+            path: [origin, destination],
+            strokeColor: "#ea580c",
+            strokeWeight: 6,
+            strokeOpacity: 0.95,
+            zIndex: 2,
+          }]);
+        } catch (e) {
+          reportNativeError("drawDirectLine", e);
+        }
+        const minLat = Math.min(origin.lat, destination.lat);
+        const maxLat = Math.max(origin.lat, destination.lat);
+        const minLng = Math.min(origin.lng, destination.lng);
+        const maxLng = Math.max(origin.lng, destination.lng);
+        await map.setCamera({
+          coordinate: { lat: (minLat + maxLat) / 2, lng: (minLng + maxLng) / 2 },
+          zoom: zoomFromBounds(minLat, maxLat, minLng, maxLng),
+          animate: true,
+          animationDuration: 800,
+        }).catch((e) => reportNativeError("drawDirectLine:fitCamera", e));
       },
 
       // Add a single marker, return its ID.

@@ -1,6 +1,8 @@
 import { Switch, Route, useLocation, Link } from "wouter";
 import { canAccessPatrolModule } from "@shared/user-roles";
 import { usesFarmerPhone } from "@/lib/farmer-phone";
+import { farmerCopy, readFarmerLang } from "@/lib/farmer-i18n";
+import { isIgnoringBatteryOptimizations, requestIgnoreBatteryOptimizations } from "@/lib/omt-app-settings";
 import { canAccessSecuritySurveyModule } from "@shared/security-survey";
 import { useEffect, useLayoutEffect, useState, useRef, useCallback } from "react";
 import {
@@ -18,6 +20,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
+import { FarmerRadioBar, FarmerRadioPreview } from "@/components/radio/farmer-radio-bar";
 import { PersistentRadioDock } from "@/components/radio/persistent-radio-dock";
 import { PrivateRadioHost } from "@/components/radio/private-radio-host";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -40,9 +43,14 @@ import LiveSeverityPage from "@/pages/live-severity";
 import LiveMonitorPage from "@/pages/live-monitor";
 import CommandDashboard from "@/pages/command-dashboard";
 import FarmerHome from "@/pages/farmer-home";
-import FarmerVuur from "@/pages/farmer-vuur";
+import PreviewControlRoom from "@/pages/preview-control-room";
+import FarmerVuur, { FireAckPreview, FireGoingPreview, FireNoticePreview } from "@/pages/farmer-vuur";
 import FarmerMisdaad from "@/pages/farmer-misdaad";
+import FarmerPaniek from "@/pages/farmer-paniek";
+import { PanicGoingPreview, PanicJoinPreview } from "@/components/live-incident-join-prompt-sheet";
+import { FarmerChatPreview } from "@/pages/chat";
 import { FireAlertBanner } from "@/components/fire-alert-banner";
+import { PanicStandingBanner } from "@/components/panic-standing-banner";
 import CommandsPage from "@/pages/commands";
 import FleetPage from "@/pages/fleet";
 import AssetsPage from "@/pages/assets";
@@ -68,6 +76,8 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { type NotificationLog, markAllRead, NotificationList } from "@/pages/notifications";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useControlRoomLang } from "@/hooks/use-control-room-lang";
+import { controlRoomChrome } from "@/lib/control-room-chrome";
 import { ToastAction } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -300,7 +310,7 @@ function useCapacitorPush(userId: string | undefined) {
 
 // ── Battery optimisation hint ────────────────────────────────────────────────
 
-const BATTERY_HINT_KEY = "omt_battery_hint_shown";
+const BATTERY_HINT_KEY = "omt_battery_hint_shown_v2";
 const BATTERY_HINT_SESSION_KEY = "omt_battery_hint_snoozed";
 
 function isAndroid() {
@@ -310,15 +320,33 @@ function isAndroid() {
 /** Call after a successful push subscription to prompt Android users. */
 function triggerBatteryHint() {
   if (!isAndroid()) return;
-  try {
-    if (localStorage.getItem(BATTERY_HINT_KEY) === "1") return;
-    if (sessionStorage.getItem(BATTERY_HINT_SESSION_KEY) === "1") return;
-  } catch { return; }
-  window.dispatchEvent(new CustomEvent("omt:battery-hint-show"));
+  void (async () => {
+    try {
+      if (localStorage.getItem(BATTERY_HINT_KEY) === "1") return;
+      if (sessionStorage.getItem(BATTERY_HINT_SESSION_KEY) === "1") return;
+    } catch { return; }
+    const ignoring = await isIgnoringBatteryOptimizations();
+    if (ignoring) {
+      try { localStorage.setItem(BATTERY_HINT_KEY, "1"); } catch { /* ignore */ }
+      return;
+    }
+    window.dispatchEvent(new CustomEvent("omt:battery-hint-show"));
+  })();
 }
 
 function BatteryOptimizationHint() {
   const [open, setOpen] = useState(false);
+  const [showFallback, setShowFallback] = useState(false);
+  const { data: user } = useQuery<AuthUser>({ queryKey: ["/api/auth/me"] });
+  const farmer = !!user && usesFarmerPhone(user.role);
+  const t = farmerCopy(readFarmerLang());
+  const title = farmer ? t.batteryTitle : "Let the phone ring";
+  const body = farmer
+    ? t.batteryBody
+    : "Tap below and choose Allow. Alerts still ring when the screen is off.";
+  const allowLabel = farmer ? t.batteryAllow : "Open the setting";
+  const laterLabel = farmer ? t.batteryLater : "Later";
+  const fallback = farmer ? t.batteryFallback : "Tap Battery, then Unrestricted.";
 
   useEffect(() => {
     const handler = () => setOpen(true);
@@ -326,54 +354,54 @@ function BatteryOptimizationHint() {
     return () => window.removeEventListener("omt:battery-hint-show", handler);
   }, []);
 
+  useEffect(() => {
+    if (!open) return;
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      void isIgnoringBatteryOptimizations().then((ignoring) => {
+        if (ignoring) dismiss(true);
+      });
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [open]);
+
   function dismiss(permanent: boolean) {
     try {
       if (permanent) localStorage.setItem(BATTERY_HINT_KEY, "1");
       else sessionStorage.setItem(BATTERY_HINT_SESSION_KEY, "1");
     } catch { /* ignore */ }
     setOpen(false);
+    setShowFallback(false);
+  }
+
+  async function allow() {
+    const opened = await requestIgnoreBatteryOptimizations();
+    if (opened === "already") {
+      dismiss(true);
+      return;
+    }
+    if (opened === "app") setShowFallback(true);
   }
 
   if (!open) return null;
-
-  const nativeApp = isCapacitorNative();
-  const appLabel = nativeApp ? "OMT Pulse" : "Chrome";
 
   return (
     <Sheet open={open} onOpenChange={(v) => { if (!v) dismiss(false); }}>
       <SheetContent side="bottom" className="rounded-t-2xl px-6 pb-8 pt-4 max-w-lg mx-auto">
         <SheetHeader className="text-left mb-4">
-          <SheetTitle className="flex items-center gap-2 text-base">
-            ⚡ One more step for instant alerts
-          </SheetTitle>
+          <SheetTitle className="text-base">{title}</SheetTitle>
         </SheetHeader>
-        <p className="text-sm text-muted-foreground mb-4">
-          Android may delay notifications while your screen is off. To ensure live incidents
-          wake your device immediately, allow unrestricted background activity for {appLabel}:
-        </p>
-        <ol className="space-y-2 text-sm mb-6">
-          <li className="flex items-start gap-2">
-            <span className="shrink-0 font-semibold text-primary">1.</span>
-            Open <strong>Settings → Apps → {appLabel}</strong>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="shrink-0 font-semibold text-primary">2.</span>
-            Tap <strong>Battery → Unrestricted</strong>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="shrink-0 font-semibold text-primary">3.</span>
-            Done — alerts will now ring even with the screen off ✓
-          </li>
-        </ol>
-        <p className="text-xs text-muted-foreground mb-5">
-          On Samsung devices also check: <strong>Settings → Battery → Background usage limits</strong> and make sure {appLabel} is not listed under sleeping apps.
-        </p>
+        <p className="text-sm text-muted-foreground mb-5">{body}</p>
+        {showFallback && (
+          <p className="text-sm mb-4">{fallback}</p>
+        )}
         <div className="flex flex-col gap-2">
-          <Button className="w-full min-h-[44px] touch-manipulation" onClick={() => dismiss(true)} data-testid="button-battery-hint-done">
-            Got it — I'll do this now
+          <Button className="w-full min-h-[44px] touch-manipulation" onClick={() => void allow()} data-testid="button-battery-hint-done">
+            {allowLabel}
           </Button>
           <Button variant="ghost" className="w-full min-h-[44px] touch-manipulation" onClick={() => dismiss(false)} data-testid="button-battery-hint-snooze">
-            Remind me next time
+            {laterLabel}
           </Button>
         </div>
       </SheetContent>
@@ -473,6 +501,8 @@ function NativePushBanner({
 }
 
 function NotificationSheet({ open, onOpenChange, onMarkAllRead }: { open: boolean; onOpenChange: (v: boolean) => void; onMarkAllRead: () => void }) {
+  const { lang } = useControlRoomLang();
+  const chrome = controlRoomChrome(lang);
   const { data: notifications = [], isLoading } = useQuery<NotificationLog[]>({
     queryKey: ["/api/notifications"],
     refetchInterval: 60000,
@@ -490,7 +520,7 @@ function NotificationSheet({ open, onOpenChange, onMarkAllRead }: { open: boolea
                 <Bell className="h-4 w-4 text-primary" />
               </span>
             </span>
-            <span className="font-semibold tracking-tight">Notifications</span>
+            <span className="font-semibold tracking-tight">{chrome.notifications}</span>
           </SheetTitle>
           <Button
             variant="ghost"
@@ -501,7 +531,7 @@ function NotificationSheet({ open, onOpenChange, onMarkAllRead }: { open: boolea
             data-testid="button-sheet-mark-all-read"
           >
             <CheckCheck className="h-3.5 w-3.5" />
-            Mark all as read
+            {chrome.markAllRead}
           </Button>
         </SheetHeader>
         <div className="flex-1 overflow-y-auto">
@@ -514,7 +544,7 @@ function NotificationSheet({ open, onOpenChange, onMarkAllRead }: { open: boolea
         <div className="border-t px-4 py-3 shrink-0">
           <Link href="/notifications" onClick={() => onOpenChange(false)}>
             <Button variant="outline" size="sm" className="w-full text-xs" data-testid="button-sheet-view-all">
-              View full notification history
+              {chrome.viewHistory}
             </Button>
           </Link>
         </div>
@@ -529,6 +559,13 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
   const { subState: pushSubState, subscribe: subscribePush } = usePushSubscription(user.id);
   const { fcmState, enablePush, enabling: enablingNativePush } = useCapacitorPush(user.id);
   const avatarInputRef = useRef<HTMLInputElement>(null);
+
+  useLayoutEffect(() => {
+    if (import.meta.env.VITE_FARMER_PHONE !== "1") return;
+    if (!location.startsWith("/live-incident")) {
+      document.documentElement.classList.remove("farmer-map");
+    }
+  }, [location]);
 
   useEffect(() => {
     initNativePushListeners();
@@ -572,7 +609,14 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
     if (!liveLoaded || liveRedirectFiredRef.current) return;
     if (!canUseLiveIncidentWorkflow(user.role)) return;
     if (location === "/live-monitor") return;
-    if (location === "/live-incident") return;
+    // A misdaad "Gaan soontoe" link is /live-incident?pin=… — do not replace it
+    // with a bare live-incident resume, or the pin is lost and the control-room
+    // start button appears.
+    if (location === "/live-incident" || location.startsWith("/live-incident?")) return;
+    // Farmer phones leave a misdaad or vuur on purpose. Do not pull them back
+    // onto the English navigate screen while the incident is still live.
+    if (usesFarmerPhone(user.role)) return;
+    if (new URLSearchParams(window.location.search).get("pin")) return;
     // Notification deep link wins over resume-to-live — joiners must see the join prompt first.
     try {
       if (
@@ -730,6 +774,8 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
       location === "/dashboard"
       || location === "/vuur"
       || location === "/misdaad"
+      || location === "/paniek"
+      || location.startsWith("/paniek?")
       || location.startsWith("/chat")
       || location.startsWith("/live-incident")
       || location.startsWith("/notifications");
@@ -752,9 +798,9 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
   // }
 
   return (
-    <PrivateRadioHost>
+    <PrivateRadioHost promptIncoming={usesFarmerPhone(user.role)}>
     <SidebarProvider style={style as React.CSSProperties}>
-      <div className="flex h-screen w-full">
+        <div className={`flex h-screen w-full max-w-full ${usesFarmerPhone(user.role) ? "overflow-x-hidden" : ""}`}>
         {!usesFarmerPhone(user.role) && (
           <AppSidebar user={user} onLogout={() => logoutMutation.mutate()} avatarPreview={avatarPreview} />
         )}
@@ -923,6 +969,7 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
           <PermissionDeniedBanner />
           <BatteryOptimizationHint />
           <PanicAlertSiren currentUserId={user.id} />
+          {import.meta.env.VITE_FARMER_PHONE === "1" && <PanicStandingBanner />}
           <FireAlertBanner />
           {(user.role === "administrator" || user.isSuperadmin) && <SetupWizardController />}
           <main className="flex-1 overflow-hidden bg-background text-foreground">
@@ -977,6 +1024,7 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
               </Route>
               <Route path="/vuur" component={FarmerVuur} />
               <Route path="/misdaad" component={FarmerMisdaad} />
+              <Route path="/paniek" component={FarmerPaniek} />
               <Route path="/dashboard">
                 {usesFarmerPhone(user.role) ? <FarmerHome /> : <CommandDashboard />}
               </Route>
@@ -1032,7 +1080,7 @@ function AuthenticatedApp({ user }: { user: AuthUser }) {
               <Route component={NotFound} />
             </Switch>
           </main>
-          {!usesFarmerPhone(user.role) && <PersistentRadioDock />}
+          {usesFarmerPhone(user.role) ? <FarmerRadioBar /> : <PersistentRadioDock />}
         </div>
       </div>
       <PermissionPrimerModal />
@@ -1070,10 +1118,19 @@ function UnauthenticatedApp() {
 /** Keep the public marketing route dark while auth is resolving. */
 function MarketingDarkGate() {
   useLayoutEffect(() => {
+    if (import.meta.env.VITE_FARMER_PHONE === "1") return;
     const root = document.documentElement;
     root.dataset.forceTheme = "dark";
     root.classList.remove("light");
     root.classList.add("dark");
+    return () => {
+      // Logged-in users pass through this gate on every open of "/".
+      // Leaving the flag set makes ThemeProvider ignore a saved light theme.
+      delete root.dataset.forceTheme;
+      const stored = localStorage.getItem("ob-theme");
+      root.classList.remove("light", "dark");
+      root.classList.add(stored === "dark" ? "dark" : "light");
+    };
   }, []);
   return (
     <div className="flex min-h-screen items-center justify-center bg-background">
@@ -1100,6 +1157,17 @@ function ArchonApp() {
       <Route path="/archon/dashboard" component={ArchonDashboard} />
       <Route component={RedirectToArchonLogin} />
     </Switch>
+  );
+}
+
+function FarmerPhoneDashboardPreview() {
+  return (
+    <div className="flex h-full flex-col bg-[#f4f1ea]">
+      <div className="min-h-0 flex-1">
+        <FarmerHome />
+      </div>
+      <FarmerRadioPreview />
+    </div>
   );
 }
 
@@ -1186,6 +1254,35 @@ function RootRouter() {
   }
   if (!isLoading && !user && isCapacitorNative() && getAssetTrackerToken() && location === "/") {
     return <AssetTrackerPage />;
+  }
+
+  if (import.meta.env.DEV && location === "/preview/control-room") {
+    return <PreviewControlRoom />;
+  }
+
+  // Local look at the farmer phone. Stripped from the production build.
+  if (import.meta.env.DEV && (location === "/preview/farmer" || location.startsWith("/preview/farmer/"))) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-zinc-950 p-6">
+        <div className="h-[844px] max-h-[92vh] w-[390px] overflow-hidden rounded-[2rem] border border-white/10 shadow-2xl" data-testid="preview-farmer-phone">
+          {location.startsWith("/preview/farmer/vuur")
+            ? (new URLSearchParams(window.location.search).get("going") === "1"
+              ? <FireGoingPreview />
+              : new URLSearchParams(window.location.search).get("ack") === "1"
+                ? <FireAckPreview />
+                : new URLSearchParams(window.location.search).get("notice") === "1"
+                  ? <FireNoticePreview />
+                  : <FarmerVuur />)
+            : location.startsWith("/preview/farmer/misdaad")
+              ? <FarmerMisdaad />
+              : location.startsWith("/preview/farmer/paniek")
+                ? (new URLSearchParams(window.location.search).get("going") === "1" ? <PanicGoingPreview /> : <PanicJoinPreview />)
+                : location.startsWith("/preview/farmer/boodskap")
+                  ? <FarmerChatPreview />
+                  : <FarmerPhoneDashboardPreview />}
+        </div>
+      </div>
+    );
   }
 
   // Login and register are public — no install gate.

@@ -16,7 +16,7 @@ export const PATROL_NOTIFICATION_CHANNEL_ID = "patrol_alerts";
 export const CHAT_NOTIFICATION_CHANNEL_ID = "omt_chat";
 
 /** Max-urgency SOS channel — loud tone, never miss. */
-export const PANIC_NOTIFICATION_CHANNEL_ID = "omt_panic";
+export const PANIC_NOTIFICATION_CHANNEL_ID = "omt_panic_loud";
 
 /** High-urgency live incident channel — distinct from chat/panic. */
 export const LIVE_NOTIFICATION_CHANNEL_ID = "omt_live";
@@ -88,7 +88,7 @@ export async function ensurePanicNotificationChannel(): Promise<void> {
       description: "Emergency panic alerts — keep enabled at full volume",
       importance: 5,
       visibility: 1,
-      sound: "panic_alert.wav",
+      sound: "alarm_siren.wav",
       vibration: true,
       lights: true,
     });
@@ -145,6 +145,9 @@ export function resolvePushDeepLink(data: Record<string, unknown> | undefined): 
   }
   if (type === "fire" && incidentId != null && String(incidentId)) {
     return `/live-incident?join=${incidentId}`;
+  }
+  if (type === "crime" && incidentId != null && String(incidentId)) {
+    return `/misdaad?report=${incidentId}`;
   }
   if (type === "crime") return "/misdaad";
   if (type === "incident_started" && incidentId != null && String(incidentId)) {
@@ -249,13 +252,9 @@ export function schedulePendingPushDeepLinkConsumption(
     consumePendingPushDeepLink(navigate);
   };
   tryConsume();
-  const t1 = window.setTimeout(tryConsume, 400);
-  const t2 = window.setTimeout(tryConsume, 1_500);
-  const t3 = window.setTimeout(tryConsume, 3_500);
+  const timers = [400, 1_500, 3_500, 6_000].map((ms) => window.setTimeout(tryConsume, ms));
   return () => {
-    window.clearTimeout(t1);
-    window.clearTimeout(t2);
-    window.clearTimeout(t3);
+    for (const timer of timers) window.clearTimeout(timer);
   };
 }
 

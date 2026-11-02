@@ -6,6 +6,15 @@ import { installNativeApiBaseFetch } from "./lib/api-base";
 import App from "./App";
 import "./index.css";
 
+// Farmer phones stay on a light page. The control-room dark preference must
+// not paint these screens black.
+if (import.meta.env.VITE_FARMER_PHONE === "1") {
+  document.documentElement.classList.add("farmer-phone");
+  document.documentElement.dataset.forceTheme = "light";
+  document.documentElement.classList.remove("dark");
+  document.documentElement.classList.add("light");
+}
+
 // Tag <html> when running inside the Capacitor native shell so CSS can punch a
 // transparent hole through to the native Google Map view drawn behind the WebView.
 if (Capacitor.isNativePlatform()) {
@@ -42,26 +51,32 @@ function isRootEmpty(): boolean {
   return !el || el.childNodes.length === 0;
 }
 
-// visibilitychange: fires when the user switches back to the PWA tab/window.
-// If the root is empty at that point the WebView was killed and re-created blank.
+// Only recover a WebView that had already drawn and was then killed.
+// A blank root during the first paint is normal. Reloading there flashes
+// black and white forever when the user comes back from Settings.
+let appPainted = false;
+
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && isRootEmpty()) {
-    const url = getReturnUrl();
-    clearReturnUrl();
-    window.location.replace(url);
-  }
+  if (document.visibilityState !== "visible" || !appPainted || !isRootEmpty()) return;
+  const url = getReturnUrl();
+  clearReturnUrl();
+  appPainted = false;
+  window.location.replace(url);
 });
 
-// pageshow with persisted=true: fires when the page is restored from the
-// bfcache (Android Chrome back/forward cache). The bfcache snapshot can be
-// stale; force a full reload to ensure the live-incident state is current.
 window.addEventListener("pageshow", (event) => {
-  if (event.persisted && isRootEmpty()) {
+  if (event.persisted && appPainted && isRootEmpty()) {
     clearReturnUrl();
+    appPainted = false;
     window.location.reload();
   }
 });
 
 createRoot(document.getElementById(ROOT_ID)!).render(<App />);
+requestAnimationFrame(() => {
+  requestAnimationFrame(() => {
+    if (!isRootEmpty()) appPainted = true;
+  });
+});
 
 void ensureAppCacheCurrent();

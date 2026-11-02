@@ -15,6 +15,9 @@ import {
 import { ArrowLeft, Navigation, MapPin, Radio, CheckCircle2, Loader2, RotateCcw, RotateCw, ChevronRight, ExternalLink, Camera, ImageIcon, X, WifiOff, LogOut, Mic, Square, AlertTriangle, HelpCircle, Gauge, ArrowUp, ArrowUpRight, ArrowUpLeft, ArrowRight, CornerUpRight, CornerUpLeft, Merge, Users, Layers, MessageCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+import { useFarmerLang } from "@/hooks/use-farmer-lang";
+import { usesFarmerPhone } from "@/lib/farmer-phone";
+import type { AuthUser } from "@/lib/auth-user";
 import { useWakeLock } from "@/hooks/use-wake-lock";
 import { usePermissionStatus } from "@/hooks/use-permission-status";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -37,7 +40,6 @@ import {
   haversineM,
   minDistToPolylineM,
   NAV_TRACK_INTERVAL_MS,
-  OFF_ROUTE_FALLBACK_STREAK,
   OFF_ROUTE_POLYLINE_M,
   ptSegDistM,
   readStoredJoinNavStyle,
@@ -380,6 +382,11 @@ function IncidentActiveSummary({
 function fmtDist(m: number) {
   return m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`;
 }
+function coordOrNull(v: unknown): number | null {
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
 function fmtDur(s: number) {
   const mins = Math.round(s / 60);
   if (mins < 60) return `${mins} min`;
@@ -468,8 +475,22 @@ async function compressImageToBlob(file: File, maxPx = 1024, quality = 0.75): Pr
 
 function openGoogleMapsNav(lat: number, lng: number) {
   try { localStorage.setItem("omt_return_url", window.location.pathname + window.location.search); } catch { /* ignore */ }
-  const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`;
-  window.open(url, "_blank");
+  const web = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`;
+  // window.open("_blank") on the farmer WebView starts a second window. On
+  // Samsung that leaves OMT as a tiny popup and the new window stays white,
+  // so "Maak in Google Maps oop" looked like the map page had crashed.
+  if (Capacitor.getPlatform() === "android") {
+    const intent = `intent://maps.google.com/maps?daddr=${lat},${lng}&dirflg=d#Intent;scheme=https;package=com.google.android.apps.maps;S.browser_fallback_url=${encodeURIComponent(web)};end`;
+    const a = document.createElement("a");
+    a.href = intent;
+    a.target = "_blank";
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    return;
+  }
+  window.open(web, "_blank");
 }
 
 function fmtTimeAgo(iso: string | null | undefined): string | null {
@@ -576,9 +597,54 @@ function buildNavRoster(opts: {
   return entries;
 }
 
+const PIN_NAV_KEY = "omt_pin_nav";
+
+function pinNavFromParts(lat: number, lng: number, name: string, back: string) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return {
+    lat,
+    lng,
+    name: (name || "Misdaad").slice(0, 80),
+    back: back.startsWith("/misdaad") ? back : "/misdaad",
+  };
+}
+
+function readStoredPinNav(): { lat: number; lng: number; name: string; back: string } | null {
+  try {
+    const raw = sessionStorage.getItem(PIN_NAV_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw) as { lat?: unknown; lng?: unknown; name?: unknown; back?: unknown };
+    return pinNavFromParts(Number(data.lat), Number(data.lng), String(data.name ?? ""), String(data.back ?? ""));
+  } catch {
+    return null;
+  }
+}
+
+function readPinNav(): { lat: number; lng: number; name: string; back: string } | null {
+  if (typeof window === "undefined") return null;
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("join")) {
+    try { sessionStorage.removeItem(PIN_NAV_KEY); } catch { /* ignore */ }
+    return null;
+  }
+  const pin = params.get("pin");
+  if (pin) {
+    const [latRaw, lngRaw] = pin.split(",");
+    const fromUrl = pinNavFromParts(
+      Number(latRaw),
+      Number(lngRaw),
+      params.get("pinName") || "Misdaad",
+      params.get("back") || "/misdaad",
+    );
+    if (fromUrl) return fromUrl;
+  }
+  return readStoredPinNav();
+}
+
 export default function LiveIncidentPage() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const { t: farmerT, toggle: toggleFarmerLang } = useFarmerLang();
   const queryClient = useQueryClient();
   const { acquire: acquireWakeLock, release: releaseWakeLock, lost: wakeLockLost, supported: wakeLockSupported } = useWakeLock();
   const wakeLockDeniedToastShownRef = useRef(false);
@@ -653,7 +719,7 @@ export default function LiveIncidentPage() {
   // inside a watchPosition callback).
   const isPanicIncidentRef = useRef<boolean>(false);
   const arrivalTimeRef = useRef<Date>(new Date());
-  const gpsEndpointRef = useRef<"responder-position" | "joiner-position">("responder-position");
+  const gpsEndpointRef = useRef<"responder-position" | "joiner-position" | "local">("responder-position");
 
   const locationPermission = usePermissionStatus().location;
 
@@ -715,6 +781,15 @@ export default function LiveIncidentPage() {
   // Guards the one-shot nav-mode auto-resume after PWA reopen / app kill.
   // If the user manually leaves nav mode, we must not bounce them back in.
   const autoResumedNavRef = useRef(false);
+  const [pinNav] = useState(readPinNav);
+  const [pinMapRevealed, setPinMapRevealed] = useState(false);
+  const pinNavStartedRef = useRef(false);
+  // Arrival speech must wait until the native map is actually on screen.
+  // Tracking starts as soon as the plugin says "ready", which is before the
+  // cream waiting panel lifts. A fix inside 150 m (same farm) used to say
+  // "you have arrived" over a blank page.
+  const pinMapVisibleRef = useRef(false);
+  const pinNavBackRef = useRef<string | null>(pinNav?.back ?? null);
   // Tracks responder userIds we've already announced so we only flash on genuinely new joiners.
   const knownResponderIdsRef = useRef<Set<string>>(new Set());
   // Seeded on the first effect run so pre-existing responders never trigger a flash.
@@ -776,24 +851,26 @@ export default function LiveIncidentPage() {
   // "idle" | "sending" | "ok" | "fail:404" | "fail:500" | "error" etc.
   const [patchState, setPatchState] = useState<string>("idle");
 
-  const storedId = typeof window !== "undefined" ? Number(localStorage.getItem(LIVE_INCIDENT_KEY)) || null : null;
+  const storedId = !pinNav && typeof window !== "undefined" ? Number(localStorage.getItem(LIVE_INCIDENT_KEY)) || null : null;
   const [liveId, setLiveId] = useState<number | null>(storedId);
-  const storedJoinedId = typeof window !== "undefined" ? Number(localStorage.getItem(JOINED_INCIDENT_KEY)) || null : null;
+  const storedJoinedId = !pinNav && typeof window !== "undefined" ? Number(localStorage.getItem(JOINED_INCIDENT_KEY)) || null : null;
   const [joinedId, setJoinedId] = useState<number | null>(storedJoinedId);
   liveIdRef.current = liveId;
   joinedIdRef.current = joinedId;
   // Tracks whether this page session should redirect home when both IDs drop to null.
   // Set to true if we mounted with a stored ID (stale-key reopen) OR once we've
   // actually had an active incident in this session (normal start → end).
-  const hadIncidentRef = useRef<boolean>((storedId !== null) || (storedJoinedId !== null));
+  const hadIncidentRef = useRef<boolean>(!pinNav && ((storedId !== null) || (storedJoinedId !== null)));
   const joinInFlightRef = useRef<number | null>(null);
   const panicTargetAppliedRef = useRef(false);
   /** After a fresh live-incident join (not panic), auto-start turn-by-turn to the initiator destination. */
   const autoNavAfterJoinRef = useRef(false);
+  const [farmerOpeningNav, setFarmerOpeningNav] = useState(false);
   const [staleJoinNotice, setStaleJoinNotice] = useState<{ id: number; closedAt: string | null } | null>(null);
   // True once the responder has tapped "Open Google Maps" — persisted in
   // localStorage so the red arrived-button survives app switches / PWA reloads.
   const [navStarted, setNavStarted] = useState<boolean>(() => {
+    if (pinNav) return false;
     if (typeof window === "undefined") return false;
     const navId = localStorage.getItem(NAV_STARTED_KEY);
     if (navId === null) return false;
@@ -805,7 +882,7 @@ export default function LiveIncidentPage() {
   // liveIncidents query has a chance to refetch and include the new record.
   const [pendingActive, setPendingActive] = useState<Incident | null>(null);
 
-  const { data: me } = useQuery<{ id: string }>({ queryKey: ["/api/auth/me"] });
+  const { data: me } = useQuery<AuthUser>({ queryKey: ["/api/auth/me"] });
 
   type LiveIncidentWithResponders = Incident & {
     responders?: Array<{ id: number; userId: string; firstName: string; lastName: string; lastLat: number | null; lastLng: number | null; lastPositionAt: string | null; joinedAt: string }>;
@@ -861,6 +938,38 @@ export default function LiveIncidentPage() {
     && !navStarted
     && !(currentIncident?.categoryName ?? "").toLowerCase().includes("panic");
 
+  useEffect(() => {
+    if (navMode || nativeMapStatus === "timeout" || nativeMapStatus === "error") setFarmerOpeningNav(false);
+  }, [navMode, nativeMapStatus]);
+
+  // The cream "Jy is op pad" cover must not sit forever if the map or the
+  // panicker pin never arrives.
+  useEffect(() => {
+    if (!farmerOpeningNav || navMode) return;
+    const timer = window.setTimeout(() => setFarmerOpeningNav(false), 20000);
+    return () => window.clearTimeout(timer);
+  }, [farmerOpeningNav, navMode]);
+
+  // A farmer phone has no "start a live incident" screen. A closed join, or an
+  // old notification still stored on the phone, must land on the dashboard.
+  useEffect(() => {
+    if (import.meta.env.VITE_FARMER_PHONE !== "1") return;
+    if (pinNav || navMode || showArrivalForm || farmerOpeningNav || joinPrompt) return;
+    if (new URLSearchParams(window.location.search).get("join")) return;
+    try {
+      if (sessionStorage.getItem("omt_panic_go")) return;
+    } catch { /* ignore */ }
+    if (!liveQueryLoaded || currentIncident || liveId !== null || joinedId !== null) return;
+    try {
+      localStorage.removeItem(JOINED_INCIDENT_KEY);
+      localStorage.removeItem(LIVE_INCIDENT_KEY);
+      localStorage.removeItem(NAV_STARTED_KEY);
+      localStorage.removeItem("omt_pending_push_url");
+      sessionStorage.removeItem("omt_pending_push_url");
+    } catch { /* ignore */ }
+    navigate("/dashboard");
+  }, [pinNav, navMode, showArrivalForm, farmerOpeningNav, joinPrompt, liveQueryLoaded, currentIncident, liveId, joinedId, navigate]);
+
   // After join confirm: start turn-by-turn when destination/map are ready (panic + live).
   useEffect(() => {
     if (!autoNavAfterJoinRef.current) return;
@@ -869,7 +978,9 @@ export default function LiveIncidentPage() {
     const mapActuallyReady = isNative ? nativeMapStatus === "ready" : mapsReady;
     if (!mapActuallyReady) return;
     autoNavAfterJoinRef.current = false;
-    void dispatchJoinerInApp("guided");
+    void dispatchJoinerInApp("guided").finally(() => {
+      if (!navModeRef.current) setFarmerOpeningNav(false);
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [joinedId, isJoinerMode, currentIncident?.id, joinerNavDestination?.lat, joinerNavDestination?.lng, mapsReady, nativeMapStatus, isNative]);
   /** Live incident active but not in full-screen nav — pin map between header and footer. */
@@ -916,6 +1027,81 @@ export default function LiveIncidentPage() {
     gpsLastSentAt,
   ]);
 
+  // The map is drawn behind the WebView. Punch that hole only after the native
+  // map is actually ready. Doing it on route entry leaves a blank cream page.
+  useLayoutEffect(() => {
+    if (import.meta.env.VITE_FARMER_PHONE !== "1") return;
+    const show = isNative && nativeMapStatus === "ready" && (!pinNav || pinMapRevealed) && !(farmerOpeningNav && !navMode);
+    document.documentElement.classList.toggle("farmer-map", show);
+    if (!show) return () => { document.documentElement.classList.remove("farmer-map"); };
+    const sync = () => { void capMapRef.current?.syncBounds(); };
+    const t1 = window.setTimeout(sync, 60);
+    const t2 = window.setTimeout(sync, 400);
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+      document.documentElement.classList.remove("farmer-map");
+    };
+  }, [isNative, nativeMapStatus, pinNav, pinMapRevealed, farmerOpeningNav, navMode]);
+
+  function announcePinArrival() {
+    const farmer = import.meta.env.VITE_FARMER_PHONE === "1";
+    void speak(
+      farmer ? "Jy het by die bestemming aangekom." : "You have arrived at your destination.",
+      farmer ? "af-ZA" : "en-US",
+    );
+  }
+
+  // The waiting panel stays up until the native map element is actually large.
+  // "ready" only means GoogleMap.create() resolved. If that happened while the
+  // host was still ~0px, punching farmer-map reveals the window behind the
+  // WebView: a blank cream/white page, sometimes with a tiny leftover of the
+  // "Op pad" card. Keep the panel and say the map failed instead.
+  useEffect(() => {
+    if (!pinNav || pinMapRevealed) return;
+    if (!isNative) {
+      if (!mapsReady) return;
+      pinMapVisibleRef.current = true;
+      setPinMapRevealed(true);
+      return;
+    }
+    if (nativeMapStatus !== "ready") return;
+    let cancelled = false;
+    let tries = 0;
+    let waitId = 0;
+    const tick = () => {
+      if (cancelled) return;
+      const rect = mapHostRef.current?.getBoundingClientRect();
+      const big = !!rect && rect.width >= 200 && rect.height >= 240;
+      void capMapRef.current?.syncBounds();
+      if (big) {
+        waitId = window.setTimeout(() => {
+          if (cancelled) return;
+          pinMapVisibleRef.current = true;
+          setPinMapRevealed(true);
+          const dest = destPositionRef.current;
+          const here = lastPosRef.current;
+          if (dest && here && !arrivedAnnouncedRef.current && haversineM(here, dest) <= NAV_ARRIVAL_AT_SCENE_M) {
+            arrivedAnnouncedRef.current = true;
+            announcePinArrival();
+          }
+        }, 200);
+        return;
+      }
+      tries += 1;
+      if (tries >= 20) {
+        setNativeMapStatus("timeout");
+        return;
+      }
+      waitId = window.setTimeout(tick, 150);
+    };
+    waitId = window.setTimeout(tick, 200);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(waitId);
+    };
+  }, [pinNav, nativeMapStatus, pinMapRevealed, isNative, mapsReady]);
+
   // Screen Wake Lock — keep the screen on for the full duration of any live
   // incident (creator or joiner). Released automatically when the incident ends
   // or the user leaves. Re-acquired on tab visibility restore (browsers drop
@@ -925,7 +1111,7 @@ export default function LiveIncidentPage() {
   useEffect(() => {
     if (currentIncidentId !== null) {
       acquireWakeLock().then((granted) => {
-        if (!granted && wakeLockSupported && !wakeLockDeniedToastShownRef.current) {
+        if (!granted && wakeLockSupported && !wakeLockDeniedToastShownRef.current && import.meta.env.VITE_FARMER_PHONE !== "1") {
           wakeLockDeniedToastShownRef.current = true;
           toast({
             title: "Screen may turn off",
@@ -1052,8 +1238,13 @@ export default function LiveIncidentPage() {
     void stopSpeaking();
     updateDirectNavMetrics();
     const target = destPositionRef.current;
+    const from = lastPosRef.current;
     if (target) {
       void refreshDestMarker(target.lat, target.lng, (liveNavTarget ?? joinerNavDestination)?.name ?? "Destination");
+      if (from && isNative && capMapRef.current) {
+        void capMapRef.current.drawDirectLine(from, target);
+        lastHeadingRef.current = bearingDegrees(from, target);
+      }
     }
     if (reason) {
       toast({ title: "Direct guidance", description: reason });
@@ -1150,24 +1341,7 @@ export default function LiveIncidentPage() {
       setIsOffRoute(offRoute);
       setGuidedOffRoute(offRoute && navModeRef.current);
 
-      if (offRoute) {
-        offRouteStreakRef.current += 1;
-      } else {
-        offRouteStreakRef.current = 0;
-      }
-
-      // Joiner on guided nav: fall back to Direct after sustained off-route
-      if (
-        navModeRef.current &&
-        activeNavStyleRef.current === "guided" &&
-        gpsEndpointRef.current === "joiner-position" &&
-        offRouteStreakRef.current >= OFF_ROUTE_FALLBACK_STREAK
-      ) {
-        switchToDirectNav("You left the suggested route — showing direct guidance to the panicker.");
-        return;
-      }
-
-      // Auto-reroute in guided nav when off-course
+      // Stay on the road. A wrong turn asks for a new driving route from here.
       if (navModeRef.current && activeNavStyleRef.current === "guided" && offRoute && destPositionRef.current) {
         const now = Date.now();
         if (now - lastRerouteRef.current > GUIDED_REROUTE_COOLDOWN_MS) {
@@ -1339,9 +1513,9 @@ export default function LiveIncidentPage() {
         const distM = haversineM(p, destPositionRef.current);
         setDistToDestinationM(distM);
         setIsNearDestination(distM <= NAV_ARRIVAL_AT_SCENE_M);
-        if (distM <= NAV_ARRIVAL_AT_SCENE_M && !arrivedAnnouncedRef.current) {
+        if (distM <= NAV_ARRIVAL_AT_SCENE_M && !arrivedAnnouncedRef.current && (!pinNav || pinMapVisibleRef.current)) {
           arrivedAnnouncedRef.current = true;
-          void speak("You have arrived at your destination.");
+          announcePinArrival();
         }
       }
       originMarkerRef.current?.setPosition(p);
@@ -1360,22 +1534,23 @@ export default function LiveIncidentPage() {
         if (!navModeRef.current) {
           capMapRef.current.setUserLocation(p.lat, p.lng).catch(() => {});
         }
-        const hdg = pos.coords.heading;
-        if (hdg != null && !isNaN(hdg)) lastHeadingRef.current = hdg;
-        // Retry route draw on first GPS fix — handles the race where drawRoute was
-        // called at mapsReady time but had no origin yet (lastPosRef was null).
-        if (stepsRef.current.length === 0 && destPositionRef.current) {
+        const aimingAtFire = activeNavStyleRef.current === "direct" && destPositionRef.current != null;
+        if (aimingAtFire && destPositionRef.current) {
+          lastHeadingRef.current = bearingDegrees(p, destPositionRef.current);
+        } else {
+          const hdg = pos.coords.heading;
+          if (hdg != null && !isNaN(hdg)) lastHeadingRef.current = hdg;
+        }
+        // Retry the road route only while turn-by-turn is still the chosen style.
+        // Direct vuur guidance must not keep asking for a driving route.
+        if (stepsRef.current.length === 0 && destPositionRef.current && !aimingAtFire) {
           drawRoute(destPositionRef.current.lat, destPositionRef.current.lng, p, navModeRef.current);
         }
         if (navModeRef.current) {
-          // Nav mode: camera follows the user with 45° tilt and bearing
-          // toward direction of travel. animate:true with duration:0 routes
-          // through animateCamera (not moveCamera); v67 testing confirmed
-          // moveCamera silently drops the tilt component on this Android
-          // Maps SDK version, while animateCamera honours all CameraPosition
-          // fields. Duration:0 keeps it visually instantaneous.
           capMapRef.current.setCamera({
-            lat: p.lat, lng: p.lng, zoom: 17, tilt: 45,
+            lat: p.lat, lng: p.lng,
+            zoom: aimingAtFire ? 14 : 17,
+            tilt: aimingAtFire ? 0 : 45,
             bearing: lastHeadingRef.current ?? 0,
             animate: true,
           }).catch(() => {});
@@ -1404,6 +1579,16 @@ export default function LiveIncidentPage() {
         }
       }
       setGpsAccuracy(Math.round(accuracy));
+
+      if (gpsEndpointRef.current === "local") {
+        setGpsStatus("tracking");
+        setGpsLastSentAt(Date.now());
+        lastSuccessRef.current = Date.now();
+        setPatchState("idle");
+        setGpsLost(false);
+        consecutiveFailuresRef.current = 0;
+        return;
+      }
 
       // Accuracy gate — ALWAYS send on the very first position regardless of accuracy.
       // After that: stale (>60 s since last send) → 500 m; ongoing → 200 m.
@@ -1810,22 +1995,39 @@ export default function LiveIncidentPage() {
     queryClient.invalidateQueries({ queryKey: ["/api/incidents/live"] });
   }
 
+  function joinLabelFor(id: number): { name: string; category: string | null } | null {
+    try {
+      const raw = sessionStorage.getItem("omt_join_label");
+      if (!raw) return null;
+      const data = JSON.parse(raw) as { id?: unknown; name?: unknown; category?: unknown };
+      if (Number(data.id) !== id) return null;
+      const name = typeof data.name === "string" ? data.name.trim() : "";
+      const category = typeof data.category === "string" ? data.category.trim() : "";
+      return { name, category: category || null };
+    } catch {
+      return null;
+    }
+  }
+
   function buildJoinPromptDetails(inc: LiveIncidentWithResponders): JoinPromptDetails {
     const isPanic = (inc.categoryName ?? "").toLowerCase().includes("panic");
+    const stored = joinLabelFor(inc.id);
     return {
       id: inc.id,
       isPanic,
-      initiatorName: `${inc.responderFirstName ?? ""} ${inc.responderLastName ?? ""}`.trim() || "Responder",
-      categoryName: inc.categoryName,
+      initiatorName: `${inc.responderFirstName ?? ""} ${inc.responderLastName ?? ""}`.trim() || stored?.name || "Responder",
+      categoryName: inc.categoryName || stored?.category || null,
       severityLabel: inc.severity ? inc.severity.toUpperCase() : null,
-      destinationName: inc.destinationName?.trim() || null,
+      destinationName: inc.destinationName?.trim() || stored?.category || null,
     };
   }
 
   function buildJoinPromptFromIncident(inc: Incident, categoryName?: string | null): JoinPromptDetails {
-    const cat = categoryName ?? categories.find((c) => c.id === inc.categoryId)?.name ?? inc.categoryName ?? null;
+    const stored = joinLabelFor(inc.id);
+    const cat = categoryName ?? categories.find((c) => c.id === inc.categoryId)?.name ?? inc.categoryName ?? stored?.category ?? null;
     const isPanic = (cat ?? "").toLowerCase().includes("panic");
     const initiatorName = `${(inc as LiveIncidentWithResponders).responderFirstName ?? ""} ${(inc as LiveIncidentWithResponders).responderLastName ?? ""}`.trim()
+      || stored?.name
       || "Responder";
     return {
       id: inc.id,
@@ -1833,7 +2035,7 @@ export default function LiveIncidentPage() {
       initiatorName,
       categoryName: cat,
       severityLabel: inc.severity ? inc.severity.toUpperCase() : null,
-      destinationName: inc.destinationName?.trim() || null,
+      destinationName: inc.destinationName?.trim() || stored?.category || null,
     };
   }
 
@@ -1845,7 +2047,92 @@ export default function LiveIncidentPage() {
   }
 
   function isPanicCategory(name: string | null | undefined): boolean {
-    return (name ?? "").toLowerCase().includes("panic");
+    const n = (name ?? "").toLowerCase();
+    return n.includes("panic") || n.includes("paniek");
+  }
+
+  function looksLikePanic(inc: { categoryName?: string | null; destinationName?: string | null; description?: string | null }): boolean {
+    return isPanicCategory(inc.categoryName)
+      || isPanicCategory(inc.destinationName)
+      || (inc.description ?? "").toLowerCase().includes("panic")
+      || (inc.description ?? "").toLowerCase().includes("paniek");
+  }
+
+  function goingToThisPanic(id: number): boolean {
+    try { return sessionStorage.getItem("omt_panic_go") === String(id); } catch { return false; }
+  }
+
+  function promoteSessionPanicTarget() {
+    try {
+      const raw = sessionStorage.getItem("omt_panic_target");
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { lat?: number; lng?: number };
+      if (typeof parsed.lat !== "number" || typeof parsed.lng !== "number") return;
+      localStorage.setItem("omt_panic_target", raw);
+      panicTargetAppliedRef.current = false;
+    } catch { /* ignore */ }
+  }
+
+  function isFireCategory(name: string | null | undefined): boolean {
+    const n = (name ?? "").toLowerCase();
+    return n.includes("vuur") || n.includes("fire");
+  }
+
+  function isCrimeCategory(name: string | null | undefined): boolean {
+    const n = (name ?? "").trim().toLowerCase();
+    return n === "veediefstal"
+      || n === "vee en wildediere"
+      || n === "inbraak"
+      || n === "verdagte voertuig"
+      || n === "verdagte persoon"
+      || n === "ander misdaad";
+  }
+
+  function beginFarmerResponse(id: number) {
+    setFarmerOpeningNav(true);
+    autoNavAfterJoinRef.current = true;
+    localStorage.setItem(JOINED_INCIDENT_KEY, String(id));
+    setJoinedId(id);
+    joinLiveMutation.mutate(id);
+  }
+
+  function releaseOwnLiveBinding() {
+    try { localStorage.removeItem(LIVE_INCIDENT_KEY); } catch { /* ignore */ }
+    setLiveId(null);
+  }
+
+  async function beginFarmerPanicResponse(id: number, inc?: LiveIncidentWithResponders | Incident) {
+    setFarmerOpeningNav(true);
+    autoNavAfterJoinRef.current = true;
+    releaseOwnLiveBinding();
+    promoteSessionPanicTarget();
+    try {
+      await apiRequest("POST", `/api/incidents/${id}/acknowledge-panic`, {});
+    } catch { /* already acknowledged, or this phone's group cannot write the ack */ }
+    try {
+      await apiRequest("POST", `/api/incidents/${id}/join-live`, {});
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      if (/not live|already closed/i.test(msg)) {
+        autoNavAfterJoinRef.current = false;
+        setFarmerOpeningNav(false);
+        try { sessionStorage.removeItem("omt_panic_go"); } catch { /* ignore */ }
+        navigate("/dashboard");
+        return;
+      }
+    }
+    let target: LiveIncidentWithResponders | Incident | undefined = inc;
+    if (!target) {
+      try {
+        const res = await fetch(`/api/incidents/${id}`, { credentials: "include" });
+        if (res.ok) target = (await res.json()) as Incident;
+      } catch { /* the view page already stored the pin */ }
+    }
+    if (target && !stashPanicTarget(target)) promoteSessionPanicTarget();
+    panicTargetAppliedRef.current = false;
+    await queryClient.refetchQueries({ queryKey: ["/api/incidents/live"] });
+    enterJoinedIncident(id);
+    try { sessionStorage.removeItem("omt_panic_go"); } catch { /* ignore */ }
   }
 
   function stashPanicTarget(inc: LiveIncidentWithResponders | Incident) {
@@ -1863,6 +2150,7 @@ export default function LiveIncidentPage() {
   function reopenPanicResponse(id: number, inc: LiveIncidentWithResponders | Incident) {
     const dest = stashPanicTarget(inc);
     panicTargetAppliedRef.current = false;
+    releaseOwnLiveBinding();
     enterJoinedIncident(id);
     return dest;
   }
@@ -1896,8 +2184,8 @@ export default function LiveIncidentPage() {
         enterJoinedIncident(joinPrompt.id);
         await queryClient.refetchQueries({ queryKey: ["/api/panic/recent"] });
         toast({
-          title: "Responding",
-          description: "Starting turn-by-turn navigation to the panicker.",
+          title: usesFarmerPhone(me?.role ?? "") ? farmerT.joinGoing : "Responding",
+          description: usesFarmerPhone(me?.role ?? "") ? farmerT.joinGoingShare : "Starting turn-by-turn navigation to the panicker.",
         });
       } catch (e: unknown) {
         toast({
@@ -1911,6 +2199,7 @@ export default function LiveIncidentPage() {
       return;
     }
     const id = joinPrompt.id;
+    if (usesFarmerPhone(me?.role ?? "")) setFarmerOpeningNav(true);
     setJoinPrompt(null);
     autoNavAfterJoinRef.current = true;
     joinLiveMutation.mutate(id);
@@ -1930,6 +2219,12 @@ export default function LiveIncidentPage() {
       }
     },
     onError: (err: Error, id: number) => {
+      setFarmerOpeningNav(false);
+      setJoinedId((current) => {
+        if (current !== id) return current;
+        try { localStorage.removeItem(JOINED_INCIDENT_KEY); } catch { /* ignore */ }
+        return null;
+      });
       if (err.message.includes("Incident is not live")) {
         void (async () => {
           try {
@@ -1953,6 +2248,34 @@ export default function LiveIncidentPage() {
     },
   });
 
+  // Misdaad "Gaan soontoe": guided road nav to a pin, without joining a live incident.
+  useEffect(() => {
+    if (!pinNav) return;
+    setDestination({ lat: pinNav.lat, lng: pinNav.lng, name: pinNav.name });
+    destPositionRef.current = { lat: pinNav.lat, lng: pinNav.lng };
+    pinNavBackRef.current = pinNav.back;
+    if (pinNavStartedRef.current) return;
+    const mapActuallyReady = isNative ? nativeMapStatus === "ready" && pinMapRevealed : mapsReady && pinMapRevealed;
+    if (!mapActuallyReady) return;
+    pinNavStartedRef.current = true;
+    autoResumedNavRef.current = true;
+    setActiveNavStyle("guided");
+    activeNavStyleRef.current = "guided";
+    void (async () => {
+      if (!lastPosRef.current) {
+        await ensureLiveLocationAccess({ requireFix: false });
+      }
+      gpsEndpointRef.current = "local";
+      startTracking(0);
+      drawRoute(pinNav.lat, pinNav.lng, lastPosRef.current ?? undefined, true);
+      if (isNative) await new Promise((r) => setTimeout(r, 600));
+      navModeRef.current = true;
+      setNavMode(true);
+      startStepTracking();
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pinNav, mapsReady, nativeMapStatus, isNative, pinMapRevealed]);
+
   // Opened from push or dashboard ?join= — always confirm before joining (panic + live).
   // If already responding, reopen without asking again.
   useEffect(() => {
@@ -1968,10 +2291,38 @@ export default function LiveIncidentPage() {
       if (joinInFlightRef.current === id) joinInFlightRef.current = null;
     };
 
+    if (usesFarmerPhone(me.role)) setFarmerOpeningNav(true);
+    try {
+      sessionStorage.setItem("omt_push_applied", `/live-incident?join=${id}`);
+      localStorage.removeItem("omt_pending_push_url");
+      sessionStorage.removeItem("omt_pending_push_url");
+    } catch { /* ignore */ }
     window.history.replaceState({}, "", "/live-incident");
     void queryClient.invalidateQueries({ queryKey: ["/api/incidents/live"] });
 
     const liveIncForJoin = liveIncidents.find((i) => i.id === id && i.isLive);
+
+    // The person who reported the vuur or misdaad stays on that screen, not the joiner card.
+    if (
+      usesFarmerPhone(me.role)
+      && liveIncForJoin
+      && liveIncForJoin.userId === me.id
+      && isFireCategory(liveIncForJoin.categoryName)
+    ) {
+      navigate("/vuur");
+      releaseJoinLock();
+      return;
+    }
+    if (
+      usesFarmerPhone(me.role)
+      && liveIncForJoin
+      && liveIncForJoin.userId === me.id
+      && isCrimeCategory(liveIncForJoin.categoryName)
+    ) {
+      navigate(`/misdaad?report=${id}`);
+      releaseJoinLock();
+      return;
+    }
 
     // Own panic: never enter joiner/"Responding" mode — that disables panicker GPS sync.
     if (liveIncForJoin && liveIncForJoin.userId === me.id && isPanicCategory(liveIncForJoin.categoryName)) {
@@ -1981,6 +2332,7 @@ export default function LiveIncidentPage() {
       } catch { /* ignore */ }
       setJoinedId(null);
       setLiveId(id);
+      setFarmerOpeningNav(false);
       releaseJoinLock();
       return;
     }
@@ -1989,6 +2341,16 @@ export default function LiveIncidentPage() {
       if (liveIncForJoin && isPanicCategory(liveIncForJoin.categoryName)) {
         reopenPanicResponse(id, liveIncForJoin);
         autoNavAfterJoinRef.current = true;
+      } else if (
+        usesFarmerPhone(me.role)
+        && joinedId === id
+        && liveIncForJoin
+        && (isFireCategory(liveIncForJoin.categoryName) || isCrimeCategory(liveIncForJoin.categoryName) || isCrimeCategory(liveIncForJoin.destinationName))
+      ) {
+        autoNavAfterJoinRef.current = true;
+        enterJoinedIncident(id);
+      } else {
+        setFarmerOpeningNav(false);
       }
       releaseJoinLock();
       return;
@@ -2001,7 +2363,15 @@ export default function LiveIncidentPage() {
       if (liveIncForJoin && isPanicCategory(liveIncForJoin.categoryName)) {
         reopenPanicResponse(id, liveIncForJoin);
         autoNavAfterJoinRef.current = true;
+      } else if (
+        usesFarmerPhone(me.role)
+        && liveIncForJoin
+        && (isFireCategory(liveIncForJoin.categoryName) || isCrimeCategory(liveIncForJoin.categoryName) || isCrimeCategory(liveIncForJoin.destinationName))
+      ) {
+        autoNavAfterJoinRef.current = true;
+        enterJoinedIncident(id);
       } else {
+        setFarmerOpeningNav(false);
         enterJoinedIncident(id);
       }
       releaseJoinLock();
@@ -2009,6 +2379,25 @@ export default function LiveIncidentPage() {
     }
 
     if (liveIncForJoin) {
+      if (
+        usesFarmerPhone(me.role)
+        && (looksLikePanic(liveIncForJoin) || goingToThisPanic(id))
+        && liveIncForJoin.userId !== me.id
+      ) {
+        void beginFarmerPanicResponse(id, liveIncForJoin);
+        releaseJoinLock();
+        return;
+      }
+      if (
+        usesFarmerPhone(me.role)
+        && (isFireCategory(liveIncForJoin.categoryName) || isCrimeCategory(liveIncForJoin.categoryName) || isCrimeCategory(liveIncForJoin.destinationName) || isCrimeCategory(joinLabelFor(id)?.category))
+        && liveIncForJoin.userId !== me.id
+      ) {
+        beginFarmerResponse(id);
+        releaseJoinLock();
+        return;
+      }
+      setFarmerOpeningNav(false);
       setJoinPrompt(buildJoinPromptDetails(liveIncForJoin));
       releaseJoinLock();
       return;
@@ -2020,17 +2409,67 @@ export default function LiveIncidentPage() {
         if (res.ok) {
           const inc = (await res.json()) as Incident;
           if (!inc.isLive) {
+            if (import.meta.env.VITE_FARMER_PHONE === "1") {
+              try {
+                localStorage.removeItem(JOINED_INCIDENT_KEY);
+                localStorage.removeItem(LIVE_INCIDENT_KEY);
+                localStorage.removeItem(NAV_STARTED_KEY);
+                localStorage.removeItem("omt_pending_push_url");
+                sessionStorage.removeItem("omt_pending_push_url");
+              } catch { /* ignore */ }
+              setFarmerOpeningNav(false);
+              setJoinedId(null);
+              setLiveId(null);
+              try { sessionStorage.removeItem("omt_panic_go"); } catch { /* ignore */ }
+              navigate("/dashboard");
+              return;
+            }
             const closedAt = inc.liveEndedAt
               ? new Date(inc.liveEndedAt).toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit", hour12: false })
               : null;
+            setFarmerOpeningNav(false);
             setStaleJoinNotice({ id, closedAt });
             return;
           }
           const cat = categories.find((c) => c.id === inc.categoryId)?.name ?? inc.categoryName ?? null;
+          const panic = isPanicCategory(cat) || looksLikePanic(inc) || goingToThisPanic(id);
+          if (usesFarmerPhone(me.role) && inc.userId === me.id && isFireCategory(cat)) {
+            navigate("/vuur");
+            return;
+          }
+          if (usesFarmerPhone(me.role) && inc.userId === me.id && isCrimeCategory(cat)) {
+            navigate(`/misdaad?report=${id}`);
+            return;
+          }
+          if (usesFarmerPhone(me.role) && inc.userId === me.id && panic) {
+            try {
+              localStorage.setItem(LIVE_INCIDENT_KEY, String(id));
+              localStorage.removeItem(JOINED_INCIDENT_KEY);
+            } catch { /* ignore */ }
+            setJoinedId(null);
+            setLiveId(id);
+            setFarmerOpeningNav(false);
+            return;
+          }
+          if (usesFarmerPhone(me.role) && panic && inc.userId !== me.id) {
+            void beginFarmerPanicResponse(id, inc);
+            return;
+          }
+          if (usesFarmerPhone(me.role) && (isFireCategory(cat) || isCrimeCategory(cat) || isCrimeCategory(inc.destinationName) || isCrimeCategory(joinLabelFor(id)?.category)) && inc.userId !== me.id) {
+            beginFarmerResponse(id);
+            return;
+          }
+          setFarmerOpeningNav(false);
           setJoinPrompt(buildJoinPromptFromIncident(inc, cat));
           return;
         }
       } catch { /* fall through */ }
+      if (usesFarmerPhone(me.role) && goingToThisPanic(id)) {
+        void beginFarmerPanicResponse(id);
+        return;
+      }
+      setFarmerOpeningNav(false);
+      try { sessionStorage.removeItem("omt_panic_go"); } catch { /* ignore */ }
       toast({ title: "Incident unavailable", description: "Could not load this live incident.", variant: "destructive" });
       navigate("/");
     })().finally(releaseJoinLock);
@@ -2041,6 +2480,10 @@ export default function LiveIncidentPage() {
     mutationFn: (id: number) => apiRequest("POST", `/api/incidents/${id}/leave-live`, {}),
     onSuccess: () => {
       resetAfterLeave(true);
+      if (usesFarmerPhone(me?.role ?? "")) {
+        navigate("/dashboard");
+        return;
+      }
       toast({ title: "Left incident", description: "You have left the live incident response." });
     },
     onError: () => toast({ title: "Error", description: "Could not leave the incident.", variant: "destructive" }),
@@ -2648,7 +3091,8 @@ export default function LiveIncidentPage() {
   // user's active live incident from the server query and resume tracking.
   // Only bind if exactly one matching incident exists to avoid ambiguity.
   useEffect(() => {
-    if (!liveQueryLoaded || !me || liveId !== null) return;
+    if (pinNav) return;
+    if (!liveQueryLoaded || !me || liveId !== null || joinedId !== null) return;
     const myIncidents = liveIncidents.filter(i => i.isLive && i.userId === me.id);
     if (myIncidents.length === 1) {
       localStorage.setItem(LIVE_INCIDENT_KEY, String(myIncidents[0].id));
@@ -2690,9 +3134,11 @@ export default function LiveIncidentPage() {
   // Fresh visits where the user is choosing to start a new incident are NOT
   // affected — hadIncidentRef starts false and liveId stays null throughout.
   useEffect(() => {
+    if (pinNav || readPinNav()) return;
     if (!liveQueryLoaded) return;
     if (liveId !== null || joinedId !== null) return;
     if (isArrivalFormSessionActive()) return;
+    if (new URLSearchParams(window.location.search).get("join")) return;
     if (!hadIncidentRef.current) return;
     // Don't redirect if we're mid-flow from severity selection — autostart will
     // create a new incident immediately after. Redirecting here would send the
@@ -2709,6 +3155,7 @@ export default function LiveIncidentPage() {
   // Primary: restore from localStorage. Fallback: derive from server — if the current user
   // is an active responder in any live incident, enter joiner mode even without the key.
   useEffect(() => {
+    if (pinNav) return;
     if (!liveQueryLoaded || !me || joinedId !== null || liveId !== null) return;
     const storedJoined = localStorage.getItem(JOINED_INCIDENT_KEY);
     if (storedJoined) {
@@ -2864,6 +3311,7 @@ export default function LiveIncidentPage() {
   // GPS tracking — starts as soon as the incident is active, independent of
   // whether Google Maps has finished loading.
   useEffect(() => {
+    if (pinNav) return;
     if (!liveQueryLoaded) return;
     if (active) {
       // Skip if startLive() already called startTracking() for this incident —
@@ -2882,6 +3330,7 @@ export default function LiveIncidentPage() {
 
   // Route drawing — creators only; joiners pick Direct/Guided at navigate time.
   useEffect(() => {
+    if (pinNav) return;
     const mapActuallyReady = isNative ? nativeMapStatus === "ready" : mapsReady;
     if (!mapActuallyReady || !currentIncident || isJoinerMode) return;
     if (stepsRef.current.length === 0) {
@@ -3409,13 +3858,32 @@ export default function LiveIncidentPage() {
   }
 
   function cancelNavigation() {
+    const farmer = usesFarmerPhone(me?.role ?? "");
+    const back = pinNavBackRef.current;
+    if (pinNav && back) {
+      pinNavBackRef.current = null;
+      try { sessionStorage.removeItem(PIN_NAV_KEY); } catch { /* ignore */ }
+      void stopSpeaking();
+      stopTracking();
+      setNavMode(false);
+      navModeRef.current = false;
+      setNavStarted(false);
+      navigate(farmer ? "/dashboard" : back);
+      return;
+    }
     void stopSpeaking();
     setNavMode(false);
+    navModeRef.current = false;
     setNavStarted(false);
     setDestinationPickerOpen(false);
     setJoinerNavPickerOpen(false);
     try { localStorage.removeItem(NAV_STARTED_KEY); } catch { /* ignore */ }
     autoResumedNavRef.current = true;
+    if (farmer) {
+      if (joinedId !== null) leaveLiveMutation.mutate(joinedId);
+      else navigate("/dashboard");
+      return;
+    }
     toast({ title: "Navigation cancelled", description: "GPS tracking stays active for this live incident." });
   }
 
@@ -3486,12 +3954,16 @@ export default function LiveIncidentPage() {
     if (style === "direct") {
       await clearGuidedRouteVisuals();
       await refreshDestMarker(dest.lat, dest.lng, dest.name);
+      if (isNative && capMapRef.current) {
+        await capMapRef.current.drawDirectLine(origin, { lat: dest.lat, lng: dest.lng });
+      }
       updateDirectNavMetrics();
+      lastHeadingRef.current = bearingDegrees(origin, { lat: dest.lat, lng: dest.lng });
       setNavMode(true);
       startStepTracking();
       toast({
-        title: "Direct guidance started",
-        description: "Distance and bearing to the panicker — take your own route. GPS tracking continues.",
+        title: "Na die vuur",
+        description: "Die lyn op die kaart wys na die pin. Ry daardie kant toe.",
       });
       return;
     }
@@ -3610,7 +4082,7 @@ export default function LiveIncidentPage() {
         arrivalDraftRestoredRef.current = null;
         setSessionClosing(true);
         resetAfterLeave(true);
-        navigate("/");
+        navigate(usesFarmerPhone(me?.role ?? "") ? "/dashboard" : "/");
       }
       setArrivalSubmitting(false);
     }
@@ -3717,6 +4189,8 @@ export default function LiveIncidentPage() {
     // Only the creator gets the "backup arrived" surface — joiners shouldn't
     // get a toast when other joiners arrive.
     if (!me?.id || currentIncident.userId !== me.id) return;
+    // Never name a responder on the panicker's phone. An attacker looking at that screen must not learn who is coming.
+    if (isPanicIncident) return;
     const nonSelf = currentIncident.responders.filter(r => r.userId !== me.id);
 
     if (!responderSeedDoneRef.current) {
@@ -3767,8 +4241,9 @@ export default function LiveIncidentPage() {
     }, 4_000);
     const fallbackId = window.setTimeout(() => {
       if (cancelled || stepsRef.current.length > 0) return;
-      if (isNative && !nativeMapFailed) {
+      if (isNative && !nativeMapFailed && import.meta.env.VITE_FARMER_PHONE !== "1") {
         // Native hole can stay black when tiles/route never settle — flip to web map.
+        // Farmer builds have no web map key, so this swap is a blank white page.
         setNativeMapFailed(true);
         setNativeMapStatus("error");
         setNativeMapErrorMsg("Guided route timed out — using web map");
@@ -3979,7 +4454,7 @@ export default function LiveIncidentPage() {
   useEffect(() => {
     if (!navMode) return;
     acquireWakeLock().then((granted) => {
-      if (!granted) {
+      if (!granted && import.meta.env.VITE_FARMER_PHONE !== "1") {
         toast({
           title: "Screen may dim during navigation",
           description: "Your device or browser couldn't keep the screen on. Tap to prevent it from locking.",
@@ -4020,6 +4495,10 @@ export default function LiveIncidentPage() {
   const [closePanicPhotos, setClosePanicPhotos] = useState<Array<{ id: string; url: string; filename: string; mimeType: string; byteSize?: number }>>([]);
   const [closePanicUploading, setClosePanicUploading] = useState(false);
   const [closePanicSubmitting, setClosePanicSubmitting] = useState(false);
+  const [phoneSafeSent, setPhoneSafeSent] = useState(false);
+  const [phoneSafeSending, setPhoneSafeSending] = useState(false);
+  const [sceneCloseOpen, setSceneCloseOpen] = useState(false);
+  const [sceneCloseSending, setSceneCloseSending] = useState(false);
   const closePanicPhotoInputRef = useRef<HTMLInputElement>(null);
 
   function resetClosePanicForm() {
@@ -4203,6 +4682,12 @@ export default function LiveIncidentPage() {
     );
   }
 
+  const farmerJoinInUrl = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("join");
+  const farmerNavSplash = !navMode
+    && !pinNav
+    && !showArrivalForm
+    && (farmerOpeningNav || (import.meta.env.VITE_FARMER_PHONE === "1" && !!farmerJoinInUrl));
+
   if (isPanickerView && currentIncident) {
     // Acknowledgers from panic_acknowledgers
     const ownPanic = panicAlertsForView.find((p) => p.id === currentIncident.id);
@@ -4210,17 +4695,45 @@ export default function LiveIncidentPage() {
     // Live responders from live_responders (people who tapped "Respond Live")
     const liveResponders = currentIncident.responders ?? [];
     // Merge — dedup by userId; "on the way" outranks "acknowledged"
-    const merged = new Map<string, { userId: string; firstName: string; lastName: string; status: "ack" | "live" }>();
+    const merged = new Map<string, { userId: string; firstName: string; lastName: string; status: "ack" | "live"; lastLat: number | null; lastLng: number | null }>();
     for (const a of acknowledgers) {
-      merged.set(a.userId, { userId: a.userId, firstName: a.firstName, lastName: a.lastName, status: "ack" });
+      merged.set(a.userId, { userId: a.userId, firstName: a.firstName, lastName: a.lastName, status: "ack", lastLat: null, lastLng: null });
     }
     for (const r of liveResponders) {
-      merged.set(r.userId, { userId: r.userId, firstName: r.firstName, lastName: r.lastName, status: "live" });
+      merged.set(r.userId, { userId: r.userId, firstName: r.firstName, lastName: r.lastName, status: "live", lastLat: r.lastLat, lastLng: r.lastLng });
     }
     const responderList = Array.from(merged.values());
     const startedAt = currentIncident.liveStartedAt
       ? new Date(currentIncident.liveStartedAt).toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit", hour12: false })
       : null;
+    const farmerPhone = usesFarmerPhone(me?.role ?? "");
+    const liveTitle = farmerPhone ? farmerT.panicLiveTitle : "Panic Active";
+    const liveBody = farmerPhone ? farmerT.panicLiveBody : "Your panic alert is live";
+    const sentLabel = farmerPhone ? farmerT.panicSentAt : "Sent at";
+    const helpLine = farmerPhone
+      ? (panickerHasCoords ? farmerT.panicHelpOnWay : farmerT.panicHelpNoGps)
+      : (panickerHasCoords
+        ? "Help is on the way. Stay on this screen if you can — your location is being shared."
+        : "Help is on the way. Turn on Location so your team can see where you are.");
+    const noneYet = farmerPhone ? farmerT.panicNoResponders : "No one has acknowledged yet. Your team has been alerted.";
+    const safeLabel = farmerPhone ? farmerT.panicImSafe : "I'm safe — close panic alert";
+    const closeHint = farmerPhone ? farmerT.panicSafeHint : "Only close if you're safe. If you can't, your admin or supervisor can close it for you.";
+    const offlineLine = farmerPhone ? farmerT.panicOffline : "No mobile data — your panic was already sent. Responders can still see your last known location.";
+    async function tellPhoneSafe() {
+      setPhoneSafeSending(true);
+      try {
+        await apiRequest("POST", `/api/panic/${currentIncident.id}/phone-says-safe`, {});
+        setPhoneSafeSent(true);
+      } catch (e: unknown) {
+        toast({
+          title: "Kon nie stuur nie",
+          description: e instanceof Error ? e.message : "Probeer weer.",
+          variant: "destructive",
+        });
+      } finally {
+        setPhoneSafeSending(false);
+      }
+    }
     return (
       <div className="flex flex-col h-full bg-background live-page-root">
         <div className="flex items-center gap-3 px-4 py-3 border-b shrink-0 bg-background">
@@ -4228,18 +4741,30 @@ export default function LiveIncidentPage() {
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div className="flex items-center gap-2">
-            <AlertTriangle className="h-5 w-5 text-red-600" />
-            <span className="font-semibold text-lg">Panic Active</span>
+            <AlertTriangle className="h-5 w-5 text-red-600 shrink-0" />
+            <span className="whitespace-nowrap text-base font-semibold">{liveTitle}</span>
           </div>
-          <Badge className="ml-auto text-white bg-red-600 animate-pulse" data-testid="badge-panic-active">
-            SOS
-          </Badge>
+          <div className="ml-auto flex shrink-0 items-center gap-2">
+            {farmerPhone && (
+              <button
+                type="button"
+                onClick={toggleFarmerLang}
+                className="h-8 rounded-full border px-2.5 text-xs font-semibold"
+                data-testid="button-panicker-lang"
+              >
+                {farmerT.langLabel}
+              </button>
+            )}
+            <Badge className="text-white bg-red-600 animate-pulse" data-testid="badge-panic-active">
+              SOS
+            </Badge>
+          </div>
         </div>
 
         {!isOnline && (
           <div className="flex items-center gap-2 px-4 py-2.5 bg-red-600 text-white text-sm font-medium shrink-0" data-testid="banner-offline-panicker">
             <WifiOff className="h-4 w-4 shrink-0" />
-            <span>No mobile data — your panic was already sent. Responders can still see your last known location.</span>
+            <span>{offlineLine}</span>
           </div>
         )}
 
@@ -4259,63 +4784,54 @@ export default function LiveIncidentPage() {
           <div className="rounded-lg border-2 border-red-600 bg-red-600/10 p-4 text-center" data-testid="panel-panic-status">
             <AlertTriangle className="h-12 w-12 text-red-600 mx-auto mb-2" />
             <p className="text-lg font-bold text-red-700 dark:text-red-400">
-              Your panic alert is live
+              {liveBody}
             </p>
             {startedAt && (
               <p className="text-sm text-muted-foreground mt-1">
-                Sent at {startedAt}
+                {sentLabel} {startedAt}
               </p>
             )}
             <p className="text-sm mt-2">
-              {panickerHasCoords
-                ? "Help is on the way. Stay on this screen if you can — your location is being shared."
-                : "Help is on the way. Turn on Location so your team can see where you are."}
+              {helpLine}
             </p>
           </div>
 
           <div className="rounded-lg border bg-card p-4" data-testid="panel-panic-responders">
-            <p className="text-sm font-semibold mb-2">
-              Responders ({responderList.length})
+            <p className="text-sm text-muted-foreground">
+              {responderList.length === 0 ? noneYet : (farmerPhone ? farmerT.panicHelpOnWay : "Help is on the way.")}
             </p>
-            {responderList.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No one has acknowledged yet. Your team has been alerted.
-              </p>
-            ) : (
-              <ul className="space-y-1.5">
-                {responderList.map((r) => (
-                  <li
-                    key={r.userId}
-                    className="flex items-center gap-2 text-sm"
-                    data-testid={`item-responder-${r.userId}`}
-                  >
-                    <CheckCircle2 className={`h-4 w-4 shrink-0 ${r.status === "live" ? "text-green-600" : "text-amber-600"}`} />
-                    <span className="flex-1">{r.firstName} {r.lastName}</span>
-                    <span className={`text-xs ${r.status === "live" ? "text-green-700 dark:text-green-400 font-medium" : "text-muted-foreground"}`}>
-                      {r.status === "live" ? "on the way" : "acknowledged"}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
           </div>
 
-          <Button
-            variant="outline"
-            className="w-full"
-            size="lg"
-            onClick={() => setClosePanicDialogOpen(true)}
-            disabled={closePanicMutation.isPending || closePanicSubmitting}
-            data-testid="button-close-panic-panicker-view"
-          >
-            <X className="h-5 w-5 mr-2" />
-            I'm safe — close panic alert
-          </Button>
+          {farmerPhone ? (
+            <Button
+              variant="outline"
+              className="w-full"
+              size="lg"
+              onClick={() => void tellPhoneSafe()}
+              disabled={phoneSafeSending || phoneSafeSent}
+              data-testid="button-phone-says-safe"
+            >
+              {phoneSafeSent ? farmerT.panicSafeSent : phoneSafeSending ? farmerT.panicSafeSending : farmerT.panicImSafe}
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              className="w-full"
+              size="lg"
+              onClick={() => setClosePanicDialogOpen(true)}
+              disabled={closePanicMutation.isPending || closePanicSubmitting}
+              data-testid="button-close-panic-panicker-view"
+            >
+              <X className="h-5 w-5 mr-2" />
+              {safeLabel}
+            </Button>
+          )}
           <p className="text-xs text-muted-foreground text-center">
-            Only close if you're safe. If you can't, your admin or supervisor can close it for you.
+            {phoneSafeSent && farmerPhone ? farmerT.panicSafeSent : closeHint}
           </p>
         </div>
 
+        {!farmerPhone && (
         <Dialog
           open={closePanicDialogOpen}
           onOpenChange={(open) => {
@@ -4441,6 +4957,7 @@ export default function LiveIncidentPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        )}
       </div>
     );
   }
@@ -4448,13 +4965,21 @@ export default function LiveIncidentPage() {
   function navRespondersChipLabel(): string {
     if (newJoinerFlash) return newJoinerFlash;
     const others = navRoster.filter((e) => e.role !== "you");
+    if (isPanicIncident) {
+      const coming = others.filter((e) => e.role !== "panicker");
+      if (coming.length === 0) {
+        const victim = others.find((e) => e.role === "panicker");
+        return victim ? `${victim.firstName} · SOS` : "Paniek";
+      }
+      return coming.length === 1 ? "Iemand is op pad" : `${coming.length} is op pad`;
+    }
     if (others.length === 0) return "Responders";
     if (others.length === 1) {
       const o = others[0];
       return o.role === "panicker"
         ? `${o.firstName} · SOS`
         : o.role === "creator"
-          ? `${o.firstName} · live`
+          ? `${o.firstName} · ${usesFarmerPhone(me?.role ?? "") ? farmerT.navLive : "live"}`
           : `${o.firstName} responding`;
     }
     return `${others.length} responding`;
@@ -4493,8 +5018,75 @@ export default function LiveIncidentPage() {
     pinnedFieldLayout && "px-4 pt-3 border-t border-border/50 bg-background/95 backdrop-blur-sm",
   );
 
+  const canClosePanicNearby = usesFarmerPhone(me?.role ?? "")
+    && isPanicIncident
+    && isJoinerMode
+    && joinedId != null
+    && distToDestinationM != null
+    && distToDestinationM <= NAV_ARRIVAL_SOON_M;
+
+  async function confirmSceneClose() {
+    if (joinedId == null || sceneCloseSending) return;
+    const pos = lastPosRef.current;
+    if (!pos) {
+      toast({ title: "Ons kan nie jou plek sien nie", description: "Die kantoor moet die paniek toemaak.", variant: "destructive" });
+      return;
+    }
+    setSceneCloseSending(true);
+    try {
+      await apiRequest("POST", `/api/panic/${joinedId}/close-on-scene`, { lat: pos.lat, lng: pos.lng });
+      setSceneCloseOpen(false);
+      toast({ title: farmerT.sceneCloseYes });
+      try { localStorage.removeItem(JOINED_INCIDENT_KEY); } catch { /* ignore */ }
+      setJoinedId(null);
+      navigate("/");
+    } catch (e: unknown) {
+      toast({
+        title: "Kon nie toemaak nie",
+        description: e instanceof Error ? e.message : "Jy is dalk te ver.",
+        variant: "destructive",
+      });
+    } finally {
+      setSceneCloseSending(false);
+    }
+  }
+
+  const vicinityCloseButton = canClosePanicNearby ? (
+    <Button
+      size="lg"
+      className="w-full bg-[#006039] hover:bg-[#006039]/90 text-white font-bold"
+      onClick={() => setSceneCloseOpen(true)}
+      data-testid="button-close-panic-nearby"
+    >
+      {farmerT.sceneClose}
+    </Button>
+  ) : null;
+
   return (
     <div className="flex flex-col h-full bg-background live-page-root">
+      {farmerNavSplash && (
+        <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center gap-3 bg-[#f4f1ea] px-8 text-center text-zinc-900" data-testid="page-farmer-opening-nav">
+          <Loader2 className="h-9 w-9 animate-spin text-orange-600" />
+          <p className="text-lg font-semibold">{farmerT.joinGoing}</p>
+          <p className="text-sm text-zinc-600">{farmerT.fireOpening}</p>
+        </div>
+      )}
+      <Dialog open={sceneCloseOpen} onOpenChange={setSceneCloseOpen}>
+        <DialogContent className="max-w-md" data-testid="dialog-close-on-scene">
+          <DialogHeader>
+            <DialogTitle>{farmerT.sceneCloseTitle}</DialogTitle>
+            <DialogDescription>{farmerT.sceneCloseBody}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col gap-2 sm:flex-col sm:space-x-0">
+            <Button className="w-full" onClick={() => void confirmSceneClose()} disabled={sceneCloseSending} data-testid="button-confirm-close-on-scene">
+              {sceneCloseSending ? farmerT.panicSafeSending : farmerT.sceneCloseYes}
+            </Button>
+            <Button variant="outline" className="w-full" onClick={() => setSceneCloseOpen(false)} disabled={sceneCloseSending}>
+              {farmerT.sceneCloseNo}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {/* v75: merged title + GPS status row. Single LIVE pill, inline GPS info,
           background tinted by GPS health. The fixed top-0 GPS-lost banner (60 s
           threshold) still handles retry. */}
@@ -4517,25 +5109,25 @@ export default function LiveIncidentPage() {
             : "bg-red-600/10"
         }`}
       >
-        <Button variant="ghost" size="icon" onClick={() => navigate("/")} data-testid="button-back-live">
+        <Button variant="ghost" size="icon" onClick={() => { if (pinNav) cancelNavigation(); else navigate("/"); }} data-testid="button-back-live">
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div
           className="flex items-center gap-2 select-none min-w-0 flex-1"
           data-testid="title-live-incident"
         >
-          {navMode ? (
+          {navMode || pinNav ? (
             <div className="flex flex-col min-w-0 flex-1 gap-0.5">
-              <span className="font-semibold text-sm truncate leading-tight">Navigating to scene</span>
-              {(destination ?? joinerNavDestination) && (
+              <span className="font-semibold text-sm truncate leading-tight">{usesFarmerPhone(me?.role ?? "") ? farmerT.joinGoing : "Navigating to scene"}</span>
+              {(destination ?? joinerNavDestination ?? pinNav) && (
                 <span className="text-[11px] text-muted-foreground truncate">
-                  {(destination ?? joinerNavDestination)?.name}
+                  {(destination ?? joinerNavDestination)?.name ?? pinNav?.name}
                 </span>
               )}
             </div>
           ) : (
             <span className="font-semibold text-base shrink-0">
-              {isJoinerMode ? "Responding" : "Live Incident"}
+              {isJoinerMode ? (usesFarmerPhone(me?.role ?? "") ? farmerT.joinGoing : "Responding") : "Live Incident"}
             </span>
           )}
           {currentIncident && gpsStatus !== "idle" && (
@@ -4544,7 +5136,7 @@ export default function LiveIncidentPage() {
               {gpsStatus === "tracking" || gpsStatus === "stationary"
                 ? `GPS${gpsAccuracy != null ? ` ±${gpsAccuracy}m` : ""}${
                     gpsLastSentAt != null
-                      ? ` · ${Math.max(0, Math.round((Date.now() - gpsLastSentAt) / 1000))}s ago`
+                      ? ` · ${Math.max(0, Math.round((Date.now() - gpsLastSentAt) / 1000))}s ${usesFarmerPhone(me?.role ?? "") ? farmerT.navAgo : "ago"}`
                       : ""
                   }`
                 : gpsStatus === "acquiring"
@@ -4561,14 +5153,23 @@ export default function LiveIncidentPage() {
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
           {navMode && navFieldPhase && (
-            <LiveIncidentNavPhaseBadge phase={navFieldPhase} />
+            <LiveIncidentNavPhaseBadge
+              phase={navFieldPhase}
+              label={usesFarmerPhone(me?.role ?? "")
+                ? navFieldPhase === "at_scene"
+                  ? farmerT.navAtScene
+                  : navFieldPhase === "arriving_soon"
+                    ? farmerT.navArrivingSoon
+                    : farmerT.navNavigating
+                : undefined}
+            />
           )}
-          {currentIncident && (
+          {currentIncident && !(navMode && navFieldPhase) && (
             <Badge
               className={`text-white ${isJoinerMode ? "bg-blue-600" : "bg-green-500"}`}
               data-testid="badge-live-active"
             >
-              {isJoinerMode ? "JOINED" : "LIVE"}
+              {isJoinerMode ? (usesFarmerPhone(me?.role ?? "") ? farmerT.joinGoingBadge : "JOINED") : "LIVE"}
             </Badge>
           )}
         </div>
@@ -4638,8 +5239,8 @@ export default function LiveIncidentPage() {
         ref={scrollContainerRef}
         className={cn(
           "flex flex-col flex-1 min-h-0 live-scroll",
-          navMode || pinnedFieldLayout
-            ? "overflow-hidden p-0 gap-0 bg-background"
+          navMode || pinnedFieldLayout || pinNav
+            ? "overflow-hidden p-0 gap-0 bg-background relative"
             : "gap-3 p-4 overflow-y-auto",
         )}
       >
@@ -4769,7 +5370,7 @@ export default function LiveIncidentPage() {
               </div>
             ) : null}
           </>
-        ) : (
+        ) : pinNav ? null : (
           /* Pre-start screen — no incident created yet */
           <div className="flex flex-col flex-1 gap-4" data-testid="pre-start-screen">
             {staleJoinNotice && (
@@ -4867,17 +5468,29 @@ export default function LiveIncidentPage() {
           </div>
         )}
 
+        {pinNav && !pinMapRevealed && (
+          <div className="absolute inset-0 z-40 flex flex-col justify-center bg-[#f4f1ea] px-6" data-testid="pin-map-waiting">
+            <p className="text-xs font-bold uppercase tracking-wide text-orange-700">{farmerT.joinGoingBadge}</p>
+            <h1 className="mt-2 text-2xl font-bold">{pinNav.name}</h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {nativeMapStatus === "error" || nativeMapStatus === "timeout" ? farmerT.mapStuck : farmerT.mapOpening}
+            </p>
+          </div>
+        )}
+
         {/* Map always mounted — avoids losing the google.maps.Map instance on state change.
             In nav mode this wrapper must be a flex child with flex-1: the map host
             uses absolute children only, so without a sized parent the map collapses
             to 0px and the screen goes blank. */}
         <div
           className={cn(
-            (navMode || pinnedFieldLayout) && "flex flex-1 flex-col min-h-0 min-w-0 basis-0",
+            pinNav
+              ? "relative flex h-[calc(100dvh-8.5rem)] min-h-[60dvh] w-full flex-1 flex-col"
+              : (navMode || pinnedFieldLayout) && "flex flex-1 flex-col min-w-0 basis-0 min-h-0",
             pinnedFieldLayout && "px-4 pb-2",
           )}
         >
-        {isNative && (jsApiDegraded || jsApiRetrying) && !mapsError && (
+        {isNative && (jsApiDegraded || jsApiRetrying) && !mapsError && !usesFarmerPhone(me?.role ?? "") && (
           <div
             className="shrink-0 rounded-lg border border-amber-500/50 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-950 dark:text-amber-100 space-y-2"
             data-testid="banner-js-api-degraded"
@@ -4936,7 +5549,9 @@ export default function LiveIncidentPage() {
           <div
             ref={mapHostRef}
             className={
-              navMode
+              pinNav
+                ? "relative h-full min-h-[60dvh] w-full flex-1 overflow-hidden native-map-host"
+                : navMode
                 ? "relative overflow-hidden native-map-host flex-1 min-h-0 w-full h-full basis-0"
                 : pinnedFieldLayout
                 ? "relative overflow-hidden native-map-host live-field-map-host flex-1 min-h-0 w-full basis-0 rounded-xl border border-border/50 shadow-sm"
@@ -5035,12 +5650,12 @@ export default function LiveIncidentPage() {
                 <div className="mt-1.5 flex items-center gap-2 flex-wrap">
                   {guidedOffRoute && (
                     <div className="pointer-events-auto inline-flex items-center gap-1.5 bg-amber-500 text-amber-950 rounded-full pl-3 pr-3 py-1 shadow-lg text-xs font-semibold">
-                      Off suggested route
+                      {usesFarmerPhone(me?.role ?? "") ? farmerT.navOffRoute : "Off suggested route"}
                     </div>
                   )}
                   {followingStep && (
                     <div className="pointer-events-auto inline-flex items-center gap-1.5 bg-primary text-primary-foreground rounded-full pl-3 pr-3 py-1 shadow-lg text-sm font-medium max-w-[60%]">
-                      <span className="opacity-75">Then</span>
+                      <span className="opacity-75">{usesFarmerPhone(me?.role ?? "") ? farmerT.navThen : "Then"}</span>
                       <ManeuverIcon
                         maneuver={(followingStep as google.maps.DirectionsStep & { maneuver?: string }).maneuver}
                         className="h-4 w-4 shrink-0"
@@ -5057,7 +5672,7 @@ export default function LiveIncidentPage() {
                       onClick={() => switchToDirectNav()}
                       data-testid="button-switch-direct"
                     >
-                      Direct mode
+                      {usesFarmerPhone(me?.role ?? "") ? farmerT.navDirect : "Direct mode"}
                     </button>
                   )}
                   {renderNavRespondersChip()}
@@ -5120,6 +5735,8 @@ export default function LiveIncidentPage() {
               <CapacitorMap
                 ref={capMapRef}
                 apiKey={import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? ''}
+                initialCenter={pinNav ? { lat: pinNav.lat, lng: pinNav.lng } : undefined}
+                initialZoom={pinNav ? 14 : undefined}
                 className="absolute inset-0"
                 onReady={() => {
                   setNativeMapStatus("ready");
@@ -5129,6 +5746,8 @@ export default function LiveIncidentPage() {
                   const msg = (err as Error)?.message ?? String(err);
                   setNativeMapStatus(msg.includes("timeout") ? "timeout" : "error");
                   setNativeMapErrorMsg(msg);
+                  // Farmer builds have no web map key. Falling back paints an empty white page.
+                  if (import.meta.env.VITE_FARMER_PHONE === "1") return;
                   setNativeMapFailed(true);
                 }}
               />
@@ -5167,6 +5786,13 @@ export default function LiveIncidentPage() {
                 fmtDur={fmtDur}
                 bearingCardinal={bearingCardinal}
                 showProminentArrived={showProminentArrived}
+                copy={usesFarmerPhone(me?.role ?? "") ? {
+                  etaPrefix: farmerT.navEta,
+                  computing: farmerT.navComputing,
+                  arrived: farmerT.navArrived,
+                  arrivedEarly: farmerT.navArrivedEarly,
+                  cancel: farmerT.navCancel,
+                } : undefined}
                 onChat={() => navigate("/chat")}
                 onCancelNavigation={cancelNavigation}
                 onRecordArrival={recordArrival}
@@ -5270,6 +5896,8 @@ export default function LiveIncidentPage() {
               onVehicleInvolvedChange={setArrivalVehicleInvolved}
               sapsSectionOpen={arrivalSapsOpen}
               onSapsSectionOpenChange={setArrivalSapsOpen}
+              vuur={usesFarmerPhone(me?.role ?? "") && isFireCategory(currentIncident?.categoryName)}
+              farmer={usesFarmerPhone(me?.role ?? "")}
             />
           ) : navMode ? null : showProminentArrived ? (
             /* ---- Approaching destination (within 500 m) ---- */
@@ -5292,6 +5920,7 @@ export default function LiveIncidentPage() {
                 <CheckCircle2 className="h-6 w-6 mr-2" />
                 {isJoinerMode ? "I've Arrived — Record & Leave" : "I've Arrived — Record Incident"}
               </Button>
+              {vicinityCloseButton}
               {isJoinerMode && (
                 <Button
                   size="sm"
@@ -5323,6 +5952,7 @@ export default function LiveIncidentPage() {
                       : " — waiting for incident lead to set a destination"}
                   </p>
                 )}
+                {vicinityCloseButton}
                 <Button
                   size="sm"
                   variant="outline"
@@ -5360,6 +5990,7 @@ export default function LiveIncidentPage() {
                   {isJoinerMode ? "I've Arrived — Record & Leave" : "I've Arrived — Record Incident"}
                 </Button>
               )}
+              {vicinityCloseButton}
               {isJoinerMode && (
                 <Button
                   size="sm"
@@ -5375,6 +6006,20 @@ export default function LiveIncidentPage() {
               )}
             </div>
           ) : null
+        ) : pinNav ? (
+          <div
+            className="shrink-0 bg-[#f4f1ea] px-4 pt-3"
+            style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
+          >
+            <button
+              type="button"
+              className="h-14 w-full rounded-2xl bg-[#006039] font-bold text-white"
+              onClick={() => openGoogleMapsNav(pinNav.lat, pinNav.lng)}
+              data-testid="button-pin-open-maps"
+            >
+              {farmerT.mapOpenOutside}
+            </button>
+          </div>
         ) : (
           /* ---- Pre-start: create incident and begin tracking ---- */
           <div
@@ -5482,6 +6127,7 @@ export default function LiveIncidentPage() {
         open={joinPrompt !== null}
         details={joinPrompt}
         submitting={joinPromptSubmitting || joinLiveMutation.isPending}
+        farmer={usesFarmerPhone(me?.role ?? "")}
         onConfirm={() => { void confirmJoinPrompt(); }}
         onDecline={declineJoinPrompt}
       />
@@ -5518,10 +6164,10 @@ export default function LiveIncidentPage() {
       <Sheet open={respondersSheetOpen} onOpenChange={setRespondersSheetOpen}>
         <SheetContent side="bottom" className="max-h-[70vh] rounded-t-2xl" data-testid="sheet-nav-responders">
           <SheetHeader className="text-left pb-2">
-            <SheetTitle>Who&apos;s responding</SheetTitle>
+            <SheetTitle>{isPanicIncident ? "Paniek" : "Who's responding"}</SheetTitle>
             <SheetDescription>
               {isPanicIncident
-                ? "People heading to the panic or who acknowledged the alert."
+                ? "Wie paniek gestuur het. Name van mense wat kom word nie gewys nie."
                 : "People joined on this live incident."}
             </SheetDescription>
           </SheetHeader>
@@ -5546,7 +6192,7 @@ export default function LiveIncidentPage() {
                           : "bg-amber-500 text-white"
                     }`}
                   >
-                    {entry.role === "panicker" ? (
+                    {entry.role === "panicker" || (isPanicIncident && entry.role !== "you") ? (
                       <AlertTriangle className="h-4 w-4" />
                     ) : (
                       `${entry.firstName.charAt(0)}${entry.lastName.charAt(0) || ""}`.trim()
@@ -5554,7 +6200,9 @@ export default function LiveIncidentPage() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="font-semibold text-sm truncate">
-                      {entry.firstName} {entry.lastName}
+                      {isPanicIncident && entry.role !== "panicker" && entry.role !== "you"
+                        ? "Op pad"
+                        : `${entry.firstName} ${entry.lastName}`}
                       {entry.role === "you" ? (
                         <span className="ml-1.5 text-xs font-normal text-muted-foreground">(you)</span>
                       ) : entry.role === "creator" ? (

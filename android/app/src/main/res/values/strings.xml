@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">OMT Pulse</string>
-    <string name="title_activity_main">OMT Pulse</string>
+    <string name="app_name">Wagtoring</string>
+    <string name="title_activity_main">Wagtoring</string>
     <string name="package_name">com.intelafri.omtpulse</string>
     <string name="custom_url_scheme">com.intelafri.omtpulse</string>
 </resources>

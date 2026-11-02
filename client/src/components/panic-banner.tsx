@@ -29,12 +29,8 @@ function summariseAckStatus(acks: PanicAlert["acknowledgedBy"]): string | null {
     return `${arrived.length} on scene · ${enRoute.length} en route`;
   }
   if (arrived.length > 0) {
-    // Use names when only one or two arrived so it stays personal.
-    if (arrived.length === 1) return `${arrived[0].firstName} ${arrived[0].lastName} on scene`.trim();
-    if (arrived.length === 2) return `${arrived[0].firstName} and ${arrived[1].firstName} on scene`;
-    return `${arrived.length} on scene`;
+    return arrived.length === 1 ? "1 on scene" : `${arrived.length} on scene`;
   }
-  // Only en-route — fall back to existing name list.
   return null;
 }
 
@@ -48,14 +44,7 @@ type PanicBannerProps = {
 
 function formatAckList(acks: PanicAlert["acknowledgedBy"]) {
   if (acks.length === 0) return null;
-  const names = acks.map((a) => a.firstName);
-  if (names.length === 1) return `${acks[0].firstName} ${acks[0].lastName}`.trim();
-  if (names.length === 2) return `${names[0]} and ${names[1]}`;
-  return `${names[0]}, ${names[1]} +${names.length - 2} more`;
-}
-
-function responderStatusLabel(ack: PanicAlert["acknowledgedBy"][number]): string {
-  return ack.arrivedAt ? "On scene" : "Responding";
+  return acks.length === 1 ? "1 person" : `${acks.length} people`;
 }
 
 export function PanicBanner({ alerts, currentUserId, dismissedIds, onDismiss, testIdSuffix = "" }: PanicBannerProps) {
@@ -98,7 +87,6 @@ export function PanicBanner({ alerts, currentUserId, dismissedIds, onDismiss, te
           const ackText = formatAckList(alert.acknowledgedBy);
           const onSceneText = summariseAckStatus(alert.acknowledgedBy);
           const hasPanicGps = alert.lat != null && alert.lng != null;
-          const fullAckList = alert.acknowledgedBy.map((a) => `${a.firstName} ${a.lastName}`.trim()).join(", ");
           const responderCount = alert.acknowledgedBy.length;
 
           return (
@@ -126,32 +114,7 @@ export function PanicBanner({ alerts, currentUserId, dismissedIds, onDismiss, te
                           Broadcast sent — waiting for someone to acknowledge
                         </p>
                       )}
-                      {responderCount > 0 ? (
-                        <ul
-                          className="mt-1 space-y-1 rounded-md border border-amber-500/25 bg-amber-500/5 px-2.5 py-2"
-                          data-testid={`list-panic-responders${suffix}-${alert.id}`}
-                        >
-                          {alert.acknowledgedBy.map((ack) => (
-                            <li
-                              key={ack.userId}
-                              className="flex items-center justify-between gap-2 text-xs"
-                            >
-                              <span className="font-medium text-amber-950 dark:text-amber-50 truncate">
-                                {`${ack.firstName} ${ack.lastName}`.trim()}
-                              </span>
-                              <span
-                                className={
-                                  ack.arrivedAt
-                                    ? "shrink-0 font-semibold text-green-700 dark:text-green-400"
-                                    : "shrink-0 font-semibold text-sky-700 dark:text-sky-400"
-                                }
-                              >
-                                {responderStatusLabel(ack)}
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
+                      {responderCount > 0 ? null : (
                         <p className="text-xs text-amber-700/80 dark:text-amber-300/80">
                           No responders yet. Control room and nearby team are being alerted.
                         </p>
@@ -167,12 +130,11 @@ export function PanicBanner({ alerts, currentUserId, dismissedIds, onDismiss, te
                           className="text-xs text-green-700 dark:text-green-400 font-medium"
                           data-testid={`text-panic-self-arrived-${alert.id}`}
                         >
-                          You have arrived — {alert.firstName} knows you're here
+                          You have arrived
                         </p>
                       ) : onSceneText ? (
                         <p
                           className="text-xs text-green-700 dark:text-green-400 font-medium"
-                          title={fullAckList}
                           data-testid={`text-panic-ack-list-${alert.id}`}
                         >
                           {onSceneText}
@@ -182,7 +144,6 @@ export function PanicBanner({ alerts, currentUserId, dismissedIds, onDismiss, te
                       ) : ackText && (
                         <p
                           className="text-xs text-green-700 dark:text-green-400 font-medium"
-                          title={fullAckList}
                           data-testid={`text-panic-ack-list-${alert.id}`}
                         >
                           {ackText} {alert.acknowledgedBy.length === 1 ? "is" : "are"} responding

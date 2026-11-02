@@ -31,4 +31,32 @@
         <item name="android:navigationBarColor">#0c100e</item>
         <item name="android:windowLightStatusBar">false</item>
     </style>
+
+    <style name="PanicAlertTheme" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">#1a0a0c</item>
+        <item name="android:statusBarColor">#1a0a0c</item>
+        <item name="android:navigationBarColor">#1a0a0c</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+
+    <style name="RadioAlertTheme" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">#0c100e</item>
+        <item name="android:statusBarColor">#0c100e</item>
+        <item name="android:navigationBarColor">#0c100e</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+
+    <style name="CrimeAlertTheme" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">#101418</item>
+        <item name="android:statusBarColor">#101418</item>
+        <item name="android:navigationBarColor">#101418</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+
+    <style name="ChatAlertTheme" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">#0c100e</item>
+        <item name="android:statusBarColor">#0c100e</item>
+        <item name="android:navigationBarColor">#0c100e</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
 </resources>

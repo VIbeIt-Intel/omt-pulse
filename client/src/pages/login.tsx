@@ -14,6 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { getStoredWorkstationToken, openPositionSession } from "@/lib/workstation-session";
 import { cacheAuthUser } from "@/lib/auth-cache";
+import { useFarmerLang } from "@/hooks/use-farmer-lang";
 import type { AuthUser } from "@/lib/auth-user";
 
 const loginSchema = z.object({
@@ -35,6 +36,8 @@ export default function LoginPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [showPassword, setShowPassword] = useState(false);
+  const { t } = useFarmerLang();
+  const farmerPhone = import.meta.env.VITE_FARMER_PHONE === "1";
 
   useEffect(() => {
     // Dedicated devices: if already enrolled, reopen the position session (no PIN).
@@ -101,7 +104,7 @@ export default function LoginPage() {
               <OmtShield variant="mark" className="h-16 w-16 shrink-0 rounded-2xl" />
               <div>
                 <h1 className="text-3xl font-bold tracking-tight sm:text-4xl" data-testid="text-login-title">
-                  OMT Pulse
+                  {farmerPhone ? t.appName : "OMT Pulse"}
                 </h1>
                 <HeartbeatLine className="mx-auto mt-1 h-6 w-28 opacity-80 md:mx-0" />
                 <p className="mt-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">

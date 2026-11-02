@@ -45,6 +45,42 @@
             android:turnScreenOn="true"
             android:theme="@style/FireAlertTheme" />
 
+        <activity
+            android:name=".PanicAlertActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:theme="@style/PanicAlertTheme" />
+
+        <activity
+            android:name=".RadioAlertActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:theme="@style/RadioAlertTheme" />
+
+        <activity
+            android:name=".CrimeAlertActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:theme="@style/CrimeAlertTheme" />
+
+        <activity
+            android:name=".ChatAlertActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:theme="@style/ChatAlertTheme" />
+
         <service
             android:name="com.capacitorjs.plugins.pushnotifications.MessagingService"
             tools:node="remove" />
@@ -79,6 +115,7 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
@@ -94,6 +131,10 @@
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="binaryeye" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SEND" />
+            <data android:mimeType="application/pdf" />
         </intent>
     </queries>
 </manifest>

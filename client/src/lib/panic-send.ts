@@ -12,6 +12,7 @@ import {
 export type PanicSendOutcome = {
   sent: number;
   found: number;
+  incidentId: number | null;
   loc: PanicLocationResult;
 };
 
@@ -19,8 +20,13 @@ export async function postPanicAlert(loc: PanicLocationResult): Promise<PanicSen
   const lat = hasPanicCoordinates(loc) ? loc.lat : undefined;
   const lng = hasPanicCoordinates(loc) ? loc.lng : undefined;
   const res = await apiRequest("POST", "/api/panic", { lat, lng });
-  const { sent, found } = (await res.json()) as { sent: number; found: number };
-  return { sent, found, loc };
+  const body = (await res.json()) as { sent?: number; found?: number; incidentId?: number | null };
+  return {
+    sent: body.sent ?? 0,
+    found: body.found ?? 0,
+    incidentId: typeof body.incidentId === "number" ? body.incidentId : null,
+    loc,
+  };
 }
 
 export function panicLocationOffTitle(issue?: PanicLocationIssue): string {

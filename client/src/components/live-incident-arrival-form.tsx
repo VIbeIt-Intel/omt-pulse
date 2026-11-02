@@ -16,6 +16,7 @@ import { IncidentReportSceneEvidenceSection } from "@/components/incident-report
 import { IncidentSapsSection, SapsCaseTile, clearSapsCustomFields, isSapsFormField } from "@/components/incident-saps-section";
 import { resolveAttachmentKind } from "@/lib/attachment-kind";
 import { cn } from "@/lib/utils";
+import { useFarmerLang } from "@/hooks/use-farmer-lang";
 import {
   ArrowLeft,
   Camera,
@@ -76,6 +77,10 @@ type Props = {
   onVehicleInvolvedChange: (v: boolean) => void;
   sapsSectionOpen: boolean;
   onSapsSectionOpenChange: (open: boolean) => void;
+  /** Farmer vuur arrival: Afrikaans copy and the orange vuur colours. */
+  vuur?: boolean;
+  /** Farmer phone: Afrikaans copy. Vuur keeps the orange header. */
+  farmer?: boolean;
 };
 
 export function LiveIncidentArrivalForm({
@@ -118,7 +123,11 @@ export function LiveIncidentArrivalForm({
   onVehicleInvolvedChange,
   sapsSectionOpen,
   onSapsSectionOpenChange,
+  vuur = false,
+  farmer = false,
 }: Props) {
+  const { t } = useFarmerLang();
+  const af = vuur || farmer;
   const orgCustomFields = formFields.filter(
     (f) => !f.isSystem && f.isVisible && !INVOLVEMENT_FIELD_KEYS.has(f.fieldKey),
   );
@@ -132,41 +141,41 @@ export function LiveIncidentArrivalForm({
       style={{ backgroundColor: "hsl(var(--background))" }}
       data-testid="arrival-form"
     >
-      <div className="flex items-center gap-3 px-4 py-3 border-b bg-background shrink-0">
+      <div className={cn("flex items-center gap-3 px-4 py-3 border-b shrink-0", vuur ? "border-orange-900 bg-orange-600 text-white" : "bg-background")}>
         <button
           type="button"
           onClick={onCancel}
-          className="text-muted-foreground hover:text-foreground p-1 rounded transition-colors"
+          className={cn("p-1 rounded transition-colors", vuur ? "text-white/80 hover:text-white" : "text-muted-foreground hover:text-foreground")}
           data-testid="button-cancel-arrival"
           aria-label="Back"
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
         <div className="min-w-0 flex-1">
-          <p className="text-base font-semibold leading-tight">Report Incident</p>
-          <p className="text-xs text-muted-foreground truncate">{destinationLabel}</p>
+          <p className="text-base font-semibold leading-tight">{vuur ? t.arrivalTitle : af ? t.arrivalCrimeTitle : "Report Incident"}</p>
+          <p className={cn("text-xs truncate", vuur ? "text-white/80" : "text-muted-foreground")}>{destinationLabel}</p>
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto">
         <div className="space-y-4 p-4 pb-2 max-w-lg mx-auto w-full" data-testid="arrival-form-body">
           <div
-            className="rounded-xl border border-primary/25 bg-primary/5 px-3 py-2.5 space-y-1"
+            className={cn("rounded-xl border px-3 py-2.5 space-y-1", vuur ? "border-orange-500/40 bg-orange-500/10" : "border-primary/25 bg-primary/5")}
             data-testid="arrival-prefill"
           >
             <div className="flex items-start gap-2">
-              <MapPin className="h-4 w-4 shrink-0 text-primary mt-0.5" />
+              <MapPin className={cn("h-4 w-4 shrink-0 mt-0.5", vuur ? "text-orange-500" : "text-primary")} />
               <div className="min-w-0 space-y-0.5">
-                <p className="text-xs font-medium text-primary" data-testid="text-arrival-location">
+                <p className={cn("text-xs font-medium", vuur ? "text-orange-700" : "text-primary")} data-testid="text-arrival-location">
                   {destinationLabel}
                 </p>
                 <p className="text-xs text-muted-foreground">
                   <span data-testid="text-arrival-time">
-                    {arrivalTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    {arrivalTime.toLocaleTimeString(af ? "af-ZA" : undefined, { hour: "2-digit", minute: "2-digit" })}
                   </span>
                   {" · "}
                   <span data-testid="text-arrival-date">
-                    {arrivalTime.toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" })}
+                    {arrivalTime.toLocaleDateString(af ? "af-ZA" : undefined, { day: "numeric", month: "short", year: "numeric" })}
                   </span>
                 </p>
               </div>
@@ -181,9 +190,21 @@ export function LiveIncidentArrivalForm({
             onStartVoice={onStartRecording}
             onStopVoice={onStopRecording}
             voiceBusy={uploading && uploadSource === "voice"}
+            vuur={vuur}
+            title={af ? t.arrivalWhat : undefined}
+            hint={af ? t.arrivalHint : undefined}
+            placeholder={af ? t.arrivalPlaceholder : undefined}
+            recordLabel={af ? t.arrivalVoice : undefined}
+            stopLabel={af ? t.arrivalStop : undefined}
+            recordingHint={af ? t.arrivalRecording : undefined}
           />
 
-          <IncidentReportSceneEvidenceSection>
+          <IncidentReportSceneEvidenceSection
+            vuur={vuur}
+            title={af ? t.arrivalEvidence : undefined}
+            optionalLabel={af ? t.arrivalOptional : undefined}
+            hint={af ? t.arrivalEvidenceHint : undefined}
+          >
             <input
               ref={uploadInputRef}
               type="file"
@@ -222,7 +243,7 @@ export function LiveIncidentArrivalForm({
                 >
                   <Square className="h-4 w-4 shrink-0" />
                   <span className="text-sm font-semibold">
-                    Stop recording ({Math.floor(recordingSeconds / 60)}:
+                    {af ? t.arrivalStop : "Stop recording"} ({Math.floor(recordingSeconds / 60)}:
                     {String(recordingSeconds % 60).padStart(2, "0")})
                   </span>
                 </button>
@@ -239,14 +260,14 @@ export function LiveIncidentArrivalForm({
                       "disabled:opacity-50 disabled:pointer-events-none min-h-[4.75rem]",
                     )}
                   >
-                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary">
+                    <span className={cn("flex h-9 w-9 items-center justify-center rounded-full", vuur ? "bg-orange-500/15 text-orange-500" : "bg-primary/10 text-primary")}>
                       {uploading && uploadSource === "file" ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
                       ) : (
                         <Upload className="h-4 w-4" />
                       )}
                     </span>
-                    <span className="text-[11px] font-medium leading-tight text-center">Upload</span>
+                    <span className="text-[11px] font-medium leading-tight text-center">{af ? t.arrivalUpload : "Upload"}</span>
                   </button>
 
                   <button
@@ -260,14 +281,14 @@ export function LiveIncidentArrivalForm({
                       "disabled:opacity-50 disabled:pointer-events-none min-h-[4.75rem]",
                     )}
                   >
-                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary">
+                    <span className={cn("flex h-9 w-9 items-center justify-center rounded-full", vuur ? "bg-orange-500/15 text-orange-500" : "bg-primary/10 text-primary")}>
                       {uploading && uploadSource === "camera" ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
                       ) : (
                         <Camera className="h-4 w-4" />
                       )}
                     </span>
-                    <span className="text-[11px] font-medium leading-tight text-center">Photo</span>
+                    <span className="text-[11px] font-medium leading-tight text-center">{af ? t.arrivalPhoto : "Photo"}</span>
                   </button>
 
                   <button
@@ -281,7 +302,7 @@ export function LiveIncidentArrivalForm({
                       "disabled:opacity-50 disabled:pointer-events-none min-h-[4.75rem]",
                     )}
                   >
-                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary">
+                    <span className={cn("flex h-9 w-9 items-center justify-center rounded-full", vuur ? "bg-orange-500/15 text-orange-500" : "bg-primary/10 text-primary")}>
                       {uploading && uploadSource === "voice" ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
                       ) : (
@@ -289,7 +310,7 @@ export function LiveIncidentArrivalForm({
                       )}
                     </span>
                     <span className="text-[11px] font-medium leading-tight text-center">
-                      {uploading && uploadSource === "voice" ? "Saving…" : "Voice"}
+                      {uploading && uploadSource === "voice" ? (af ? t.arrivalSaving : "Saving…") : (af ? t.arrivalVoiceShort : "Voice")}
                     </span>
                   </button>
                 </>
@@ -299,7 +320,7 @@ export function LiveIncidentArrivalForm({
             {media.length > 0 && (
               <div className="space-y-2">
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Ready to submit ({media.length}/{maxMedia})
+                  {af ? t.arrivalReady : "Ready to submit"} ({media.length}/{maxMedia})
                 </p>
                 <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
                   {media.map((item, idx) => {
@@ -425,18 +446,18 @@ export function LiveIncidentArrivalForm({
       </div>
 
       <div
-        className="shrink-0 px-4 pt-3 pb-4 border-t bg-background space-y-2"
+        className="shrink-0 border-t border-border bg-background px-4 pt-3 pb-4 space-y-2"
         style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
       >
         <Button
           size="lg"
-          className="w-full font-semibold"
+          className={cn("w-full font-semibold", vuur && "bg-orange-600 hover:bg-orange-700 text-white")}
           onClick={onSubmit}
           disabled={submitting}
           data-testid="button-submit-arrival"
         >
           {submitting ? <Loader2 className="h-5 w-5 mr-2 animate-spin" /> : <CheckCircle2 className="h-5 w-5 mr-2" />}
-          {isJoinerMode ? "Report Arrival & Leave" : "Report Incident"}
+          {af ? t.arrivalSubmit : isJoinerMode ? "Report Arrival & Leave" : "Report Incident"}
         </Button>
         <Button
           type="button"
@@ -447,7 +468,7 @@ export function LiveIncidentArrivalForm({
           disabled={submitting}
           data-testid="button-arrival-cancel-footer"
         >
-          Cancel
+          {af ? t.arrivalCancel : "Cancel"}
         </Button>
       </div>
     </div>

@@ -77,6 +77,8 @@ export const users = pgTable("users", {
   isSuperadmin: boolean("is_superadmin").notNull().default(false),
   /** bcrypt hash of 4–6 digit shift PIN for shared / dedicated device login */
   shiftPinHash: text("shift_pin_hash"),
+  /** 0/null off, -1 until they turn sound back on, otherwise quiet until this epoch ms. Panic is never included. */
+  quietUntilMs: bigint("quiet_until_ms", { mode: "number" }),
 });
 
 // ── Commands (sub-organisations within an org) ──────────────────────────────

@@ -329,6 +329,53 @@ html.capacitor-native .live-field-map-host {
 html.capacitor-native #cap-live-map {
   background-color: transparent !important;
 }
+/* Farmer phone: the window behind the WebView is black. Paint a light page
+   everywhere except the live map. The map is drawn behind the WebView, so
+   these ancestors must stay transparent while it is open. */
+/* Samsung display-size and large system text must not push the right
+   dashboard tiles off the screen. Titles size to the tile, not the window. */
+html.farmer-phone,
+html.farmer-phone body {
+  overflow-x: hidden;
+  max-width: 100%;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+.farmer-tile {
+  container-type: inline-size;
+}
+.farmer-tile-title {
+  font-size: clamp(16px, 13cqi, 22px);
+  line-height: 1.12;
+  letter-spacing: -0.02em;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.farmer-tile-hint {
+  font-size: 13px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.farmer-vee-title {
+  font-size: clamp(16px, 5cqi, 20px);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+html.farmer-phone.capacitor-native:not(.farmer-map),
+html.farmer-phone.capacitor-native:not(.farmer-map) body,
+html.farmer-phone.capacitor-native:not(.farmer-map) #root,
+html.farmer-phone.capacitor-native:not(.farmer-map) main,
+html.farmer-phone.capacitor-native:not(.farmer-map) .capacitor-shell-column {
+  background-color: #f4f1ea !important;
+}
+html.farmer-phone.capacitor-native .live-page-root,
+html.farmer-phone.capacitor-native .live-scroll,
+html.farmer-phone.capacitor-native .native-map-host,
+html.farmer-phone.capacitor-native .live-field-map-host,
+html.farmer-phone.capacitor-native #cap-live-map {
+  background-color: transparent !important;
+}
 
 @keyframes pulse-ring {
   0% { transform: scale(1); opacity: 0.3; }

@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
+import { useLocation } from "wouter";
 import { Siren, MapPin, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { queryClient } from "@/lib/queryClient";
 import {
   buildPanicSentToast,
   panicLocationOffBody,
@@ -9,10 +11,10 @@ import {
   probePanicLocation,
   probePanicLocationForSend,
 } from "@/lib/panic-send";
-import { hasPanicCoordinates, type PanicLocationResult } from "@/lib/panic-location";
+import { acquirePanicLocation, hasPanicCoordinates, type PanicLocationResult } from "@/lib/panic-location";
 import { enqueueOutboxJob } from "@/lib/offline-outbox";
 import { LocationPermissionGuide } from "@/components/location-permission-guide";
-import { preloadLocationSettingsModule } from "@/lib/open-location-settings";
+import { openLocationSettings, preloadLocationSettingsModule } from "@/lib/open-location-settings";
 
 type PanicLabels = {
   title: string;
@@ -26,6 +28,9 @@ type PanicLabels = {
   locationOff: string;
   sendWithoutGps: string;
   goBack: string;
+  whereHelp?: string;
+  whereButton?: string;
+  whereWait?: string;
 };
 
 const ENGLISH_PANIC: PanicLabels = {
@@ -49,11 +54,15 @@ type Props = {
   /** Extra line for org-specific copy (e.g. occurrence book). */
   notifyHint?: string;
   labels?: PanicLabels;
+  /** Farmer phone uses a light page. Control room keeps the dark confirm. */
+  light?: boolean;
 };
 
-export function PanicConfirmOverlay({ open, onOpenChange, confirmTestId, notifyHint, labels = ENGLISH_PANIC }: Props) {
+export function PanicConfirmOverlay({ open, onOpenChange, confirmTestId, notifyHint, labels = ENGLISH_PANIC, light = false }: Props) {
   const { toast } = useToast();
+  const [, navigate] = useLocation();
   const [sending, setSending] = useState(false);
+  const [finding, setFinding] = useState(false);
   const [locationProbe, setLocationProbe] = useState<PanicLocationResult | null>(null);
   const [pendingLoc, setPendingLoc] = useState<PanicLocationResult | null>(null);
   const [showLocationGate, setShowLocationGate] = useState(false);
@@ -73,6 +82,10 @@ export function PanicConfirmOverlay({ open, onOpenChange, confirmTestId, notifyH
       return;
     }
     preloadLocationSettingsModule();
+    if (import.meta.env.DEV && new URLSearchParams(window.location.search).get("gps") === "off") {
+      setLocationProbe({ issue: "denied" });
+      return;
+    }
     let cancelled = false;
     void probePanicLocation().then((loc) => {
       if (!cancelled) setLocationProbe(loc);
@@ -116,6 +129,16 @@ export function PanicConfirmOverlay({ open, onOpenChange, confirmTestId, notifyH
       onOpenChange(false);
       const t = buildPanicSentToast(outcome);
       toast({ title: t.title, description: t.description, variant: t.variant });
+      await queryClient.refetchQueries({ queryKey: ["/api/incidents/live"] });
+      const rows = queryClient.getQueryData<Array<{ id: number; userId: string | null; isLive: boolean }>>(["/api/incidents/live"]) ?? [];
+      const me = queryClient.getQueryData<{ id: string }>(["/api/auth/me"]);
+      const mine = rows.filter((row) => row.isLive && me && row.userId === me.id);
+      const opened = (outcome.incidentId != null ? mine.find((row) => row.id === outcome.incidentId) : null)
+        ?? mine.reduce<{ id: number } | null>((best, row) => (best == null || row.id > best.id ? row : best), null);
+      if (opened) {
+        try { localStorage.setItem("omt_live_incident_id", String(opened.id)); } catch { /* ignore */ }
+      }
+      navigate("/live-incident");
     } catch (e: unknown) {
       // Network blip after navigator.onLine true — still queue rather than lose SOS.
       const msg = e instanceof Error ? e.message : "";
@@ -149,11 +172,23 @@ export function PanicConfirmOverlay({ open, onOpenChange, confirmTestId, notifyH
     }
   }
 
+  async function showWhereIAm() {
+    setFinding(true);
+    try {
+      const loc = await acquirePanicLocation();
+      setLocationProbe(loc);
+      if (hasPanicCoordinates(loc)) return;
+      await openLocationSettings();
+    } finally {
+      setFinding(false);
+    }
+  }
+
   async function onConfirmSend() {
     setSending(true);
     const loc = await probePanicLocationForSend();
     setSending(false);
-    if (hasPanicCoordinates(loc)) {
+    if (hasPanicCoordinates(loc) || labels.whereButton) {
       await finishSend(loc);
       return;
     }
@@ -166,21 +201,23 @@ export function PanicConfirmOverlay({ open, onOpenChange, confirmTestId, notifyH
   if (showLocationGate && pendingLoc) {
     return (
       <div
-        className="fixed inset-0 z-[310] flex flex-col items-center justify-center bg-black/90 backdrop-blur-sm px-6"
+        className={light
+          ? "fixed inset-0 z-[310] flex flex-col items-center justify-center bg-[#f4f1ea] px-6 text-zinc-900"
+          : "fixed inset-0 z-[310] flex flex-col items-center justify-center bg-black/90 backdrop-blur-sm px-6"}
         data-testid="overlay-panic-location-off"
       >
         <div className="w-full max-w-sm flex flex-col items-center gap-5 text-center">
           <AlertTriangle className="h-14 w-14 text-amber-400" />
           <div className="space-y-2">
-            <h2 className="text-xl font-bold text-white">{panicLocationOffTitle(pendingLoc.issue)}</h2>
-            <p className="text-sm text-white/80 leading-relaxed">{panicLocationOffBody(pendingLoc.issue)}</p>
-            <p className="text-xs text-white/60">
+            <h2 className={light ? "text-xl font-bold text-zinc-900" : "text-xl font-bold text-white"}>{panicLocationOffTitle(pendingLoc.issue)}</h2>
+            <p className={light ? "text-sm text-zinc-600 leading-relaxed" : "text-sm text-white/80 leading-relaxed"}>{panicLocationOffBody(pendingLoc.issue)}</p>
+            <p className={light ? "text-xs text-zinc-500" : "text-xs text-white/60"}>
               Follow the steps below — works with your current app, no Play Store update.
             </p>
           </div>
           <div className="w-full space-y-3 pt-2">
             <LocationPermissionGuide
-              variant="dark"
+              variant={light ? "light" : "dark"}
               testIdPrefix={`${confirmTestId}-gate`}
               onLocationUpdated={(loc) => {
                 setPendingLoc(loc);
@@ -203,7 +240,9 @@ export function PanicConfirmOverlay({ open, onOpenChange, confirmTestId, notifyH
                 setPendingLoc(null);
               }}
               disabled={sending}
-              className="w-full h-12 rounded-2xl bg-white/10 hover:bg-white/20 text-white font-medium text-sm"
+              className={light
+                ? "w-full h-12 rounded-2xl border border-zinc-300 bg-white text-zinc-800 font-medium text-sm"
+                : "w-full h-12 rounded-2xl bg-white/10 hover:bg-white/20 text-white font-medium text-sm"}
             >
               {labels.goBack}
             </button>
@@ -215,7 +254,9 @@ export function PanicConfirmOverlay({ open, onOpenChange, confirmTestId, notifyH
 
   return (
     <div
-      className="fixed inset-0 z-[300] flex flex-col items-center justify-center bg-black/85 backdrop-blur-sm px-6"
+      className={light
+        ? "fixed inset-0 z-[300] flex flex-col items-center justify-start overflow-y-auto bg-[#f4f1ea] px-6 py-8 text-zinc-900"
+        : "fixed inset-0 z-[300] flex flex-col items-center justify-start overflow-y-auto bg-black/85 backdrop-blur-sm px-6 py-8"}
       data-testid="overlay-panic-confirm"
     >
       <div className="w-full max-w-sm flex flex-col items-center gap-6 text-center">
@@ -227,21 +268,43 @@ export function PanicConfirmOverlay({ open, onOpenChange, confirmTestId, notifyH
           </div>
         </div>
         <div className="space-y-2">
-          <h2 className="text-2xl font-bold text-white tracking-tight">{labels.title}</h2>
-          <p className="text-sm text-white/70 leading-relaxed">
-            {labels.before}<strong className="text-white">{labels.emphasis}</strong>{labels.after}
+          <h2 className={light ? "text-2xl font-bold tracking-tight text-zinc-900" : "text-2xl font-bold text-white tracking-tight"}>{labels.title}</h2>
+          <p className={light ? "text-sm leading-relaxed text-zinc-600" : "text-sm text-white/70 leading-relaxed"}>
+            {labels.before}<strong className={light ? "text-zinc-900" : "text-white"}>{labels.emphasis}</strong>{labels.after}
           </p>
         </div>
-        {locationProbe != null && !locationReady && (
+        {locationProbe != null && !locationReady && labels.whereButton && (
           <div className="w-full space-y-3">
-            <div className="flex items-start gap-2 rounded-xl bg-red-500/20 border border-red-500/50 px-4 py-3 text-xs text-red-100 text-left">
+            <div className={light
+              ? "rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-left text-sm text-red-800"
+              : "rounded-xl border border-red-500/50 bg-red-500/20 px-4 py-3 text-sm text-white text-left"}>
+              {labels.locationOff}
+            </div>
+            <p className={light ? "text-left text-sm text-zinc-700" : "text-sm text-white/80 text-left"}>{labels.whereHelp}</p>
+            <button
+              type="button"
+              onClick={() => void showWhereIAm()}
+              disabled={finding || sending}
+              className="w-full h-12 rounded-2xl bg-emerald-600 text-white font-bold text-sm inline-flex items-center justify-center gap-2 disabled:opacity-60"
+              data-testid={`${confirmTestId}-where`}
+            >
+              <MapPin className="h-4 w-4" />
+              {finding ? (labels.whereWait ?? "…") : labels.whereButton}
+            </button>
+          </div>
+        )}
+        {locationProbe != null && !locationReady && !labels.whereButton && (
+          <div className="w-full space-y-3">
+            <div className={light
+              ? "flex items-start gap-2 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-left text-xs text-red-800"
+              : "flex items-start gap-2 rounded-xl bg-red-500/20 border border-red-500/50 px-4 py-3 text-xs text-red-100 text-left"}>
               <MapPin className="h-4 w-4 shrink-0 mt-0.5" />
               <span>
-                <strong className="text-white">{labels.locationOff}</strong>
+                <strong className={light ? "text-red-900" : "text-white"}>{labels.locationOff}</strong>
               </span>
             </div>
             <LocationPermissionGuide
-              variant="dark"
+              variant={light ? "light" : "dark"}
               testIdPrefix={`${confirmTestId}-preview`}
               onLocationUpdated={(loc) => {
                 setLocationProbe(loc);
@@ -250,13 +313,17 @@ export function PanicConfirmOverlay({ open, onOpenChange, confirmTestId, notifyH
           </div>
         )}
         {locationReady && (
-          <div className="w-full flex items-start gap-2 rounded-xl bg-green-500/15 border border-green-500/40 px-4 py-3 text-xs text-green-100 text-left">
+          <div className={light
+            ? "flex w-full items-start gap-2 rounded-xl border border-green-600/30 bg-green-600/10 px-4 py-3 text-left text-xs text-green-800"
+            : "w-full flex items-start gap-2 rounded-xl bg-green-500/15 border border-green-500/40 px-4 py-3 text-xs text-green-100 text-left"}>
             <MapPin className="h-4 w-4 shrink-0 mt-0.5" />
             <span>{labels.gpsReady}</span>
           </div>
         )}
         {typeof Notification !== "undefined" && Notification.permission !== "granted" && (
-          <div className="w-full flex items-start gap-2 rounded-xl bg-amber-500/15 border border-amber-500/40 px-4 py-3 text-xs text-amber-300 text-left">
+          <div className={light
+            ? "flex w-full items-start gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-left text-xs text-amber-900"
+            : "w-full flex items-start gap-2 rounded-xl bg-amber-500/15 border border-amber-500/40 px-4 py-3 text-xs text-amber-300 text-left"}>
             <Siren className="h-4 w-4 shrink-0 mt-0.5" />
             <span>{notifyHint ?? "Push notifications are not enabled — alerts may be delayed."}</span>
           </div>
@@ -275,7 +342,9 @@ export function PanicConfirmOverlay({ open, onOpenChange, confirmTestId, notifyH
             type="button"
             onClick={() => onOpenChange(false)}
             disabled={sending}
-            className="w-full h-12 rounded-2xl bg-white/10 hover:bg-white/20 text-white font-medium text-sm transition-all touch-manipulation"
+            className={light
+              ? "w-full h-12 rounded-2xl border border-zinc-300 bg-white text-zinc-800 font-medium text-sm transition-all touch-manipulation"
+              : "w-full h-12 rounded-2xl bg-white/10 hover:bg-white/20 text-white font-medium text-sm transition-all touch-manipulation"}
           >
             {labels.cancel}
           </button>

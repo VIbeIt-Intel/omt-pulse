@@ -13,6 +13,13 @@ type Props = {
   onStartVoice: () => void;
   onStopVoice: () => void;
   voiceBusy?: boolean;
+  title?: string;
+  hint?: string;
+  placeholder?: string;
+  recordLabel?: string;
+  stopLabel?: string;
+  recordingHint?: string;
+  vuur?: boolean;
 };
 
 export function IncidentReportDescriptionField({
@@ -24,20 +31,30 @@ export function IncidentReportDescriptionField({
   onStartVoice,
   onStopVoice,
   voiceBusy = false,
+  title = "What happened? (type or speak)",
+  hint = "Describe who, what, where, when…",
+  placeholder = "Type what you saw here…",
+  recordLabel = "Record voice note",
+  stopLabel = "Stop",
+  recordingHint = "Recording… Tap Stop when done — your voice note will attach as scene evidence.",
+  vuur = false,
 }: Props) {
   const timerLabel = `${Math.floor(recordingSeconds / 60)}:${String(recordingSeconds % 60).padStart(2, "0")}`;
 
   return (
     <div
-      className="rounded-xl border-2 border-primary/30 bg-primary/5 p-4 space-y-3 shadow-sm"
+      className={cn(
+        "rounded-xl border-2 p-4 space-y-3 shadow-sm",
+        vuur ? "border-orange-500/50 bg-orange-500/10" : "border-primary/30 bg-primary/5",
+      )}
       data-testid="section-description-prominent"
     >
       <div className="space-y-1">
         <Label className="text-base font-bold text-foreground leading-snug">
-          What happened? (type or speak)
+          {title}
         </Label>
         <p className="text-xs text-muted-foreground leading-relaxed">
-          Describe who, what, where, when…
+          {hint}
         </p>
       </div>
 
@@ -45,7 +62,7 @@ export function IncidentReportDescriptionField({
         <Textarea
           value={value}
           onChange={(e) => onChange(e.target.value || null)}
-          placeholder="Type what you saw here…"
+          placeholder={placeholder}
           className={cn(
             "min-h-[180px] resize-none border-0 rounded-none bg-background text-base leading-relaxed px-3.5 py-3",
             "focus-visible:ring-0 focus-visible:ring-offset-0",
@@ -66,7 +83,7 @@ export function IncidentReportDescriptionField({
               data-testid="button-stop-description-voice"
             >
               <Square className="h-4 w-4 shrink-0" />
-              Stop ({timerLabel})
+              {stopLabel} ({timerLabel})
             </Button>
           ) : (
             <Button
@@ -74,7 +91,10 @@ export function IncidentReportDescriptionField({
               size="sm"
               onClick={onStartVoice}
               disabled={voiceBusy}
-              className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground border-0 h-10 px-4 font-semibold shadow-sm"
+              className={cn(
+                "gap-2 border-0 h-10 px-4 font-semibold shadow-sm text-white",
+                vuur ? "bg-orange-600 hover:bg-orange-700" : "bg-primary hover:bg-primary/90 text-primary-foreground",
+              )}
               data-testid="button-description-voice"
             >
               {voiceBusy ? (
@@ -82,15 +102,15 @@ export function IncidentReportDescriptionField({
               ) : (
                 <Mic className="h-4 w-4" />
               )}
-              Record voice note
+              {recordLabel}
             </Button>
           )}
         </div>
       </div>
 
       {isRecording && (
-        <p className="text-xs text-primary font-medium">
-          Recording… Tap Stop when done — your voice note will attach as scene evidence.
+        <p className={cn("text-xs font-medium", vuur ? "text-orange-400" : "text-primary")}>
+          {recordingHint}
         </p>
       )}
       {error && <p className="text-xs text-destructive font-medium">{error}</p>}

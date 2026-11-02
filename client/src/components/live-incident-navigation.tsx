@@ -35,9 +35,11 @@ const PHASE_BADGE: Record<NavFieldPhase, string> = {
 
 export function LiveIncidentNavPhaseBadge({
   phase,
+  label,
   className,
 }: {
   phase: NavFieldPhase;
+  label?: string;
   className?: string;
 }) {
   return (
@@ -45,7 +47,7 @@ export function LiveIncidentNavPhaseBadge({
       className={cn("text-[10px] uppercase tracking-wide font-bold shrink-0", PHASE_BADGE[phase], className)}
       data-testid="badge-nav-phase"
     >
-      {PHASE_LABEL[phase]}
+      {label ?? PHASE_LABEL[phase]}
     </Badge>
   );
 }
@@ -62,6 +64,13 @@ type NavBottomBarProps = {
   fmtDur: (s: number) => string;
   bearingCardinal: (deg: number) => string;
   showProminentArrived: boolean;
+  copy?: {
+    etaPrefix: string;
+    computing: string;
+    arrived: string;
+    arrivedEarly: string;
+    cancel: string;
+  };
   onChat: () => void;
   onCancelNavigation: () => void;
   onRecordArrival: () => void;
@@ -79,6 +88,7 @@ export function LiveIncidentNavBottomBar({
   fmtDur,
   bearingCardinal,
   showProminentArrived,
+  copy,
   onChat,
   onCancelNavigation,
   onRecordArrival,
@@ -108,11 +118,11 @@ export function LiveIncidentNavBottomBar({
               </span>
               <span className="text-muted-foreground">·</span>
               <span className="text-sm font-semibold text-muted-foreground" data-testid="text-nav-eta">
-                ETA {fmtDur(navRouteDisplay.duration)}
+                {copy?.etaPrefix ?? "ETA"} {fmtDur(navRouteDisplay.duration)}
               </span>
             </>
           ) : (
-            <span className="text-sm text-muted-foreground">Computing route…</span>
+            <span className="text-sm text-muted-foreground">{copy?.computing ?? "Computing route…"}</span>
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -136,7 +146,7 @@ export function LiveIncidentNavBottomBar({
           data-testid="button-arrived-nav"
         >
           <CheckCircle2 className="h-5 w-5 mr-2" />
-          {isJoinerMode ? "I've Arrived — Record & Leave" : "I've Arrived — Record Incident"}
+          {copy?.arrived ?? (isJoinerMode ? "I've Arrived — Record & Leave" : "I've Arrived — Record Incident")}
         </Button>
       ) : (
         <button
@@ -145,7 +155,7 @@ export function LiveIncidentNavBottomBar({
           onClick={onRecordArrival}
           data-testid="button-arrived-early"
         >
-          Record arrival early (still en route)
+          {copy?.arrivedEarly ?? "Record arrival early (still en route)"}
         </button>
       )}
 
@@ -158,7 +168,7 @@ export function LiveIncidentNavBottomBar({
         data-testid="button-cancel-navigation"
       >
         <X className="h-3.5 w-3.5 mr-1.5" />
-        Cancel navigation
+        {copy?.cancel ?? "Cancel navigation"}
       </Button>
     </div>
   );
