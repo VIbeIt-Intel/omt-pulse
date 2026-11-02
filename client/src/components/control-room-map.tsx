@@ -312,6 +312,9 @@ type ControlRoomMapProps = {
   highlightUserId?: string | null;
   /** Include this user on the map even if outside the “online” GPS window. */
   focusUser?: DashboardUserSummary | null;
+  /** Plot every roster member who has a GPS fix, including older positions. */
+  showAllMembers?: boolean;
+  memberRoster?: DashboardUserSummary[];
   onHighlightId?: (id: number | null) => void;
   onIncidentMarkerClick?: (id: number) => void;
   onOpenLiveMonitor?: (incidentId?: number) => void;
@@ -333,6 +336,8 @@ export function ControlRoomMap({
   highlightId: highlightIdProp,
   highlightUserId = null,
   focusUser = null,
+  showAllMembers = false,
+  memberRoster,
   onHighlightId,
   onIncidentMarkerClick,
   onOpenLiveMonitor,
@@ -486,16 +491,20 @@ export function ControlRoomMap({
   }, [teamUsers, responderFilter, incidents]);
 
   const onlineMapUsers = useMemo((): OnlineUserMapMarker[] => {
-    if (layerMode === "incidents") return [];
+    if (layerMode === "incidents" && !showAllMembers) return [];
     const byId = new Map<string, OnlineUserMapMarker>();
-    for (const u of teamUsers) {
-      if (!hasMapPosition(u)) continue;
+    const source = showAllMembers && memberRoster ? memberRoster : teamUsers;
+    for (const u of source) {
+      const include = showAllMembers
+        ? u.lastLat != null && u.lastLng != null
+        : hasMapPosition(u);
+      if (!include || u.lastLat == null || u.lastLng == null) continue;
       byId.set(u.id, {
         id: u.id,
         firstName: u.firstName,
         lastName: u.lastName,
-        lat: u.lastLat!,
-        lng: u.lastLng!,
+        lat: u.lastLat,
+        lng: u.lastLng,
         lastPositionAt: u.lastPositionAt
           ? new Date(u.lastPositionAt).toISOString()
           : null,
@@ -522,7 +531,7 @@ export function ControlRoomMap({
       });
     }
     return Array.from(byId.values());
-  }, [teamUsers, layerMode, focusUser, incidents]);
+  }, [teamUsers, layerMode, focusUser, incidents, showAllMembers, memberRoster]);
 
   const trackerMapMarkers = useMemo((): TrackerMapMarker[] => {
     if (layerMode === "incidents") return [];

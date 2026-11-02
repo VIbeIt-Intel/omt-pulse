@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Location } from "@shared/schema";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -16,19 +16,23 @@ import { ControlRoomMap } from "@/components/control-room-map";
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
 import {
+  Flame,
+  PawPrint,
   Radio,
+  ShieldAlert,
   Siren,
   MessageSquare,
   ChevronRight,
   MapPin,
+  Crosshair,
   Clock,
   Users,
   ExternalLink,
   CheckCircle2,
-  History,
-  CalendarRange,
+  BellRing,
   Building2,
   Car,
+  ChevronLeft,
   Gauge,
   KeyRound,
   Network,
@@ -140,24 +144,31 @@ type OccurrenceRow = {
   attachmentCount?: number;
 };
 
+type AlertKind = "fire" | "panic" | "crime" | "livestock";
+
+/** Open vuur, paniek, misdaad, and roaming livestock. Livestock is its own button, not misdaad. */
+function alertKindOf(categoryName: string | null | undefined): AlertKind | null {
+  const name = (categoryName ?? "").trim().toLowerCase();
+  if (!name) return null;
+  if (name.includes("panic") || name.includes("paniek")) return "panic";
+  if (name.includes("vuur") || name.includes("fire") || name.includes("brand")) return "fire";
+  if (name.includes("wilde") || name.includes("rondloop")) return "livestock";
+  if (
+    name.includes("misdaad")
+    || name.includes("crime")
+    || name.includes("verdagte")
+    || name.includes("inbraak")
+    || name.includes("veediefstal")
+    || name.includes("burglar")
+    || name.includes("theft")
+  ) return "crime";
+  return null;
+}
+
 /** True when the incident started as a panic alert (including later reclassified types e.g. Fire). */
 function isPanicOriginated(inc: OccurrenceRow): boolean {
   if ((inc.categoryName ?? "").toLowerCase().includes("panic")) return true;
   return inc.panicClosedAt != null && inc.panicClosedAt !== "";
-}
-
-function severityBadgeClass(severity: string | null): string {
-  if (severity === "red") return "bg-red-500/20 text-red-300 border-red-500/40";
-  if (severity === "orange") return "bg-orange-500/20 text-orange-300 border-orange-500/40";
-  if (severity === "yellow") return "bg-yellow-500/20 text-yellow-200 border-yellow-500/40";
-  return "bg-slate-600/50 text-slate-300 border-slate-500/40";
-}
-
-function severityRowAccent(severity: string | null, isPanic: boolean): string {
-  if (isPanic || severity === "red") return "border-l-[3px] border-l-red-500 bg-red-950/40";
-  if (severity === "orange") return "border-l-[3px] border-l-orange-500 bg-orange-950/20";
-  if (severity === "yellow") return "border-l-[3px] border-l-yellow-500 bg-yellow-950/15";
-  return "border-l-[3px] border-l-slate-600 bg-slate-800/30";
 }
 
 function formatSignalAge(ts: string | null | undefined, copy: ControlRoomCopy): string {
@@ -183,38 +194,32 @@ function formatStarterName(inc: LiveQueueItem): string | null {
   return name || null;
 }
 
-function formatReporterName(inc: OccurrenceRow, copy: ControlRoomCopy): string {
-  const name = [inc.reporterFirstName, inc.reporterLastName].filter(Boolean).join(" ").trim();
-  return name || copy.unknownReporter;
+function formatMapCoordinates(lat: number | null, lng: number | null): string | null {
+  if (lat == null || lng == null || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
 }
 
-function formatClockTime(value: string | Date | null | undefined): string {
-  if (!value) return "—";
-  if (value instanceof Date) {
-    return value.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  }
-  if (value.includes("T")) {
-    return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  }
-  const [h, m] = value.split(":");
-  if (h == null || m == null) return value;
-  const d = new Date();
-  d.setHours(parseInt(h, 10), parseInt(m, 10), 0, 0);
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+function alertChipClass(kind: AlertKind | null): string {
+  if (kind === "fire") return "bg-orange-600 text-white";
+  if (kind === "panic") return "bg-red-600 text-white";
+  if (kind === "crime") return "bg-zinc-800 text-white";
+  if (kind === "livestock") return "bg-amber-700 text-white";
+  return "bg-slate-600 text-white";
 }
 
-function formatLoggedTime(inc: OccurrenceRow): string {
-  return formatClockTime(inc.createdAt);
-}
-
-function formatOccurrenceTime(inc: OccurrenceRow): string {
-  return formatClockTime(inc.incidentTime);
+function severityPillClass(severity: string | null): string {
+  if (severity === "red") return "bg-red-600 text-white";
+  if (severity === "orange") return "bg-orange-600 text-white";
+  if (severity === "yellow") return "bg-amber-500 text-white";
+  return "bg-slate-600 text-white";
 }
 
 const OPS_FACILITY_STORAGE_KEY = "ops-selected-facility";
 /** Control room treats members as visible only if seen within this window. */
 const TEAM_VISIBLE_MS = 3 * 60 * 1000;
 const TEAM_STALE_ACTIVITY_MS = 4 * 60 * 60 * 1000;
+const WAKE_QUIET_MS = 60 * 60 * 1000;
+const WAKE_COOLDOWN_MS = 15 * 60 * 1000;
 
 function teamLastActivityAt(user: DashboardUserSummary): Date | null {
   const stamps = [user.lastSeenAt, user.lastPositionAt]
@@ -232,6 +237,13 @@ function formatTeamLastActivity(lastAt: Date | null, copy: ControlRoomCopy): str
   if (secs < 3600) return copy.minutesAgo(Math.round(secs / 60));
   if (secs < 86400) return copy.hoursAgo(Math.round(secs / 3600));
   return copy.daysAgo(Math.round(secs / 86400));
+}
+
+function canWakeMember(user: DashboardUserSummary, now: number): boolean {
+  if (user.isLive) return false;
+  const lastAt = teamLastActivityAt(user);
+  if (!lastAt) return true;
+  return now - lastAt.getTime() >= WAKE_QUIET_MS;
 }
 
 function isTeamActivityStale(user: DashboardUserSummary): boolean {
@@ -346,119 +358,6 @@ function filterTeamForCommand(
   return users.filter((u) => atCommand.has(u.id));
 }
 
-function OccurrenceList({
-  incidents,
-  loading,
-  emptyMessage,
-  onOpenOccurrence,
-  onOpenAttachments,
-  copy,
-}: {
-  incidents: OccurrenceRow[];
-  loading: boolean;
-  emptyMessage: string;
-  onOpenOccurrence: (incidentId: number) => void;
-  onOpenAttachments: (incident: OccurrenceRow) => void;
-  copy: ControlRoomCopy;
-}) {
-  if (loading) {
-    return (
-      <div className="p-3 space-y-2">
-        <Skeleton className="h-12 bg-slate-800" />
-        <Skeleton className="h-12 bg-slate-800" />
-        <Skeleton className="h-12 bg-slate-800" />
-      </div>
-    );
-  }
-  if (incidents.length === 0) {
-    return <p className="text-xs text-slate-600 text-center py-10 px-4">{emptyMessage}</p>;
-  }
-  return (
-    <ul className="divide-y divide-slate-800/80">
-      {incidents.map((inc) => {
-        const panicOriginated = isPanicOriginated(inc);
-        const hasAttachments = (inc.attachmentCount ?? 0) > 0;
-        return (
-          <li key={inc.id}>
-            <div
-              className={cn(
-                "w-full px-3 py-3 hover:bg-slate-800/50 transition-colors",
-                inc.isLive && "bg-orange-950/15",
-                severityRowAccent(inc.severity, panicOriginated),
-              )}
-              data-testid={`ops-occurrence-row-${inc.id}`}
-            >
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => onOpenAttachments(inc)}
-                  className="min-w-0 flex-1 text-left"
-                >
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    {panicOriginated && (
-                      <span title={copy.fromPanic}>
-                        <Siren
-                          className="h-3.5 w-3.5 text-red-400 shrink-0"
-                          aria-label={copy.fromPanic}
-                        />
-                      </span>
-                    )}
-                    <p className="font-semibold text-sm text-slate-100 truncate">
-                      {inc.categoryName ?? copy.uncategorised}
-                    </p>
-                    {hasAttachments && (
-                      <span
-                        className="inline-flex shrink-0 items-center gap-0.5 rounded border border-slate-600/70 bg-slate-800/80 px-1 py-0 text-[8px] font-bold uppercase text-slate-300"
-                        title={copy.hasAttachments}
-                      >
-                        <Paperclip className="h-2.5 w-2.5" />
-                        {inc.attachmentCount}
-                      </span>
-                    )}
-                    {inc.isLive && (
-                      <span className="inline-flex shrink-0 rounded border border-orange-500/40 bg-orange-950/40 px-1 py-0 text-[8px] font-bold uppercase text-orange-300">
-                        {copy.live}
-                      </span>
-                    )}
-                    {inc.severity && inc.severity !== "none" && (
-                      <span
-                        className={cn(
-                          "inline-flex shrink-0 rounded border px-1 py-0 text-[8px] font-bold uppercase",
-                          severityBadgeClass(inc.severity),
-                        )}
-                      >
-                        {inc.severity}
-                      </span>
-                    )}
-                    <span className="ml-auto shrink-0 text-[11px] tabular-nums text-slate-300">
-                      {formatLoggedTime(inc)}
-                    </span>
-                  </div>
-                  <p className="mt-1 flex items-center gap-1 text-xs text-slate-400">
-                    <MapPin className="h-3 w-3 shrink-0" />
-                    <span className="min-w-0 truncate">
-                      {inc.locationName || copy.locationPending}
-                      {" · "}
-                      {formatReporterName(inc, copy)}
-                    </span>
-                  </p>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onOpenOccurrence(inc.id)}
-                  className="shrink-0 rounded-md border border-slate-600 bg-slate-800 px-2.5 py-1.5 text-xs font-semibold text-slate-100 hover:bg-slate-700"
-                >
-                  {copy.book}
-                </button>
-              </div>
-            </div>
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
 type Props = {
   currentUser?: { id: string; firstName: string; lastName: string; role: string };
   liveIncidents: LiveQueueItem[];
@@ -481,6 +380,7 @@ type Props = {
   preview?: {
     users: DashboardUserSummary[];
     trackers: TrackerDeviceSummary[];
+    groupName?: string;
   };
 };
 
@@ -626,18 +526,17 @@ export function OperationsDashboard({
   const { lang, toggle, t } = useControlRoomLang();
   const { theme, setTheme } = useTheme();
   const light = theme === "light";
-  const [bottomFocus, setBottomFocus] = useState<"all" | "live" | "today" | "week">(() => {
+  const [bottomFocus, setBottomFocus] = useState<"all" | "live">(() => {
     if (typeof window === "undefined") return "all";
-    const stored = localStorage.getItem("omt_ops_bottom_focus");
-    return stored === "live" || stored === "today" || stored === "week" ? stored : "all";
+    return localStorage.getItem("omt_ops_bottom_focus") === "live" ? "live" : "all";
   });
-  function focusPanel(id: "live" | "today" | "week") {
+  function focusPanel(id: "live") {
     const next = bottomFocus === id ? "all" : id;
     setBottomFocus(next);
     try { localStorage.setItem("omt_ops_bottom_focus", next); } catch { /* ignore */ }
   }
-  const [monitorTab, setMonitorTab] = useState<"team" | "fleet">("team");
-  const [historyOpen, setHistoryOpen] = useState<"none" | "today" | "week">("none");
+  const [monitorTab] = useState<"team" | "fleet">("team");
+  const [mapAlert, setMapAlert] = useState<AlertKind | null>(null);
   const [highlightId, setHighlightId] = useState<number | null>(null);
   const [liveMapType, setLiveMapType] = useState<"roadmap" | "hybrid">("roadmap");
   const [clock, setClock] = useState(() => new Date());
@@ -650,17 +549,17 @@ export function OperationsDashboard({
   } | null>(null);
   /** Team row → focus that person on the Live Incidents overview map. */
   const [mapFocusUserId, setMapFocusUserId] = useState<string | null>(null);
+  const [showAllMembers, setShowAllMembers] = useState(false);
+  const [wakeUntil, setWakeUntil] = useState<Record<string, number>>({});
+  const teamStripRef = useRef<HTMLDivElement>(null);
+  const [teamCanScrollLeft, setTeamCanScrollLeft] = useState(false);
+  const [teamCanScrollRight, setTeamCanScrollRight] = useState(false);
   const [selectedFacility, setSelectedFacility] = useState<string>(() => {
     if (typeof window === "undefined") return "all";
     return localStorage.getItem(OPS_FACILITY_STORAGE_KEY) ?? "all";
   });
 
   const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), [clock]);
-  const weekStartStr = useMemo(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 6);
-    return d.toISOString().slice(0, 10);
-  }, [clock]);
 
   const { data: dayDashboard, isLoading: dayLoading } = useQuery<DashboardData>({
     queryKey: ["/api/dashboard", "day"],
@@ -786,7 +685,7 @@ export function OperationsDashboard({
   }, [liveIncidents, panicAlerts, dayDashboard, allIncidents]);
 
   const groupLabel = useMemo(() => {
-    if (preview) return t.allGroups;
+    if (preview) return preview.groupName ?? t.allGroups;
     if (!commandsData) return "—";
     if (commandsData.activeCommandId === "all") return t.allGroups;
     const cmd = commandsData.commands.find((c) => c.id === commandsData.activeCommandId);
@@ -817,16 +716,6 @@ export function OperationsDashboard({
   const hasActive = liveCount > 0 || visiblePanics.length > 0;
   const isCritical = visiblePanics.length > 0 || hasRedLive;
 
-  const weekIncidents = useMemo(() => {
-    return allIncidents
-      .filter(
-        (inc) =>
-          inc.incidentDate >= weekStartStr
-          && inc.incidentDate < todayStr,
-      )
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [allIncidents, weekStartStr, todayStr]);
-
   const todayClosed = useMemo(
     () => todayIncidents.filter((inc) => !inc.isLive),
     [todayIncidents],
@@ -847,7 +736,25 @@ export function OperationsDashboard({
     return sorted;
   }, [liveIncidents]);
 
-  const showQueue = queueItems.length > 0;
+  const alertCounts = useMemo(() => {
+    const counts: Record<AlertKind, number> = { fire: 0, panic: 0, crime: 0, livestock: 0 };
+    for (const inc of queueItems) {
+      const kind = alertKindOf(inc.categoryName);
+      if (kind) counts[kind] += 1;
+    }
+    return counts;
+  }, [queueItems]);
+  const visibleQueue = useMemo(
+    () => (mapAlert ? queueItems.filter((inc) => alertKindOf(inc.categoryName) === mapAlert) : queueItems),
+    [queueItems, mapAlert],
+  );
+  const showQueue = visibleQueue.length > 0;
+  const alertFilters: Array<{ kind: AlertKind; label: string; icon: LucideIcon; hot: string; glow: string }> = [
+    { kind: "fire", label: t.alertFire, icon: Flame, hot: "bg-orange-600 text-white", glow: "rgba(234, 88, 12, 0.72)" },
+    { kind: "panic", label: t.alertPanic, icon: Siren, hot: "bg-red-600 text-white", glow: "rgba(220, 38, 38, 0.7)" },
+    { kind: "crime", label: t.alertCrime, icon: ShieldAlert, hot: "bg-zinc-100 text-zinc-900", glow: "rgba(63, 63, 70, 0.45)" },
+    { kind: "livestock", label: t.alertLivestock, icon: PawPrint, hot: "bg-amber-700 text-white", glow: "rgba(180, 83, 9, 0.68)" },
+  ];
 
   const teamUsers = kpiSource?.users ?? [];
   const commandScopedTeam = useMemo(
@@ -883,7 +790,35 @@ export function OperationsDashboard({
     [siteTeam, mapFocusUserId],
   );
 
+  function updateTeamStripScroll() {
+    const el = teamStripRef.current;
+    if (!el) return;
+    setTeamCanScrollLeft(el.scrollLeft > 4);
+    setTeamCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 4);
+  }
+
+  function scrollTeamStrip(direction: -1 | 1) {
+    teamStripRef.current?.scrollBy({ left: direction * 240, behavior: "smooth" });
+  }
+
+  useEffect(() => {
+    updateTeamStripScroll();
+    const el = teamStripRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(() => updateTeamStripScroll());
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [siteTeam.length]);
+
+  function showEveryoneOnMap() {
+    setShowAllMembers((current) => !current);
+    setMapFocusUserId(null);
+    setHighlightId(null);
+    setSelectedTeamMember(null);
+  }
+
   function focusTeamMemberOnMap(user: DashboardUserSummary) {
+    setShowAllMembers(false);
     if (user.isLive && user.liveIncidentId != null) {
       setMapFocusUserId(null);
       setHighlightId(user.liveIncidentId);
@@ -901,6 +836,33 @@ export function OperationsDashboard({
       description: t.noGpsDescription(user.firstName),
     });
     setSelectedTeamMember(user);
+  }
+
+  async function wakeMember(user: DashboardUserSummary) {
+    const name = `${user.firstName} ${user.lastName}`.trim();
+    if (preview) {
+      toast({ title: t.wakePreview });
+      return;
+    }
+    try {
+      const res = await apiRequest("POST", "/api/team/wake", { userId: user.id });
+      const data = await res.json() as { ok?: boolean; reason?: string };
+      if (data.ok) {
+        setWakeUntil((current) => ({ ...current, [user.id]: Date.now() + WAKE_COOLDOWN_MS }));
+        toast({ title: t.wakeSent(name) });
+        return;
+      }
+      toast({
+        title: data.reason === "no_device" ? t.wakeNoDevice(name) : t.wakeFailed,
+        variant: "destructive",
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "";
+      toast({
+        title: message.startsWith("429") ? t.wakeCooldown : t.wakeFailed,
+        variant: "destructive",
+      });
+    }
   }
   const showGroupSelector =
     !!commandsData && (commandsData.canSeeAll || commandsData.commands.length > 1);
@@ -1080,13 +1042,44 @@ export function OperationsDashboard({
         <span className="text-slate-600" aria-hidden>·</span>
         <button
           type="button"
-          onClick={() => setHistoryOpen((current) => current === "today" ? "none" : "today")}
+          onClick={() => onOpenOccurrence(undefined, "day")}
           className="inline-flex items-baseline gap-2"
           data-testid="ops-kpi-closed"
         >
           <span className="text-lg font-semibold tabular-nums text-slate-100">{incidentsLoading ? "…" : todayClosed.length}</span>
           <span className="text-xs font-medium text-slate-400">{t.closedToday}</span>
         </button>
+      </div>
+
+      <div
+        className="shrink-0 grid grid-cols-2 gap-2 border-b border-slate-800/80 bg-[#111820] px-4 py-2 sm:grid-cols-4"
+        data-testid="ops-alert-filters"
+      >
+        {alertFilters.map((item, index) => {
+          const count = alertCounts[item.kind];
+          const selected = mapAlert === item.kind;
+          const Icon = item.icon;
+          return (
+            <button
+              key={item.kind}
+              type="button"
+              aria-pressed={selected}
+              onClick={() => setMapAlert((current) => (current === item.kind ? null : item.kind))}
+              data-testid={`ops-alert-${item.kind}`}
+              style={count > 0 ? { ["--ops-alert-glow" as string]: item.glow, ["--ops-alert-delay" as string]: `${index * 220}ms` } : undefined}
+              className={cn(
+                "flex min-w-0 items-center gap-2 rounded-xl border px-3 py-2 text-left transition-colors",
+                count > 0 || selected ? item.hot : "border-slate-700 bg-slate-800/70 text-slate-300",
+                count > 0 && "ops-alert-flash border-transparent",
+                selected && "ring-2 ring-white",
+              )}
+            >
+              <Icon className="h-4 w-4 shrink-0" />
+              <span className="text-lg font-bold tabular-nums leading-none">{count}</span>
+              <span className="min-w-0 truncate text-xs font-semibold">{item.label}</span>
+            </button>
+          );
+        })}
       </div>
 
       {visiblePanics.length > 0 && (
@@ -1113,36 +1106,28 @@ export function OperationsDashboard({
           testId="ops-site-monitor-header"
           right={groupSiteSelectors}
         />
-        <div className="flex items-center gap-2 border-b border-slate-800/60 px-3 py-2">
-          <button
-            type="button"
-            onClick={() => setMonitorTab("team")}
-            className={cn(
-              "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold",
-              monitorTab === "team" ? "bg-emerald-600 text-white" : "bg-slate-800 text-slate-300",
-            )}
-            data-testid="ops-tab-team"
-          >
-            <Users className="h-3.5 w-3.5" />
-            {t.team}
-            <span className="tabular-nums opacity-80">{siteTeam.length}</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setMonitorTab("fleet")}
-            className={cn(
-              "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold",
-              monitorTab === "fleet" ? "bg-cyan-600 text-white" : "bg-slate-800 text-slate-300",
-            )}
-            data-testid="ops-tab-fleet"
-          >
-            <Car className="h-3.5 w-3.5" />
-            {t.fleet}
-            <span className="tabular-nums opacity-80">{siteFleet.length}</span>
-          </button>
-        </div>
         {monitorTab === "team" ? (
-          <div className="ops-scroll flex gap-2 overflow-x-auto px-3 py-2.5" data-testid="ops-team-chips">
+          <div className="relative flex items-center">
+            {teamCanScrollLeft && (
+              <button
+                type="button"
+                onClick={() => scrollTeamStrip(-1)}
+                className="absolute left-1 z-20 flex h-8 w-8 items-center justify-center rounded-full border border-slate-600 bg-slate-900 text-slate-100 shadow"
+                data-testid="ops-team-scroll-left"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+            )}
+          <div
+            ref={teamStripRef}
+            onScroll={updateTeamStripScroll}
+            className={cn(
+              "ops-scroll flex min-w-0 flex-1 gap-2 overflow-x-auto py-2.5",
+              teamCanScrollLeft ? "pl-11" : "pl-3",
+              teamCanScrollRight ? "pr-11" : "pr-3",
+            )}
+            data-testid="ops-team-chips"
+          >
             {siteMonitorLoading ? (
               <Skeleton className="h-10 w-40 shrink-0 bg-slate-800" />
             ) : siteTeam.length === 0 ? (
@@ -1150,46 +1135,92 @@ export function OperationsDashboard({
                 {selectedLocationId == null ? t.noTeamInGroup : t.noTeamOnSite}
               </p>
             ) : (
-              siteTeam.map((user) => {
+              <>
+              <button
+                type="button"
+                onClick={showEveryoneOnMap}
+                aria-pressed={showAllMembers}
+                data-testid="ops-team-view-all"
+                className={cn(
+                  "sticky left-0 z-10 flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold",
+                  showAllMembers
+                    ? "border-emerald-400 bg-emerald-600 text-white"
+                    : "border-slate-600 bg-slate-900 text-slate-100",
+                )}
+              >
+                <Users className="h-3.5 w-3.5" />
+                {t.viewAllMembers}
+              </button>
+              {siteTeam.map((user) => {
                 const status = teamMemberStatus(user);
                 const activityLabel = user.isLive ? t.liveNow : formatTeamLastActivity(teamLastActivityAt(user), t);
                 const initials = `${user.firstName?.charAt(0) ?? ""}${user.lastName?.charAt(0) ?? ""}`.toUpperCase() || "?";
+                const showWake = canWakeMember(user, clock.getTime()) && (wakeUntil[user.id] ?? 0) <= clock.getTime();
+                const fullName = `${user.firstName} ${user.lastName}`.trim();
                 return (
-                  <button
+                  <div
                     key={user.id}
-                    type="button"
-                    onClick={() => focusTeamMemberOnMap(user)}
-                    data-testid={`ops-team-row-${user.id}`}
                     className={cn(
-                      "flex shrink-0 items-center gap-2 rounded-full border px-2 py-1.5 text-left",
+                      "flex shrink-0 items-center rounded-full border",
                       mapFocusUserId === user.id
                         ? "border-emerald-400 bg-emerald-950/40"
-                        : "border-slate-600 bg-slate-800/50 hover:bg-slate-800",
+                        : "border-slate-600 bg-slate-800/50",
                     )}
                   >
-                    <span
-                      className={cn(
-                        "flex h-8 w-8 items-center justify-center rounded-full text-[11px] font-semibold",
-                        user.isLive
-                          ? "bg-orange-600/20 text-orange-100"
-                          : status === "available"
-                            ? "bg-emerald-600/15 text-emerald-100"
-                            : "bg-slate-700 text-slate-100",
-                      )}
+                    <button
+                      type="button"
+                      onClick={() => focusTeamMemberOnMap(user)}
+                      data-testid={`ops-team-row-${user.id}`}
+                      className="flex items-center gap-2 rounded-full py-1.5 pl-2 pr-1 text-left hover:bg-slate-800"
                     >
-                      {initials}
-                    </span>
-                    <span className="min-w-0 pr-1">
-                      <span className="block max-w-[150px] truncate text-xs font-semibold text-slate-100">
-                        {user.firstName} {user.lastName}
+                      <span
+                        className={cn(
+                          "flex h-8 w-8 items-center justify-center rounded-full text-[11px] font-semibold",
+                          user.isLive
+                            ? "bg-orange-600/20 text-orange-100"
+                            : status === "available"
+                              ? "bg-emerald-600/15 text-emerald-100"
+                              : "bg-slate-700 text-slate-100",
+                        )}
+                      >
+                        {initials}
                       </span>
-                      <span className={cn("block text-[10px]", user.isLive ? "font-semibold text-orange-300" : "text-slate-400")}>
-                        {activityLabel}
+                      <span className="min-w-0 pr-1">
+                        <span className="block max-w-[150px] truncate text-xs font-semibold text-slate-100">
+                          {user.firstName} {user.lastName}
+                        </span>
+                        <span className={cn("block text-[10px]", user.isLive ? "font-semibold text-orange-300" : "text-slate-400")}>
+                          {activityLabel}
+                        </span>
                       </span>
-                    </span>
-                  </button>
+                    </button>
+                    {showWake && (
+                      <button
+                        type="button"
+                        onClick={() => wakeMember(user)}
+                        aria-label={t.wakePerson(fullName)}
+                        title={t.wakePerson(fullName)}
+                        data-testid={`ops-team-wake-${user.id}`}
+                        className="mr-1.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-800 hover:bg-amber-200"
+                      >
+                        <BellRing className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
                 );
-              })
+              })}
+              </>
+            )}
+          </div>
+            {teamCanScrollRight && (
+              <button
+                type="button"
+                onClick={() => scrollTeamStrip(1)}
+                className="absolute right-1 z-20 flex h-8 w-8 items-center justify-center rounded-full border border-slate-600 bg-slate-900 text-slate-100 shadow"
+                data-testid="ops-team-scroll-right"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
             )}
           </div>
         ) : (
@@ -1383,24 +1414,23 @@ export function OperationsDashboard({
         )}
       </div>
 
-      {/* ── Map, with open items and folded history beside it ── */}
-      <div className="flex flex-none xl:flex-1 xl:min-h-0 flex-col xl:flex-row xl:overflow-hidden gap-px bg-slate-800/40">
-        {bottomFocus !== "today" && bottomFocus !== "week" && (
+      {/* ── Map, with the open incidents underneath ── */}
+      <div className="flex flex-none xl:flex-1 xl:min-h-0 flex-col xl:overflow-hidden gap-px bg-slate-800/40">
         <div
           className={cn(
-            "flex-none min-h-[min(420px,52dvh)] xl:min-h-0 min-w-0 flex flex-col border-r border-slate-800/80 bg-[#131a22] xl:flex-1",
+            "flex-none min-h-[min(420px,52dvh)] xl:min-h-0 min-w-0 flex flex-col bg-[#131a22] xl:flex-1",
           )}
           data-testid="ops-live-panel"
         >
           <OpsSectionHeader
-            title={t.liveIncidents}
+            title={mapAlert ? alertFilters.find((item) => item.kind === mapAlert)?.label ?? t.liveIncidents : t.liveIncidents}
             icon={Radio}
             tone="orange"
             testId="ops-live-panel-header"
             right={
               <span className="flex items-center gap-2">
                 <span className="text-[11px] font-bold text-orange-200 tabular-nums shrink-0">
-                  {t.activeCount(queueItems.length)}
+                  {t.activeCount(visibleQueue.length)}
                 </span>
                 <button
                   type="button"
@@ -1423,15 +1453,17 @@ export function OperationsDashboard({
               showSatelliteControl
               mapType={liveMapType}
               onMapTypeChange={setLiveMapType}
-              incidents={queueItems}
+              incidents={visibleQueue}
               locations={
                 selectedLocationId != null
                   ? groupLocations.filter((l) => l.id === selectedLocationId)
                   : groupLocations
               }
               highlightId={highlightId}
-              highlightUserId={mapFocusUserId}
-              focusUser={mapFocusUser}
+              highlightUserId={showAllMembers ? null : mapFocusUserId}
+              focusUser={showAllMembers ? null : mapFocusUser}
+              showAllMembers={showAllMembers}
+              memberRoster={siteTeam}
               onHighlightId={setHighlightId}
               onOpenLiveMonitor={onOpenLiveMonitor}
               onIncidentMarkerClick={(id) => {
@@ -1443,14 +1475,16 @@ export function OperationsDashboard({
               testId="ops-live-overview-map-canvas"
             />
           </div>
-          {(showQueue || bottomFocus !== "all") && (
+          {(showQueue || mapAlert != null || bottomFocus !== "all") && (
           <div className="shrink-0 border-t border-slate-800/80 bg-[#131a22]">
             {!showQueue ? (
               <div className="flex items-center justify-between gap-3 px-3 py-2.5">
                 <div className="min-w-0 flex items-center gap-2">
                   <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500/90" />
                   <div className="min-w-0">
-                    <p className="text-xs font-semibold text-slate-200">{t.allClear}</p>
+                    <p className="text-xs font-semibold text-slate-200">
+                      {mapAlert ? t.alertNone(alertFilters.find((item) => item.kind === mapAlert)?.label ?? t.incident) : t.allClear}
+                    </p>
                     <p className="text-[10px] text-slate-500 truncate">
                       {t.mapHint}
                     </p>
@@ -1468,88 +1502,125 @@ export function OperationsDashboard({
                 </Button>
               </div>
             ) : (
-              <>
-                <ul className="max-h-[150px] overflow-y-auto ops-scroll">
-                  {queueItems.map((inc) => {
+                <ul className="max-h-[240px] overflow-y-auto ops-scroll">
+                  {visibleQueue.map((inc) => {
                     const locText =
                       inc.destinationName ||
                       inc.locationName ||
                       (inc.locationId ? locations.find((l) => l.id === inc.locationId)?.name : null) ||
                       t.locationPending;
                     const starterName = formatStarterName(inc);
-                    const joinerCount = (inc.responders ?? []).filter((r) => r.userId !== inc.userId && !r.arrivedAt).length;
+                    const kind = alertKindOf(inc.categoryName);
+                    const Icon = alertFilters.find((item) => item.kind === kind)?.icon ?? Radio;
+                    const arrivedCount = (inc.responders ?? []).filter((r) => r.userId !== inc.userId && r.arrivedAt).length;
+                    const enRouteCount = (inc.responders ?? []).filter((r) => r.userId !== inc.userId && !r.arrivedAt).length;
                     const gpsAge = formatGpsAge(inc.responderPositionUpdatedAt, t);
+                    const gpsSecs = inc.responderPositionUpdatedAt
+                      ? Math.max(0, Math.round((Date.now() - new Date(inc.responderPositionUpdatedAt).getTime()) / 1000))
+                      : null;
+                    const openedAt = inc.liveStartedAt
+                      ? new Date(inc.liveStartedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+                      : "—";
+                    const openedAge = formatGpsAge(inc.liveStartedAt, t);
+                    const coordinates = formatMapCoordinates(
+                      inc.responderLat ?? inc.latitude,
+                      inc.responderLng ?? inc.longitude,
+                    );
+                    const severityLabel =
+                      inc.severity === "red" ? t.severityRed
+                      : inc.severity === "orange" ? t.severityOrange
+                      : inc.severity === "yellow" ? t.severityYellow
+                      : null;
+                    const responseLabel = inc.responderArrivedAt || arrivedCount > 0
+                      ? t.onScene
+                      : enRouteCount > 0
+                        ? t.respondersEnRoute(enRouteCount)
+                        : t.awaitingResponse;
                     const isHighlighted = highlightId === inc.id;
-                    const isPanic = (inc.categoryName ?? "").toLowerCase().includes("panic");
+                    const accent =
+                      kind === "panic" || inc.severity === "red" ? "border-l-red-600"
+                      : kind === "fire" || inc.severity === "orange" ? "border-l-orange-600"
+                      : kind === "livestock" || inc.severity === "yellow" ? "border-l-amber-500"
+                      : "border-l-zinc-500";
 
                     return (
                       <li key={inc.id} className="border-b border-slate-800/80">
-                        <div
-                          className={cn(
-                            "flex items-stretch",
-                            severityRowAccent(inc.severity, isPanic),
-                            isHighlighted && "bg-slate-700/50 ring-1 ring-inset ring-emerald-500/40",
-                          )}
-                        >
+                        <div className={cn("flex items-stretch border-l-[3px]", accent, isHighlighted && "bg-slate-700/40")}>
                           <button
                             type="button"
                             onClick={() => {
                               setHighlightId(inc.id);
                               onOpenLiveMonitor(inc.id);
                             }}
-                            className="min-w-0 flex-1 text-left px-3 py-2.5 hover:bg-slate-800/60 transition-colors"
+                            className="grid min-w-0 flex-1 grid-cols-1 items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-slate-800/40 sm:grid-cols-[auto_minmax(0,1.2fr)_minmax(0,1fr)_auto] sm:gap-4"
                             data-testid={`ops-queue-row-${inc.id}`}
                           >
-                            <div className="flex items-start justify-between gap-1">
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  {isPanic && <Siren className="h-3.5 w-3.5 text-red-400 shrink-0" />}
-                                  <p className="font-semibold text-sm text-slate-100 truncate">
-                                    {inc.categoryName ?? t.incident}
-                                  </p>
-                                  {inc.severity && inc.severity !== "none" && (
-                                    <span
-                                      className={cn(
-                                        "inline-flex items-center gap-1 rounded border px-1 py-0 text-[8px] font-bold uppercase",
-                                        severityBadgeClass(inc.severity),
-                                      )}
-                                    >
-                                      {inc.severity}
-                                    </span>
-                                  )}
-                                </div>
-                                <p className="text-[10px] text-slate-500 mt-0.5">#{inc.id}</p>
-                                {starterName && (
-                                  <p className="text-xs text-slate-300 mt-1 truncate">{starterName}</p>
+                            <span className={cn("flex h-10 w-10 items-center justify-center rounded-lg", alertChipClass(kind))}>
+                              <Icon className="h-5 w-5" />
+                            </span>
+                            <span className="min-w-0">
+                              <span className="flex items-center gap-2">
+                                <span className="truncate text-sm font-semibold text-slate-100">
+                                  {inc.categoryName ?? t.incident}
+                                </span>
+                                {severityLabel && (
+                                  <span className={cn("shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide", severityPillClass(inc.severity))}>
+                                    {severityLabel}
+                                  </span>
                                 )}
-                                <p className="text-[11px] text-slate-500 truncate mt-0.5 flex items-center gap-1">
-                                  <MapPin className="h-3 w-3 shrink-0 text-slate-600" />
-                                  {locText}
-                                </p>
-                                <div className="mt-1.5 flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] text-slate-500">
-                                  {inc.liveStartedAt && (
-                                    <span className="inline-flex items-center gap-0.5">
-                                      <Clock className="h-3 w-3" />
-                                      {formatGpsAge(inc.liveStartedAt, t)}
-                                    </span>
-                                  )}
-                                  {gpsAge && <span>{t.gps} {gpsAge}</span>}
-                                  {joinerCount > 0 && (
-                                    <span className="text-emerald-500/90 inline-flex items-center gap-0.5">
-                                      <Users className="h-3 w-3" />
-                                      {joinerCount}
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                              <ChevronRight className="h-4 w-4 text-slate-600 shrink-0" />
-                            </div>
+                                {inc.isEscalated && (
+                                  <span className="shrink-0 rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                                    {t.escalated}
+                                  </span>
+                                )}
+                              </span>
+                              <span className="mt-0.5 block truncate text-xs font-medium text-slate-300">
+                                {starterName ?? t.unknownReporter}
+                              </span>
+                              <span className="mt-0.5 block text-[11px] font-semibold tabular-nums text-slate-400">
+                                #{inc.id}
+                              </span>
+                            </span>
+                            <span className="min-w-0 space-y-0.5">
+                              <span className="flex items-center gap-1.5 truncate text-xs text-slate-200">
+                                <MapPin className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                                <span className="truncate">{locText}</span>
+                              </span>
+                              <span className="flex items-center gap-1.5 truncate font-mono text-[11px] text-slate-400">
+                                <Crosshair className="h-3.5 w-3.5 shrink-0" />
+                                <span className="truncate">{coordinates ?? t.locationPending}</span>
+                              </span>
+                            </span>
+                            <span className="flex items-center gap-3 sm:justify-end">
+                              <span className="min-w-0 space-y-0.5 sm:text-right">
+                                <span className="flex items-center gap-1.5 text-[11px] text-slate-300 sm:justify-end">
+                                  <Clock className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                                  <span className="font-semibold text-slate-100">{t.openFor}</span>
+                                  <span className="tabular-nums">{openedAt !== "—" ? openedAt : ""}</span>
+                                  {openedAge && <span className="text-slate-400">{openedAge}</span>}
+                                </span>
+                                <span className={cn(
+                                  "block text-[11px] tabular-nums",
+                                  gpsSecs == null ? "text-slate-400" : gpsSecs > 120 ? "text-amber-700" : "text-emerald-700",
+                                )}>
+                                  {t.gps} {gpsAge ?? t.noGpsYet}
+                                </span>
+                                <span className={cn(
+                                  "flex items-center gap-1 text-[11px] font-semibold sm:justify-end",
+                                  inc.responderArrivedAt || arrivedCount > 0 || enRouteCount > 0 ? "text-emerald-700" : "text-amber-700",
+                                )}>
+                                  <Users className="h-3.5 w-3.5 shrink-0" />
+                                  {responseLabel}
+                                </span>
+                              </span>
+                              <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+                            </span>
                           </button>
                           <button
                             type="button"
                             title={t.attachments}
                             aria-label={t.viewAttachments(inc.categoryName ?? t.incident)}
-                            className="shrink-0 px-2.5 text-slate-500 hover:text-slate-200 hover:bg-slate-800/70"
+                            className="shrink-0 px-3 text-slate-500 hover:bg-slate-800/70 hover:text-slate-200"
                             onClick={() =>
                               setAttachmentsPreview({
                                 id: inc.id,
@@ -1565,166 +1636,10 @@ export function OperationsDashboard({
                     );
                   })}
                 </ul>
-                <div className="flex justify-end px-3 py-2 border-t border-slate-800/80">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    className="h-8 text-xs gap-1 bg-slate-800 border-slate-600"
-                    onClick={() => onOpenLiveMonitor()}
-                  >
-                    <ExternalLink className="h-3.5 w-3.5" />
-                    {t.liveMonitor}
-                  </Button>
-                </div>
-              </>
             )}
           </div>
           )}
         </div>
-        )}
-
-        {bottomFocus !== "live" && (
-        <div className={cn("flex min-h-0 min-w-0 flex-col bg-[#131a22]", historyOpen === "none" && bottomFocus === "all" ? "xl:w-[320px] xl:shrink-0" : "xl:flex-1")}>
-          <div className="shrink-0 border-b border-slate-800/80 px-3 py-3" data-testid="ops-open-summary">
-            <p className={cn("text-sm font-semibold", queueItems.length > 0 ? "text-orange-300" : "text-emerald-300")}>
-              {queueItems.length > 0 ? t.activeCount(queueItems.length) : t.allClear}
-            </p>
-            <p className="mt-1 text-xs text-slate-400">
-              {panicsToday} {t.panicsToday.toLowerCase()}
-            </p>
-            {queueItems.length > 0 && (
-              <ul className="mt-2 space-y-1">
-                {queueItems.map((inc) => (
-                  <li key={inc.id}>
-                    <button
-                      type="button"
-                      onClick={() => onOpenLiveMonitor(inc.id)}
-                      className="w-full truncate text-left text-sm font-semibold text-slate-100 hover:text-orange-200"
-                    >
-                      {inc.categoryName ?? t.incident}
-                      {formatStarterName(inc) ? ` · ${formatStarterName(inc)}` : ""}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={() => setHistoryOpen((current) => current === "today" ? "none" : "today")}
-            className="flex items-center justify-between gap-3 border-b border-slate-800/80 px-3 py-2.5 text-left hover:bg-slate-800/40"
-            data-testid="ops-history-today"
-          >
-            <span className="text-xs font-semibold text-slate-200">{t.closedToday}</span>
-            <span className="text-sm font-semibold tabular-nums text-slate-100">{todayClosed.length}</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setHistoryOpen((current) => current === "week" ? "none" : "week")}
-            className="flex items-center justify-between gap-3 border-b border-slate-800/80 px-3 py-2.5 text-left hover:bg-slate-800/40"
-            data-testid="ops-history-week"
-          >
-            <span className="text-xs font-semibold text-slate-200">{t.thisWeek}</span>
-            <span className="text-sm font-semibold tabular-nums text-slate-100">{weekIncidents.length}</span>
-          </button>
-        {(historyOpen === "today" || bottomFocus === "today") && (
-        <div
-          className="flex-1 min-h-[min(220px,30dvh)] xl:min-h-0 min-w-0 flex flex-col border-b border-slate-800/80 bg-[#131a22]"
-          data-testid="ops-occurrences-today-panel"
-        >
-          <OpsSectionHeader
-            title={t.todaysOccurrences}
-            icon={History}
-            tone="slate"
-            testId="ops-occurrences-today-header"
-            right={
-              <span className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => onOpenOccurrence(undefined, "day")}
-                  className="text-[11px] font-semibold text-blue-300 hover:text-blue-200 hover:underline"
-                >
-                  {t.fullBook}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => focusPanel("today")}
-                  className="inline-flex items-center gap-1 rounded-md border border-slate-600 px-2 py-1 text-[11px] font-semibold text-slate-200 hover:bg-slate-800"
-                >
-                  {bottomFocus === "today" ? t.showAll : <Maximize2 className="h-3.5 w-3.5" />}
-                </button>
-              </span>
-            }
-          />
-          <div className="flex-1 min-h-0 overflow-y-auto ops-scroll">
-            <OccurrenceList
-              incidents={todayIncidents}
-              loading={incidentsLoading}
-              emptyMessage={t.emptyToday}
-              copy={t}
-              onOpenOccurrence={(id) => onOpenOccurrence(id, "day")}
-              onOpenAttachments={(inc) =>
-                setAttachmentsPreview({
-                  id: inc.id,
-                  subject: inc.categoryName ?? t.uncategorised,
-                  bookPeriod: "day",
-                })
-              }
-            />
-          </div>
-        </div>
-        )}
-
-        {(historyOpen === "week" || bottomFocus === "week") && (
-        <div
-          className="flex-1 min-h-[min(220px,30dvh)] xl:min-h-0 min-w-0 flex flex-col bg-[#131a22]"
-          data-testid="ops-occurrences-week-panel"
-        >
-          <OpsSectionHeader
-            title={t.thisWeek}
-            icon={CalendarRange}
-            tone="violet"
-            testId="ops-occurrences-week-header"
-            right={
-              <span className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => onOpenOccurrence(undefined, "week")}
-                  className="text-[11px] font-semibold text-blue-300 hover:text-blue-200 hover:underline"
-                >
-                  {t.viewWeek}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => focusPanel("week")}
-                  className="inline-flex items-center gap-1 rounded-md border border-slate-600 px-2 py-1 text-[11px] font-semibold text-slate-200 hover:bg-slate-800"
-                >
-                  {bottomFocus === "week" ? t.showAll : <Maximize2 className="h-3.5 w-3.5" />}
-                </button>
-              </span>
-            }
-          />
-          <div className="flex-1 min-h-0 overflow-y-auto ops-scroll">
-            <OccurrenceList
-              incidents={weekIncidents}
-              loading={incidentsLoading}
-              emptyMessage={t.emptyWeek}
-              copy={t}
-              onOpenOccurrence={(id) => onOpenOccurrence(id, "week")}
-              onOpenAttachments={(inc) =>
-                setAttachmentsPreview({
-                  id: inc.id,
-                  subject: inc.categoryName ?? t.uncategorised,
-                  bookPeriod: "week",
-                })
-              }
-            />
-          </div>
-        </div>
-        )}
-        </div>
-        )}
       </div>
     </div>
 

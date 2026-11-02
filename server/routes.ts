@@ -1632,6 +1632,79 @@ export async function registerRoutes(
     res.json({ ok: true });
   });
 
+  const WAKE_QUIET_MS = 60 * 60 * 1000;
+  const WAKE_COOLDOWN_MS = 15 * 60 * 1000;
+  const wakeSentAt = new Map<string, number>();
+
+  app.post("/api/team/wake", async (req, res) => {
+    if (!req.currentUser) return res.status(401).json({ message: "Unauthorized" });
+    const { organizationId: orgId, id: operatorId, role, firstName, lastName } = req.currentUser;
+    if (!isDispatchStaff(role)) return res.status(403).json({ message: "Forbidden" });
+    const userId = typeof req.body?.userId === "string" ? req.body.userId : "";
+    if (!userId || userId === operatorId) return res.status(400).json({ message: "Invalid member" });
+
+    const member = await storage.getUserById(userId);
+    if (!member || member.organizationId !== orgId) return res.status(404).json({ message: "Member not found" });
+
+    const stamps = [member.lastSeenAt, member.lastPositionAt]
+      .filter((value): value is Date => value != null)
+      .map((value) => new Date(value).getTime())
+      .filter((value) => Number.isFinite(value));
+    const last = stamps.length > 0 ? Math.max(...stamps) : 0;
+    if (last > 0 && Date.now() - last < WAKE_QUIET_MS) {
+      return res.status(409).json({ reason: "recent" });
+    }
+
+    const cooldownKey = `${orgId}:${userId}`;
+    const sentAt = wakeSentAt.get(cooldownKey) ?? 0;
+    if (Date.now() - sentAt < WAKE_COOLDOWN_MS) {
+      return res.status(429).json({ reason: "cooldown" });
+    }
+
+    const operator = `${firstName ?? ""} ${lastName ?? ""}`.trim() || "Beheerkamer";
+    const title = "Wagtoring";
+    const body = `${operator} vra dat jy die app oopmaak.`;
+    const url = "/dashboard";
+    const web = await storage.getPushSubscriptionsByUser(userId);
+    const fcm = await storage.getFcmTokensByUser(userId);
+    if (web.length === 0 && fcm.length === 0) {
+      return res.json({ ok: false, reason: "no_device" });
+    }
+
+    let delivered = 0;
+    await Promise.allSettled(
+      web.map(async (sub) => {
+        try {
+          await webpush.sendNotification(
+            { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+            JSON.stringify({ type: "check_in", title, body, url }),
+            URGENT_PUSH,
+          );
+          delivered += 1;
+        } catch (err: unknown) {
+          const statusCode = typeof err === "object" && err !== null && "statusCode" in err
+            ? (err as { statusCode: number }).statusCode
+            : 0;
+          if (statusCode === 410 || statusCode === 404) await storage.deletePushSubscription(sub.endpoint);
+        }
+      }),
+    );
+    if (fcm.length > 0) {
+      await sendFcmBatch(fcm.map((row) => row.token), {
+        title,
+        body,
+        data: { type: "check_in", url },
+        notificationTag: `wake-${userId}`,
+      }).catch(() => {});
+      delivered += fcm.length;
+    }
+    if (delivered === 0) return res.json({ ok: false, reason: "no_device" });
+
+    wakeSentAt.set(cooldownKey, Date.now());
+    storage.createNotificationLog({ organizationId: orgId, userId, title, body, url }).catch(() => {});
+    res.json({ ok: true });
+  });
+
   app.get("/api/push/fcm-status", async (req, res) => {
     const { id: userId } = req.currentUser!;
     const tokens = await storage.getFcmTokensByUser(userId);

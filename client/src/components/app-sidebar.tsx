@@ -1,4 +1,4 @@
-import { BookOpen, Settings, BarChart3, LogOut, Users, Upload, Bell, Radio, LayoutDashboard, MessageSquare, Shield, Network, Car, Package, ShieldCheck, Footprints, ChevronRight, Building2, Video, ClipboardList } from "lucide-react";
+import { BookOpen, Settings, BarChart3, LogOut, Users, Upload, Bell, Radio, LayoutDashboard, MessageSquare, Shield, Network, Car, Package, ShieldCheck, Footprints, ChevronRight, Building2, Video, ClipboardList, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useLocation, Link } from "wouter";
 import { HeartbeatLine } from "@/components/heartbeat-line";
@@ -277,7 +277,7 @@ function VersionLabel() {
 export function AppSidebar({ user, onLogout, avatarPreview }: AppSidebarProps) {
   const { t, lang } = useControlRoomLang();
   const [location] = useLocation();
-  const { isMobile, setOpenMobile } = useSidebar();
+  const { isMobile, setOpenMobile, state, toggleSidebar } = useSidebar();
   const { primary: navItems, admin: adminItems, secondary: secondaryItems } = getNavItems(user.role, !!user.isSuperadmin, t);
   const adminActive = adminItems.some((item) => location === item.url);
   const [adminOpen, setAdminOpen] = useState(adminActive);
@@ -308,8 +308,19 @@ export function AppSidebar({ user, onLogout, avatarPreview }: AppSidebarProps) {
   const brandName = wagtoringGroup ? (lang === "af" ? "Wagtoring" : "Watchtower") : "OMT Pulse";
 
   return (
+    <>
     <Sidebar className="border-r border-slate-800/80">
-      <SidebarHeader className="p-3">
+      <SidebarHeader className="relative border-b border-slate-200 bg-white p-3 text-slate-900">
+        <button
+          type="button"
+          onClick={toggleSidebar}
+          aria-label={t.nav.hideMenu}
+          title={t.nav.hideMenu}
+          className="absolute right-2 top-2 z-10 flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100"
+          data-testid="button-hide-menu"
+        >
+          <PanelLeftClose className="h-4 w-4" />
+        </button>
         <div className="flex flex-col items-center gap-1.5 pb-0.5">
           {wagtoringGroup ? (
             <img
@@ -323,7 +334,7 @@ export function AppSidebar({ user, onLogout, avatarPreview }: AppSidebarProps) {
           )}
           <div className="text-center">
             <div className="flex items-center justify-center gap-1.5">
-              <h2 className="text-sm font-bold tracking-tight" data-testid="text-app-title">{brandName}</h2>
+              <h2 className="text-sm font-bold tracking-tight text-slate-900" data-testid="text-app-title">{brandName}</h2>
               <HeartbeatLine className="w-12 h-3.5" />
             </div>
             <div className="flex items-center justify-center gap-1.5 mt-0.5">
@@ -464,5 +475,18 @@ export function AppSidebar({ user, onLogout, avatarPreview }: AppSidebarProps) {
         </Link>
       </SidebarFooter>
     </Sidebar>
+    {!isMobile && state === "collapsed" && (
+      <button
+        type="button"
+        onClick={toggleSidebar}
+        aria-label={t.nav.showMenu}
+        title={t.nav.showMenu}
+        className="fixed left-3 top-3 z-50 flex h-9 w-9 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-800 shadow-sm hover:bg-slate-50"
+        data-testid="button-show-menu"
+      >
+        <PanelLeftOpen className="h-4 w-4" />
+      </button>
+    )}
+    </>
   );
 }

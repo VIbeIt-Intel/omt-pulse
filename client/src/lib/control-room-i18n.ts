@@ -52,11 +52,17 @@ export type ControlRoomCopy = {
   closedToday: string;
   noLongerLive: string;
   siteMonitor: string;
+  alertFire: string;
+  alertPanic: string;
+  alertCrime: string;
+  alertLivestock: string;
+  alertNone: (name: string) => string;
   team: string;
   fleet: string;
   member: string;
   lastActivity: string;
   viewFleet: string;
+  viewAllMembers: string;
   moving: string;
   idle: string;
   offline: string;
@@ -66,10 +72,24 @@ export type ControlRoomCopy = {
   noVehiclesOnSite: string;
   liveNow: string;
   idleLong: string;
+  wakePerson: (name: string) => string;
+  wakeSent: (name: string) => string;
+  wakeNoDevice: (name: string) => string;
+  wakeCooldown: string;
+  wakeFailed: string;
+  wakePreview: string;
   live: string;
   off: string;
   signal: string;
   gps: string;
+  openFor: string;
+  onScene: string;
+  escalated: string;
+  awaitingResponse: string;
+  respondersEnRoute: (n: number) => string;
+  severityRed: string;
+  severityOrange: string;
+  severityYellow: string;
   liveIncidents: string;
   activeCount: (n: number) => string;
   allClear: string;
@@ -135,6 +155,8 @@ export type ControlRoomCopy = {
     signOut: string;
     privacy: string;
     poweredBy: string;
+    hideMenu: string;
+    showMenu: string;
   };
   screen: {
     incident: string;
@@ -257,11 +279,17 @@ const en: ControlRoomCopy = {
   closedToday: "Closed Today",
   noLongerLive: "no longer live",
   siteMonitor: "Site Monitor",
+  alertFire: "Fire",
+  alertPanic: "Panic",
+  alertCrime: "Crime",
+  alertLivestock: "Roaming livestock",
+  alertNone: (name) => `No open ${name.toLowerCase()}`,
   team: "Team",
   fleet: "Fleet",
   member: "Member",
   lastActivity: "Last activity",
   viewFleet: "View fleet",
+  viewAllMembers: "View all",
   moving: "Moving",
   idle: "Idle",
   offline: "Offline",
@@ -271,10 +299,24 @@ const en: ControlRoomCopy = {
   noVehiclesOnSite: "No vehicles linked to this site.",
   liveNow: "Live now",
   idleLong: "4h+ idle",
+  wakePerson: (name) => `Wake ${name}`,
+  wakeSent: (name) => `Check-in sent to ${name}`,
+  wakeNoDevice: (name) => `${name} has notifications switched off`,
+  wakeCooldown: "Already sent. Try again in a few minutes.",
+  wakeFailed: "Could not send the check-in.",
+  wakePreview: "This preview cannot reach the phone.",
   live: "Live",
   off: "Off",
   signal: "Signal",
   gps: "GPS",
+  openFor: "Open",
+  onScene: "On scene",
+  escalated: "Escalated",
+  awaitingResponse: "Awaiting response",
+  respondersEnRoute: (n) => (n === 1 ? "1 responding" : `${n} responding`),
+  severityRed: "Red",
+  severityOrange: "Orange",
+  severityYellow: "Yellow",
   liveIncidents: "Live Incidents",
   activeCount: (n) => `${n} active`,
   allClear: "All clear",
@@ -350,6 +392,8 @@ const en: ControlRoomCopy = {
     signOut: "Sign Out",
     privacy: "Privacy Policy",
     poweredBy: "powered by",
+    hideMenu: "Hide menu",
+    showMenu: "Show menu",
   },
   screen: {
     incident: "Incident",
@@ -472,11 +516,17 @@ const af: ControlRoomCopy = {
   closedToday: "Vandag gesluit",
   noLongerLive: "nie meer lewendig nie",
   siteMonitor: "Terreinmonitor",
+  alertFire: "Vuur",
+  alertPanic: "Paniek",
+  alertCrime: "Misdaad",
+  alertLivestock: "Vee wat rondloop",
+  alertNone: (name) => `Geen oop ${name.toLowerCase()}`,
   team: "Span",
   fleet: "Vloot",
   member: "Lid",
   lastActivity: "Laaste aktiwiteit",
   viewFleet: "Sien vloot",
+  viewAllMembers: "Sien almal",
   moving: "Ry",
   idle: "Stil",
   offline: "Af",
@@ -486,10 +536,24 @@ const af: ControlRoomCopy = {
   noVehiclesOnSite: "Geen voertuie aan hierdie terrein gekoppel nie.",
   liveNow: "Lewendig nou",
   idleLong: "4 u+ stil",
+  wakePerson: (name) => `Wek ${name}`,
+  wakeSent: (name) => `Inteken gestuur na ${name}`,
+  wakeNoDevice: (name) => `${name} het kennisgewings af`,
+  wakeCooldown: "Reeds gestuur. Probeer oor 'n paar minute weer.",
+  wakeFailed: "Kon nie die inteken stuur nie.",
+  wakePreview: "Hierdie voorskou kan nie die foon bereik nie.",
   live: "Lewendig",
   off: "Af",
   signal: "Sein",
   gps: "GPS",
+  openFor: "Oop",
+  onScene: "Op toneel",
+  escalated: "Eskaleer",
+  awaitingResponse: "Wag vir reaksie",
+  respondersEnRoute: (n) => (n === 1 ? "1 reageer" : `${n} reageer`),
+  severityRed: "Rooi",
+  severityOrange: "Oranje",
+  severityYellow: "Geel",
   liveIncidents: "Lewendige voorvalle",
   activeCount: (n) => `${n} aktief`,
   allClear: "Alles veilig",
@@ -565,6 +629,8 @@ const af: ControlRoomCopy = {
     signOut: "Teken uit",
     privacy: "Privaatheidsbeleid",
     poweredBy: "aangedryf deur",
+    hideMenu: "Versteek kieslys",
+    showMenu: "Wys kieslys",
   },
   screen: {
     incident: "Voorval",
