@@ -656,12 +656,15 @@ function LiveIncidentCard({
   const m = liveMonitorCopy(lang);
   const name = getResponderName(incident);
   const duration = formatDuration(incident.liveStartedAt, m);
-  const hasGps = incident.responderLat != null && incident.responderLng != null;
-  const gpsTime = incident.responderPositionUpdatedAt
-    ? m.updated(formatTime(incident.responderPositionUpdatedAt, lang, m.unknownTime))
+  const fix = fieldUnitFix(incident);
+  const hasGps = fix != null;
+  const gpsTime = fix?.at
+    ? fix.live
+      ? m.updated(formatTime(fix.at, lang, m.unknownTime))
+      : `${m.lastKnownPlace} · ${m.gpsAt(formatTime(fix.at, lang, m.unknownTime))}`
     : m.noGps;
-  const isStale = hasGps && incident.responderPositionUpdatedAt
-    ? (Date.now() - new Date(incident.responderPositionUpdatedAt).getTime()) > 180000
+  const isStale = !!fix?.live && !!fix.at
+    ? (Date.now() - new Date(fix.at).getTime()) > 180000
     : false;
   const markerColor = getMarkerColor(incident);
 
@@ -723,8 +726,8 @@ function LiveIncidentCard({
             {duration}
           </span>
           <span className="flex items-center gap-1" data-testid={`text-gps-status-${incident.id}`}>
-            <span className={`inline-block w-1.5 h-1.5 rounded-full ${hasGps ? (isStale ? "bg-red-500" : "bg-green-500") : "bg-amber-400"}`} />
-            <span className={isStale ? "text-red-500 font-medium" : ""}>{hasGps ? gpsTime : m.noGps}</span>
+            <span className={`inline-block w-1.5 h-1.5 rounded-full ${fix?.live ? (isStale ? "bg-red-500" : "bg-green-500") : hasGps ? "bg-sky-500" : "bg-amber-400"}`} />
+            <span className={isStale ? "text-red-500 font-medium" : ""}>{gpsTime}</span>
           </span>
           {isStale && (
             <Badge className="bg-red-500 text-white text-[9px] px-1.5 py-0 leading-tight" data-testid={`badge-gps-stale-${incident.id}`}>
@@ -732,11 +735,11 @@ function LiveIncidentCard({
             </Badge>
           )}
         </div>
-        {hasGps && (
+        {fix && (
           <div className="flex items-center gap-1 text-xs">
             <CoordinateLink
-              lat={Number(incident.responderLat)}
-              lng={Number(incident.responderLng)}
+              lat={fix.lat}
+              lng={fix.lng}
               label={m.lastGps(name)}
               onOpenMap={onOpenMap}
               className="text-xs"

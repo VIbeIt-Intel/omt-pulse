@@ -526,20 +526,26 @@ function buildIncidentInfoHtml(
       : `<div style="color:#dc2626;font-weight:600;font-size:11px;margin-bottom:4px">Not yet acknowledged</div>`
     : "";
 
-  return `<div style="min-width:190px;max-width:280px;font-family:system-ui,sans-serif;font-size:13px;line-height:1.5;padding:2px 8px 2px 0">
-    ${opts.isPanic ? `<div style="color:#dc2626;font-weight:700;font-size:12px;margin-bottom:5px;background:#fee2e2;padding:3px 7px;border-radius:4px;border:1px solid #fca5a5">SOS / Panic alert</div>` : ""}
-    <div style="font-weight:700;margin-bottom:4px;font-size:14px;color:#111827">${safeName}</div>
+  const severityInk =
+    inc.severity === "red" ? "#b91c1c" : inc.severity === "orange" ? "#c2410c" : inc.severity === "yellow" ? "#a16207" : "#334155";
+  const row = (label: string, value: string) =>
+    `<p style="margin:0 0 4px;font-size:13px;font-weight:600;color:#0f172a;line-height:1.4"><span style="color:#64748b;font-weight:700">${label}</span> ${value}</p>`;
+  return `<div class="omt-map-iw-card" style="background:#ffffff;border:1px solid #cbd5e1;border-radius:12px;padding:14px 42px 14px 16px;min-width:220px;max-width:280px;box-shadow:0 16px 36px rgba(15,23,42,0.28);font-family:system-ui,-apple-system,sans-serif;">
+    ${opts.isPanic ? `<div style="color:#991b1b;font-weight:800;font-size:12px;margin-bottom:8px;background:#fee2e2;padding:4px 8px;border-radius:6px;border:1px solid #fca5a5">SOS / Panic alert</div>` : ""}
+    <p style="margin:0 0 8px;font-size:16px;font-weight:700;color:#0f172a;letter-spacing:-0.02em;line-height:1.25">${safeName}</p>
     ${panicAckHtml}
-    ${inc.isEscalated ? '<div style="color:#ef4444;font-weight:600;font-size:11px;margin-bottom:4px">Escalated</div>' : ""}
-    ${opts.severityLabel ? `<div style="color:${opts.severityColor};font-weight:600;font-size:11px;margin-bottom:4px">Severity: ${opts.severityLabel}</div>` : ""}
-    ${arrivalNote ? `<div style="color:#2563eb;font-weight:600;font-size:11px;margin-bottom:4px">At scene since ${arrivalNote}</div>` : ""}
-    ${category ? `<div style="color:#374151;font-size:11px;margin-bottom:2px">${category}</div>` : ""}
-    <div style="color:#6b7280;font-size:11px">Location: ${location}</div>
-    <div style="color:#6b7280;font-size:11px">Active: ${escapeMapHtml(opts.duration)}</div>
-    <div style="color:#6b7280;font-size:11px">${escapeMapHtml(opts.positionSource)}</div>
+    ${inc.isEscalated ? '<p style="margin:0 0 6px;color:#b91c1c;font-weight:700;font-size:13px">Escalated</p>' : ""}
+    ${opts.severityLabel ? `<p style="margin:0 0 8px;color:${severityInk};font-weight:800;font-size:13px">Severity ${opts.severityLabel}</p>` : ""}
+    ${arrivalNote ? `<p style="margin:0 0 8px;color:#1d4ed8;font-weight:700;font-size:13px">At scene since ${arrivalNote}</p>` : ""}
+    <div style="border-top:1px solid #e2e8f0;padding-top:8px">
+      ${category ? row("Type", category) : ""}
+      ${row("Location", location)}
+      ${row("Active", escapeMapHtml(opts.duration))}
+      ${row("Signal", escapeMapHtml(opts.positionSource))}
+    </div>
     ${
       destination && !opts.isPanic
-        ? `<div style="color:#dc2626;font-size:11px;font-weight:600;margin-top:6px;padding-top:6px;border-top:1px solid #e5e7eb">Heading to: ${destination}</div>`
+        ? `<p style="margin:8px 0 0;padding-top:8px;border-top:1px solid #e2e8f0;color:#b91c1c;font-size:13px;font-weight:700;line-height:1.4">Heading to: ${destination}</p>`
         : ""
     }
   </div>`;
@@ -1058,6 +1064,7 @@ export function LiveIncidentsMap({
           const iw = infoWindowRef.current;
           const html = infoMap.get(inc.id);
           if (iw && html) {
+            iw.setOptions({ pixelOffset: new google.maps.Size(0, -28) });
             iw.setContent(html);
             iw.open(map, marker);
           }
@@ -1209,15 +1216,6 @@ export function LiveIncidentsMap({
         const ownerPos = { lat: ownerFix.lat, lng: ownerFix.lng };
         bounds.extend(ownerPos);
         hasBounds = true;
-        const away = distanceLabel(ownerPos, incidentAnchor(inc));
-        const ownerHtml = buildPersonCardHtml({
-          name: getResponderName(inc),
-          role: m.lastKnownPlace,
-          status: ownerFix.at ? m.gpsAt(formatTime(ownerFix.at)) : m.lastKnownPlace,
-          detail: away ?? m.lastKnownPlace,
-          darkTheme,
-        });
-        joinerInfo.set(key, ownerHtml);
         const icon = makeJoinerMarkerIcon(inc.responderFirstName || m.responder, false);
         const existingOwner = joinerMarkerMap.get(key);
         if (existingOwner) {
@@ -1245,12 +1243,27 @@ export function LiveIncidentsMap({
         }
       }
     }
-    for (const [key, m] of Array.from(joinerMarkerMap.entries())) {
+    for (const [key, marker] of Array.from(joinerMarkerMap.entries())) {
       if (!activeJoinerKeys.has(key)) {
-        m.setMap(null);
+        marker.setMap(null);
         joinerMarkerMap.delete(key);
         joinerInfo.delete(key);
       }
+    }
+    for (const inc of incidents) {
+      const ownerFix = recentOwnerFix(inc);
+      if (!ownerFix || !inc.userId) continue;
+      const away = distanceLabel({ lat: ownerFix.lat, lng: ownerFix.lng }, incidentAnchor(inc));
+      joinerInfo.set(
+        `owner-${inc.id}`,
+        buildPersonCardHtml({
+          name: getResponderName(inc),
+          role: m.lastKnownPlace,
+          status: ownerFix.at ? m.gpsAt(formatTime(ownerFix.at)) : m.lastKnownPlace,
+          detail: away ?? m.lastKnownPlace,
+          darkTheme,
+        }),
+      );
     }
 
     const joinerDestMarkerMap = joinerDestMarkersRef.current;
@@ -2018,16 +2031,18 @@ export function LiveIncidentsMap({
     if (!primary) return;
     const incidentId = Number(primary[1]);
     const inc = incidents.find((item) => item.id === incidentId);
+    const ownerHtml = joinerInfoRef.current.get(`owner-${incidentId}`);
     const ownerMarker = joinerMarkersRef.current.get(`owner-${incidentId}`);
     const ownerPos = ownerMarker?.getPosition();
-    if (inc?.responderLat == null && ownerPos) {
-      flyTo(ownerPos.toJSON(), ownerMarker, joinerInfoRef.current.get(`owner-${incidentId}`));
+    if (inc?.responderLat == null && ownerHtml && ownerPos && ownerMarker) {
+      flyTo(ownerPos.toJSON(), ownerMarker, ownerHtml);
       return;
     }
     const marker = markersRef.current.get(incidentId);
     const markerPos = marker?.getPosition();
     if (markerPos) {
-      flyTo(markerPos.toJSON(), marker, markerInfoRef.current.get(incidentId));
+      const card = inc?.responderLat == null && ownerHtml ? ownerHtml : markerInfoRef.current.get(incidentId);
+      flyTo(markerPos.toJSON(), marker, card);
       return;
     }
     const lat = Number(inc?.ownerLastLat ?? inc?.responderLat);
