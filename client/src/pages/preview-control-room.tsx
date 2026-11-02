@@ -261,6 +261,19 @@ function seedLiveMonitor() {
       importBatchId: null,
       isLive: true,
       createdAt: now.toISOString(),
+      ...(item.id === 1
+        ? {
+            userId: "nico",
+            responderFirstName: "Nico",
+            responderLastName: "Venter",
+            responderLat: null,
+            responderLng: null,
+            responderPositionUpdatedAt: null,
+            ownerLastLat: -30.741,
+            ownerLastLng: 30.453,
+            ownerLastPositionAt: minutesAgo(8),
+          }
+        : {}),
       responders: item.id === 1
         ? [{
             id: 101,

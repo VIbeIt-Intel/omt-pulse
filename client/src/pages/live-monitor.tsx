@@ -92,6 +92,9 @@ type LiveIncident = {
   categoryColor: string | null;
   responders: LiveResponderSummary[];
   severity: string | null;
+  ownerLastLat?: number | null;
+  ownerLastLng?: number | null;
+  ownerLastPositionAt?: string | null;
   panicAcknowledgedAt: string | null;
   panicAcknowledgedByUserId: string | null;
 };
@@ -156,6 +159,21 @@ function fmtDistanceKm(km: number): string {
 function estimateDriveMinutes(km: number): number {
   const roadKm = km * 1.25;
   return Math.max(1, Math.round((roadKm / 55) * 60));
+}
+
+const LAST_KNOWN_MS = 14 * 24 * 60 * 60 * 1000;
+
+/** Live tracking if the phone is streaming, otherwise the position from their latest login. */
+function fieldUnitFix(inc: LiveIncident): { lat: number; lng: number; at: string | null; live: boolean } | null {
+  const live = pickLatLng(inc.responderLat, inc.responderLng);
+  if (live) return { ...live, at: inc.responderPositionUpdatedAt, live: true };
+  const known = pickLatLng(inc.ownerLastLat, inc.ownerLastLng);
+  if (!known) return null;
+  if (inc.ownerLastPositionAt) {
+    const age = Date.now() - new Date(inc.ownerLastPositionAt).getTime();
+    if (!Number.isFinite(age) || age < 0 || age > LAST_KNOWN_MS) return null;
+  }
+  return { ...known, at: inc.ownerLastPositionAt ?? null, live: false };
 }
 
 function getIncidentTarget(inc: LiveIncident): { lat: number; lng: number } | null {
@@ -251,7 +269,7 @@ export default function LiveMonitorPage() {
     if (focusResponderKey.startsWith("primary-")) {
       const id = Number(focusResponderKey.slice(8));
       const inc = liveIncidents.find((item) => item.id === id);
-      if (inc?.responderLat == null || inc?.responderLng == null) setFocusResponderKey(null);
+      if (!inc || !fieldUnitFix(inc)) setFocusResponderKey(null);
       return;
     }
     const joiner = /^joiner-(\d+)-(.+)$/.exec(focusResponderKey);
@@ -917,12 +935,15 @@ function ResponseTeamPanel({
   const joiners = (incident.responders ?? []).filter((r) => r.userId !== incident.userId);
   const enRoute = joiners.filter((r) => !r.arrivedAt).length;
   const onScene = joiners.filter((r) => !!r.arrivedAt).length;
-  const primaryPos = pickLatLng(incident.responderLat, incident.responderLng);
+  const primaryFix = fieldUnitFix(incident);
+  const primaryPos = primaryFix ? { lat: primaryFix.lat, lng: primaryFix.lng } : null;
   const primaryKey = `primary-${incident.id}`;
   const teamKey = `team-${incident.id}`;
   const primaryEta = !incident.responderArrivedAt
     ? formatEtaLine(primaryPos, target)
     : null;
+  const primaryStale =
+    !!primaryFix?.at && Date.now() - new Date(primaryFix.at).getTime() > 180000;
   const locatedJoiners = joiners.filter((r) => pickLatLng(r.lastLat, r.lastLng) != null);
   const canFrameTeam = locatedJoiners.length > 0 && (primaryPos != null || target != null);
 
@@ -963,7 +984,7 @@ function ResponseTeamPanel({
           </p>
         </div>
       </div>
-      {locatedJoiners.length > 0 && (
+      {(locatedJoiners.length > 0 || primaryFix != null) && (
         <p className="text-[10px] text-muted-foreground leading-snug">{m.tapToLocate}</p>
       )}
 
@@ -990,10 +1011,25 @@ function ResponseTeamPanel({
                 <span className="text-[10px] font-semibold text-emerald-400 shrink-0">
                   {m.onSceneAt(formatTime(incident.responderArrivedAt, lang, m.unknownTime))}
                 </span>
-              ) : primaryPos ? (
+              ) : primaryFix?.live ? (
                 <span className="text-[10px] font-medium text-sky-400 shrink-0 text-right">
-                  {m.liveGps}
+                  {primaryStale ? m.enRouteStale : m.liveGps}
                   {primaryEta ? <span className="block text-muted-foreground font-normal">{primaryEta}</span> : null}
+                  {primaryFix.at ? (
+                    <span className="block text-muted-foreground font-normal">
+                      {m.gpsAt(formatTime(primaryFix.at, lang, m.unknownTime))}
+                    </span>
+                  ) : null}
+                </span>
+              ) : primaryFix ? (
+                <span className={cn("text-[10px] font-medium shrink-0 text-right", primaryStale ? "text-amber-500" : "text-sky-400")}>
+                  {m.lastKnownPlace}
+                  {primaryEta ? <span className="block text-foreground font-semibold">{primaryEta}</span> : null}
+                  {primaryFix.at ? (
+                    <span className="block text-muted-foreground font-normal">
+                      {m.gpsAt(formatTime(primaryFix.at, lang, m.unknownTime))}
+                    </span>
+                  ) : null}
                 </span>
               ) : (
                 <span className="text-[10px] font-medium text-amber-400 shrink-0">{m.noGps}</span>

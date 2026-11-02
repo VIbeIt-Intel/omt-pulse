@@ -92,6 +92,10 @@ export type LiveIncidentMapItem = {
   responderPositionUpdatedAt: string | null;
   panicAcknowledgedAt?: string | null;
   responders: LiveIncidentMapResponder[];
+  /** Reporter's last phone fix when they are not streaming live GPS. */
+  ownerLastLat?: number | null;
+  ownerLastLng?: number | null;
+  ownerLastPositionAt?: string | null;
 };
 
 function formatDuration(startedAt: string | null): string {
@@ -108,6 +112,53 @@ function formatDuration(startedAt: string | null): string {
 function formatTime(ts: string | null): string {
   if (!ts) return "Unknown";
   return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function distanceLabel(
+  from: { lat: number; lng: number },
+  to: { lat: number; lng: number } | null,
+): string | null {
+  if (!to) return null;
+  const dLat = ((to.lat - from.lat) * Math.PI) / 180;
+  const dLng = ((to.lng - from.lng) * Math.PI) / 180;
+  const lat1 = (from.lat * Math.PI) / 180;
+  const lat2 = (to.lat * Math.PI) / 180;
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  const km = 6371 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+  if (!Number.isFinite(km)) return null;
+  const dist = km < 1 ? `${Math.round(km * 1000)} m` : km < 10 ? `${km.toFixed(1)} km` : `${Math.round(km)} km`;
+  const minutes = Math.max(1, Math.round(((km * 1.25) / 55) * 60));
+  return `${dist} · ~${minutes} min`;
+}
+
+function incidentAnchor(inc: LiveIncidentMapItem): { lat: number; lng: number } | null {
+  const pairs: Array<[number | null, number | null]> = [
+    [inc.destinationLat, inc.destinationLng],
+    [inc.latitude, inc.longitude],
+    [inc.responderLat, inc.responderLng],
+  ];
+  for (const [lat, lng] of pairs) {
+    const la = Number(lat);
+    const ln = Number(lng);
+    if (Number.isFinite(la) && Number.isFinite(ln)) return { lat: la, lng: ln };
+  }
+  return null;
+}
+
+const LAST_KNOWN_MS = 14 * 24 * 60 * 60 * 1000;
+
+function recentOwnerFix(inc: LiveIncidentMapItem): { lat: number; lng: number; at: string | null } | null {
+  if (inc.responderLat != null && inc.responderLng != null) return null;
+  const lat = Number(inc.ownerLastLat);
+  const lng = Number(inc.ownerLastLng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (inc.ownerLastPositionAt) {
+    const age = Date.now() - new Date(inc.ownerLastPositionAt).getTime();
+    if (!Number.isFinite(age) || age < 0 || age > LAST_KNOWN_MS) return null;
+  }
+  return { lat, lng, at: inc.ownerLastPositionAt ?? null };
 }
 
 function escapeMapHtml(value: string): string {
@@ -515,27 +566,28 @@ function buildDestinationInfoHtml(
   </div>`;
 }
 
-function buildJoinerInfoHtml(opts: {
-  firstName: string;
-  lastName: string;
-  incidentId: number;
-  arrivedHtml: string;
-  posHtml: string;
-  noteHtml: string;
+function buildPersonCardHtml(opts: {
+  name: string;
+  role: string;
+  status: string;
+  detail: string;
   darkTheme: boolean;
 }): string {
-  const name = escapeMapHtml(`${opts.firstName} ${opts.lastName}`.trim() || "Joiner");
-  if (opts.darkTheme) {
-    return `<div class="omt-map-iw-card" style="background:#0c1220;border:1px solid #2d3a4f;border-radius:10px;padding:11px 34px 11px 13px;min-width:180px;box-shadow:0 10px 28px rgba(0,0,0,0.5);font-family:system-ui,-apple-system,sans-serif;">
-      <p style="margin:0 0 4px;font-size:13px;font-weight:700;color:#f8fafc">${name}</p>
-      <p style="margin:0 0 8px;font-size:11px;font-weight:600;color:#93c5fd">Joiner on Incident #${opts.incidentId}</p>
-      ${opts.arrivedHtml}${opts.posHtml}${opts.noteHtml}
-    </div>`;
-  }
-  return `<div style="min-width:160px;font-family:system-ui,sans-serif;font-size:13px;line-height:1.5;padding:2px 8px 2px 0">
-    <div style="font-weight:700;margin-bottom:4px;font-size:14px;color:#111827">${name}</div>
-    <div style="color:#2563eb;font-size:11px;font-weight:600">Joiner on Incident #${opts.incidentId}</div>
-    ${opts.arrivedHtml}${opts.posHtml}${opts.noteHtml}
+  const name = escapeMapHtml(opts.name);
+  const role = escapeMapHtml(opts.role);
+  const status = escapeMapHtml(opts.status);
+  const detail = escapeMapHtml(opts.detail);
+  const bg = opts.darkTheme ? "#0c1220" : "#ffffff";
+  const border = opts.darkTheme ? "#334155" : "#cbd5e1";
+  const nameColor = opts.darkTheme ? "#f8fafc" : "#0f172a";
+  const roleColor = opts.darkTheme ? "#93c5fd" : "#1d4ed8";
+  const statusColor = opts.darkTheme ? "#e2e8f0" : "#0f172a";
+  const detailColor = opts.darkTheme ? "#cbd5e1" : "#334155";
+  return `<div class="omt-map-iw-card" style="background:${bg};border:1px solid ${border};border-radius:12px;padding:14px 42px 14px 16px;min-width:220px;max-width:280px;box-shadow:0 16px 36px rgba(15,23,42,0.28);font-family:system-ui,-apple-system,sans-serif;">
+    <p style="margin:0;font-size:16px;font-weight:700;color:${nameColor};letter-spacing:-0.02em;line-height:1.25">${name}</p>
+    <p style="margin:4px 0 10px;font-size:13px;font-weight:700;color:${roleColor};line-height:1.3">${role}</p>
+    <p style="margin:0;font-size:14px;font-weight:700;color:${statusColor};line-height:1.35">${status}</p>
+    <p style="margin:4px 0 0;font-size:13px;font-weight:600;color:${detailColor};line-height:1.4">${detail}</p>
   </div>`;
 }
 
@@ -1091,33 +1143,26 @@ export function LiveIncidentsMap({
         }
         bounds.extend(jPos);
         hasBounds = true;
-        const arrivedStr = r.arrivedAt
-          ? darkTheme
-            ? `<p style="margin:0 0 6px;font-size:11px;font-weight:600;color:#4ade80">Arrived ${escapeMapHtml(formatTime(r.arrivedAt))}</p>`
-            : `<div style="color:#16a34a;font-size:11px;font-weight:600">Arrived ${escapeMapHtml(formatTime(r.arrivedAt))}</div>`
-          : "";
-        const posStr =
-          hasGps && r.lastPositionAt && !r.arrivedAt
-            ? darkTheme
-              ? `<p style="margin:0 0 4px;font-size:11px;color:#94a3b8">GPS · ${escapeMapHtml(formatTime(r.lastPositionAt))}</p>`
-              : `<div style="color:#6b7280;font-size:11px">GPS: ${escapeMapHtml(formatTime(r.lastPositionAt))}</div>`
-            : !hasGps && !r.arrivedAt
-              ? darkTheme
-                ? `<p style="margin:0 0 4px;font-size:11px;font-weight:600;color:#94a3b8">Awaiting GPS — shown near incident</p>`
-                : `<div style="color:#64748b;font-size:11px;font-weight:600">Awaiting GPS — shown near incident</div>`
-              : "";
-        const noteStr = r.arrivalNote
-          ? darkTheme
-            ? `<p style="margin:4px 0 0;font-size:11px;color:#cbd5e1;line-height:1.35">${escapeMapHtml(r.arrivalNote)}</p>`
-            : `<div style="color:#374151;font-size:11px;margin-top:2px">${escapeMapHtml(r.arrivalNote)}</div>`
-          : "";
-        const jHtml = buildJoinerInfoHtml({
-          firstName: r.firstName,
-          lastName: r.lastName,
-          incidentId: inc.id,
-          arrivedHtml: arrivedStr,
-          posHtml: posStr,
-          noteHtml: noteStr,
+        const stale =
+          !!r.lastPositionAt && Date.now() - new Date(r.lastPositionAt).getTime() > 180000;
+        const away = distanceLabel(jPos, incidentAnchor(inc));
+        const status = r.arrivedAt
+          ? m.arrivedAt(formatTime(r.arrivedAt))
+          : !hasGps
+            ? m.joinedNoGps
+            : stale
+              ? m.enRouteStale
+              : m.enRoute;
+        const detail = [
+          away,
+          hasGps && r.lastPositionAt ? m.gpsAt(formatTime(r.lastPositionAt)) : null,
+          r.arrivalNote,
+        ].filter((line): line is string => !!line).join(" · ");
+        const jHtml = buildPersonCardHtml({
+          name: `${r.firstName} ${r.lastName}`.trim() || m.responder,
+          role: m.onThisIncident,
+          status,
+          detail: detail || m.onThisIncident,
           darkTheme,
         });
         joinerInfo.set(key, jHtml);
@@ -1141,6 +1186,7 @@ export function LiveIncidentsMap({
             const iw = infoWindowRef.current;
             const html = joinerInfo.get(key);
             if (iw && html) {
+              iw.setOptions({ pixelOffset: new google.maps.Size(0, -36) });
               iw.setContent(html);
               iw.open(map, jm);
             }
@@ -1148,6 +1194,56 @@ export function LiveIncidentsMap({
           joinerMarkerMap.set(key, jm);
         }
       });
+
+      const ownerFix = recentOwnerFix(inc);
+      const ownerAnchor = incidentAnchor(inc);
+      const ownerIsElsewhere = !ownerAnchor || (() => {
+        if (!ownerFix) return false;
+        const dLat = (ownerFix.lat - ownerAnchor.lat) * 111.32;
+        const dLng = (ownerFix.lng - ownerAnchor.lng) * 111.32 * Math.cos((ownerAnchor.lat * Math.PI) / 180);
+        return dLat * dLat + dLng * dLng > 0.16;
+      })();
+      if (ownerFix && inc.userId && ownerIsElsewhere) {
+        const key = `owner-${inc.id}`;
+        activeJoinerKeys.add(key);
+        const ownerPos = { lat: ownerFix.lat, lng: ownerFix.lng };
+        bounds.extend(ownerPos);
+        hasBounds = true;
+        const away = distanceLabel(ownerPos, incidentAnchor(inc));
+        const ownerHtml = buildPersonCardHtml({
+          name: getResponderName(inc),
+          role: m.lastKnownPlace,
+          status: ownerFix.at ? m.gpsAt(formatTime(ownerFix.at)) : m.lastKnownPlace,
+          detail: away ?? m.lastKnownPlace,
+          darkTheme,
+        });
+        joinerInfo.set(key, ownerHtml);
+        const icon = makeJoinerMarkerIcon(inc.responderFirstName || m.responder, false);
+        const existingOwner = joinerMarkerMap.get(key);
+        if (existingOwner) {
+          existingOwner.setPosition(ownerPos);
+          existingOwner.setIcon(icon);
+          existingOwner.setZIndex(90);
+        } else {
+          const om = new google.maps.Marker({
+            position: ownerPos,
+            map,
+            icon,
+            title: getResponderName(inc),
+            zIndex: 90,
+          });
+          om.addListener("click", () => {
+            const iw = infoWindowRef.current;
+            const html = joinerInfo.get(key);
+            if (iw && html) {
+              iw.setOptions({ pixelOffset: new google.maps.Size(0, -36) });
+              iw.setContent(html);
+              iw.open(map, om);
+            }
+          });
+          joinerMarkerMap.set(key, om);
+        }
+      }
     }
     for (const [key, m] of Array.from(joinerMarkerMap.entries())) {
       if (!activeJoinerKeys.has(key)) {
@@ -1325,7 +1421,7 @@ export function LiveIncidentsMap({
         map.setZoom(initialZoomRef.current);
       }
     }
-  }, [incidents, mapsReady, onIncidentMarkerClick, preferActivityFit]);
+  }, [incidents, mapsReady, onIncidentMarkerClick, preferActivityFit, darkTheme, lang]);
 
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -1333,7 +1429,13 @@ export function LiveIncidentsMap({
 
     const teamMap = teamMarkersRef.current;
     const teamInfo = teamInfoRef.current;
-    const activeIds = new Set(onlineUsers.map((u) => u.id));
+    const alreadyOnIncident = new Set<string>();
+    for (const inc of incidents) {
+      if (inc.userId) alreadyOnIncident.add(inc.userId);
+      for (const person of inc.responders ?? []) alreadyOnIncident.add(person.userId);
+    }
+    const teamUsers = onlineUsers.filter((user) => !alreadyOnIncident.has(user.id));
+    const activeIds = new Set(teamUsers.map((u) => u.id));
 
     for (const [id, marker] of Array.from(teamMap.entries())) {
       if (!activeIds.has(id)) {
@@ -1364,7 +1466,7 @@ export function LiveIncidentsMap({
       return out;
     };
 
-    for (const user of onlineUsers) {
+    for (const user of teamUsers) {
       const pos = offsetPos(user.lat, user.lng, user.id);
       const name = `${user.firstName} ${user.lastName}`.trim();
       const updated = user.lastPositionAt
@@ -1409,7 +1511,7 @@ export function LiveIncidentsMap({
         teamMap.set(user.id, marker);
       }
     }
-  }, [onlineUsers, mapsReady, darkTheme, t]);
+  }, [onlineUsers, incidents, mapsReady, darkTheme, t]);
 
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -1848,6 +1950,7 @@ export function LiveIncidentsMap({
         if (zoom < 11 || zoom > 14) map.setZoom(12);
       }
       if (keyChanged && marker && html && infoWindowRef.current) {
+        infoWindowRef.current.setOptions({ pixelOffset: new google.maps.Size(0, -36) });
         infoWindowRef.current.setContent(html);
         infoWindowRef.current.open(map, marker);
       }
@@ -1871,6 +1974,7 @@ export function LiveIncidentsMap({
       let points = 0;
       if (addPoint(bounds, inc.responderLat ?? inc.latitude, inc.responderLng ?? inc.longitude)) points += 1;
       if (addPoint(bounds, inc.destinationLat, inc.destinationLng)) points += 1;
+      if (inc.responderLat == null && addPoint(bounds, inc.ownerLastLat, inc.ownerLastLng)) points += 1;
       for (const person of inc.responders ?? []) {
         if (person.userId === inc.userId) continue;
         if (addPoint(bounds, person.lastLat, person.lastLng)) points += 1;
@@ -1913,15 +2017,21 @@ export function LiveIncidentsMap({
     const primary = /^primary-(\d+)$/.exec(highlightResponderKey);
     if (!primary) return;
     const incidentId = Number(primary[1]);
+    const inc = incidents.find((item) => item.id === incidentId);
+    const ownerMarker = joinerMarkersRef.current.get(`owner-${incidentId}`);
+    const ownerPos = ownerMarker?.getPosition();
+    if (inc?.responderLat == null && ownerPos) {
+      flyTo(ownerPos.toJSON(), ownerMarker, joinerInfoRef.current.get(`owner-${incidentId}`));
+      return;
+    }
     const marker = markersRef.current.get(incidentId);
     const markerPos = marker?.getPosition();
     if (markerPos) {
       flyTo(markerPos.toJSON(), marker, markerInfoRef.current.get(incidentId));
       return;
     }
-    const inc = incidents.find((item) => item.id === incidentId);
-    const lat = Number(inc?.responderLat);
-    const lng = Number(inc?.responderLng);
+    const lat = Number(inc?.ownerLastLat ?? inc?.responderLat);
+    const lng = Number(inc?.ownerLastLng ?? inc?.responderLng);
     if (Number.isFinite(lat) && Number.isFinite(lng)) flyTo({ lat, lng });
   }, [highlightResponderKey, incidents, mapsReady]);
 

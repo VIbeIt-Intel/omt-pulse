@@ -90,6 +90,10 @@ export type LiveIncident = Incident & {
   categoryColor: string | null;
   responders: LiveResponderSummary[];
   severity: string | null;
+  /** Phone position from the latest login heartbeat, when live tracking has not started. */
+  ownerLastLat: number | null;
+  ownerLastLng: number | null;
+  ownerLastPositionAt: string | null;
 };
 import { eq, desc, sql, asc, and, gt, gte, lte, inArray, isNull, isNotNull, or, ne } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
@@ -869,6 +873,9 @@ export class DatabaseStorage implements IStorage {
         liveConvertLng: incidents.liveConvertLng,
         responderFirstName: users.firstName,
         responderLastName: users.lastName,
+        ownerLastLat: users.lastLat,
+        ownerLastLng: users.lastLng,
+        ownerLastPositionAt: users.lastPositionAt,
         categoryName: incidentCategories.name,
         categoryColor: incidentCategories.color,
         severity: incidents.severity,
@@ -978,6 +985,9 @@ export class DatabaseStorage implements IStorage {
       // Joined fields
       responderFirstName: r.responderFirstName ?? null,
       responderLastName: r.responderLastName ?? null,
+      ownerLastLat: r.ownerLastLat ?? null,
+      ownerLastLng: r.ownerLastLng ?? null,
+      ownerLastPositionAt: r.ownerLastPositionAt ? new Date(r.ownerLastPositionAt).toISOString() : null,
       categoryName: r.categoryName ?? null,
       categoryColor: r.categoryColor ?? null,
       severity: r.severity ?? null,
