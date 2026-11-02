@@ -3,6 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import type { Location } from "@shared/schema";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
+import { useControlRoomLang } from "@/hooks/use-control-room-lang";
+import { liveMonitorCopy } from "@/lib/live-monitor-copy";
 import {
   LiveIncidentsMap,
   SA_MAP_DEFAULT,
@@ -298,18 +300,19 @@ function PremiseZoneBlock({
   );
 }
 
-const LAYER_LABELS: Record<MapLayerMode, string> = {
-  all: "All",
-  incidents: "Incidents",
-  "team-fleet": "Team & Fleet",
-};
-
 type ControlRoomMapProps = {
   incidents: LiveIncidentMapItem[];
   locations?: Location[];
   highlightId?: number | null;
   /** Focus a team member pin on the map (dashboard Team row click). */
   highlightUserId?: string | null;
+  /**
+   * Fly to someone on the response team.
+   * `joiner-<incidentId>-<userId>`, `primary-<incidentId>`, or `team-<incidentId>`.
+   */
+  highlightResponderKey?: string | null;
+  /** Premise tap should drop a response-team camera lock held by the parent. */
+  onClearResponderFocus?: () => void;
   /** Include this user on the map even if outside the “online” GPS window. */
   focusUser?: DashboardUserSummary | null;
   /** Plot every roster member who has a GPS fix, including older positions. */
@@ -335,6 +338,8 @@ export function ControlRoomMap({
   locations = [],
   highlightId: highlightIdProp,
   highlightUserId = null,
+  highlightResponderKey = null,
+  onClearResponderFocus,
   focusUser = null,
   showAllMembers = false,
   memberRoster,
@@ -351,6 +356,8 @@ export function ControlRoomMap({
   showSatelliteControl = true,
 }: ControlRoomMapProps) {
   const { toast } = useToast();
+  const { lang } = useControlRoomLang();
+  const m = liveMonitorCopy(lang);
   const [layerMode, setLayerMode] = useState<MapLayerMode>("all");
   const [highlightIdInternal, setHighlightIdInternal] = useState<number | null>(null);
   const [highlightTrackerId, setHighlightTrackerId] = useState<number | null>(null);
@@ -402,8 +409,13 @@ export function ControlRoomMap({
   );
 
   function selectPremise(premiseId: string) {
+    onClearResponderFocus?.();
     setSelectedPremiseId((prev) => (prev === premiseId ? null : premiseId));
   }
+
+  useEffect(() => {
+    if (highlightResponderKey) setSelectedPremiseId(null);
+  }, [highlightResponderKey]);
 
   const highlightId = highlightIdProp ?? highlightIdInternal;
   const setHighlightId = (id: number | null) => {
@@ -593,7 +605,7 @@ export function ControlRoomMap({
                 )}
                 data-testid={`map-layer-${mode}`}
               >
-                {LAYER_LABELS[mode]}
+                {mode === "all" ? m.all : mode === "incidents" ? m.incidents : m.teamFleet}
               </button>
             ))}
           </div>
@@ -607,6 +619,7 @@ export function ControlRoomMap({
           highlightId={highlightId}
           highlightTrackerId={highlightTrackerId}
           highlightUserId={highlightUserId}
+          highlightResponderKey={highlightResponderKey}
           highlightPremiseId={selectedPremiseId}
           focusedPremiseId={selectedPremiseId}
           onIncidentMarkerClick={(id) => {

@@ -1,20 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation, Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { ToastAction } from "@/components/ui/toast";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import {
   Dialog,
   DialogContent,
@@ -41,6 +31,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { PageHero } from "@/components/page-hero";
 import { useControlRoomLang } from "@/hooks/use-control-room-lang";
+import { liveMonitorCopy, type LiveMonitorCopy } from "@/lib/live-monitor-copy";
 import { OPS_PAGE_SHELL } from "@/lib/ops-layout";
 import { cn } from "@/lib/utils";
 import { GeoLocationSheet, type GeoMapView } from "@/components/incident-location-sheet";
@@ -105,20 +96,20 @@ type LiveIncident = {
   panicAcknowledgedByUserId: string | null;
 };
 
-function formatDuration(startedAt: string | null): string {
+function formatDuration(startedAt: string | null, m: LiveMonitorCopy): string {
   if (!startedAt) return "—";
   const diffMs = Date.now() - new Date(startedAt).getTime();
   const mins = Math.floor(diffMs / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins} min`;
+  if (mins < 1) return m.justNow;
+  if (mins < 60) return m.minutes(mins);
   const hrs = Math.floor(mins / 60);
   const rem = mins % 60;
-  return rem > 0 ? `${hrs}h ${rem}m` : `${hrs}h`;
+  return m.hours(hrs, rem);
 }
 
-function formatTime(ts: string | null): string {
-  if (!ts) return "Unknown";
-  return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+function formatTime(ts: string | null, lang: "en" | "af", unknown: string): string {
+  if (!ts) return unknown;
+  return new Date(ts).toLocaleTimeString(lang === "af" ? "af-ZA" : undefined, { hour: "2-digit", minute: "2-digit" });
 }
 
 function getResponderName(inc: LiveIncident): string {
@@ -199,7 +190,8 @@ function getMarkerColor(inc: LiveIncident): string {
 }
 
 export default function LiveMonitorPage() {
-  const { t } = useControlRoomLang();
+  const { t, lang } = useControlRoomLang();
+  const m = liveMonitorCopy(lang);
   const { theme } = useTheme();
   const light = theme === "light";
   const [, navigate] = useLocation();
@@ -209,32 +201,87 @@ export default function LiveMonitorPage() {
   const cardRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const [geoMapView, setGeoMapView] = useState<GeoMapView | null>(null);
   const [endConfirmId, setEndConfirmId] = useState<number | null>(null);
+  const [endReport, setEndReport] = useState("");
   const [noteIncidentId, setNoteIncidentId] = useState<number | null>(null);
   const [noteText, setNoteText] = useState("");
   const [tick, setTick] = useState(0);
-  const [highlightId, setHighlightId] = useState<number | null>(() => {
+  const [focusId, setFocusId] = useState<number | null>(() => {
     const p = new URLSearchParams(window.location.search).get("incidentId");
-    return p ? parseInt(p, 10) : null;
+    const id = p ? parseInt(p, 10) : NaN;
+    return Number.isFinite(id) ? id : null;
   });
+  const [focusResponderKey, setFocusResponderKey] = useState<string | null>(null);
 
+  const preview = window.location.pathname.startsWith("/preview/");
   const { data: liveIncidents = [], isLoading } = useQuery<LiveIncident[]>({
     queryKey: ["/api/incidents/live"],
-    refetchInterval: 5000,
-    refetchIntervalInBackground: true,
+    refetchInterval: preview ? false : 5000,
+    refetchIntervalInBackground: !preview,
   });
 
-  // Scroll to the deep-linked incident once it loads
-  const scrolledRef = useRef(false);
+  const monitorPath = preview ? "/preview/live-monitor" : "/live-monitor";
+  function focusIncident(id: number) {
+    setFocusResponderKey(null);
+    setFocusId(id);
+    navigate(`${monitorPath}?incidentId=${id}`);
+  }
+  function clearFocus() {
+    setFocusResponderKey(null);
+    setFocusId(null);
+    navigate(monitorPath);
+  }
+  function focusResponder(incidentId: number, key: string) {
+    setFocusId(incidentId);
+    setFocusResponderKey((current) => (current === key ? null : key));
+    navigate(`${monitorPath}?incidentId=${incidentId}`);
+  }
+
   useEffect(() => {
-    if (!highlightId || scrolledRef.current || liveIncidents.length === 0) return;
-    const el = cardRefs.current.get(highlightId);
-    if (!el) return;
-    scrolledRef.current = true;
-    el.scrollIntoView({ behavior: "smooth", block: "start" });
-    // Auto-clear highlight after 3 s so it doesn't stay forever
-    const t = setTimeout(() => setHighlightId(null), 3000);
-    return () => clearTimeout(t);
-  }, [highlightId, liveIncidents]);
+    if (isLoading || focusId == null) return;
+    if (!liveIncidents.some((inc) => inc.id === focusId)) setFocusId(null);
+  }, [isLoading, focusId, liveIncidents]);
+
+  useEffect(() => {
+    if (!focusResponderKey || isLoading) return;
+    if (focusResponderKey.startsWith("team-")) {
+      const id = Number(focusResponderKey.slice(5));
+      if (!liveIncidents.some((inc) => inc.id === id)) setFocusResponderKey(null);
+      return;
+    }
+    if (focusResponderKey.startsWith("primary-")) {
+      const id = Number(focusResponderKey.slice(8));
+      const inc = liveIncidents.find((item) => item.id === id);
+      if (inc?.responderLat == null || inc?.responderLng == null) setFocusResponderKey(null);
+      return;
+    }
+    const joiner = /^joiner-(\d+)-(.+)$/.exec(focusResponderKey);
+    if (!joiner) {
+      setFocusResponderKey(null);
+      return;
+    }
+    const inc = liveIncidents.find((item) => item.id === Number(joiner[1]));
+    const person = inc?.responders?.find((item) => item.userId === joiner[2]);
+    if (person?.lastLat == null || person?.lastLng == null) setFocusResponderKey(null);
+  }, [focusResponderKey, liveIncidents, isLoading]);
+
+  const responderFocusLabel = useMemo(() => {
+    if (!focusResponderKey) return null;
+    if (focusResponderKey.startsWith("team-")) return m.wholeResponseOnMap;
+    if (focusResponderKey.startsWith("primary-")) {
+      const inc = liveIncidents.find((item) => item.id === Number(focusResponderKey.slice(8)));
+      return inc ? m.showingOnMap(getResponderName(inc)) : null;
+    }
+    const joiner = /^joiner-(\d+)-(.+)$/.exec(focusResponderKey);
+    if (!joiner) return null;
+    const inc = liveIncidents.find((item) => item.id === Number(joiner[1]));
+    const person = inc?.responders?.find((item) => item.userId === joiner[2]);
+    if (!person) return null;
+    const name = `${person.firstName} ${person.lastName}`.trim() || m.responder;
+    return m.showingOnMap(name);
+  }, [focusResponderKey, liveIncidents, m]);
+
+  const focusedIncident = focusId == null ? null : liveIncidents.find((inc) => inc.id === focusId) ?? null;
+  const shownIncidents = focusedIncident ? [focusedIncident] : liveIncidents;
 
   // Toast when a new live incident appears during polling
   const prevIncidentIdsRef = useRef<Set<number>>(new Set());
@@ -245,20 +292,20 @@ export default function LiveMonitorPage() {
       // Only toast for incidents that appeared after the page was already loaded
       // (skip on first load where prevIds is empty)
       newIncidents.forEach((inc) => {
-        const name = `${inc.responderFirstName ?? ""} ${inc.responderLastName ?? ""}`.trim() || `Incident #${inc.id}`;
+        const name = `${inc.responderFirstName ?? ""} ${inc.responderLastName ?? ""}`.trim() || m.incidentWord(inc.id);
         toast({
-          title: `🚨 New Live Incident — ${name}`,
-          description: `${name} has started a live incident.`,
+          title: m.newLiveTitle(name),
+          description: m.newLiveBody(name),
           action: (
-            <ToastAction altText="View" onClick={() => navigate("/live-monitor")}>
-              View
+            <ToastAction altText={m.view} onClick={() => navigate(preview ? "/preview/live-monitor" : "/live-monitor")}>
+              {m.view}
             </ToastAction>
           ),
         });
       });
     }
     prevIncidentIdsRef.current = new Set(liveIncidents.map((inc) => inc.id));
-  }, [liveIncidents, toast]);
+  }, [liveIncidents, toast, m, navigate, preview]);
 
   const { data: me } = useQuery<{ id: string }>({ queryKey: ["/api/auth/me"] });
 
@@ -283,7 +330,7 @@ export default function LiveMonitorPage() {
       await queryClient.refetchQueries({ queryKey: ["/api/incidents/live"] });
       navigate("/live-incident");
     },
-    onError: () => toast({ title: "Error", description: "Could not join the incident.", variant: "destructive" }),
+    onError: () => toast({ title: m.error, description: m.couldNotJoin, variant: "destructive" }),
   });
 
   useEffect(() => {
@@ -293,23 +340,41 @@ export default function LiveMonitorPage() {
 
 
   const endLiveMutation = useMutation({
-    mutationFn: (id: number) => apiRequest("POST", `/api/incidents/${id}/end-live`, {}),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/incidents/live"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/incidents"] });
-      setEndConfirmId(null);
-      toast({ title: "Live incident ended", description: "The incident has been closed." });
+    mutationFn: async ({ id, report }: { id: number; report: string }) => {
+      if (preview) return;
+      await apiRequest("POST", `/api/incidents/${id}/add-note`, {
+        note: `${m.closeReportNote}: ${report}`,
+      });
+      await apiRequest("POST", `/api/incidents/${id}/end-live`, {});
     },
-    onError: () => toast({ title: "Error", description: "Could not end the incident.", variant: "destructive" }),
+    onSuccess: (_data, { id }) => {
+      if (preview) {
+        queryClient.setQueryData<LiveIncident[]>(["/api/incidents/live"], (rows) =>
+          (rows ?? []).filter((row) => row.id !== id),
+        );
+      } else {
+        queryClient.invalidateQueries({ queryKey: ["/api/incidents/live"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/incidents"] });
+      }
+      setEndConfirmId(null);
+      setEndReport("");
+      if (focusId === id) {
+        setFocusId(null);
+        setFocusResponderKey(null);
+        navigate(monitorPath);
+      }
+      toast({ title: m.incidentEnded, description: m.incidentEndedBody });
+    },
+    onError: () => toast({ title: m.error, description: m.couldNotEnd, variant: "destructive" }),
   });
 
   const escalateMutation = useMutation({
     mutationFn: (id: number) => apiRequest("POST", `/api/incidents/${id}/escalate`, {}),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/incidents/live"] });
-      toast({ title: "Incident escalated", description: "All admins and supervisors have been notified." });
+      toast({ title: m.escalatedTitle, description: m.escalatedBody });
     },
-    onError: () => toast({ title: "Error", description: "Could not escalate the incident.", variant: "destructive" }),
+    onError: () => toast({ title: m.error, description: m.couldNotEscalate, variant: "destructive" }),
   });
 
   const addNoteMutation = useMutation({
@@ -319,9 +384,9 @@ export default function LiveMonitorPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/incidents"] });
       setNoteIncidentId(null);
       setNoteText("");
-      toast({ title: "Note saved", description: "The note has been appended to the incident." });
+      toast({ title: m.noteSaved, description: m.noteSavedBody });
     },
-    onError: () => toast({ title: "Error", description: "Could not save the note.", variant: "destructive" }),
+    onError: () => toast({ title: m.error, description: m.couldNotSaveNote, variant: "destructive" }),
   });
 
   const noteIncident = liveIncidents.find((i) => i.id === noteIncidentId) ?? null;
@@ -336,7 +401,7 @@ export default function LiveMonitorPage() {
           totalLabel={t.screen.active}
           totalTestId="badge-live-count"
           leading={
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigate("/")} data-testid="button-back-live-monitor">
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigate(preview ? "/preview/control-room" : "/")} data-testid="button-back-live-monitor">
               <ArrowLeft className="h-4 w-4" />
             </Button>
           }
@@ -350,11 +415,11 @@ export default function LiveMonitorPage() {
       </div>
 
       <div className="flex flex-col md:flex-row flex-1 min-h-0 overflow-hidden">
-        <div className="order-2 md:order-1 flex-1 min-h-0 md:flex-none md:w-72 border-b md:border-b-0 md:border-r flex flex-col bg-background overflow-y-auto" data-testid="panel-live-incidents">
+        <div className="order-2 md:order-1 flex-1 min-h-0 md:flex-none md:w-80 border-b md:border-b-0 md:border-r flex flex-col bg-muted/40 overflow-y-auto" data-testid="panel-live-incidents">
           {isLoading ? (
             <div className="flex items-center justify-center flex-1 text-muted-foreground py-12">
               <Loader2 className="h-5 w-5 animate-spin mr-2" />
-              Loading…
+              {m.loading}
             </div>
           ) : liveIncidents.length === 0 ? (
             <div className="flex flex-col items-center justify-center flex-1 gap-3 px-6 py-10 text-center" data-testid="empty-live-monitor">
@@ -363,11 +428,26 @@ export default function LiveMonitorPage() {
               <p className="text-xs text-muted-foreground">{t.mapHint}</p>
             </div>
           ) : (
-            <div className="divide-y">
-              {liveIncidents.map((inc) => {
+            <div className="flex flex-col gap-3 p-3">
+              {focusedIncident && (
+                <button
+                  type="button"
+                  onClick={clearFocus}
+                  className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-left text-xs font-semibold text-foreground hover:bg-muted"
+                  data-testid="button-clear-incident-focus"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5 shrink-0" />
+                  <span className="min-w-0">
+                    <span className="block text-[10px] font-bold uppercase tracking-wide text-muted-foreground">{m.inFocus}</span>
+                    <span className="block truncate">{getResponderName(focusedIncident)} · {focusedIncident.categoryName ?? m.incidentWord(focusedIncident.id)}</span>
+                  </span>
+                  <span className="ml-auto shrink-0 text-[10px] font-medium text-primary">{m.allIncidents}</span>
+                </button>
+              )}
+              {shownIncidents.map((inc) => {
                 const isMyIncident = me?.id != null && inc.userId === me.id;
                 const alreadyJoined = me?.id != null && (inc.responders ?? []).some((r) => r.userId === me.id);
-                const isHighlighted = highlightId === inc.id;
+                const isFocused = focusId === inc.id;
                 return (
                   <div
                     key={inc.id}
@@ -375,11 +455,16 @@ export default function LiveMonitorPage() {
                       if (el) cardRefs.current.set(inc.id, el);
                       else cardRefs.current.delete(inc.id);
                     }}
-                    className={isHighlighted ? "ring-2 ring-primary ring-inset transition-all duration-700" : ""}
+                    onClick={() => focusIncident(inc.id)}
+                    className={cn(
+                      "cursor-pointer rounded-xl border bg-background shadow-sm overflow-hidden",
+                      inc.isEscalated ? "border-red-500" : "border-border",
+                      isFocused && "ring-2 ring-primary",
+                    )}
                   >
                     <LiveIncidentCard
                       incident={inc}
-                      onEndClick={() => setEndConfirmId(inc.id)}
+                      onEndClick={() => { setEndConfirmId(inc.id); setEndReport(""); }}
                       onNoteClick={() => { setNoteIncidentId(inc.id); setNoteText(""); }}
                       onEscalateClick={() => escalateMutation.mutate(inc.id)}
                       isEscalating={escalateMutation.isPending && (escalateMutation.variables as number) === inc.id}
@@ -388,6 +473,8 @@ export default function LiveMonitorPage() {
                       onJoinClick={() => joinMutation.mutate(inc.id)}
                       isJoining={joinMutation.isPending && (joinMutation.variables as number) === inc.id}
                       onOpenMap={setGeoMapView}
+                      focusResponderKey={focusResponderKey}
+                      onFocusResponder={(key) => focusResponder(inc.id, key)}
                     />
                   </div>
                 );
@@ -398,80 +485,118 @@ export default function LiveMonitorPage() {
 
         <div className="order-1 md:order-2 h-[42vh] md:h-auto md:flex-1 min-w-0 relative shrink-0 md:shrink flex flex-col" data-testid="map-live-monitor">
           <ControlRoomMap
-            incidents={liveIncidents}
+            incidents={shownIncidents}
             locations={groupLocations}
-            highlightId={highlightId}
-            onHighlightId={setHighlightId}
+            highlightId={focusId}
+            onHighlightId={focusIncident}
             showSidePanels={false}
             darkTheme={!light}
             className="flex-1 min-h-0"
             testId="map-live-monitor"
-            onIncidentMarkerClick={(id) => {
-              const inc = liveIncidents.find((i) => i.id === id);
-              if (inc && isPanicIncident(inc)) {
-                setHighlightId(id);
-                const el = cardRefs.current.get(id);
-                if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-              }
-            }}
+            onIncidentMarkerClick={focusIncident}
             onOpenLiveMonitor={(incidentId) => {
-              if (incidentId != null) {
-                setHighlightId(incidentId);
-                const el = cardRefs.current.get(incidentId);
-                if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-              }
+              if (incidentId != null) focusIncident(incidentId);
             }}
+            highlightResponderKey={focusResponderKey}
+            onClearResponderFocus={() => setFocusResponderKey(null)}
           />
+          {responderFocusLabel && (
+            <div
+              className="absolute bottom-3 left-3 z-30 flex max-w-sm items-center gap-2 rounded-lg border border-border bg-background/95 px-3 py-2 text-xs shadow-lg"
+              data-testid="banner-responder-on-map"
+            >
+              <MapPin className="h-3.5 w-3.5 shrink-0 text-sky-600" />
+              <span className="min-w-0 truncate font-semibold">{responderFocusLabel}</span>
+              <button
+                type="button"
+                className="shrink-0 font-semibold text-primary"
+                onClick={() => setFocusResponderKey(null)}
+                data-testid="button-back-to-incident-map"
+              >
+                {m.backToIncident}
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
-      <AlertDialog open={endConfirmId !== null} onOpenChange={(o) => { if (!o) setEndConfirmId(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>End Live Incident</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will close the live incident and stop GPS tracking for this person. This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel data-testid="button-cancel-end-live">Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => endConfirmId !== null && endLiveMutation.mutate(endConfirmId)}
+      <Dialog
+        open={endConfirmId !== null}
+        onOpenChange={(open) => {
+          if (!open && !endLiveMutation.isPending) {
+            setEndConfirmId(null);
+            setEndReport("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{m.endTitle}</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">{m.endBody}</p>
+          <label className="block space-y-1.5 text-sm font-semibold">
+            {m.closeReportLabel}
+            <Textarea
+              value={endReport}
+              onChange={(e) => setEndReport(e.target.value)}
+              placeholder={m.closeReportPlaceholder}
+              rows={5}
+              autoFocus
               disabled={endLiveMutation.isPending}
+              className="mt-1.5 font-normal"
+              data-testid="textarea-end-report"
+            />
+          </label>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={endLiveMutation.isPending}
+              onClick={() => { setEndConfirmId(null); setEndReport(""); }}
+              data-testid="button-cancel-end-live"
+            >
+              {m.cancel}
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={!endReport.trim() || endLiveMutation.isPending}
               data-testid="button-confirm-end-live"
+              onClick={() => {
+                const report = endReport.trim();
+                if (endConfirmId == null || !report) return;
+                endLiveMutation.mutate({ id: endConfirmId, report });
+              }}
             >
               {endLiveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-              End Incident
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+              {m.endIncident}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={noteIncidentId !== null} onOpenChange={(o) => { if (!o) { setNoteIncidentId(null); setNoteText(""); } }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add Note — {noteIncident ? getResponderName(noteIncident) : ""}</DialogTitle>
+            <DialogTitle>{m.addNoteTitle(noteIncident ? getResponderName(noteIncident) : "")}</DialogTitle>
           </DialogHeader>
           <p className="text-xs text-muted-foreground">
-            Notes are timestamped and appended to the incident description for the record.
+            {m.noteHint}
           </p>
           <Textarea
-            placeholder="Enter note about this incident…"
+            placeholder={m.notePlaceholder}
             value={noteText}
             onChange={(e) => setNoteText(e.target.value)}
             rows={4}
             data-testid="textarea-note"
           />
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setNoteIncidentId(null); setNoteText(""); }}>Cancel</Button>
+            <Button variant="outline" onClick={() => { setNoteIncidentId(null); setNoteText(""); }}>{m.cancel}</Button>
             <Button
               onClick={() => noteIncidentId !== null && addNoteMutation.mutate({ id: noteIncidentId, note: noteText })}
               disabled={addNoteMutation.isPending || !noteText.trim()}
               data-testid="button-save-note"
             >
               {addNoteMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-              Save Note
+              {m.saveNote}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -493,6 +618,8 @@ function LiveIncidentCard({
   onJoinClick,
   isJoining,
   onOpenMap,
+  focusResponderKey,
+  onFocusResponder,
 }: {
   incident: LiveIncident;
   onEndClick: () => void;
@@ -504,13 +631,17 @@ function LiveIncidentCard({
   onJoinClick: () => void;
   isJoining: boolean;
   onOpenMap: (view: GeoMapView) => void;
+  focusResponderKey: string | null;
+  onFocusResponder: (key: string) => void;
 }) {
+  const { lang } = useControlRoomLang();
+  const m = liveMonitorCopy(lang);
   const name = getResponderName(incident);
-  const duration = formatDuration(incident.liveStartedAt);
+  const duration = formatDuration(incident.liveStartedAt, m);
   const hasGps = incident.responderLat != null && incident.responderLng != null;
   const gpsTime = incident.responderPositionUpdatedAt
-    ? `Updated ${formatTime(incident.responderPositionUpdatedAt)}`
-    : "No GPS";
+    ? m.updated(formatTime(incident.responderPositionUpdatedAt, lang, m.unknownTime))
+    : m.noGps;
   const isStale = hasGps && incident.responderPositionUpdatedAt
     ? (Date.now() - new Date(incident.responderPositionUpdatedAt).getTime()) > 180000
     : false;
@@ -518,7 +649,7 @@ function LiveIncidentCard({
 
   return (
     <div
-      className={`p-4 space-y-3 ${incident.isEscalated ? "bg-red-500/5 border-l-4 border-red-500" : ""}`}
+      className="p-3.5 space-y-3"
       data-testid={`card-live-incident-${incident.id}`}
     >
       <div className="space-y-1.5">
@@ -547,24 +678,24 @@ function LiveIncidentCard({
           </div>
           {incident.panicAcknowledgedAt && (
             <Badge className="bg-green-600 text-white text-xs shrink-0" data-testid={`badge-panic-acknowledged-${incident.id}`}>
-              ✓ Acknowledged
+              ✓ {m.acknowledged}
             </Badge>
           )}
           {incident.isEscalated && (
             <Badge className="bg-red-500 text-white text-xs shrink-0" data-testid={`badge-escalated-${incident.id}`}>
-              ESCALATED
+              {m.escalated}
             </Badge>
           )}
           {incident.responderArrivedAt && !incident.isEscalated && (
             <Badge className="bg-blue-600 text-white text-xs shrink-0" data-testid={`badge-at-scene-${incident.id}`}>
-              AT SCENE
+              {m.atScene}
             </Badge>
           )}
         </div>
 
         {incident.responderArrivedAt && (
           <p className="text-xs font-medium text-blue-600 dark:text-blue-400" data-testid={`text-arrived-at-${incident.id}`}>
-            {name} is active at incident scene · arrived {formatTime(incident.responderArrivedAt)}
+            {m.activeAtScene(name, formatTime(incident.responderArrivedAt, lang, m.unknownTime))}
           </p>
         )}
 
@@ -575,11 +706,11 @@ function LiveIncidentCard({
           </span>
           <span className="flex items-center gap-1" data-testid={`text-gps-status-${incident.id}`}>
             <span className={`inline-block w-1.5 h-1.5 rounded-full ${hasGps ? (isStale ? "bg-red-500" : "bg-green-500") : "bg-amber-400"}`} />
-            <span className={isStale ? "text-red-500 font-medium" : ""}>{hasGps ? gpsTime : "No GPS"}</span>
+            <span className={isStale ? "text-red-500 font-medium" : ""}>{hasGps ? gpsTime : m.noGps}</span>
           </span>
           {isStale && (
             <Badge className="bg-red-500 text-white text-[9px] px-1.5 py-0 leading-tight" data-testid={`badge-gps-stale-${incident.id}`}>
-              GPS STALE
+              {m.gpsStale}
             </Badge>
           )}
         </div>
@@ -588,7 +719,7 @@ function LiveIncidentCard({
             <CoordinateLink
               lat={Number(incident.responderLat)}
               lng={Number(incident.responderLng)}
-              label={`${name} — last GPS`}
+              label={m.lastGps(name)}
               onOpenMap={onOpenMap}
               className="text-xs"
               decimals={4}
@@ -604,12 +735,12 @@ function LiveIncidentCard({
             <Button
               size="sm"
               className="w-full text-xs h-8 bg-blue-600 hover:bg-blue-700 text-white gap-1.5"
-              onClick={onJoinClick}
+              onClick={(e) => { e.stopPropagation(); onJoinClick(); }}
               disabled={isJoining}
               data-testid={`button-join-incident-${incident.id}`}
             >
               {isJoining ? <Loader2 className="h-3 w-3 animate-spin" /> : <UserPlus className="h-3 w-3" />}
-              {isJoining ? "Joining…" : "Respond — Join & Track GPS"}
+              {isJoining ? m.joining : m.respond}
             </Button>
           ) : (
             <div className="flex flex-col gap-2 pb-1">
@@ -620,12 +751,12 @@ function LiveIncidentCard({
                   data-testid={`button-open-gps-tracking-${incident.id}`}
                 >
                   <Navigation className="h-3.5 w-3.5" />
-                  Open GPS Tracking
+                  {m.openGps}
                 </Button>
               </Link>
               <div className="flex items-center gap-1.5 text-xs text-blue-600 dark:text-blue-400 font-medium px-1">
                 <UserPlus className="h-3 w-3" />
-                You are responding — stay on Live Incident to share GPS
+                {m.stayOnLive}
               </div>
             </div>
           )}
@@ -636,36 +767,41 @@ function LiveIncidentCard({
           size="sm"
           variant="destructive"
           className="w-full text-xs h-8 px-2"
-          onClick={onEndClick}
+          onClick={(e) => { e.stopPropagation(); onEndClick(); }}
           data-testid={`button-end-incident-${incident.id}`}
         >
           <CheckCircle2 className="h-3 w-3 mr-1" />
-          End
+          {m.end}
         </Button>
         <Button
           size="sm"
           variant="outline"
           className="w-full text-xs h-8 px-2"
-          onClick={onNoteClick}
+          onClick={(e) => { e.stopPropagation(); onNoteClick(); }}
           data-testid={`button-note-incident-${incident.id}`}
         >
           <FileText className="h-3 w-3 mr-1" />
-          Note
+          {m.note}
         </Button>
         <Button
           size="sm"
           variant="outline"
           className={`w-full text-xs h-8 px-2 ${incident.isEscalated ? "opacity-50 cursor-not-allowed" : "border-red-500/50 text-red-600 hover:bg-red-500/10 hover:text-red-700 dark:text-red-400"}`}
-          onClick={!incident.isEscalated ? onEscalateClick : undefined}
+          onClick={!incident.isEscalated ? (e) => { e.stopPropagation(); onEscalateClick(); } : undefined}
           disabled={incident.isEscalated || isEscalating}
           data-testid={`button-escalate-incident-${incident.id}`}
         >
           {isEscalating ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <ShieldAlert className="h-3 w-3 mr-1" />}
-          {incident.isEscalated ? "Done" : "Escalate"}
+          {incident.isEscalated ? m.done : m.escalate}
         </Button>
       </div>
 
-      <ResponseTeamPanel incident={incident} primaryName={name} />
+      <ResponseTeamPanel
+        incident={incident}
+        primaryName={name}
+        focusResponderKey={focusResponderKey}
+        onFocusResponder={onFocusResponder}
+      />
     </div>
   );
 }
@@ -681,6 +817,8 @@ function ResponderContactActions({
 }) {
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const { lang } = useControlRoomLang();
+  const m = liveMonitorCopy(lang);
   const privateRadio = usePrivateRadioActions();
   const [starting, setStarting] = useState(false);
 
@@ -692,12 +830,12 @@ function ResponderContactActions({
         type="button"
         size="sm"
         variant="outline"
-        className="h-7 flex-1 text-[10px] px-1.5 gap-1 border-slate-600"
+        className="h-7 flex-1 text-[10px] px-1.5 gap-1"
         data-testid={`button-message-responder-${incidentId}-${userId}`}
         onClick={() => navigate(`/chat?dm=${encodeURIComponent(userId)}`)}
       >
         <MessageSquare className="h-3 w-3" />
-        Message
+        {m.message}
       </Button>
       <Button
         type="button"
@@ -711,8 +849,8 @@ function ResponderContactActions({
             .startCall(userId, incidentId)
             .catch((err) => {
               toast({
-                title: "Private radio failed",
-                description: err instanceof Error ? err.message : "Could not start private talk",
+                title: m.privateRadioFailed,
+                description: err instanceof Error ? err.message : m.couldNotStartTalk,
                 variant: "destructive",
               });
             })
@@ -720,69 +858,148 @@ function ResponderContactActions({
         }}
       >
         {starting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Radio className="h-3 w-3" />}
-        Private talk
+        {m.privateTalk}
       </Button>
     </div>
+  );
+}
+
+function LocateRow({
+  locatable,
+  selected,
+  onLocate,
+  testId,
+  children,
+}: {
+  locatable: boolean;
+  selected: boolean;
+  onLocate: () => void;
+  testId: string;
+  children: ReactNode;
+}) {
+  const className = cn(
+    "w-full rounded px-0.5 py-0.5 text-left",
+    locatable && "cursor-pointer hover:bg-sky-500/10",
+    selected && "bg-sky-500/15",
+  );
+  if (!locatable) return <div className={className}>{children}</div>;
+  return (
+    <button
+      type="button"
+      className={className}
+      data-testid={testId}
+      aria-pressed={selected}
+      onClick={(e) => {
+        e.stopPropagation();
+        onLocate();
+      }}
+    >
+      {children}
+    </button>
   );
 }
 
 function ResponseTeamPanel({
   incident,
   primaryName,
+  focusResponderKey,
+  onFocusResponder,
 }: {
   incident: LiveIncident;
   primaryName: string;
+  focusResponderKey: string | null;
+  onFocusResponder: (key: string) => void;
 }) {
+  const { lang } = useControlRoomLang();
+  const m = liveMonitorCopy(lang);
   const { data: me } = useQuery<{ id: string }>({ queryKey: ["/api/auth/me"] });
   const target = getIncidentTarget(incident);
   const joiners = (incident.responders ?? []).filter((r) => r.userId !== incident.userId);
   const enRoute = joiners.filter((r) => !r.arrivedAt).length;
   const onScene = joiners.filter((r) => !!r.arrivedAt).length;
   const primaryPos = pickLatLng(incident.responderLat, incident.responderLng);
+  const primaryKey = `primary-${incident.id}`;
+  const teamKey = `team-${incident.id}`;
   const primaryEta = !incident.responderArrivedAt
     ? formatEtaLine(primaryPos, target)
     : null;
+  const locatedJoiners = joiners.filter((r) => pickLatLng(r.lastLat, r.lastLng) != null);
+  const canFrameTeam = locatedJoiners.length > 0 && (primaryPos != null || target != null);
 
   return (
     <div
-      className="rounded-md border border-slate-700/70 bg-slate-950/40 px-2.5 py-2 space-y-2"
+      className="rounded-md border border-border bg-muted/50 px-2.5 py-2 space-y-2"
       data-testid={`list-responders-${incident.id}`}
     >
       <div className="flex items-center justify-between gap-2">
-        <p className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold flex items-center gap-1.5">
+        <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold flex items-center gap-1.5">
           <Users className="h-3 w-3" />
-          Response team
+          {m.responseTeam}
         </p>
-        <p className="text-[10px] text-slate-500 tabular-nums">
-          {joiners.length === 0
-            ? "0 joined"
-            : `${onScene} on scene · ${enRoute} en route`}
-        </p>
+        <div className="flex items-center gap-1.5">
+          {canFrameTeam && (
+            <button
+              type="button"
+              className={cn(
+                "rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide",
+                focusResponderKey === teamKey
+                  ? "bg-sky-600 text-white"
+                  : "text-sky-700 hover:bg-sky-500/10 dark:text-sky-300",
+              )}
+              aria-pressed={focusResponderKey === teamKey}
+              data-testid={`button-show-response-${incident.id}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onFocusResponder(teamKey);
+              }}
+            >
+              {m.showAllOnMap}
+            </button>
+          )}
+          <p className="text-[10px] text-muted-foreground tabular-nums">
+            {joiners.length === 0
+              ? m.noneJoined
+              : m.teamStatus(onScene, enRoute)}
+          </p>
+        </div>
       </div>
+      {locatedJoiners.length > 0 && (
+        <p className="text-[10px] text-muted-foreground leading-snug">{m.tapToLocate}</p>
+      )}
 
       <ul className="space-y-1.5">
         <li
-          className="rounded border border-slate-800/80 bg-slate-900/50 px-2 py-1.5"
+          className={cn(
+            "rounded border border-border bg-background px-2 py-1.5",
+            focusResponderKey === primaryKey && "ring-2 ring-sky-500 border-sky-500",
+          )}
           data-testid={`responder-row-${incident.id}-primary`}
         >
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <p className="text-xs font-semibold text-slate-100 truncate">{primaryName}</p>
-              <p className="text-[10px] text-slate-500">Field unit / caller</p>
+          <LocateRow
+            locatable={primaryPos != null}
+            selected={focusResponderKey === primaryKey}
+            onLocate={() => onFocusResponder(primaryKey)}
+            testId={`button-locate-primary-${incident.id}`}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-foreground truncate">{primaryName}</p>
+                <p className="text-[10px] text-muted-foreground">{m.fieldUnit}</p>
+              </div>
+              {incident.responderArrivedAt ? (
+                <span className="text-[10px] font-semibold text-emerald-400 shrink-0">
+                  {m.onSceneAt(formatTime(incident.responderArrivedAt, lang, m.unknownTime))}
+                </span>
+              ) : primaryPos ? (
+                <span className="text-[10px] font-medium text-sky-400 shrink-0 text-right">
+                  {m.liveGps}
+                  {primaryEta ? <span className="block text-muted-foreground font-normal">{primaryEta}</span> : null}
+                </span>
+              ) : (
+                <span className="text-[10px] font-medium text-amber-400 shrink-0">{m.noGps}</span>
+              )}
             </div>
-            {incident.responderArrivedAt ? (
-              <span className="text-[10px] font-semibold text-emerald-400 shrink-0">
-                On scene · {formatTime(incident.responderArrivedAt)}
-              </span>
-            ) : primaryPos ? (
-              <span className="text-[10px] font-medium text-sky-400 shrink-0 text-right">
-                Live GPS
-                {primaryEta ? <span className="block text-slate-400 font-normal">{primaryEta}</span> : null}
-              </span>
-            ) : (
-              <span className="text-[10px] font-medium text-amber-400 shrink-0">No GPS</span>
-            )}
-          </div>
+          </LocateRow>
           <ResponderContactActions
             userId={incident.userId}
             incidentId={incident.id}
@@ -791,9 +1008,11 @@ function ResponseTeamPanel({
         </li>
 
         {joiners.map((r) => {
-          const respName = `${r.firstName} ${r.lastName}`.trim() || "Responder";
+          const respName = `${r.firstName} ${r.lastName}`.trim() || m.responder;
           const pos = pickLatLng(r.lastLat, r.lastLng);
           const eta = !r.arrivedAt ? formatEtaLine(pos, target) : null;
+          const joinerKey = `joiner-${incident.id}-${r.userId}`;
+          const selected = focusResponderKey === joinerKey;
           const stale =
             !!r.lastPositionAt &&
             Date.now() - new Date(r.lastPositionAt).getTime() > 180000;
@@ -801,47 +1020,57 @@ function ResponseTeamPanel({
           return (
             <li
               key={r.id}
-              className="rounded border border-slate-800/80 bg-slate-900/35 px-2 py-1.5"
+              className={cn(
+                "rounded border border-border bg-background px-2 py-1.5",
+                selected && "ring-2 ring-sky-500 border-sky-500",
+              )}
               data-testid={`responder-row-${incident.id}-${r.userId}`}
             >
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold text-slate-100 truncate">{respName}</p>
-                  <p className="text-[10px] text-slate-500">
-                    Joined {formatTime(r.joinedAt)}
-                    {r.destinationName ? ` · → ${r.destinationName}` : ""}
-                  </p>
-                </div>
-                {r.arrivedAt ? (
-                  <span
-                    className="text-[10px] font-semibold text-emerald-400 shrink-0"
-                    data-testid={`responder-status-${incident.id}-${r.userId}`}
-                  >
-                    Arrived · {formatTime(r.arrivedAt)}
-                  </span>
-                ) : pos && r.lastPositionAt ? (
-                  <span
-                    className={cn(
-                      "text-[10px] font-medium shrink-0 text-right",
-                      stale ? "text-red-400" : "text-sky-400",
-                    )}
-                    data-testid={`responder-status-${incident.id}-${r.userId}`}
-                  >
-                    En route{stale ? " · GPS stale" : ""}
-                    {eta ? <span className="block text-slate-300 font-semibold">{eta}</span> : null}
-                    <span className="block text-slate-500 font-normal">
-                      GPS {formatTime(r.lastPositionAt)}
+              <LocateRow
+                locatable={pos != null}
+                selected={selected}
+                onLocate={() => onFocusResponder(joinerKey)}
+                testId={`button-locate-responder-${incident.id}-${r.userId}`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-foreground truncate">{respName}</p>
+                    <p className="text-[10px] text-muted-foreground">
+                      {m.joinedAt(formatTime(r.joinedAt, lang, m.unknownTime))}
+                      {r.destinationName ? ` · → ${r.destinationName}` : ""}
+                    </p>
+                  </div>
+                  {r.arrivedAt ? (
+                    <span
+                      className="text-[10px] font-semibold text-emerald-400 shrink-0"
+                      data-testid={`responder-status-${incident.id}-${r.userId}`}
+                    >
+                      {m.arrivedAt(formatTime(r.arrivedAt, lang, m.unknownTime))}
                     </span>
-                  </span>
-                ) : (
-                  <span
-                    className="text-[10px] font-medium text-amber-400 shrink-0"
-                    data-testid={`responder-status-${incident.id}-${r.userId}`}
-                  >
-                    Joined · no GPS
-                  </span>
-                )}
-              </div>
+                  ) : pos && r.lastPositionAt ? (
+                    <span
+                      className={cn(
+                        "text-[10px] font-medium shrink-0 text-right",
+                        stale ? "text-red-400" : "text-sky-400",
+                      )}
+                      data-testid={`responder-status-${incident.id}-${r.userId}`}
+                    >
+                      {stale ? m.enRouteStale : m.enRoute}
+                      {eta ? <span className="block text-foreground font-semibold">{eta}</span> : null}
+                      <span className="block text-muted-foreground font-normal">
+                        {m.gpsAt(formatTime(r.lastPositionAt, lang, m.unknownTime))}
+                      </span>
+                    </span>
+                  ) : (
+                    <span
+                      className="text-[10px] font-medium text-amber-400 shrink-0"
+                      data-testid={`responder-status-${incident.id}-${r.userId}`}
+                    >
+                      {m.joinedNoGps}
+                    </span>
+                  )}
+                </div>
+              </LocateRow>
               <ResponderContactActions
                 userId={r.userId}
                 incidentId={incident.id}
@@ -853,8 +1082,8 @@ function ResponseTeamPanel({
       </ul>
 
       {joiners.length === 0 ? (
-        <p className="text-[11px] text-slate-500 leading-snug px-0.5" data-testid={`text-no-responders-${incident.id}`}>
-          No responders joined yet. When someone taps Respond, their name, distance, and ETA appear here.
+        <p className="text-[11px] text-muted-foreground leading-snug px-0.5" data-testid={`text-no-responders-${incident.id}`}>
+          {m.noRespondersYet}
         </p>
       ) : null}
     </div>

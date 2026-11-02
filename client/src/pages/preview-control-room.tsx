@@ -1,5 +1,9 @@
 import { useEffect } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
+import OccurrenceBook from "@/pages/occurrence-book";
+import LiveMonitorPage from "@/pages/live-monitor";
+import type { IncidentWithMeta } from "@/lib/incident-display";
+import type { Category } from "@shared/schema";
 import type { LiveIncidentMapItem } from "@/components/live-incidents-map";
 import { OperationsDashboard, type DashboardUserSummary, type TrackerDeviceSummary } from "@/components/operations-dashboard";
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -180,26 +184,162 @@ const sampleLive: LiveIncidentMapItem[] = [
   sampleIncident(7, "Vee en Wilde Diere", -25.844, 28.21, "yellow"),
 ];
 
+const bookCategories: Category[] = [
+  { id: 1, organizationId: "preview", name: "Vuur", description: null, color: "#ea580c", icon: "flame", isOther: false, isSystem: false, severity: "orange", commandId: 1 },
+  { id: 2, organizationId: "preview", name: "Panic", description: null, color: "#dc2626", icon: "siren", isOther: false, isSystem: true, severity: "red", commandId: 1 },
+  { id: 3, organizationId: "preview", name: "Inbraak", description: null, color: "#52525b", icon: "shield", isOther: false, isSystem: false, severity: "orange", commandId: 1 },
+  { id: 4, organizationId: "preview", name: "Vee en Wilde Diere", description: null, color: "#b45309", icon: "paw", isOther: false, isSystem: false, severity: "yellow", commandId: 1 },
+];
+
+function bookIncident(item: LiveIncidentMapItem): IncidentWithMeta {
+  const now = new Date();
+  const categoryId = bookCategories.find((category) => category.name === item.categoryName)?.id ?? null;
+  return {
+    id: item.id,
+    organizationId: "preview",
+    userId: item.userId,
+    incidentDate: now.toISOString().slice(0, 10),
+    incidentTime: now.toTimeString().slice(0, 5),
+    locationId: null,
+    locationName: item.locationName,
+    latitude: item.latitude,
+    longitude: item.longitude,
+    customMapId: null,
+    customMapX: null,
+    customMapY: null,
+    categoryId,
+    otherCategoryNote: null,
+    description: item.categoryName,
+    customFields: null,
+    importBatchId: null,
+    isLive: true,
+    isEscalated: false,
+    liveStartedAt: now,
+    responderLat: item.responderLat,
+    responderLng: item.responderLng,
+    responderPositionUpdatedAt: now,
+    responderArrivedAt: null,
+    liveStartLat: item.latitude,
+    liveStartLng: item.longitude,
+    destinationName: item.destinationName,
+    destinationLat: item.destinationLat,
+    destinationLng: item.destinationLng,
+    liveEndedAt: null,
+    liveClosedManually: null,
+    liveConvertLat: null,
+    liveConvertLng: null,
+    liveEndLat: null,
+    liveEndLng: null,
+    severity: item.severity,
+    panicAcknowledgedAt: null,
+    panicAcknowledgedByUserId: null,
+    panicClosedAt: null,
+    closedByUserId: null,
+    commandId: 1,
+    createdAt: now,
+    attachmentCount: 0,
+    reporterFirstName: "Martin",
+    reporterLastName: "Engels",
+  };
+}
+
+let monitorSeeded = false;
+function seedLiveMonitor() {
+  if (monitorSeeded) return;
+  monitorSeeded = true;
+  const now = new Date();
+  queryClient.setQueryData(
+    ["/api/incidents/live"],
+    sampleLive.map((item) => ({
+      ...item,
+      organizationId: "preview",
+      incidentDate: now.toISOString().slice(0, 10),
+      incidentTime: now.toTimeString().slice(0, 5),
+      locationId: null,
+      description: item.categoryName,
+      customFields: null,
+      importBatchId: null,
+      isLive: true,
+      createdAt: now.toISOString(),
+      responders: item.id === 1
+        ? [{
+            id: 101,
+            userId: "mo-steyn",
+            firstName: "Mo",
+            lastName: "Steyn",
+            lastLat: -29.8587,
+            lastLng: 31.0218,
+            lastPositionAt: minutesAgo(2),
+            joinedAt: minutesAgo(15),
+            arrivedAt: null,
+            arrivalNote: null,
+            destinationLat: null,
+            destinationLng: null,
+            destinationName: null,
+          }]
+        : (item.responders ?? []),
+      panicAcknowledgedAt: null,
+    })),
+  );
+  queryClient.setQueryData(["/api/locations"], []);
+  queryClient.setQueryData(["/api/auth/me"], {
+    id: "nico",
+    role: "administrator",
+    firstName: "Nico",
+    lastName: "Venter",
+    email: "nico@example.com",
+  });
+}
+
+let bookSeeded = false;
+function seedOccurrenceBook() {
+  if (bookSeeded) return;
+  bookSeeded = true;
+  const rows = sampleLive.map(bookIncident);
+  queryClient.setQueryData(["/api/incidents"], rows);
+  queryClient.setQueryData(["/api/categories"], bookCategories);
+  queryClient.setQueryData(["/api/locations"], []);
+  queryClient.setQueryData(["/api/custom-maps"], []);
+  queryClient.setQueryData(["/api/form-fields"], []);
+  queryClient.setQueryData(["/api/panic/recent"], []);
+  queryClient.setQueryData(["/api/chat/conversations"], []);
+  queryClient.setQueryData(["/api/incidents/live"], sampleLive);
+  queryClient.setQueryData(["/api/auth/me"], {
+    id: "nico",
+    role: "administrator",
+    firstName: "Nico",
+    lastName: "Venter",
+    email: "nico@example.com",
+    canEditIncidents: true,
+    canManageAttachments: true,
+    canDeleteIncidents: true,
+  });
+}
+
 /** Dev-only look at the Wagtoring control room. */
-export default function PreviewControlRoom() {
+export default function PreviewControlRoom({ page = "dashboard" }: { page?: "dashboard" | "book" | "monitor" }) {
   const { setLang } = useControlRoomLang();
   queryClient.setQueryData(["/api/me/commands"], wagtoringCommands);
+  if (page === "book") seedOccurrenceBook();
+  if (page === "monitor") seedLiveMonitor();
   useEffect(() => {
     const previous = readControlRoomLang();
     setLang("af");
     return () => setLang(previous);
     // Show the Afrikaans Wagtoring name for this preview only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [page]);
 
   return (
     <SidebarProvider style={{ "--sidebar-width": "16rem", "--sidebar-width-icon": "3rem" } as React.CSSProperties}>
     <div className="flex h-screen w-full bg-[#0f1419]">
       <AppSidebar
+        preview
         user={{ id: "nico", firstName: "Nico", lastName: "Venter", email: "nico@example.com", role: "administrator" }}
         onLogout={() => {}}
       />
       <div className="min-w-0 flex-1">
+      {page === "book" ? <OccurrenceBook /> : page === "monitor" ? <LiveMonitorPage /> : (
       <OperationsDashboard
         currentUser={{ id: "nico", firstName: "Nico", lastName: "Venter", role: "administrator" }}
         liveIncidents={sampleLive}
@@ -213,12 +353,15 @@ export default function PreviewControlRoom() {
         totalUnread={0}
         unreadSenders={[]}
         onOpenChat={() => {}}
-        onOpenLiveMonitor={() => {}}
-        onOpenOccurrence={() => {}}
+        onOpenLiveMonitor={(incidentId) => {
+          window.location.assign(incidentId != null ? `/preview/live-monitor?incidentId=${incidentId}` : "/preview/live-monitor");
+        }}
+        onOpenOccurrence={() => { window.location.assign("/preview/occurrence-book"); }}
         onOpenFleet={() => {}}
         onPanic={() => {}}
         preview={{ users, trackers, groupName: "Boere Burgersdorp" }}
       />
+      )}
       </div>
     </div>
     </SidebarProvider>

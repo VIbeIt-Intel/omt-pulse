@@ -10,6 +10,8 @@ import {
   type VehicleMotionStatus,
 } from "@/lib/fleet-intelligence";
 import { cn } from "@/lib/utils";
+import { useControlRoomLang } from "@/hooks/use-control-room-lang";
+import { liveMonitorCopy, monitorMapError } from "@/lib/live-monitor-copy";
 import { PREMISE_COVERAGE_RADIUS_M } from "@shared/premises-geofence";
 
 export { PREMISE_COVERAGE_RADIUS_M };
@@ -381,25 +383,33 @@ function buildTeamInfoHtml(
   gpsTime: string,
   darkTheme: boolean,
   dutyStatus: OnlineUserMapMarker["dutyStatus"] = "available",
+  labels: { responding: string; available: string; offDuty: string; gps: string; lastKnown: string },
 ): string {
   const safeName = escapeMapHtml(name);
   const visual = teamDutyVisual(dutyStatus);
-  const gpsLabel = dutyStatus === "off-duty" ? "Last known" : "GPS";
-  if (darkTheme) {
-    return `<div class="omt-map-iw-card" style="background:#0c1220;border:1px solid #2d3a4f;border-radius:10px;padding:11px 13px;min-width:176px;box-shadow:0 10px 28px rgba(0,0,0,0.5);font-family:system-ui,-apple-system,sans-serif;">
-      <p style="margin:0 0 8px;font-size:13px;font-weight:600;color:#f1f5f9;letter-spacing:-0.01em;line-height:1.3">${safeName}</p>
-      <div style="display:inline-flex;align-items:center;gap:5px;padding:3px 8px 3px 6px;border-radius:999px;background:${visual.pillBg};border:1px solid ${visual.pillBorder};margin-bottom:7px">
-        <span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:${visual.stroke};box-shadow:0 0 6px ${visual.glow}"></span>
-        <span style="font-size:9px;font-weight:700;color:${visual.pillText};text-transform:uppercase;letter-spacing:0.08em">${escapeMapHtml(visual.label)}</span>
+  const statusLabel =
+    dutyStatus === "responding" ? labels.responding : dutyStatus === "available" ? labels.available : labels.offDuty;
+  const gpsLabel = dutyStatus === "off-duty" ? labels.lastKnown : labels.gps;
+  const pill = darkTheme
+    ? { bg: visual.pillBg, border: visual.pillBorder, text: visual.pillText }
+    : dutyStatus === "responding"
+      ? { bg: "#fff7ed", border: "#fdba74", text: "#c2410c" }
+      : dutyStatus === "available"
+        ? { bg: "#ecfdf5", border: "#6ee7b7", text: "#047857" }
+        : { bg: "#fef2f2", border: "#fecaca", text: "#b91c1c" };
+  const shell = darkTheme
+    ? "background:#0c1220;border:1px solid #334155"
+    : "background:#ffffff;border:1px solid #cbd5e1";
+  const nameColor = darkTheme ? "#f8fafc" : "#0f172a";
+  const timeColor = darkTheme ? "#e2e8f0" : "#1e293b";
+  return `<div class="omt-map-iw-card" style="${shell};border-radius:12px;padding:14px 40px 14px 16px;min-width:230px;box-shadow:0 14px 32px rgba(15,23,42,0.28);font-family:system-ui,-apple-system,sans-serif;">
+      <p style="margin:0 0 10px;font-size:16px;font-weight:700;color:${nameColor};letter-spacing:-0.02em;line-height:1.2">${safeName}</p>
+      <div style="display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border-radius:999px;background:${pill.bg};border:1px solid ${pill.border};margin-bottom:10px">
+        <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${visual.stroke}"></span>
+        <span style="font-size:12px;font-weight:700;color:${pill.text};letter-spacing:0.02em">${escapeMapHtml(statusLabel)}</span>
       </div>
-      <p style="margin:0;font-size:10px;color:#64748b;font-variant-numeric:tabular-nums">${escapeMapHtml(gpsLabel)} · ${escapeMapHtml(gpsTime)}</p>
+      <p style="margin:0;font-size:13px;font-weight:600;color:${timeColor};font-variant-numeric:tabular-nums">${escapeMapHtml(gpsLabel)} · ${escapeMapHtml(gpsTime)}</p>
     </div>`;
-  }
-  return `<div style="min-width:160px;font-family:system-ui,sans-serif;font-size:13px;line-height:1.5;padding:2px 0">
-    <div style="font-weight:700;margin-bottom:4px;font-size:14px;color:#111827">${safeName}</div>
-    <div style="color:${visual.lightText};font-size:11px;font-weight:600">${escapeMapHtml(visual.label)}</div>
-    <div style="color:#6b7280;font-size:11px">${escapeMapHtml(gpsLabel)} · ${escapeMapHtml(gpsTime)}</div>
-  </div>`;
 }
 
 function buildIncidentInfoHtml(
@@ -622,8 +632,10 @@ function buildVehicleInfoHtml(
   </div>`;
 }
 
-function ensureDarkInfoWindowStyles(): void {
+function ensureDarkInfoWindowStyles(darkTheme = true): void {
   const id = "omt-map-iw-dark";
+  const tail = darkTheme ? "#0c1220" : "#ffffff";
+  const closeInk = darkTheme ? "#94a3b8" : "#334155";
   const styleText = `
     .gm-style .gm-style-iw-c {
       padding: 0 !important;
@@ -636,18 +648,18 @@ function ensureDarkInfoWindowStyles(): void {
       max-height: none !important;
     }
     .gm-style .gm-style-iw-tc::after {
-      background: #0c1220 !important;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.35) !important;
+      background: ${tail} !important;
+      box-shadow: 0 2px 6px rgba(15,23,42,0.2) !important;
     }
     .gm-style button.gm-ui-hover-effect {
-      opacity: 0.7 !important;
-      top: 6px !important;
-      right: 6px !important;
-      width: 24px !important;
-      height: 24px !important;
+      opacity: 0.85 !important;
+      top: 8px !important;
+      right: 8px !important;
+      width: 28px !important;
+      height: 28px !important;
     }
     .gm-style button.gm-ui-hover-effect > span {
-      background: #94a3b8 !important;
+      background: ${closeInk} !important;
     }
   `;
   const existing = document.getElementById(id) as HTMLStyleElement | null;
@@ -673,6 +685,11 @@ type Props = {
   highlightId?: number | null;
   highlightTrackerId?: number | null;
   highlightUserId?: string | null;
+  /**
+   * Move the camera onto someone responding to an incident.
+   * `joiner-<incidentId>-<userId>`, `primary-<incidentId>`, or `team-<incidentId>`.
+   */
+  highlightResponderKey?: string | null;
   highlightPremiseId?: string | null;
   focusedPremiseId?: string | null;
   onIncidentMarkerClick?: (incidentId: number) => void;
@@ -719,6 +736,7 @@ export function LiveIncidentsMap({
   highlightId,
   highlightTrackerId,
   highlightUserId,
+  highlightResponderKey = null,
   highlightPremiseId,
   focusedPremiseId,
   onIncidentMarkerClick,
@@ -736,6 +754,8 @@ export function LiveIncidentsMap({
   darkTheme = false,
   preferActivityFit = false,
 }: Props) {
+  const { t, lang } = useControlRoomLang();
+  const m = liveMonitorCopy(lang);
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<google.maps.Map | null>(null);
   const markersRef = useRef<Map<number, google.maps.Marker>>(new Map());
@@ -757,11 +777,16 @@ export function LiveIncidentsMap({
   const infoWindowRef = useRef<google.maps.InfoWindow | null>(null);
   const trafficLayerRef = useRef<google.maps.TrafficLayer | null>(null);
   const lastFitSignatureRef = useRef<string>("");
+  const lastResponderKeyRef = useRef<string | null>(null);
   const fittedAtSizeRef = useRef("");
   /** True while this component is moving the camera, so that does not count as a user pan. */
   const programmaticMoveRef = useRef(false);
   /** After the user pans/zooms, do not auto-reset the viewport on poll ticks. */
   const userViewportLockedRef = useRef(false);
+  /** While a response-team person is selected, follow their GPS until the operator pans. */
+  const responderFollowRef = useRef(true);
+  /** True after the camera was taken over by a response-team selection, so releasing it refits the incident. */
+  const responderCameraHeldRef = useRef(false);
   const [mapLayoutNonce, setMapLayoutNonce] = useState(0);
   const initialCenterRef = useRef(initialCenter);
   const initialZoomRef = useRef(initialZoom);
@@ -806,7 +831,7 @@ export function LiveIncidentsMap({
 
   useEffect(() => {
     if (!mapsReady || !mapRef.current || mapInstanceRef.current) return;
-    if (darkTheme) ensureDarkInfoWindowStyles();
+    ensureDarkInfoWindowStyles(darkTheme);
     const map = new google.maps.Map(mapRef.current, {
       center: initialCenter,
       zoom: initialZoom,
@@ -820,10 +845,12 @@ export function LiveIncidentsMap({
     map.addListener("dragstart", () => {
       if (programmaticMoveRef.current) return;
       userViewportLockedRef.current = true;
+      responderFollowRef.current = false;
     });
     map.addListener("zoom_changed", () => {
       if (programmaticMoveRef.current) return;
       userViewportLockedRef.current = true;
+      responderFollowRef.current = false;
     });
     return () => {
       markersRef.current.forEach((m) => m.setMap(null));
@@ -1050,10 +1077,12 @@ export function LiveIncidentsMap({
       joiners.forEach((r, idx) => {
         const key = `joiner-${inc.id}-${r.userId}`;
         activeJoinerKeys.add(key);
-        const hasGps = r.lastLat != null && r.lastLng != null;
+        const latN = Number(r.lastLat);
+        const lngN = Number(r.lastLng);
+        const hasGps = Number.isFinite(latN) && Number.isFinite(lngN);
         let jPos: google.maps.LatLngLiteral | null = null;
         if (hasGps) {
-          jPos = { lat: r.lastLat!, lng: r.lastLng! };
+          jPos = { lat: latN, lng: lngN };
         } else {
           const baseLat = inc.responderLat ?? inc.latitude;
           const baseLng = inc.responderLng ?? inc.longitude;
@@ -1168,20 +1197,26 @@ export function LiveIncidentsMap({
           }
         }
 
-        const effDestLat = r.destinationLat ?? inc.destinationLat;
-        const effDestLng = r.destinationLng ?? inc.destinationLng;
-        if (
-          r.lastLat != null &&
-          r.lastLng != null &&
-          effDestLat != null &&
-          effDestLng != null &&
-          !r.arrivedAt
-        ) {
+        const effDestLat = r.destinationLat ?? inc.destinationLat ?? inc.latitude ?? inc.responderLat;
+        const effDestLng = r.destinationLng ?? inc.destinationLng ?? inc.longitude ?? inc.responderLng;
+        const fromLat = Number(r.lastLat);
+        const fromLng = Number(r.lastLng);
+        const destLatN = Number(effDestLat);
+        const destLngN = Number(effDestLng);
+        const hasRoute =
+          r.userId !== inc.userId &&
+          !r.arrivedAt &&
+          Number.isFinite(fromLat) &&
+          Number.isFinite(fromLng) &&
+          Number.isFinite(destLatN) &&
+          Number.isFinite(destLngN) &&
+          (Math.abs(fromLat - destLatN) > 0.0003 || Math.abs(fromLng - destLngN) > 0.0003);
+        if (hasRoute) {
           const routeKey = `jroute-${inc.id}-${r.userId}`;
           activeJoinerRouteKeys.add(routeKey);
           const routePath = [
-            { lat: r.lastLat, lng: r.lastLng },
-            { lat: Number(effDestLat), lng: Number(effDestLng) },
+            { lat: fromLat, lng: fromLng },
+            { lat: destLatN, lng: destLngN },
           ];
           const existingLine = joinerRouteLineMap.get(routeKey);
           if (existingLine) {
@@ -1336,7 +1371,13 @@ export function LiveIncidentsMap({
         ? formatTime(user.lastPositionAt)
         : "Recently";
       const dutyStatus = user.dutyStatus ?? "available";
-      const html = buildTeamInfoHtml(name, updated, darkTheme, dutyStatus);
+      const html = buildTeamInfoHtml(name, updated, darkTheme, dutyStatus, {
+        responding: t.responding,
+        available: t.available,
+        offDuty: t.offDuty,
+        gps: t.gps,
+        lastKnown: t.lastKnown,
+      });
       teamInfo.set(user.id, html);
 
       const existing = teamMap.get(user.id);
@@ -1368,7 +1409,7 @@ export function LiveIncidentsMap({
         teamMap.set(user.id, marker);
       }
     }
-  }, [onlineUsers, mapsReady, darkTheme]);
+  }, [onlineUsers, mapsReady, darkTheme, t]);
 
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -1530,7 +1571,20 @@ export function LiveIncidentsMap({
   useEffect(() => {
     if (!preferActivityFit || !mapsReady) return;
     const map = mapInstanceRef.current;
-    if (!map || focusedPremiseId) return;
+    if (!map) return;
+
+    // A selected responder owns the camera until the operator lets go.
+    if (highlightResponderKey) {
+      responderCameraHeldRef.current = true;
+      return;
+    }
+    if (responderCameraHeldRef.current) {
+      responderCameraHeldRef.current = false;
+      lastFitSignatureRef.current = "";
+      userViewportLockedRef.current = false;
+    }
+
+    if (focusedPremiseId) return;
 
     const host = mapRef.current;
     const width = host?.clientWidth ?? 0;
@@ -1581,6 +1635,28 @@ export function LiveIncidentsMap({
       count += 1;
       parts.push(`t:${tracker.id}:${tracker.lat.toFixed(1)},${tracker.lng.toFixed(1)}`);
     }
+    const extendJoiner = (inc: LiveIncidentMapItem, limitToGroup: boolean) => {
+      const anchorLat = Number(inc.responderLat ?? inc.latitude);
+      const anchorLng = Number(inc.responderLng ?? inc.longitude);
+      for (const r of inc.responders ?? []) {
+        if (r.userId === inc.userId) continue;
+        const lat = Number(r.lastLat);
+        const lng = Number(r.lastLng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+        if (limitToGroup && !nearGroup(lat, lng)) continue;
+        // No pinned sites: still keep a far responder off the automatic frame.
+        // The control room selects them, or uses Show all, to bring them in.
+        if (limitToGroup && premises.length === 0 && Number.isFinite(anchorLat) && Number.isFinite(anchorLng)) {
+          const dLat = (lat - anchorLat) * 111_320;
+          const dLng = (lng - anchorLng) * 111_320 * Math.cos((anchorLat * Math.PI) / 180);
+          if (dLat * dLat + dLng * dLng > 40_000 * 40_000) continue;
+        }
+        bounds.extend({ lat, lng });
+        count += 1;
+        parts.push(`j:${inc.id}:${r.userId}:${lat.toFixed(1)},${lng.toFixed(1)}`);
+      }
+    };
+
     for (const inc of incidents) {
       const lat = inc.responderLat ?? inc.latitude;
       const lng = inc.responderLng ?? inc.longitude;
@@ -1588,6 +1664,7 @@ export function LiveIncidentsMap({
       bounds.extend({ lat, lng });
       count += 1;
       parts.push(`i:${inc.id}:${lat.toFixed(1)},${lng.toFixed(1)}`);
+      extendJoiner(inc, true);
     }
 
     // No pinned sites yet: frame whoever is on the map so it does not sit on a country view.
@@ -1599,6 +1676,7 @@ export function LiveIncidentsMap({
         bounds.extend({ lat, lng });
         count += 1;
         parts.push(`i:${inc.id}:${lat.toFixed(3)},${lng.toFixed(3)}`);
+        extendJoiner(inc, false);
       }
       for (const user of onlineUsers) {
         bounds.extend({ lat: user.lat, lng: user.lng });
@@ -1666,16 +1744,17 @@ export function LiveIncidentsMap({
     premises,
     focusedPremiseId,
     mapLayoutNonce,
+    highlightResponderKey,
   ]);
 
   useEffect(() => {
-    if (highlightId == null) return;
+    if (highlightId == null || highlightResponderKey) return;
     const map = mapInstanceRef.current;
     const marker = markersRef.current.get(highlightId);
     if (!map || !marker) return;
     map.panTo(marker.getPosition()!);
     if ((map.getZoom() ?? 0) < 12) map.setZoom(12);
-  }, [highlightId, incidents]);
+  }, [highlightId, incidents, highlightResponderKey]);
 
   useEffect(() => {
     if (highlightTrackerId == null) return;
@@ -1717,7 +1796,7 @@ export function LiveIncidentsMap({
     userViewportLockedRef.current = true;
     map.panTo({ lat: user.lat, lng: user.lng });
     if ((map.getZoom() ?? 0) < 14) map.setZoom(14);
-  }, [highlightUserId, onlineUsers, mapsReady]);
+  }, [highlightUserId, onlineUsers, mapsReady, t]);
 
   useEffect(() => {
     if (highlightPremiseId == null) return;
@@ -1733,6 +1812,118 @@ export function LiveIncidentsMap({
       iw.open(map, marker);
     }
   }, [highlightPremiseId, premises]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapsReady) return;
+
+    if (!highlightResponderKey) {
+      joinerMarkersRef.current.forEach((marker) => marker.setZIndex(90));
+      if (lastResponderKeyRef.current) infoWindowRef.current?.close();
+      lastResponderKeyRef.current = null;
+      return;
+    }
+
+    const keyChanged = lastResponderKeyRef.current !== highlightResponderKey;
+    lastResponderKeyRef.current = highlightResponderKey;
+    if (keyChanged) responderFollowRef.current = true;
+    if (!responderFollowRef.current) return;
+
+    const releaseCamera = () => {
+      window.setTimeout(() => {
+        programmaticMoveRef.current = false;
+      }, 1800);
+    };
+
+    const flyTo = (
+      pos: google.maps.LatLngLiteral,
+      marker?: google.maps.Marker,
+      html?: string,
+    ) => {
+      programmaticMoveRef.current = true;
+      userViewportLockedRef.current = true;
+      map.panTo(pos);
+      if (keyChanged) {
+        const zoom = map.getZoom() ?? 0;
+        if (zoom < 11 || zoom > 14) map.setZoom(12);
+      }
+      if (keyChanged && marker && html && infoWindowRef.current) {
+        infoWindowRef.current.setContent(html);
+        infoWindowRef.current.open(map, marker);
+      }
+      releaseCamera();
+    };
+
+    const addPoint = (bounds: google.maps.LatLngBounds, lat: unknown, lng: unknown) => {
+      const la = Number(lat);
+      const ln = Number(lng);
+      if (!Number.isFinite(la) || !Number.isFinite(ln)) return false;
+      bounds.extend({ lat: la, lng: ln });
+      return true;
+    };
+
+    const team = /^team-(\d+)$/.exec(highlightResponderKey);
+    if (team) {
+      if (!keyChanged) return;
+      const inc = incidents.find((item) => item.id === Number(team[1]));
+      if (!inc) return;
+      const bounds = new google.maps.LatLngBounds();
+      let points = 0;
+      if (addPoint(bounds, inc.responderLat ?? inc.latitude, inc.responderLng ?? inc.longitude)) points += 1;
+      if (addPoint(bounds, inc.destinationLat, inc.destinationLng)) points += 1;
+      for (const person of inc.responders ?? []) {
+        if (person.userId === inc.userId) continue;
+        if (addPoint(bounds, person.lastLat, person.lastLng)) points += 1;
+      }
+      if (points === 0) return;
+      programmaticMoveRef.current = true;
+      userViewportLockedRef.current = true;
+      infoWindowRef.current?.close();
+      joinerMarkersRef.current.forEach((marker) => marker.setZIndex(120));
+      if (points === 1) {
+        map.panTo(bounds.getCenter());
+        map.setZoom(12);
+      } else {
+        map.fitBounds(bounds, 72);
+      }
+      releaseCamera();
+      return;
+    }
+
+    const joiner = /^joiner-(\d+)-(.+)$/.exec(highlightResponderKey);
+    if (joiner) {
+      const markerKey = `joiner-${joiner[1]}-${joiner[2]}`;
+      joinerMarkersRef.current.forEach((marker, key) => {
+        marker.setZIndex(key === markerKey ? 420 : 90);
+      });
+      const marker = joinerMarkersRef.current.get(markerKey);
+      const markerPos = marker?.getPosition();
+      if (markerPos) {
+        flyTo(markerPos.toJSON(), marker, joinerInfoRef.current.get(markerKey));
+        return;
+      }
+      const inc = incidents.find((item) => item.id === Number(joiner[1]));
+      const person = inc?.responders?.find((item) => item.userId === joiner[2]);
+      const lat = Number(person?.lastLat);
+      const lng = Number(person?.lastLng);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) flyTo({ lat, lng });
+      return;
+    }
+
+    const primary = /^primary-(\d+)$/.exec(highlightResponderKey);
+    if (!primary) return;
+    const incidentId = Number(primary[1]);
+    const marker = markersRef.current.get(incidentId);
+    const markerPos = marker?.getPosition();
+    if (markerPos) {
+      flyTo(markerPos.toJSON(), marker, markerInfoRef.current.get(incidentId));
+      return;
+    }
+    const inc = incidents.find((item) => item.id === incidentId);
+    const lat = Number(inc?.responderLat);
+    const lng = Number(inc?.responderLng);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) flyTo({ lat, lng });
+  }, [highlightResponderKey, incidents, mapsReady]);
 
   const resetToDefaultView = () => {
     const map = mapInstanceRef.current;
@@ -1770,9 +1961,9 @@ export function LiveIncidentsMap({
         <div className="absolute inset-0 flex items-center justify-center bg-muted/20 z-10">
           <div className="text-center px-6 py-8 space-y-3 max-w-sm">
             <MapPin className="h-8 w-8 mx-auto text-destructive/60" />
-            <p className="text-sm font-medium">Map unavailable</p>
+            <p className="text-sm font-medium">{m.mapUnavailable}</p>
             <p className="text-xs text-muted-foreground break-words">
-              {mapsErrorMsg ?? "Google Maps failed to load — contact your administrator."}
+              {monitorMapError(mapsErrorMsg, m)}
             </p>
             <Button
               type="button"
@@ -1785,7 +1976,7 @@ export function LiveIncidentsMap({
               }}
               data-testid="button-retry-map"
             >
-              Retry map
+              {m.retryMap}
             </Button>
           </div>
         </div>
@@ -1807,14 +1998,14 @@ export function LiveIncidentsMap({
           {darkTheme ? (
             <div className="flex items-center gap-2 rounded-lg bg-slate-900/90 border border-slate-700/60 px-3 py-1.5 shadow-md">
               <MapPin className="h-3.5 w-3.5 text-slate-500 shrink-0" />
-              <p className="text-[11px] text-slate-400">No active incidents on map</p>
+              <p className="text-[11px] text-slate-400">{m.noActiveOnMap}</p>
             </div>
           ) : (
             <div className="text-center px-6 py-5 rounded-xl bg-background/80 border max-w-[280px] shadow-lg">
               <MapPin className="h-8 w-8 mx-auto text-muted-foreground/60 mb-2" />
-              <p className="text-sm font-medium">No active incidents</p>
+              <p className="text-sm font-medium">{m.noActiveIncidents}</p>
               <p className="text-xs text-muted-foreground mt-1">
-                Markers appear when responders go live.
+                {m.markersAppear}
               </p>
             </div>
           )}
@@ -1827,15 +2018,11 @@ export function LiveIncidentsMap({
               type="button"
               onClick={() => setMapType((t) => (t === "roadmap" ? "hybrid" : "roadmap"))}
               className={controlBtnClass(mapType === "hybrid")}
-              title={
-                mapType === "hybrid"
-                  ? "Switch to map view"
-                  : "Satellite imagery with road and place labels"
-              }
+              title={mapType === "hybrid" ? m.mapTitle : m.satelliteTitle}
               data-testid="button-toggle-satellite"
             >
               <Layers className="h-3.5 w-3.5" />
-              {mapType === "hybrid" ? "Map" : "Satellite"}
+              {mapType === "hybrid" ? m.mapWord : m.satellite}
             </button>
           )}
           {showMapControls && (
@@ -1844,21 +2031,21 @@ export function LiveIncidentsMap({
                 type="button"
                 onClick={() => setShowTraffic((v) => !v)}
                 className={controlBtnClass(showTraffic)}
-                title="Toggle traffic layer"
+                title={m.trafficTitle}
                 data-testid="button-toggle-traffic"
               >
                 <Car className="h-3.5 w-3.5" />
-                Traffic
+                {m.traffic}
               </button>
               <button
                 type="button"
                 onClick={resetToDefaultView}
                 className={controlBtnClass(false)}
-                title="Centre map on South Africa"
+                title={m.resetTitle}
                 data-testid="button-reset-map-view"
               >
                 <Crosshair className="h-3.5 w-3.5" />
-                Reset view
+                {m.resetView}
               </button>
             </>
           )}
