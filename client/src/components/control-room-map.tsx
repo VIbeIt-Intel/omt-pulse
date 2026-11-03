@@ -37,8 +37,7 @@ export type MapLayerMode = "all" | "incidents" | "team-fleet";
 
 type ResponderFilter = "all" | "responding" | "available";
 
-const ONLINE_WINDOW_MS = 30 * 60 * 1000;
-/** Match Site Monitor Team pills — recent presence, not just a stale GPS pin. */
+/** Match Site Monitor — app heartbeat within this window means they are on the system. */
 const DUTY_AVAILABLE_MS = 3 * 60 * 1000;
 /** Keep last-known GPS on the map for offline team (muted Off duty pin). */
 const LAST_KNOWN_MAP_MS = 14 * 24 * 60 * 60 * 1000;
@@ -49,11 +48,6 @@ function formatGpsAge(ts: string | null | undefined): string | null {
   if (secs < 60) return `${secs}s ago`;
   if (secs < 3600) return `${Math.round(secs / 60)}m ago`;
   return `${Math.round(secs / 3600)}h ago`;
-}
-
-function isUserOnline(lastSeenAt: string | Date | null | undefined): boolean {
-  if (!lastSeenAt) return false;
-  return Date.now() - new Date(lastSeenAt).getTime() < ONLINE_WINDOW_MS;
 }
 
 function isUserDutyAvailable(lastSeenAt: string | Date | null | undefined): boolean {
@@ -127,7 +121,7 @@ function getUserPresenceHint(
     }
     return "Responding now";
   }
-  if (isUserOnline(user.lastSeenAt)) return "Online now";
+  if (isUserDutyAvailable(user.lastSeenAt)) return "";
   return formatLastSeen(user.lastSeenAt);
 }
 
@@ -356,7 +350,7 @@ export function ControlRoomMap({
   showSatelliteControl = true,
 }: ControlRoomMapProps) {
   const { toast } = useToast();
-  const { lang } = useControlRoomLang();
+  const { lang, t } = useControlRoomLang();
   const m = liveMonitorCopy(lang);
   const [layerMode, setLayerMode] = useState<MapLayerMode>("all");
   const [highlightIdInternal, setHighlightIdInternal] = useState<number | null>(null);
@@ -886,7 +880,7 @@ export function ControlRoomMap({
                           : "bg-slate-800 text-slate-500 hover:text-slate-300",
                       )}
                     >
-                      {f === "all" ? "All" : f === "responding" ? "Active" : "Avail"}
+                      {f === "all" ? "All" : f === "responding" ? "Active" : "Online"}
                     </button>
                   ))}
                 </div>
@@ -905,7 +899,8 @@ export function ControlRoomMap({
                   {filteredTeam.map((user) => {
                     const status = responderStatus(user, incidents);
                     const statusLabel =
-                      status === "responding" ? "Responding" : status === "available" ? "Available" : "Off duty";
+                      status === "responding" ? t.liveNow : status === "available" ? t.onSystem : t.notOnline;
+                    const presenceHint = getUserPresenceHint(user, incidents);
                     const showIncidentLink =
                       user.isLive
                       && !!user.liveIncidentId
@@ -924,12 +919,23 @@ export function ControlRoomMap({
                               {user.firstName} {user.lastName}
                             </p>
                             <p className="text-[10px] text-slate-500 capitalize">{user.role}</p>
-                            <span className="inline-flex mt-1 rounded border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-400 border-slate-700">
+                            <span
+                              className={cn(
+                                "inline-flex mt-1 rounded border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
+                                status === "responding"
+                                  ? "border-orange-700 text-orange-300"
+                                  : status === "available"
+                                    ? "border-emerald-700 text-emerald-300"
+                                    : "border-slate-700 text-slate-400",
+                              )}
+                            >
                               {statusLabel}
                             </span>
-                            <p className="text-[10px] text-slate-500 mt-1.5 leading-snug truncate">
-                              {getUserPresenceHint(user, incidents)}
-                            </p>
+                            {presenceHint ? (
+                              <p className="text-[10px] text-slate-500 mt-1.5 leading-snug truncate">
+                                {presenceHint}
+                              </p>
+                            ) : null}
                             {showIncidentLink && (
                               <button
                                 type="button"

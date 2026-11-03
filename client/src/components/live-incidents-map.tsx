@@ -23,7 +23,7 @@ export type OnlineUserMapMarker = {
   lat: number;
   lng: number;
   lastPositionAt: string | null;
-  /** Match Site Monitor: available = recent activity, off-duty = stale. */
+  /** Match Site Monitor: available = on the system now, off-duty = not online. */
   dutyStatus?: "responding" | "available" | "off-duty";
 };
 
@@ -387,7 +387,7 @@ function teamDutyVisual(status: OnlineUserMapMarker["dutyStatus"]): {
   }
   if (status === "available") {
     return {
-      label: "Available",
+      label: "On the system",
       stroke: "#34d399",
       glow: "#10b981",
       pillBg: "rgba(16,185,129,0.1)",
@@ -397,13 +397,13 @@ function teamDutyVisual(status: OnlineUserMapMarker["dutyStatus"]): {
     };
   }
   return {
-    label: "Off duty",
-    stroke: "#f87171",
-    glow: "#ef4444",
-    pillBg: "rgba(239,68,68,0.12)",
-    pillBorder: "rgba(248,113,113,0.4)",
-    pillText: "#fca5a5",
-    lightText: "#dc2626",
+    label: "Not online",
+    stroke: "#94a3b8",
+    glow: "#64748b",
+    pillBg: "rgba(148,163,184,0.14)",
+    pillBorder: "rgba(148,163,184,0.4)",
+    pillText: "#cbd5e1",
+    lightText: "#475569",
   };
 }
 
@@ -447,7 +447,7 @@ function buildTeamInfoHtml(
       ? { bg: "#fff7ed", border: "#fdba74", text: "#c2410c" }
       : dutyStatus === "available"
         ? { bg: "#ecfdf5", border: "#6ee7b7", text: "#047857" }
-        : { bg: "#fef2f2", border: "#fecaca", text: "#b91c1c" };
+        : { bg: "#f1f5f9", border: "#cbd5e1", text: "#475569" };
   const shell = darkTheme
     ? "background:#0c1220;border:1px solid #334155"
     : "background:#ffffff;border:1px solid #cbd5e1";
@@ -1487,9 +1487,9 @@ export function LiveIncidentsMap({
         : "Recently";
       const dutyStatus = user.dutyStatus ?? "available";
       const html = buildTeamInfoHtml(name, updated, darkTheme, dutyStatus, {
-        responding: t.responding,
-        available: t.available,
-        offDuty: t.offDuty,
+        responding: t.liveNow,
+        available: t.onSystem,
+        offDuty: t.notOnline,
         gps: t.gps,
         lastKnown: t.lastKnown,
       });

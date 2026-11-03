@@ -40,7 +40,6 @@ import {
   Signal,
   Paperclip,
   UserRound,
-  Maximize2,
   Sun,
   Moon,
   type LucideIcon,
@@ -70,6 +69,15 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 type Period = "day" | "week";
 
@@ -265,9 +273,19 @@ function teamMemberStatus(user: DashboardUserSummary): "responding" | "available
 }
 
 function teamStatusLabel(status: ReturnType<typeof teamMemberStatus>, copy: ControlRoomCopy): string {
-  if (status === "responding") return copy.responding;
-  if (status === "available") return copy.available;
-  return copy.offDuty;
+  if (status === "responding") return copy.liveNow;
+  if (status === "available") return copy.onSystem;
+  return copy.notOnline;
+}
+
+/** Chip line: on the system right now, or not online with when they last were. */
+function teamPresenceLine(user: DashboardUserSummary, copy: ControlRoomCopy): string {
+  const status = teamMemberStatus(user);
+  if (status === "responding" || status === "available") return teamStatusLabel(status, copy);
+  const seen = user.lastSeenAt ? new Date(user.lastSeenAt) : null;
+  const when = formatTeamLastActivity(seen && Number.isFinite(seen.getTime()) ? seen : null, copy);
+  if (when === copy.noActivity) return copy.notOnline;
+  return `${copy.notOnline} · ${when}`;
 }
 
 function teamStatusPillClass(status: ReturnType<typeof teamMemberStatus>): string {
@@ -526,15 +544,6 @@ export function OperationsDashboard({
   const { lang, toggle, t } = useControlRoomLang();
   const { theme, setTheme } = useTheme();
   const light = theme === "light";
-  const [bottomFocus, setBottomFocus] = useState<"all" | "live">(() => {
-    if (typeof window === "undefined") return "all";
-    return localStorage.getItem("omt_ops_bottom_focus") === "live" ? "live" : "all";
-  });
-  function focusPanel(id: "live") {
-    const next = bottomFocus === id ? "all" : id;
-    setBottomFocus(next);
-    try { localStorage.setItem("omt_ops_bottom_focus", next); } catch { /* ignore */ }
-  }
   const [monitorTab] = useState<"team" | "fleet">("team");
   const [mapAlert, setMapAlert] = useState<AlertKind | null>(null);
   const [highlightId, setHighlightId] = useState<number | null>(null);
@@ -551,6 +560,18 @@ export function OperationsDashboard({
   const [mapFocusUserId, setMapFocusUserId] = useState<string | null>(null);
   const [showAllMembers, setShowAllMembers] = useState(false);
   const [wakeUntil, setWakeUntil] = useState<Record<string, number>>({});
+  const [ackedIds, setAckedIds] = useState<number[]>(() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem("omt-dashboard-acked") ?? "[]");
+      return Array.isArray(raw) ? raw.filter((id) => typeof id === "number") : [];
+    } catch {
+      return [];
+    }
+  });
+  const [closedIds, setClosedIds] = useState<number[]>([]);
+  const [closeTarget, setCloseTarget] = useState<LiveQueueItem | null>(null);
+  const [closeReport, setCloseReport] = useState("");
+  const [rowBusyId, setRowBusyId] = useState<number | null>(null);
   const teamStripRef = useRef<HTMLDivElement>(null);
   const [teamCanScrollLeft, setTeamCanScrollLeft] = useState(false);
   const [teamCanScrollRight, setTeamCanScrollRight] = useState(false);
@@ -693,7 +714,7 @@ export function OperationsDashboard({
   }, [commandsData, preview, t]);
 
   const visiblePanics = panicAlerts.filter(
-    (a) => !dismissedPanicIds.has(a.id) && !a.panicClosedAt,
+    (a) => !dismissedPanicIds.has(a.id) && !a.panicClosedAt && !ackedIds.includes(a.id),
   );
   const kpiSource = dayDashboard ?? dashboardData;
   const kpiLoading = dayLoading || dashboardLoading;
@@ -711,8 +732,11 @@ export function OperationsDashboard({
     [todayIncidents],
   );
 
-  const liveCount = liveIncidents.length;
-  const hasRedLive = liveIncidents.some((i) => i.severity === "red");
+  const dashboardLive = liveIncidents.filter(
+    (inc) => !closedIds.includes(inc.id) && !ackedIds.includes(inc.id),
+  );
+  const liveCount = dashboardLive.length;
+  const hasRedLive = dashboardLive.some((i) => i.severity === "red");
   const hasActive = liveCount > 0 || visiblePanics.length > 0;
   const isCritical = visiblePanics.length > 0 || hasRedLive;
 
@@ -739,19 +763,21 @@ export function OperationsDashboard({
   const alertCounts = useMemo(() => {
     const counts: Record<AlertKind, number> = { fire: 0, panic: 0, crime: 0, livestock: 0 };
     for (const inc of queueItems) {
+      if (closedIds.includes(inc.id) || ackedIds.includes(inc.id)) continue;
       const kind = alertKindOf(inc.categoryName);
       if (kind) counts[kind] += 1;
     }
     return counts;
-  }, [queueItems]);
+  }, [queueItems, closedIds, ackedIds]);
   const visibleQueue = useMemo(
-    () => (mapAlert ? queueItems.filter((inc) => alertKindOf(inc.categoryName) === mapAlert) : queueItems),
-    [queueItems, mapAlert],
+    () => (mapAlert ? queueItems.filter((inc) => alertKindOf(inc.categoryName) === mapAlert) : queueItems)
+      .filter((inc) => !closedIds.includes(inc.id) && !ackedIds.includes(inc.id)),
+    [queueItems, mapAlert, closedIds, ackedIds],
   );
   const showQueue = visibleQueue.length > 0;
   const alertFilters: Array<{ kind: AlertKind; label: string; icon: LucideIcon; hot: string; glow: string }> = [
-    { kind: "fire", label: t.alertFire, icon: Flame, hot: "bg-orange-600 text-white", glow: "rgba(234, 88, 12, 0.72)" },
     { kind: "panic", label: t.alertPanic, icon: Siren, hot: "bg-red-600 text-white", glow: "rgba(220, 38, 38, 0.7)" },
+    { kind: "fire", label: t.alertFire, icon: Flame, hot: "bg-orange-600 text-white", glow: "rgba(234, 88, 12, 0.72)" },
     { kind: "crime", label: t.alertCrime, icon: ShieldAlert, hot: "bg-zinc-100 text-zinc-900", glow: "rgba(63, 63, 70, 0.45)" },
     { kind: "livestock", label: t.alertLivestock, icon: PawPrint, hot: "bg-amber-700 text-white", glow: "rgba(180, 83, 9, 0.68)" },
   ];
@@ -862,6 +888,74 @@ export function OperationsDashboard({
         title: message.startsWith("429") ? t.wakeCooldown : t.wakeFailed,
         variant: "destructive",
       });
+    }
+  }
+
+  function incidentIsAcknowledged(inc: LiveQueueItem): boolean {
+    return ackedIds.includes(inc.id);
+  }
+
+  async function acknowledgeIncident(inc: LiveQueueItem) {
+    if (incidentIsAcknowledged(inc) || rowBusyId === inc.id) return;
+    const remember = (id: number) => {
+      setAckedIds((ids) => {
+        const next = ids.includes(id) ? ids : [...ids, id];
+        try { localStorage.setItem("omt-dashboard-acked", JSON.stringify(next)); } catch { /* ignore */ }
+        return next;
+      });
+    };
+    if (preview) {
+      remember(inc.id);
+      toast({ title: t.incidentAcknowledged });
+      return;
+    }
+    setRowBusyId(inc.id);
+    try {
+      if (alertKindOf(inc.categoryName) === "panic") {
+        if (!inc.panicAcknowledgedAt) {
+          await apiRequest("POST", `/api/incidents/${inc.id}/acknowledge-panic`, {});
+        }
+      } else {
+        await apiRequest("POST", `/api/incidents/${inc.id}/add-note`, { note: t.incidentAcknowledged });
+      }
+      remember(inc.id);
+      queryClient.invalidateQueries({ queryKey: ["/api/incidents/live"] });
+      toast({ title: t.incidentAcknowledged });
+    } catch {
+      toast({ title: t.incidentActionFailed, variant: "destructive" });
+    } finally {
+      setRowBusyId(null);
+    }
+  }
+
+  async function closeIncident(inc: LiveQueueItem) {
+    const report = closeReport.trim();
+    if (!report || rowBusyId === inc.id) return;
+    if (preview) {
+      setClosedIds((ids) => [...ids, inc.id]);
+      setCloseTarget(null);
+      setCloseReport("");
+      if (highlightId === inc.id) setHighlightId(null);
+      toast({ title: t.incidentClosed });
+      return;
+    }
+    setRowBusyId(inc.id);
+    try {
+      await apiRequest("POST", `/api/incidents/${inc.id}/add-note`, {
+        note: `${t.closeReportNote}: ${report}`,
+      });
+      await apiRequest("POST", `/api/incidents/${inc.id}/end-live`, {});
+      setClosedIds((ids) => [...ids, inc.id]);
+      setCloseTarget(null);
+      setCloseReport("");
+      if (highlightId === inc.id) setHighlightId(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/incidents/live"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/incidents"] });
+      toast({ title: t.incidentClosed });
+    } catch {
+      toast({ title: t.incidentActionFailed, variant: "destructive" });
+    } finally {
+      setRowBusyId(null);
     }
   }
   const showGroupSelector =
@@ -1153,7 +1247,8 @@ export function OperationsDashboard({
               </button>
               {siteTeam.map((user) => {
                 const status = teamMemberStatus(user);
-                const activityLabel = user.isLive ? t.liveNow : formatTeamLastActivity(teamLastActivityAt(user), t);
+                const onSystem = status === "available" || status === "responding";
+                const presenceLabel = teamPresenceLine(user, t);
                 const initials = `${user.firstName?.charAt(0) ?? ""}${user.lastName?.charAt(0) ?? ""}`.toUpperCase() || "?";
                 const showWake = canWakeMember(user, clock.getTime()) && (wakeUntil[user.id] ?? 0) <= clock.getTime();
                 const fullName = `${user.firstName} ${user.lastName}`.trim();
@@ -1171,26 +1266,56 @@ export function OperationsDashboard({
                       type="button"
                       onClick={() => focusTeamMemberOnMap(user)}
                       data-testid={`ops-team-row-${user.id}`}
+                      title={presenceLabel}
                       className="flex items-center gap-2 rounded-full py-1.5 pl-2 pr-1 text-left hover:bg-slate-800"
                     >
-                      <span
-                        className={cn(
-                          "flex h-8 w-8 items-center justify-center rounded-full text-[11px] font-semibold",
-                          user.isLive
-                            ? "bg-orange-600/20 text-orange-100"
-                            : status === "available"
-                              ? "bg-emerald-600/15 text-emerald-100"
-                              : "bg-slate-700 text-slate-100",
-                        )}
-                      >
-                        {initials}
+                      <span className="relative shrink-0">
+                        <span
+                          className={cn(
+                            "flex h-9 w-9 items-center justify-center rounded-full text-[13px] font-bold tracking-tight text-white",
+                            status === "responding"
+                              ? "bg-orange-600"
+                              : status === "available"
+                                ? "bg-emerald-700"
+                                : "bg-zinc-800",
+                          )}
+                        >
+                          {initials}
+                        </span>
+                        <span
+                          className="absolute -bottom-0.5 -right-0.5 flex h-2.5 w-2.5"
+                          aria-hidden
+                        >
+                          {status === "available" && (
+                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />
+                          )}
+                          <span
+                            className={cn(
+                              "relative inline-flex h-2.5 w-2.5 rounded-full ring-2 ring-white",
+                              status === "responding"
+                                ? "bg-orange-400"
+                                : status === "available"
+                                  ? "bg-emerald-400"
+                                  : "bg-slate-400",
+                            )}
+                          />
+                        </span>
                       </span>
                       <span className="min-w-0 pr-1">
                         <span className="block max-w-[150px] truncate text-xs font-semibold text-slate-100">
                           {user.firstName} {user.lastName}
                         </span>
-                        <span className={cn("block text-[10px]", user.isLive ? "font-semibold text-orange-300" : "text-slate-400")}>
-                          {activityLabel}
+                        <span
+                          className={cn(
+                            "block max-w-[11rem] truncate text-[10px] font-semibold",
+                            status === "responding"
+                              ? "text-orange-300"
+                              : onSystem
+                                ? "text-emerald-300"
+                                : "text-slate-400",
+                          )}
+                        >
+                          {presenceLabel}
                         </span>
                       </span>
                     </button>
@@ -1428,17 +1553,8 @@ export function OperationsDashboard({
             tone="orange"
             testId="ops-live-panel-header"
             right={
-              <span className="flex items-center gap-2">
-                <span className="text-[11px] font-bold text-orange-200 tabular-nums shrink-0">
-                  {t.activeCount(visibleQueue.length)}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => focusPanel("live")}
-                  className="inline-flex items-center gap-1 rounded-md border border-slate-600 px-2 py-1 text-[11px] font-semibold text-slate-200 hover:bg-slate-800"
-                >
-                  {bottomFocus === "live" ? t.showAll : <Maximize2 className="h-3.5 w-3.5" />}
-                </button>
+              <span className="text-[11px] font-bold text-orange-200 tabular-nums shrink-0">
+                {t.activeCount(visibleQueue.length)}
               </span>
             }
           />
@@ -1475,7 +1591,7 @@ export function OperationsDashboard({
               testId="ops-live-overview-map-canvas"
             />
           </div>
-          {(showQueue || mapAlert != null || bottomFocus !== "all") && (
+          {(showQueue || mapAlert != null) && (
           <div className="shrink-0 border-t border-slate-800/80 bg-[#131a22]">
             {!showQueue ? (
               <div className="flex items-center justify-between gap-3 px-3 py-2.5">
@@ -1616,6 +1732,33 @@ export function OperationsDashboard({
                               <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
                             </span>
                           </button>
+                          <div className="flex shrink-0 flex-col justify-center gap-1.5 px-2 py-2">
+                            {incidentIsAcknowledged(inc) ? (
+                              <span className="inline-flex h-8 items-center justify-center gap-1 rounded-md bg-emerald-700 px-2.5 text-xs font-semibold text-white">
+                                <CheckCircle2 className="h-3.5 w-3.5" />
+                                {t.acknowledged}
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => acknowledgeIncident(inc)}
+                                disabled={rowBusyId === inc.id}
+                                className="h-8 rounded-md bg-emerald-700 px-2.5 text-xs font-semibold text-white hover:bg-emerald-800 disabled:opacity-60"
+                                data-testid={`ops-queue-ack-${inc.id}`}
+                              >
+                                {t.acknowledge}
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => { setCloseReport(""); setCloseTarget(inc); }}
+                              disabled={rowBusyId === inc.id}
+                              className="h-8 rounded-md bg-red-600 px-2.5 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                              data-testid={`ops-queue-close-${inc.id}`}
+                            >
+                              {t.closeIncident}
+                            </button>
+                          </div>
                           <button
                             type="button"
                             title={t.attachments}
@@ -1642,6 +1785,58 @@ export function OperationsDashboard({
         </div>
       </div>
     </div>
+
+      <Dialog
+        open={closeTarget != null}
+        onOpenChange={(open) => {
+          if (!open && rowBusyId == null) {
+            setCloseTarget(null);
+            setCloseReport("");
+          }
+        }}
+      >
+        <DialogContent className="border-slate-200 bg-white text-slate-900 sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{t.closeIncidentTitle}</DialogTitle>
+            <DialogDescription className="text-slate-600">
+              {closeTarget ? `${closeTarget.categoryName ?? t.incident} #${closeTarget.id}. ` : ""}
+              {t.closeIncidentBody}
+            </DialogDescription>
+          </DialogHeader>
+          <label className="block space-y-1.5 text-sm font-semibold text-slate-900">
+            {t.closeReportLabel}
+            <Textarea
+              value={closeReport}
+              onChange={(e) => setCloseReport(e.target.value)}
+              placeholder={t.closeReportPlaceholder}
+              rows={5}
+              autoFocus
+              disabled={rowBusyId != null}
+              className="mt-1.5 border-slate-300 bg-white text-base font-normal text-slate-900 placeholder:text-slate-400"
+              data-testid="ops-close-report"
+            />
+          </label>
+          <DialogFooter>
+            <button
+              type="button"
+              className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-800"
+              disabled={rowBusyId != null}
+              onClick={() => { setCloseTarget(null); setCloseReport(""); }}
+            >
+              {t.cancel}
+            </button>
+            <button
+              type="button"
+              className="h-9 rounded-md bg-red-600 px-3 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+              disabled={!closeReport.trim() || rowBusyId != null}
+              data-testid="ops-close-confirm"
+              onClick={() => { if (closeTarget) void closeIncident(closeTarget); }}
+            >
+              {t.closeIncident}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Sheet
         open={!!selectedTeamMember}
@@ -1673,8 +1868,20 @@ export function OperationsDashboard({
                       {selectedTeamMember.firstName} {selectedTeamMember.lastName}
                     </SheetTitle>
                     <SheetDescription className="text-slate-400">
-                      {t.role(selectedTeamMember.role)} ·{" "}
-                      {teamStatusLabel(teamMemberStatus(selectedTeamMember), t)}
+                      {t.role(selectedTeamMember.role)}
+                      {" · "}
+                      <span
+                        className={cn(
+                          "font-semibold",
+                          teamMemberStatus(selectedTeamMember) === "responding"
+                            ? "text-orange-300"
+                            : teamMemberStatus(selectedTeamMember) === "available"
+                              ? "text-emerald-300"
+                              : "text-slate-400",
+                        )}
+                      >
+                        {teamStatusLabel(teamMemberStatus(selectedTeamMember), t)}
+                      </span>
                     </SheetDescription>
                   </div>
                 </div>
@@ -1686,9 +1893,13 @@ export function OperationsDashboard({
                     {t.lastActivity}
                   </p>
                   <p className="text-sm text-slate-200">
-                    {selectedTeamMember.isLive
-                      ? t.liveNow
-                      : formatTeamLastActivity(teamLastActivityAt(selectedTeamMember), t)}
+                    {formatTeamLastActivity(
+                      selectedTeamMember.lastSeenAt
+                        && Number.isFinite(new Date(selectedTeamMember.lastSeenAt).getTime())
+                        ? new Date(selectedTeamMember.lastSeenAt)
+                        : null,
+                      t,
+                    )}
                   </p>
                 </div>
 

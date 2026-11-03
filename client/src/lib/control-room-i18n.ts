@@ -82,10 +82,24 @@ export type ControlRoomCopy = {
   off: string;
   signal: string;
   gps: string;
+  lastKnown: string;
   openFor: string;
   onScene: string;
   escalated: string;
   awaitingResponse: string;
+  acknowledge: string;
+  acknowledged: string;
+  closeIncident: string;
+  closeIncidentTitle: string;
+  closeIncidentBody: string;
+  closeReportLabel: string;
+  closeReportPlaceholder: string;
+  closeReportNote: string;
+  closeReportTooShort: string;
+  cancel: string;
+  incidentAcknowledged: string;
+  incidentClosed: string;
+  incidentActionFailed: string;
   respondersEnRoute: (n: number) => string;
   severityRed: string;
   severityOrange: string;
@@ -116,6 +130,10 @@ export type ControlRoomCopy = {
   responding: string;
   available: string;
   offDuty: string;
+  /** App is open and heartbeating — they are using the system right now. */
+  onSystem: string;
+  /** No recent heartbeat — they are not in the app. */
+  notOnline: string;
   role: (role: string) => string;
   lastLocation: string;
   unknownTime: string;
@@ -309,10 +327,24 @@ const en: ControlRoomCopy = {
   off: "Off",
   signal: "Signal",
   gps: "GPS",
+  lastKnown: "Last known",
   openFor: "Open",
   onScene: "On scene",
   escalated: "Escalated",
   awaitingResponse: "Awaiting response",
+  acknowledge: "Acknowledge",
+  acknowledged: "Acknowledged",
+  closeIncident: "Close",
+  closeIncidentTitle: "Close this incident",
+  closeIncidentBody: "Write a formal report on why it is being closed. The report stays in the occurrence book, then the incident leaves the live screen.",
+  closeReportLabel: "Formal report",
+  closeReportPlaceholder: "What happened, and why is the control room closing it?",
+  closeReportNote: "Formal close report",
+  closeReportTooShort: "Write a full report before closing.",
+  cancel: "Cancel",
+  incidentAcknowledged: "The control room has acknowledged this.",
+  incidentClosed: "Incident closed.",
+  incidentActionFailed: "That did not go through.",
   respondersEnRoute: (n) => (n === 1 ? "1 responding" : `${n} responding`),
   severityRed: "Red",
   severityOrange: "Orange",
@@ -343,6 +375,8 @@ const en: ControlRoomCopy = {
   responding: "Responding",
   available: "Available",
   offDuty: "Off duty",
+  onSystem: "On the system",
+  notOnline: "Not online",
   role: (role) => {
     const mapped: Record<string, string> = {
       administrator: "Administrator",
@@ -546,10 +580,24 @@ const af: ControlRoomCopy = {
   off: "Af",
   signal: "Sein",
   gps: "GPS",
+  lastKnown: "Laas gesien",
   openFor: "Oop",
   onScene: "Op toneel",
   escalated: "Eskaleer",
   awaitingResponse: "Wag vir reaksie",
+  acknowledge: "Erken",
+  acknowledged: "Erken",
+  closeIncident: "Sluit",
+  closeIncidentTitle: "Sluit hierdie voorval",
+  closeIncidentBody: "Skryf 'n formele verslag oor waarom dit gesluit word. Die verslag bly in die voorvalleboek, dan gaan die voorval van die lewendige skerm af.",
+  closeReportLabel: "Formele verslag",
+  closeReportPlaceholder: "Wat het gebeur, en waarom sluit die beheerkamer dit?",
+  closeReportNote: "Formele sluitingsverslag",
+  closeReportTooShort: "Skryf eers 'n volledige verslag voordat jy sluit.",
+  cancel: "Kanselleer",
+  incidentAcknowledged: "Die beheerkamer het dit erken.",
+  incidentClosed: "Voorval gesluit.",
+  incidentActionFailed: "Dit het nie deurgegaan nie.",
   respondersEnRoute: (n) => (n === 1 ? "1 reageer" : `${n} reageer`),
   severityRed: "Rooi",
   severityOrange: "Oranje",
@@ -580,6 +628,8 @@ const af: ControlRoomCopy = {
   responding: "Reageer",
   available: "Beskikbaar",
   offDuty: "Af diens",
+  onSystem: "Op die stelsel",
+  notOnline: "Nie aanlyn nie",
   role: (role) => {
     const mapped: Record<string, string> = {
       administrator: "Administrateur",
