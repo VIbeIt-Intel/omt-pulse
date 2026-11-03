@@ -37,6 +37,9 @@ export type ControlRoomCopy = {
   operations: string;
   liveMonitor: string;
   panicSos: string;
+  /** Opens the control-room form to log an ordinary incident. */
+  logIncident: string;
+  logIncidentHint: string;
   allGroups: string;
   selectGroup: string;
   allSites: string;
@@ -282,6 +285,8 @@ const en: ControlRoomCopy = {
   operations: "Operations",
   liveMonitor: "Live Monitor",
   panicSos: "Panic / SOS",
+  logIncident: "Incident",
+  logIncidentHint: "Log an incident from the control room",
   allGroups: "All Groups",
   selectGroup: "Select group",
   allSites: "All sites",
@@ -535,6 +540,8 @@ const af: ControlRoomCopy = {
   operations: "Operasies",
   liveMonitor: "Lewendige monitor",
   panicSos: "Paniek / SOS",
+  logIncident: "Voorval",
+  logIncidentHint: "Teken 'n voorval vanuit die beheerkamer",
   allGroups: "Alle groepe",
   selectGroup: "Kies groep",
   allSites: "Alle terreine",

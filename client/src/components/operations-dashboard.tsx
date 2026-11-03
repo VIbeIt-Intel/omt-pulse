@@ -39,6 +39,7 @@ import {
   Route as RouteIcon,
   Signal,
   Paperclip,
+  ClipboardList,
   UserRound,
   Sun,
   Moon,
@@ -60,7 +61,7 @@ import { GeoMapPreview } from "@/components/incident-location-sheet";
 import { FleetBatteryMeter } from "@/components/fleet/fleet-battery-meter";
 import { FleetVehiclePhoto } from "@/components/fleet/fleet-vehicle-photo";
 import { ExpandablePhoto } from "@/components/photo-lightbox";
-import { AttachmentsDialog } from "@/components/incident-dialog";
+import { AttachmentsDialog, IncidentDialog } from "@/components/incident-dialog";
 import {
   Sheet,
   SheetContent,
@@ -584,6 +585,7 @@ export function OperationsDashboard({
   /** Team row → focus that person on the Live Incidents overview map. */
   const [mapFocusUserId, setMapFocusUserId] = useState<string | null>(null);
   const [showAllMembers, setShowAllMembers] = useState(false);
+  const [logIncidentOpen, setLogIncidentOpen] = useState(false);
   const [wakeUntil, setWakeUntil] = useState<Record<string, number>>({});
   const [ackedIds, setAckedIds] = useState<number[]>(() => {
     try {
@@ -1135,6 +1137,16 @@ export function OperationsDashboard({
           >
             {light ? <Moon className="h-3.5 w-3.5" /> : <Sun className="h-3.5 w-3.5" />}
             {light ? t.darkBackground : t.whiteBackground}
+          </button>
+          <button
+            type="button"
+            onClick={() => setLogIncidentOpen(true)}
+            title={t.logIncidentHint}
+            data-testid="ops-button-log-incident"
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-600 bg-slate-800/80 px-3 text-xs font-bold text-slate-100 hover:bg-slate-700"
+          >
+            <ClipboardList className="h-3.5 w-3.5" />
+            {t.logIncident}
           </button>
           <button
             type="button"
@@ -2037,6 +2049,8 @@ export function OperationsDashboard({
           ) : null}
         </SheetContent>
       </Sheet>
+
+      <IncidentDialog open={logIncidentOpen} onOpenChange={setLogIncidentOpen} />
 
       {attachmentsPreview !== null && (
         <AttachmentsDialog
