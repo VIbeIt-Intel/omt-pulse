@@ -788,3 +788,223 @@ function titleCaseRole(role: string): string {
 export function controlRoomCopy(lang: ControlRoomLang): ControlRoomCopy {
   return lang === "af" ? af : en;
 }
+
+export type IncidentFormCopy = {
+  reportNew: string;
+  edit: string;
+  addDetails: string;
+  reportSent: string;
+  liveIncident: string;
+  liveTimeline: string;
+  date: string;
+  time: string;
+  type: string;
+  selectType: string;
+  other: string;
+  otherSpecify: string;
+  specifyType: string;
+  specifyTypePlaceholder: string;
+  location: string;
+  mapRemoved: string;
+  geographicMap: string;
+  customMap: string;
+  useLocation: string;
+  pickOnMap: string;
+  changeOnMap: string;
+  gpsHint: string;
+  locationHint: string;
+  orChooseSite: string;
+  selectSite: string;
+  findingAddress: string;
+  selectMap: string;
+  mapLabel: string;
+  pinPlaced: string;
+  clickToPin: string;
+  selectMapFirst: string;
+  whatHappened: string;
+  whatHint: string;
+  whatPlaceholder: string;
+  recordVoice: string;
+  stop: string;
+  sceneEvidence: string;
+  optional: string;
+  sceneHint: string;
+  moreDetails: string;
+  moreHint: string;
+  moreEnrichHint: string;
+  upload: string;
+  photo: string;
+  voice: string;
+  saving: string;
+  stopRecording: string;
+  saved: string;
+  cancel: string;
+  report: string;
+  update: string;
+  saveDetails: string;
+  person: string;
+  vehicle: string;
+  sapsCase: string;
+  recordingHint: string;
+  pickLocationTitle: string;
+  locationOff: string;
+  gpsReady: string;
+  useMyLocation: string;
+  findingNearest: string;
+  tapToPick: string;
+  selected: string;
+  useThisLocation: string;
+  incidentWord: string;
+  successBody: string;
+  successNotify: string;
+  addMore: string;
+  done: string;
+};
+
+const incidentFormEn: IncidentFormCopy = {
+  reportNew: "Report New Incident",
+  edit: "Edit Incident",
+  addDetails: "Add more details",
+  reportSent: "Report sent",
+  liveIncident: "Live Incident",
+  liveTimeline: "Live Incident Timeline",
+  date: "Incident Date",
+  time: "Incident Time",
+  type: "Incident Type",
+  selectType: "Select incident type",
+  other: "Other",
+  otherSpecify: "Other (specify)",
+  specifyType: "Specify occurrence type",
+  specifyTypePlaceholder: "Describe the type of occurrence...",
+  location: "Location",
+  mapRemoved: "The site map this incident was pinned to has been removed. You can reassign a new location below.",
+  geographicMap: "Geographic Map",
+  customMap: "Custom Map",
+  useLocation: "Use current location",
+  pickOnMap: "Pick on map",
+  changeOnMap: "Change on map",
+  gpsHint: "Tap green for GPS, or red to adjust on the map.",
+  locationHint: "Use current location for a quick GPS fix, pick on the map to adjust, or choose a predefined site below.",
+  orChooseSite: "Or choose a predefined site",
+  selectSite: "Select predefined location",
+  findingAddress: "Finding nearest address…",
+  selectMap: "Select a map",
+  mapLabel: "Map:",
+  pinPlaced: "Pin placed at",
+  clickToPin: "Click the map above to place the incident pin.",
+  selectMapFirst: "Select a map above to place a pin.",
+  whatHappened: "What happened? (type or speak)",
+  whatHint: "Describe who, what, where, when…",
+  whatPlaceholder: "Type what you saw here…",
+  recordVoice: "Record voice note",
+  stop: "Stop",
+  sceneEvidence: "Scene evidence",
+  optional: "Optional",
+  sceneHint: "Snap a photo, record a voice note, or attach a file.",
+  moreDetails: "More details",
+  moreHint: "Tap to add Person, Vehicle or SAPS case details if relevant.",
+  moreEnrichHint: "Add person, vehicle, or SAPS case information for investigations.",
+  upload: "Upload",
+  photo: "Photo",
+  voice: "Voice",
+  saving: "Saving…",
+  stopRecording: "Stop recording",
+  saved: "Saved",
+  cancel: "Cancel",
+  report: "Report Incident",
+  update: "Update Incident",
+  saveDetails: "Save details",
+  person: "Person",
+  vehicle: "Vehicle",
+  sapsCase: "SAPS case",
+  recordingHint: "Recording… Tap Stop when done — your voice note will attach as scene evidence.",
+  pickLocationTitle: "Pick Location on Map",
+  locationOff: "Location is off or unavailable. Open settings to turn on Location for OMT Pulse, then return here to centre the map on your position.",
+  gpsReady: "GPS ready — your position is selected. Tap Use This Location or move the pin on the map.",
+  useMyLocation: "Use my location",
+  findingNearest: "Finding the nearest address...",
+  tapToPick: "Tap anywhere on the map to pick the incident location.",
+  selected: "Selected:",
+  useThisLocation: "Use This Location",
+  incidentWord: "Incident",
+  successBody: "is in the occurrence book.",
+  successNotify: "Supervisors and administrators have been notified. You can add person, vehicle, or SAPS details now, or later from the occurrence book.",
+  addMore: "Add more details",
+  done: "Done",
+};
+
+const incidentFormAf: IncidentFormCopy = {
+  reportNew: "Rapporteer nuwe voorval",
+  edit: "Wysig voorval",
+  addDetails: "Voeg meer besonderhede by",
+  reportSent: "Verslag gestuur",
+  liveIncident: "Lewendige voorval",
+  liveTimeline: "Lewendige voorval-tydlyn",
+  date: "Voorvaldatum",
+  time: "Voorvaltyd",
+  type: "Voorvaltipe",
+  selectType: "Kies voorvaltipe",
+  other: "Ander",
+  otherSpecify: "Ander (spesifiseer)",
+  specifyType: "Spesifiseer die tipe",
+  specifyTypePlaceholder: "Beskryf die tipe voorval...",
+  location: "Ligging",
+  mapRemoved: "Die terreinkaart waarop hierdie voorval gemerk is, is verwyder. Kies hieronder 'n nuwe ligging.",
+  geographicMap: "Kaart",
+  customMap: "Eie kaart",
+  useLocation: "Gebruik huidige ligging",
+  pickOnMap: "Kies op kaart",
+  changeOnMap: "Verander op kaart",
+  gpsHint: "Tik groen vir GPS, of rooi om op die kaart te skuif.",
+  locationHint: "Gebruik huidige ligging vir GPS, kies op die kaart, of kies 'n terrein hieronder.",
+  orChooseSite: "Of kies 'n bestaande terrein",
+  selectSite: "Kies terrein",
+  findingAddress: "Soek naaste adres…",
+  selectMap: "Kies 'n kaart",
+  mapLabel: "Kaart:",
+  pinPlaced: "Speld geplaas by",
+  clickToPin: "Tik die kaart om die voorval te merk.",
+  selectMapFirst: "Kies 'n kaart hierbo om 'n speld te plaas.",
+  whatHappened: "Wat het gebeur? (tik of praat)",
+  whatHint: "Beskryf wie, wat, waar, wanneer…",
+  whatPlaceholder: "Tik wat jy gesien het…",
+  recordVoice: "Neem stemnota",
+  stop: "Stop",
+  sceneEvidence: "Toneelbewyse",
+  optional: "Opsioneel",
+  sceneHint: "Neem 'n foto, neem 'n stemnota, of heg 'n lêer aan.",
+  moreDetails: "Meer besonderhede",
+  moreHint: "Tik om persoon, voertuig of SAPS-besonderhede by te voeg indien nodig.",
+  moreEnrichHint: "Voeg persoon-, voertuig- of SAPS-besonderhede by vir die ondersoek.",
+  upload: "Laai op",
+  photo: "Foto",
+  voice: "Stem",
+  saving: "Stoor…",
+  stopRecording: "Stop opname",
+  saved: "Gestoor",
+  cancel: "Kanselleer",
+  report: "Rapporteer voorval",
+  update: "Werk voorval by",
+  saveDetails: "Stoor besonderhede",
+  person: "Persoon",
+  vehicle: "Voertuig",
+  sapsCase: "SAPS-saak",
+  recordingHint: "Neem op… Tik Stop wanneer jy klaar is — jou stemnota heg as toneelbewys.",
+  pickLocationTitle: "Kies ligging op kaart",
+  locationOff: "Ligging is af of nie beskikbaar nie. Maak instellings oop om Ligging vir OMT Pulse aan te skakel, en kom dan terug om die kaart op jou posisie te sentreer.",
+  gpsReady: "GPS gereed — jou posisie is gekies. Tik Gebruik hierdie ligging of skuif die speld op die kaart.",
+  useMyLocation: "Gebruik my ligging",
+  findingNearest: "Soek die naaste adres...",
+  tapToPick: "Tik enige plek op die kaart om die voorval se ligging te kies.",
+  selected: "Gekies:",
+  useThisLocation: "Gebruik hierdie ligging",
+  incidentWord: "Voorval",
+  successBody: "is in die voorvalboek.",
+  successNotify: "Toesighouers en administrateurs is in kennis gestel. Jy kan nou persoon-, voertuig- of SAPS-besonderhede byvoeg, of later vanuit die voorvalboek.",
+  addMore: "Voeg meer besonderhede by",
+  done: "Klaar",
+};
+
+export function incidentFormCopy(lang: ControlRoomLang): IncidentFormCopy {
+  return lang === "af" ? incidentFormAf : incidentFormEn;
+}

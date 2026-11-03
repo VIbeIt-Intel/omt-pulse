@@ -7,9 +7,26 @@ type Props = {
   typeLabel?: string | null;
   onAddDetails: () => void;
   onDone: () => void;
+  title?: string;
+  incidentWord?: string;
+  body?: string;
+  notify?: string;
+  addMoreLabel?: string;
+  doneLabel?: string;
 };
 
-export function IncidentReportSuccess({ incident, typeLabel, onAddDetails, onDone }: Props) {
+export function IncidentReportSuccess({
+  incident,
+  typeLabel,
+  onAddDetails,
+  onDone,
+  title = "Report sent",
+  incidentWord = "Incident",
+  body = "is in the occurrence book.",
+  notify = "Supervisors and administrators have been notified. You can add person, vehicle, or SAPS details now, or later from the occurrence book.",
+  addMoreLabel = "Add more details",
+  doneLabel = "Done",
+}: Props) {
   const when = `${incident.incidentDate} · ${incident.incidentTime}`;
 
   return (
@@ -22,9 +39,9 @@ export function IncidentReportSuccess({ incident, typeLabel, onAddDetails, onDon
       </div>
 
       <div className="space-y-2 max-w-sm">
-        <h2 className="text-xl font-semibold tracking-tight">Report sent</h2>
+        <h2 className="text-xl font-semibold tracking-tight">{title}</h2>
         <p className="text-sm text-muted-foreground leading-relaxed">
-          Incident <span className="font-semibold text-foreground">#{incident.id}</span> is in the occurrence book.
+          {incidentWord} <span className="font-semibold text-foreground">#{incident.id}</span> {body}
           {typeLabel ? (
             <>
               {" "}
@@ -35,7 +52,7 @@ export function IncidentReportSuccess({ incident, typeLabel, onAddDetails, onDon
           {when}
         </p>
         <p className="text-sm text-muted-foreground">
-          Supervisors and administrators have been notified. You can add person, vehicle, or SAPS details now, or later from the occurrence book.
+          {notify}
         </p>
       </div>
 
@@ -48,7 +65,7 @@ export function IncidentReportSuccess({ incident, typeLabel, onAddDetails, onDon
           data-testid="button-add-more-details"
         >
           <FilePlus2 className="h-4 w-4" />
-          Add more details
+          {addMoreLabel}
         </Button>
         <Button
           type="button"
@@ -57,7 +74,7 @@ export function IncidentReportSuccess({ incident, typeLabel, onAddDetails, onDon
           onClick={onDone}
           data-testid="button-report-done"
         >
-          Done
+          {doneLabel}
         </Button>
       </div>
     </div>

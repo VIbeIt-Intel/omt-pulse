@@ -66,10 +66,12 @@ export function SapsCaseTile({
   open,
   onToggle,
   className,
+  label = "SAPS case",
 }: {
   open: boolean;
   onToggle: () => void;
   className?: string;
+  label?: string;
 }) {
   return (
     <button
@@ -81,7 +83,7 @@ export function SapsCaseTile({
       <span className={incidentOptionTileIconWrap(open)}>
         <Shield className={incidentOptionTileIconClass} />
       </span>
-      <span className={incidentOptionTileLabelClass}>SAPS case</span>
+      <span className={incidentOptionTileLabelClass}>{label}</span>
     </button>
   );
 }

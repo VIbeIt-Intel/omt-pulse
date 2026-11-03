@@ -916,6 +916,8 @@ type Props = {
   /** Render Person / Vehicle / SAPS tiles on one row. */
   threeColumnTiles?: boolean;
   thirdColumnTile?: ReactNode;
+  personLabel?: string;
+  vehicleLabel?: string;
 };
 
 export function IncidentInvolvementSection({
@@ -927,6 +929,8 @@ export function IncidentInvolvementSection({
   onVehicleInvolvedChange,
   threeColumnTiles = false,
   thirdColumnTile,
+  personLabel = "Person",
+  vehicleLabel = "Vehicle",
 }: Props) {
   const persons = parsePersons(customFields);
   const vehicles = parseVehicles(customFields);
@@ -1014,7 +1018,7 @@ export function IncidentInvolvementSection({
           <span className={incidentOptionTileIconWrap(personInvolved)}>
             <User className={incidentOptionTileIconClass} />
           </span>
-          <span className={incidentOptionTileLabelClass}>Person</span>
+          <span className={incidentOptionTileLabelClass}>{personLabel}</span>
         </button>
         <button
           type="button"
@@ -1034,7 +1038,7 @@ export function IncidentInvolvementSection({
           <span className={incidentOptionTileIconWrap(vehicleInvolved)}>
             <Car className={incidentOptionTileIconClass} />
           </span>
-          <span className={incidentOptionTileLabelClass}>Vehicle</span>
+          <span className={incidentOptionTileLabelClass}>{vehicleLabel}</span>
         </button>
         {thirdColumnTile}
       </div>

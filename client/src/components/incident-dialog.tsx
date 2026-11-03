@@ -5,6 +5,8 @@ import { z } from "zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useControlRoomLang } from "@/hooks/use-control-room-lang";
+import { incidentFormCopy } from "@/lib/control-room-i18n";
 import type { Category, Location, Incident, FormField, CustomMap, AttachmentWithUploader } from "@shared/schema";
 import { usesLocationAssignmentScope } from "@shared/user-roles";
 import { getEligibleManualTypes, getOtherManualTypes, getSeverityGroupKey, SEVERITY_GROUP_ORDER, SEVERITY_GROUP_LABELS } from "@/lib/incident-categories";
@@ -134,6 +136,8 @@ type LocationMode = "geographic" | "customMap";
 
 export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogProps) {
   const { toast } = useToast();
+  const { lang } = useControlRoomLang();
+  const formCopy = incidentFormCopy(lang);
   const { location: locationPermission } = usePermissionStatus();
   const [mapModalOpen, setMapModalOpen] = useState(false);
   const [pendingLatLng, setPendingLatLng] = useState<{ lat: number; lng: number } | null>(null);
@@ -1130,11 +1134,11 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
             className="text-xl font-semibold tracking-tight text-center flex items-center justify-center gap-2 flex-wrap"
             data-testid="text-dialog-title"
           >
-            {incident ? "Edit Incident" : enrichIncident ? "Add more details" : isSuccessView ? "Report sent" : "Report New Incident"}
+            {incident ? formCopy.edit : enrichIncident ? formCopy.addDetails : isSuccessView ? formCopy.reportSent : formCopy.reportNew}
             {activeIncident?.liveStartedAt && (
               <span className="inline-flex items-center gap-1 rounded-full bg-green-500/15 text-green-600 dark:text-green-400 border border-green-500/25 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide" data-testid="badge-live-incident">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-500 shrink-0" />
-                Live Incident
+                {formCopy.liveIncident}
               </span>
             )}
           </DialogTitle>
@@ -1147,6 +1151,12 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
             typeLabel={successTypeLabel}
             onAddDetails={handleAddMoreDetails}
             onDone={() => handleDialogOpenChange(false)}
+            title={formCopy.reportSent}
+            incidentWord={formCopy.incidentWord}
+            body={formCopy.successBody}
+            notify={formCopy.successNotify}
+            addMoreLabel={formCopy.addMore}
+            doneLabel={formCopy.done}
           />
         ) : (
         <Form {...form}>
@@ -1161,7 +1171,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                       <FormItem>
                         <FormLabel className="flex items-center gap-1.5">
                           <CalendarIcon className="h-3.5 w-3.5 text-muted-foreground" />
-                          Incident Date <span className="text-red-500 ml-0.5">*</span>
+                          {formCopy.date} <span className="text-red-500 ml-0.5">*</span>
                         </FormLabel>
                         <FormControl>
                           <Input type="date" {...field} data-testid="input-incident-date" />
@@ -1180,7 +1190,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                       <FormItem>
                         <FormLabel className="flex items-center gap-1.5">
                           <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-                          Incident Time <span className="text-red-500 ml-0.5">*</span>
+                          {formCopy.time} <span className="text-red-500 ml-0.5">*</span>
                         </FormLabel>
                         <FormControl>
                           <Input type="time" {...field} data-testid="input-incident-time" />
@@ -1202,7 +1212,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                     const hasOtherCategory = categories.some((c) => c.isOther);
                     return (
                       <FormItem>
-                        <FormLabel>Incident Type <span className="text-red-500 ml-0.5">*</span></FormLabel>
+                        <FormLabel>{formCopy.type} <span className="text-red-500 ml-0.5">*</span></FormLabel>
                         <Select
                           onValueChange={(val) => {
                             const numVal = parseInt(val);
@@ -1216,7 +1226,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                         >
                           <FormControl>
                             <SelectTrigger data-testid="select-category">
-                              <SelectValue placeholder="Select incident type" />
+                              <SelectValue placeholder={formCopy.selectType} />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
@@ -1253,7 +1263,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                                   ))}
                                   {(otherCats.length > 0 || !hasOtherCategory) && (
                                     <SelectGroup>
-                                      <SelectLabel className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Other</SelectLabel>
+                                      <SelectLabel className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{formCopy.other}</SelectLabel>
                                       {otherCats.map(renderItem)}
                                       {!hasOtherCategory && (
                                         <SelectItem value="-1">
@@ -1262,7 +1272,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                                               className="inline-block w-2.5 h-2.5 rounded-full"
                                               style={{ backgroundColor: "#6B7280" }}
                                             />
-                                            Other (specify)
+                                            {formCopy.otherSpecify}
                                           </span>
                                         </SelectItem>
                                       )}
@@ -1289,11 +1299,11 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>
-                            Specify occurrence type <span className="text-red-500">*</span>
+                            {formCopy.specifyType} <span className="text-red-500">*</span>
                           </FormLabel>
                           <FormControl>
                             <Input
-                              placeholder="Describe the type of occurrence..."
+                              placeholder={formCopy.specifyTypePlaceholder}
                               {...field}
                               value={field.value || ""}
                               data-testid="input-other-category-note"
@@ -1312,7 +1322,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
               <div className="space-y-3">
                 <FormLabel className="flex items-center gap-1.5">
                   <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
-                  Location <span className="text-red-500 ml-0.5">*</span>
+                  {formCopy.location} <span className="text-red-500 ml-0.5">*</span>
                 </FormLabel>
 
                 {incident?.customMapId == null &&
@@ -1323,8 +1333,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                     >
                       <MapPin className="h-3.5 w-3.5 flex-shrink-0" />
                       <span>
-                        The site map this incident was pinned to has been removed. You can reassign a
-                        new location below.
+                        {formCopy.mapRemoved}
                       </span>
                     </div>
                   )}
@@ -1340,7 +1349,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                       className="gap-1.5"
                     >
                       <Globe className="h-3.5 w-3.5" />
-                      Geographic Map
+                      {formCopy.geographicMap}
                     </Button>
                     <Button
                       type="button"
@@ -1351,7 +1360,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                       className="gap-1.5"
                     >
                       <Map className="h-3.5 w-3.5" />
-                      Custom Map
+                      {formCopy.customMap}
                     </Button>
                   </div>
                 )}
@@ -1372,7 +1381,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                         ) : (
                           <LocateFixed className="h-3.5 w-3.5" />
                         )}
-                        Use current location
+                        {formCopy.useLocation}
                       </Button>
                       <Button
                         type="button"
@@ -1383,21 +1392,21 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                         className="gap-1.5 bg-red-700/90 hover:bg-red-800 text-white border-0 h-10"
                       >
                         <MapPin className="h-3.5 w-3.5" />
-                        {form.watch("latitude") && form.watch("longitude") ? "Change on map" : "Pick on map"}
+                        {form.watch("latitude") && form.watch("longitude") ? formCopy.changeOnMap : formCopy.pickOnMap}
                       </Button>
                     </div>
 
                     <p className="text-xs text-muted-foreground">
                       {isNewQuickReport
-                        ? "Tap green for GPS, or red to adjust on the map."
-                        : "Use current location for a quick GPS fix, pick on the map to adjust, or choose a predefined site below."}
+                        ? formCopy.gpsHint
+                        : formCopy.locationHint}
                     </p>
 
                     {allowedLocations.length > 0 && (
                       isNewQuickReport ? (
                         <details className="group">
                           <summary className="text-xs text-muted-foreground cursor-pointer list-none flex items-center gap-1 hover:text-foreground">
-                            <span className="underline-offset-2 group-open:underline">Or choose a predefined site</span>
+                            <span className="underline-offset-2 group-open:underline">{formCopy.orChooseSite}</span>
                           </summary>
                           <div className="pt-2">
                             <FormFieldComponent
@@ -1411,7 +1420,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                                   >
                                     <FormControl>
                                       <SelectTrigger data-testid="select-location">
-                                        <SelectValue placeholder="Select predefined location" />
+                                        <SelectValue placeholder={formCopy.selectSite} />
                                       </SelectTrigger>
                                     </FormControl>
                                     <SelectContent>
@@ -1440,7 +1449,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                               >
                                 <FormControl>
                                   <SelectTrigger data-testid="select-location">
-                                    <SelectValue placeholder="Select predefined location" />
+                                    <SelectValue placeholder={formCopy.selectSite} />
                                   </SelectTrigger>
                                 </FormControl>
                                 <SelectContent>
@@ -1465,7 +1474,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                         </p>
                         {(pendingAddress || form.watch("locationName")) && (
                           <p className="text-xs text-muted-foreground" data-testid="text-picked-address">
-                            {mapLoading ? "Finding nearest address…" : (pendingAddress ?? form.watch("locationName"))}
+                            {mapLoading ? formCopy.findingAddress : (pendingAddress ?? form.watch("locationName"))}
                           </p>
                         )}
                       </div>
@@ -1482,7 +1491,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                           data-testid="text-incident-map-name"
                         >
                           <MapPin className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-                          <span className="text-muted-foreground">Map:</span>
+                          <span className="text-muted-foreground">{formCopy.mapLabel}</span>
                           <span className="font-medium">{activeCustomMap.name}</span>
                         </div>
                         {(() => {
@@ -1535,7 +1544,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                       value={selectedCustomMapId?.toString() || ""}
                     >
                       <SelectTrigger data-testid="select-custom-map">
-                        <SelectValue placeholder="Select a map" />
+                        <SelectValue placeholder={formCopy.selectMap} />
                       </SelectTrigger>
                       <SelectContent>
                         {customMaps.map((m) => (
@@ -1560,12 +1569,12 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                         />
                         {watchedCustomMapX != null && watchedCustomMapY != null ? (
                           <p className="text-xs text-muted-foreground" data-testid="text-custom-map-coords">
-                            Pin placed at ({Math.round(watchedCustomMapX)}, {Math.round(watchedCustomMapY)}) on{" "}
+                            {formCopy.pinPlaced} ({Math.round(watchedCustomMapX)}, {Math.round(watchedCustomMapY)}){" "}
                             <span className="font-medium">{activeCustomMap.name}</span>
                           </p>
                         ) : (
                           <p className="text-xs text-amber-600 dark:text-amber-400" data-testid="text-custom-map-no-pin">
-                            Click the map above to place the incident pin.
+                            {formCopy.clickToPin}
                           </p>
                         )}
                       </>
@@ -1573,7 +1582,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
 
                     {!activeCustomMap && (
                       <p className="text-xs text-muted-foreground">
-                        Select a map above to place a pin.
+                        {formCopy.selectMapFirst}
                       </p>
                     )}
                   </div>
@@ -1595,12 +1604,22 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                     onStartVoice={startRecording}
                     onStopVoice={stopRecording}
                     voiceBusy={uploadingAttachment && uploadSource === "voice"}
+                    title={formCopy.whatHappened}
+                    hint={formCopy.whatHint}
+                    placeholder={formCopy.whatPlaceholder}
+                    recordLabel={formCopy.recordVoice}
+                    stopLabel={formCopy.stop}
+                    recordingHint={formCopy.recordingHint}
                   />
                 )}
               />
             )}
 
-            <IncidentReportSceneEvidenceSection>
+            <IncidentReportSceneEvidenceSection
+              title={formCopy.sceneEvidence}
+              optionalLabel={formCopy.optional}
+              hint={formCopy.sceneHint}
+            >
               <input
                 ref={fileInputRef}
                 type="file"
@@ -1645,7 +1664,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                   >
                     <Square className="h-4 w-4 shrink-0" />
                     <span className="text-sm font-semibold">
-                      Stop recording ({Math.floor(recordingSeconds / 60)}:{String(recordingSeconds % 60).padStart(2, "0")})
+                      {formCopy.stopRecording} ({Math.floor(recordingSeconds / 60)}:{String(recordingSeconds % 60).padStart(2, "0")})
                     </span>
                   </button>
                 ) : (
@@ -1668,7 +1687,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                           <Upload className="h-4 w-4" />
                         )}
                       </span>
-                      <span className="text-[11px] font-medium leading-tight text-center">Upload</span>
+                      <span className="text-[11px] font-medium leading-tight text-center">{formCopy.upload}</span>
                     </button>
 
                     <button
@@ -1689,7 +1708,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                           <Camera className="h-4 w-4" />
                         )}
                       </span>
-                      <span className="text-[11px] font-medium leading-tight text-center">Photo</span>
+                      <span className="text-[11px] font-medium leading-tight text-center">{formCopy.photo}</span>
                     </button>
 
                     <button
@@ -1711,7 +1730,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                         )}
                       </span>
                       <span className="text-[11px] font-medium leading-tight text-center">
-                        {uploadingAttachment && uploadSource === "voice" ? "Saving…" : "Voice"}
+                        {uploadingAttachment && uploadSource === "voice" ? formCopy.saving : formCopy.voice}
                       </span>
                     </button>
                   </>
@@ -1726,7 +1745,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
 
               {existingAttachments.length > 0 && (
                 <div className="space-y-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Saved</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{formCopy.saved}</p>
                   <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
                     {existingAttachments.map((att) => (
                       <div
@@ -1801,7 +1820,13 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
               )}
             </IncidentReportSceneEvidenceSection>
 
-            <IncidentReportMoreDetailsSection enrichMode={Boolean(enrichIncident)}>
+            <IncidentReportMoreDetailsSection
+              enrichMode={Boolean(enrichIncident)}
+              title={formCopy.moreDetails}
+              optionalLabel={formCopy.optional}
+              hint={formCopy.moreHint}
+              enrichHint={formCopy.moreEnrichHint}
+            >
               <IncidentInvolvementSection
                 customFields={watchedCustomFields}
                 onChange={(next) => form.setValue("customFields", next, { shouldDirty: true })}
@@ -1809,10 +1834,13 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                 vehicleInvolved={vehicleInvolved}
                 onPersonInvolvedChange={setPersonInvolved}
                 onVehicleInvolvedChange={setVehicleInvolved}
+                personLabel={formCopy.person}
+                vehicleLabel={formCopy.vehicle}
                 threeColumnTiles={sapsCustomFields.length > 0}
                 thirdColumnTile={
                   sapsCustomFields.length > 0 ? (
                     <SapsCaseTile
+                      label={formCopy.sapsCase}
                       open={sapsSectionOpen}
                       onToggle={() => {
                         const next = !sapsSectionOpen;
@@ -1911,7 +1939,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
               <div className="rounded-md border border-border bg-muted/30 p-4 space-y-3" data-testid="section-live-timeline">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
-                  Live Incident Timeline
+                  {formCopy.liveTimeline}
                 </p>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -2109,7 +2137,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
         {!isSuccessView && (
         <div className="shrink-0 flex flex-col-reverse sm:flex-row sm:justify-end gap-2 px-6 py-4 border-t border-border/50 bg-muted/20">
           <Button type="button" variant="outline" onClick={() => handleDialogOpenChange(false)} data-testid="button-cancel-incident" className="h-11 sm:min-w-[6.5rem]">
-            Cancel
+            {formCopy.cancel}
           </Button>
           <Button
             type="submit"
@@ -2122,7 +2150,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
             )}
           >
             {mutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-            {incident ? "Update Incident" : enrichIncident ? "Save details" : "Report Incident"}
+            {incident ? formCopy.update : enrichIncident ? formCopy.saveDetails : formCopy.report}
           </Button>
         </div>
         )}
@@ -2135,7 +2163,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
         <Dialog open={mapModalOpen} onOpenChange={cancelMapModal}>
           <DialogContent className="max-w-4xl">
             <DialogHeader>
-              <DialogTitle>Pick Location on Map</DialogTitle>
+              <DialogTitle>{formCopy.pickLocationTitle}</DialogTitle>
             </DialogHeader>
             <div className="space-y-3">
               {locationProbe != null && !locationReady && (
@@ -2143,7 +2171,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                   <div className="flex items-start gap-2 rounded-lg border border-amber-500/50 bg-amber-500/15 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
                     <MapPin className="h-4 w-4 shrink-0 mt-0.5" />
                     <span>
-                      <strong>Location is off or unavailable.</strong> Open settings to turn on Location for OMT Pulse, then return here to centre the map on your position.
+                      {formCopy.locationOff}
                     </span>
                   </div>
                   <OpenLocationSettingsButton
@@ -2159,7 +2187,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                   data-testid="banner-incident-location-ready"
                 >
                   <MapPin className="h-4 w-4 shrink-0 mt-0.5" />
-                  <span>GPS ready — your position is selected. Tap <strong>Use This Location</strong> or move the pin on the map.</span>
+                  <span>{formCopy.gpsReady}</span>
                 </div>
               )}
               <div className="relative">
@@ -2172,7 +2200,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                   type="button"
                   onClick={() => void handleUseMyLocation()}
                   disabled={gpsLoading}
-                  title="Use my location"
+                  title={formCopy.useMyLocation}
                   data-testid="button-use-my-location"
                   className="absolute top-2 right-2 z-10 flex items-center justify-center w-9 h-9 rounded bg-white shadow-md border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                 >
@@ -2180,16 +2208,16 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                 </button>
               </div>
               <p className="text-xs text-muted-foreground">
-                {mapLoading ? "Finding the nearest address..." : pendingAddress || "Tap anywhere on the map to pick the incident location."}
+                {mapLoading ? formCopy.findingNearest : pendingAddress || formCopy.tapToPick}
               </p>
               {confirmCoords && (
                 <p className="text-xs text-muted-foreground" data-testid="text-picked-coordinates">
-                  Selected: {confirmCoords.lat.toFixed(5)}, {confirmCoords.lng.toFixed(5)}
+                  {formCopy.selected} {confirmCoords.lat.toFixed(5)}, {confirmCoords.lng.toFixed(5)}
                 </p>
               )}
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={cancelMapModal} data-testid="button-map-cancel">
-                  Cancel
+                  {formCopy.cancel}
                 </Button>
                 <Button
                   onClick={() => {
@@ -2206,7 +2234,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
                   disabled={!confirmCoords}
                   data-testid="button-map-confirm"
                 >
-                  Use This Location
+                  {formCopy.useThisLocation}
                 </Button>
               </div>
             </div>
