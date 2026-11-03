@@ -1143,7 +1143,7 @@ export function OperationsDashboard({
             onClick={() => setLogIncidentOpen(true)}
             title={t.logIncidentHint}
             data-testid="ops-button-log-incident"
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-600 bg-slate-800/80 px-3 text-xs font-bold text-slate-100 hover:bg-slate-700"
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-amber-600 px-3 text-xs font-bold text-white hover:bg-amber-500"
           >
             <ClipboardList className="h-3.5 w-3.5" />
             {t.logIncident}

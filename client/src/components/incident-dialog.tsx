@@ -156,6 +156,11 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
   const mapInstanceRef = useRef<google.maps.Map | null>(null);
   const pinRef = useRef<google.maps.Marker | null>(null);
   const geocoderRef = useRef<google.maps.Geocoder | null>(null);
+  const placesRef = useRef<google.maps.places.AutocompleteService | null>(null);
+  const addressDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [addressQuery, setAddressQuery] = useState("");
+  const [addressSuggestions, setAddressSuggestions] = useState<{ place_id: string; description: string }[]>([]);
+  const [addressSearching, setAddressSearching] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingStreamRef = useRef<MediaStream | null>(null);
@@ -308,6 +313,8 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
       const inv = readInvolvement(activeIncident.customFields as Record<string, string | number | null>);
       setPersonInvolved(inv.personInvolved);
       setVehicleInvolved(inv.vehicleInvolved);
+      setAddressQuery(activeIncident.locationName ?? "");
+      setAddressSuggestions([]);
       setSapsSectionOpen(hasSapsCaseData(sapsCustomFields, activeIncident.customFields as Record<string, string | number | null>));
       fetch(`/api/incidents/${activeIncident.id}/attachments`, { credentials: "include" })
         .then(r => r.json())
@@ -324,6 +331,8 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
       setPersonInvolved(false);
       setVehicleInvolved(false);
       setSapsSectionOpen(false);
+      setAddressQuery("");
+      setAddressSuggestions([]);
       form.reset({
         incidentDate: new Date().toISOString().split("T")[0],
         incidentTime: new Date().toTimeString().slice(0, 5),
@@ -375,29 +384,10 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
           setMapLoading(false);
           if (status === google.maps.GeocoderStatus.OK && results?.[0]) {
             const address = results[0].formatted_address;
-            const placeName =
-              results[0].address_components?.find((component) =>
-                component.types.some((type) =>
-                  [
-                    "street_address",
-                    "premise",
-                    "subpremise",
-                    "route",
-                    "point_of_interest",
-                    "establishment",
-                    "neighborhood",
-                    "sublocality",
-                    "locality",
-                    "administrative_area_level_3",
-                    "administrative_area_level_2",
-                  ].includes(type)
-                )
-              )?.long_name ||
-              results[0].address_components?.find((component) => !/^[A-Z0-9]{4}\+[A-Z0-9]{2}$/i.test(component.long_name))?.long_name ||
-              address;
             setPendingAddress(address);
-            form.setValue("locationName", placeName);
-            if (pinRef.current) pinRef.current.setTitle(placeName);
+            form.setValue("locationName", address);
+            setAddressQuery(address);
+            if (pinRef.current) pinRef.current.setTitle(address);
           } else {
             setPendingAddress(null);
           }
@@ -407,6 +397,80 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
       }
     })();
   };
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    loadGoogleMaps()
+      .then(() => {
+        if (cancelled) return;
+        if (!placesRef.current) {
+          placesRef.current = new google.maps.places.AutocompleteService();
+        }
+        if (!geocoderRef.current) {
+          geocoderRef.current = new google.maps.Geocoder();
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      if (addressDebounceRef.current) clearTimeout(addressDebounceRef.current);
+    };
+  }, [open]);
+
+  function searchStreetAddress(query: string) {
+    if (addressDebounceRef.current) clearTimeout(addressDebounceRef.current);
+    if (!query.trim() || !placesRef.current) {
+      setAddressSuggestions([]);
+      setAddressSearching(false);
+      return;
+    }
+    setAddressSearching(true);
+    addressDebounceRef.current = setTimeout(() => {
+      placesRef.current?.getPlacePredictions(
+        { input: query, componentRestrictions: { country: "za" }, types: ["address"] },
+        (results, status) => {
+          setAddressSearching(false);
+          if (status === google.maps.places.PlacesServiceStatus.OK && results) {
+            setAddressSuggestions(results.map((result) => ({ place_id: result.place_id, description: result.description })));
+          } else {
+            setAddressSuggestions([]);
+          }
+        },
+      );
+    }, 250);
+  }
+
+  function selectStreetAddress(suggestion: { place_id: string; description: string }) {
+    setAddressQuery(suggestion.description);
+    setAddressSuggestions([]);
+    form.setValue("locationId", null);
+    form.setValue("locationName", suggestion.description);
+    const apply = (lat: number, lng: number, address: string) => {
+      form.setValue("latitude", lat);
+      form.setValue("longitude", lng);
+      form.setValue("locationName", address);
+      setPendingAddress(address);
+      setPendingLatLng({ lat, lng });
+      setAddressQuery(address);
+    };
+    const geocode = () => {
+      geocoderRef.current?.geocode({ placeId: suggestion.place_id }, (results, status) => {
+        if (status === google.maps.GeocoderStatus.OK && results?.[0]) {
+          const loc = results[0].geometry.location;
+          apply(loc.lat(), loc.lng(), results[0].formatted_address || suggestion.description);
+        }
+      });
+    };
+    if (geocoderRef.current) {
+      geocode();
+      return;
+    }
+    void loadGoogleMaps().then(() => {
+      if (!geocoderRef.current) geocoderRef.current = new google.maps.Geocoder();
+      geocode();
+    }).catch(() => {});
+  }
 
   const locationReady = locationProbe != null && hasPanicCoordinates(locationProbe);
   const watchedLat = form.watch("latitude");
@@ -569,29 +633,10 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
           if (status === google.maps.GeocoderStatus.OK && results?.[0]) {
             const result = results[0];
             const address = result.formatted_address;
-            const placeName =
-              result.address_components?.find((component) =>
-                component.types.some((type) =>
-                  [
-                    "street_address",
-                    "premise",
-                    "subpremise",
-                    "route",
-                    "point_of_interest",
-                    "establishment",
-                    "neighborhood",
-                    "sublocality",
-                    "locality",
-                    "administrative_area_level_3",
-                    "administrative_area_level_2",
-                  ].includes(type)
-                )
-              )?.long_name ||
-              result.address_components?.find((component) => !/^[A-Z0-9]{4}\+[A-Z0-9]{2}$/i.test(component.long_name))?.long_name ||
-              address;
             setPendingAddress(address);
-            form.setValue("locationName", placeName);
-            if (pinRef.current) pinRef.current.setTitle(placeName);
+            form.setValue("locationName", address);
+            setAddressQuery(address);
+            if (pinRef.current) pinRef.current.setTitle(address);
           } else {
             setPendingAddress(null);
           }
@@ -771,7 +816,7 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
           || (data.latitude != null && data.longitude != null)
           || Boolean(data.locationName?.trim());
         if (!hasLocation) {
-          form.setError("locationId", { message: "Please set a location using GPS, the map, or a predefined site" });
+          form.setError("locationId", { message: formCopy.locationRequired });
           return;
         }
       }
@@ -1044,6 +1089,8 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
     if (loc) {
       form.setValue("locationId", loc.id);
       form.setValue("locationName", loc.name);
+      setAddressQuery(loc.name);
+      setAddressSuggestions([]);
       if (loc.latitude && loc.longitude) {
         form.setValue("latitude", loc.latitude);
         form.setValue("longitude", loc.longitude);
@@ -1080,6 +1127,8 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
     form.setValue("longitude", null);
     form.setValue("locationId", null);
     form.setValue("locationName", null);
+    setAddressQuery("");
+    setAddressSuggestions([]);
   };
 
   const handleCustomMapSelect = (mapIdStr: string) => {
@@ -1367,6 +1416,48 @@ export function IncidentDialog({ open, onOpenChange, incident }: IncidentDialogP
 
                 {locationMode === "geographic" && (
                   <>
+                    <div className="relative">
+                      <Input
+                        value={addressQuery}
+                        placeholder={formCopy.addressPlaceholder}
+                        onChange={(event) => {
+                          const next = event.target.value;
+                          setAddressQuery(next);
+                          form.setValue("locationName", next || null);
+                          form.setValue("locationId", null);
+                          form.setValue("latitude", null);
+                          form.setValue("longitude", null);
+                          setPendingAddress(null);
+                          setPendingLatLng(null);
+                          searchStreetAddress(next);
+                        }}
+                        data-testid="input-incident-address"
+                        autoComplete="off"
+                      />
+                      {addressSearching && (
+                        <Loader2 className="absolute right-2.5 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />
+                      )}
+                    </div>
+                    {addressSuggestions.length > 0 && (
+                      <ul className="rounded-md border bg-popover shadow-sm max-h-48 overflow-y-auto" data-testid="list-address-suggestions">
+                        {addressSuggestions.map((suggestion) => (
+                          <li key={suggestion.place_id}>
+                            <button
+                              type="button"
+                              className="w-full text-left px-3 py-2 text-sm hover:bg-muted"
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={() => selectStreetAddress(suggestion)}
+                            >
+                              {suggestion.description}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <p className="text-xs text-muted-foreground">{formCopy.addressHint}</p>
+                    {form.formState.errors.locationId?.message && (
+                      <p className="text-xs text-destructive">{form.formState.errors.locationId.message}</p>
+                    )}
                     <div className="grid grid-cols-2 gap-2">
                       <Button
                         type="button"

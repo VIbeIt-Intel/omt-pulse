@@ -813,6 +813,9 @@ export type IncidentFormCopy = {
   changeOnMap: string;
   gpsHint: string;
   locationHint: string;
+  addressPlaceholder: string;
+  addressHint: string;
+  locationRequired: string;
   orChooseSite: string;
   selectSite: string;
   findingAddress: string;
@@ -885,6 +888,9 @@ const incidentFormEn: IncidentFormCopy = {
   changeOnMap: "Change on map",
   gpsHint: "Tap green for GPS, or red to adjust on the map.",
   locationHint: "Use current location for a quick GPS fix, pick on the map to adjust, or choose a predefined site below.",
+  addressPlaceholder: "Type a street address or house number…",
+  addressHint: "Google suggests the street and house number as you type.",
+  locationRequired: "Choose a street address, use GPS, or pick on the map.",
   orChooseSite: "Or choose a predefined site",
   selectSite: "Select predefined location",
   findingAddress: "Finding nearest address…",
@@ -957,6 +963,9 @@ const incidentFormAf: IncidentFormCopy = {
   changeOnMap: "Verander op kaart",
   gpsHint: "Tik groen vir GPS, of rooi om op die kaart te skuif.",
   locationHint: "Gebruik huidige ligging vir GPS, kies op die kaart, of kies 'n terrein hieronder.",
+  addressPlaceholder: "Tik 'n straatadres of huisnommer…",
+  addressHint: "Google stel die straatnaam en huisnommer voor terwyl jy tik.",
+  locationRequired: "Kies 'n straatadres, gebruik GPS, of merk op die kaart.",
   orChooseSite: "Of kies 'n bestaande terrein",
   selectSite: "Kies terrein",
   findingAddress: "Soek naaste adres…",
