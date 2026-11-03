@@ -768,6 +768,8 @@ type Props = {
   darkTheme?: boolean;
   /** Fit viewport to incidents + team + fleet + sites (dashboard overview). */
   preferActivityFit?: boolean;
+  /** See everyone: frame every team pin, including people away from the farm. */
+  showAllMembers?: boolean;
 };
 
 export type LiveIncidentsMapType = "roadmap" | "hybrid";
@@ -811,6 +813,7 @@ export function LiveIncidentsMap({
   initialZoom = SA_MAP_DEFAULT.zoom,
   darkTheme = false,
   preferActivityFit = false,
+  showAllMembers = false,
 }: Props) {
   const { t, lang } = useControlRoomLang();
   const m = liveMonitorCopy(lang);
@@ -1699,7 +1702,7 @@ export function LiveIncidentsMap({
       userViewportLockedRef.current = false;
     }
 
-    if (focusedPremiseId) return;
+    if (focusedPremiseId && !showAllMembers) return;
 
     const host = mapRef.current;
     const width = host?.clientWidth ?? 0;
@@ -1738,8 +1741,10 @@ export function LiveIncidentsMap({
     };
 
     // Members and vehicles around the group stay in the frame with the sites.
+    // See everyone pulls in people who are on the system, or anyone with a pin, even far from the farm.
     for (const user of onlineUsers) {
-      if (!nearGroup(user.lat, user.lng)) continue;
+      const onSystem = user.dutyStatus === "available" || user.dutyStatus === "responding";
+      if (!showAllMembers && !onSystem && !nearGroup(user.lat, user.lng)) continue;
       bounds.extend({ lat: user.lat, lng: user.lng });
       count += 1;
       parts.push(`u:${user.id}:${user.lat.toFixed(1)},${user.lng.toFixed(1)}`);
@@ -1818,7 +1823,7 @@ export function LiveIncidentsMap({
       return;
     }
 
-    const signature = `group:${parts.sort().join("|")}`;
+    const signature = `${showAllMembers ? "all" : "group"}:${parts.sort().join("|")}`;
     if (signature === lastFitSignatureRef.current) return;
     lastFitSignatureRef.current = signature;
     fittedAtSizeRef.current = sizeKey;
@@ -1852,6 +1857,7 @@ export function LiveIncidentsMap({
     apply();
   }, [
     preferActivityFit,
+    showAllMembers,
     mapsReady,
     incidents,
     onlineUsers,

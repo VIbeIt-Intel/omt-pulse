@@ -631,6 +631,7 @@ export function ControlRoomMap({
           mapType={mapType}
           onMapTypeChange={onMapTypeChange}
           preferActivityFit={compact || !showSidePanels}
+          showAllMembers={showAllMembers}
         />
       </div>
 
