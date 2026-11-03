@@ -278,13 +278,38 @@ function teamStatusLabel(status: ReturnType<typeof teamMemberStatus>, copy: Cont
   return copy.notOnline;
 }
 
+function teamSeenMs(user: DashboardUserSummary): number {
+  if (!user.lastSeenAt) return 0;
+  const seen = new Date(user.lastSeenAt).getTime();
+  return Number.isFinite(seen) ? seen : 0;
+}
+
+/** On the system first, then whoever was on it most recently. */
+function compareTeamPresence(a: DashboardUserSummary, b: DashboardUserSummary): number {
+  const rank = (user: DashboardUserSummary) => {
+    const status = teamMemberStatus(user);
+    if (status === "responding") return 0;
+    if (status === "available") return 1;
+    return 2;
+  };
+  const byStatus = rank(a) - rank(b);
+  if (byStatus !== 0) return byStatus;
+  return teamSeenMs(b) - teamSeenMs(a);
+}
+
+function teamLastOnSystemLabel(user: DashboardUserSummary, copy: ControlRoomCopy): string | null {
+  const seen = user.lastSeenAt ? new Date(user.lastSeenAt) : null;
+  const when = formatTeamLastActivity(seen && Number.isFinite(seen.getTime()) ? seen : null, copy);
+  if (when === copy.noActivity) return null;
+  return when;
+}
+
 /** Chip line: on the system right now, or not online with when they last were. */
 function teamPresenceLine(user: DashboardUserSummary, copy: ControlRoomCopy): string {
   const status = teamMemberStatus(user);
   if (status === "responding" || status === "available") return teamStatusLabel(status, copy);
-  const seen = user.lastSeenAt ? new Date(user.lastSeenAt) : null;
-  const when = formatTeamLastActivity(seen && Number.isFinite(seen.getTime()) ? seen : null, copy);
-  if (when === copy.noActivity) return copy.notOnline;
+  const when = teamLastOnSystemLabel(user, copy);
+  if (!when) return copy.notOnline;
   return `${copy.notOnline} · ${when}`;
 }
 
@@ -794,6 +819,12 @@ export function OperationsDashboard({
         : filterTeamForFacility(commandScopedTeam, locationAssignments, selectedLocationId),
     [preview, commandScopedTeam, locationAssignments, selectedLocationId],
   );
+  const siteTeamOrdered = useMemo(
+    () => [...siteTeam].sort(compareTeamPresence),
+    // Re-sort as the clock crosses the "on the system" window.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [siteTeam, Math.floor(clock.getTime() / 30_000)],
+  );
   const siteFleet = useMemo(
     () =>
       preview
@@ -1216,7 +1247,7 @@ export function OperationsDashboard({
             ref={teamStripRef}
             onScroll={updateTeamStripScroll}
             className={cn(
-              "ops-scroll flex min-w-0 flex-1 gap-2 overflow-x-auto py-2.5",
+              "ops-scroll flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto py-1.5",
               teamCanScrollLeft ? "pl-11" : "pl-3",
               teamCanScrollRight ? "pr-11" : "pr-3",
             )}
@@ -1236,19 +1267,20 @@ export function OperationsDashboard({
                 aria-pressed={showAllMembers}
                 data-testid="ops-team-view-all"
                 className={cn(
-                  "sticky left-0 z-10 flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold",
+                  "sticky left-0 z-10 flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold",
                   showAllMembers
                     ? "border-emerald-400 bg-emerald-600 text-white"
                     : "border-slate-600 bg-slate-900 text-slate-100",
                 )}
               >
-                <Users className="h-3.5 w-3.5" />
+                <Users className="h-3 w-3" />
                 {t.viewAllMembers}
               </button>
-              {siteTeam.map((user) => {
+              {siteTeamOrdered.map((user) => {
                 const status = teamMemberStatus(user);
                 const onSystem = status === "available" || status === "responding";
-                const presenceLabel = teamPresenceLine(user, t);
+                const presenceLabel = teamStatusLabel(status, t);
+                const lastOnSystem = onSystem ? null : teamLastOnSystemLabel(user, t);
                 const initials = `${user.firstName?.charAt(0) ?? ""}${user.lastName?.charAt(0) ?? ""}`.toUpperCase() || "?";
                 const showWake = canWakeMember(user, clock.getTime()) && (wakeUntil[user.id] ?? 0) <= clock.getTime();
                 const fullName = `${user.firstName} ${user.lastName}`.trim();
@@ -1266,13 +1298,13 @@ export function OperationsDashboard({
                       type="button"
                       onClick={() => focusTeamMemberOnMap(user)}
                       data-testid={`ops-team-row-${user.id}`}
-                      title={presenceLabel}
-                      className="flex items-center gap-2 rounded-full py-1.5 pl-2 pr-1 text-left hover:bg-slate-800"
+                      title={teamPresenceLine(user, t)}
+                      className="flex items-center gap-1.5 rounded-full py-1 pl-1.5 pr-2 text-left hover:bg-slate-800"
                     >
                       <span className="relative shrink-0">
                         <span
                           className={cn(
-                            "flex h-9 w-9 items-center justify-center rounded-full text-[13px] font-bold tracking-tight text-white",
+                            "flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-bold tracking-tight text-white",
                             status === "responding"
                               ? "bg-orange-600"
                               : status === "available"
@@ -1283,7 +1315,7 @@ export function OperationsDashboard({
                           {initials}
                         </span>
                         <span
-                          className="absolute -bottom-0.5 -right-0.5 flex h-2.5 w-2.5"
+                          className="absolute -bottom-0.5 -right-0.5 flex h-2 w-2"
                           aria-hidden
                         >
                           {status === "available" && (
@@ -1291,7 +1323,7 @@ export function OperationsDashboard({
                           )}
                           <span
                             className={cn(
-                              "relative inline-flex h-2.5 w-2.5 rounded-full ring-2 ring-white",
+                              "relative inline-flex h-2 w-2 rounded-full ring-2 ring-white",
                               status === "responding"
                                 ? "bg-orange-400"
                                 : status === "available"
@@ -1301,13 +1333,13 @@ export function OperationsDashboard({
                           />
                         </span>
                       </span>
-                      <span className="min-w-0 pr-1">
-                        <span className="block max-w-[150px] truncate text-xs font-semibold text-slate-100">
+                      <span className="min-w-0">
+                        <span className="block max-w-[8.5rem] truncate text-[11px] font-semibold leading-tight text-slate-100">
                           {user.firstName} {user.lastName}
                         </span>
                         <span
                           className={cn(
-                            "block max-w-[11rem] truncate text-[10px] font-semibold",
+                            "block max-w-[8.5rem] truncate text-[10px] font-semibold leading-tight",
                             status === "responding"
                               ? "text-orange-300"
                               : onSystem
@@ -1317,6 +1349,11 @@ export function OperationsDashboard({
                         >
                           {presenceLabel}
                         </span>
+                        {lastOnSystem ? (
+                          <span className="block max-w-[8.5rem] truncate text-[9px] font-medium leading-tight text-slate-500">
+                            {lastOnSystem}
+                          </span>
+                        ) : null}
                       </span>
                     </button>
                     {showWake && (
@@ -1326,9 +1363,9 @@ export function OperationsDashboard({
                         aria-label={t.wakePerson(fullName)}
                         title={t.wakePerson(fullName)}
                         data-testid={`ops-team-wake-${user.id}`}
-                        className="mr-1.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-800 hover:bg-amber-200"
+                        className="mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-800 hover:bg-amber-200"
                       >
-                        <BellRing className="h-3.5 w-3.5" />
+                        <BellRing className="h-3 w-3" />
                       </button>
                     )}
                   </div>
